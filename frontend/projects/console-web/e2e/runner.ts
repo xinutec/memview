@@ -1,6 +1,6 @@
 // A REAL console runner, isolated, for the two-device sync test.
 //
-// ⚠ **Isolation is asserted, not configured.** A console started with an
+// Isolation is asserted, not configured. A console started with an
 // incomplete environment does not fail — it falls back to `$HOME/.claude`, lists
 // the real conversations and spawns the real CLI over them. That happened while
 // this was being written. So the environment is built from nothing rather than
@@ -115,7 +115,7 @@ export async function start(port: number, staticDir: string): Promise<Runner> {
   }
   const root = fixture();
   const child = spawn(binary(), [], {
-    // ⚠ Nothing inherited. The parent's HOME and CLAUDE_PROJECTS_DIR are the
+    // Nothing inherited. The parent's HOME and CLAUDE_PROJECTS_DIR are the
     // real ones, and inheriting either is what pointed a runner at the live
     // corpus.
     env: {
@@ -152,7 +152,7 @@ export async function start(port: number, staticDir: string): Promise<Runner> {
     if (child.exitCode !== null) throw new Error(`runner exited ${child.exitCode}:\n${log}`);
     const seen = await conversationsSeen(`${base}/api/past`);
     if (seen) {
-      // ⚠ **The isolation check, and it is an EQUALITY.** A runner that fell
+      // The isolation check, and it is an EQUALITY. A runner that fell
       // back to the real corpus answers every route perfectly well, with
       // somebody else's conversations in it — and one that can see nothing at
       // all would satisfy any check phrased as "no strangers". Both are refused
@@ -180,7 +180,7 @@ export async function start(port: number, staticDir: string): Promise<Runner> {
  * The conversations the runner can see, or `undefined` while it is not
  * answering yet.
  *
- * ⚠ **`/api/past`, and NOT the `gists` on `/api/state`.** The first version of
+ * `/api/past`, and NOT the `gists` on `/api/state`. The first version of
  * this asked for gists — which are written by an ASYNCHRONOUS sweep, so at the
  * moment this polls they are almost always none, and "no stranger among them"
  * came back true for a runner pointed straight at the real corpus. Ablated by

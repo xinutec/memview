@@ -32,7 +32,7 @@
 //! trade rather than a gain. So every command is put through both and lands in
 //! one of four cells, and the two disagreeing cells are printed with examples.
 //!
-//! ⚠ **tree-sitter cannot fail, and that is the thing to watch.** It is built for
+//! tree-sitter cannot fail, and that is the thing to watch. It is built for
 //! editors, where a half-read file must still be highlighted: a construct it
 //! cannot read becomes an ERROR or MISSING node and parsing carries on. Our
 //! grammar refuses instead — an unclosed quote is an error, not a half-parse that

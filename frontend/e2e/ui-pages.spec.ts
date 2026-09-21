@@ -253,12 +253,12 @@ const DOING = {
       n: 1,
       verdict: 'ok',
       episode: 0,
-      // ⚠ The empty case, which is 12.6% of the live artefact and was the first
+      // The empty case, which is 12.6% of the live artefact and was the first
       // row Pippijn happened to tap. It must SAY so on the row.
       effects: 0,
     },
     {
-      // ⚠ A turn that was a TOOL call, not a shell command — the timeline
+      // A turn that was a TOOL call, not a shell command — the timeline
       // takes those, and `delegate` is the longest of the new kinds.
       at: 29_412_560,
       agent: 'memview',
@@ -283,7 +283,7 @@ const DOING = {
       effects: 7,
     },
   ],
-  // ⚠ **The real strip, at the real magnitude.** This was four short chips and
+  // The real strip, at the real magnitude. This was four short chips and
   // a five-digit total, and the page draws eight — one of them `version
   // control`, fifteen characters and the only two-word kind there is — beside a
   // six-digit count. A fixture narrower than reality cannot fail the width
@@ -301,7 +301,7 @@ const DOING = {
   ],
   total: 769_652,
   failed: 19_517,
-  // ⚠ **An episode commonly begins above the page and ends below it**, which is
+  // An episode commonly begins above the page and ends below it, which is
   // why one here holds more moments than the page shows and starts before its
   // first row. A fixture whose episodes fitted inside the page would never
   // exercise the case the header exists to state.
@@ -317,7 +317,7 @@ const EFFECTS = {
     {
       at: 29_412_600,
       agent: 'health',
-      // ⚠ The wire's letter, not the word. This fixture said `'wrote'` and the
+      // The wire's letter, not the word. This fixture said `'wrote'` and the
       // test passed, because `models.ts` had been written from the same wrong
       // assumption — a fixture agreeing with the code is not evidence about the
       // wire. dev-lint's wire-mirror check is what caught it.
@@ -325,8 +325,8 @@ const EFFECTS = {
       path: 'health/packages/health-sync-backend/src/decode/quantiseLegCost.ts',
       command:
         "sed -i '' 's/Math.round/Math.floor/' packages/health-sync-backend/src/decode/quantiseLegCost.ts",
-      // ⚠ **And `reached` repeated that mistake, four lines under the warning
-      // about it.** It said `true`; the wire sends `'a'`. Both are truthy, so
+      // And `reached` repeated that mistake, four lines under the warning
+      // about it. It said `true`; the wire sends `'a'`. Both are truthy, so
       // the template's `!e.reached` could never fire in production — while this
       // fixture's `false` below made the assertion at the bottom of this file
       // pass regardless. A green check over a marker that had never once drawn
@@ -340,7 +340,7 @@ const EFFECTS = {
       agent: 'health',
       did: 's',
       pattern: 'packages/**/*.spec.ts',
-      // ⚠ A command after `&&` runs only if what preceded it worked, and an
+      // A command after `&&` runs only if what preceded it worked, and an
       // unrecorded outcome cannot say whether it did — so `Verdict::admits`
       // refuses it and this is the row that must draw *may not have run*.
       command: 'pnpm run verify && grep -rn quantiseLegCost packages/**/*.spec.ts',
@@ -359,7 +359,7 @@ const EFFECTS = {
       certain: true,
     },
     {
-      // ⚠ **The subject the text LOCATED but did not name** (memview#1458).
+      // The subject the text LOCATED but did not name (memview#1458).
       // It carries a `path` like a resolved row does, which is the whole trap:
       // drawn bare it would read as a `wc` of the directory itself.
       at: 29_412_600,
@@ -382,7 +382,7 @@ const EFFECTS = {
 /**
  * The corpus survey, at the real widths that stress this page.
  *
- * ⚠ **Taken from the real artefact and then de-identified**, not invented. The
+ * Taken from the real artefact and then de-identified, not invented. The
  * three things that can break the layout are all length: a shape label that is a
  * prose phrase ("run a program on another machine (no shell)"), an absolute path
  * deeper than a phone is wide, and an opaque subject that is a whole command
@@ -452,8 +452,8 @@ const READING = {
     { name: 'k3s', n: 1215 },
     { name: 'verified_cli', n: 336 },
   ],
-  // ⚠ **Both of the lists that can never be worked, because the page draws
-  // them beside the worklist and the distinction is the whole point.** Without
+  // Both of the lists that can never be worked, because the page draws
+  // them beside the worklist and the distinction is the whole point. Without
   // them in the fixture the blocks never render and a change to either passes
   // unseen — which is how this test read for as long as `local` was absent.
   local_names: [
@@ -572,17 +572,17 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.locator('.moments > li').first().waitFor();
   // A session that was never named renders 36 characters of id.
   await page.getByText('6f7c2f11-0000-4000-8000-000000000002').waitFor();
-  // ⚠ What opening a row would show, BEFORE it is opened — including the 0.
+  // What opening a row would show, BEFORE it is opened — including the 0.
   // Both branches on screen at once, or the empty one is never rendered here.
   await page.getByText('936 effects').waitFor();
-  // ⚠ **Two of them now, and that is the assertion.** A delegated turn has no
+  // Two of them now, and that is the assertion. A delegated turn has no
   // file effects either, so the empty branch has two shapes reaching it — and a
   // `.first()` here would pass just as well if one of them stopped rendering.
   await expect(page.getByText('no evidence')).toHaveCount(2);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 
-  // ⚠ **Wait for the ANSWER, not for the row.** What this page draws while the
+  // Wait for the ANSWER, not for the row. What this page draws while the
   // effects request is in flight is a progress bar, and asserting layout on it
   // would be measuring the pending state — the whole of memview#735 was two
   // checks that settled on their own race.
@@ -590,13 +590,13 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.locator('.evidence .effects > li').first().waitFor();
   await page.getByText('quantiseLegCost.ts', { exact: false }).first().waitFor();
 
-  // ⚠ The WORD, never the wire's letter. The artefact renames every variant to
+  // The WORD, never the wire's letter. The artefact renames every variant to
   // one character because it is read over a VPN; a page drawing that straight
   // said `w` and `s` at the reader.
   await page.getByText('wrote', { exact: true }).waitFor();
   await page.getByText('searched', { exact: true }).waitFor();
 
-  // ⚠ **A locus is drawn as a PHRASE, and the negative is the real assertion**
+  // A locus is drawn as a PHRASE, and the negative is the real assertion
   // (memview#1458). Its `path` is the directory the subject sits in, so a
   // template printing it bare would say `/…/health/src` on a row whose command
   // is a `wc` — indistinguishable from having read the directory itself, and
@@ -607,7 +607,7 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
 
   // The two things a summary would drop, and the reason this panel exists.
   //
-  // ⚠ **Exactly one of the three, and the count is the point.** This assertion
+  // Exactly one of the three, and the count is the point. This assertion
   // passed for years over a fixture holding a boolean the wire never sends, so
   // it proved the template works given a boolean rather than given an effect
   // (memview#1459). Counting pins which rows draw it, so a condition that fires
@@ -706,7 +706,7 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-// ⚠ The failure states, which no other case reaches: every test above mocks a
+// The failure states, which no other case reaches: every test above mocks a
 // backend that answers. They are the states most likely to be wrong on a phone,
 // because they are the ones nobody looks at — and a sentence plus a button is
 // exactly the shape that wraps badly at 412px.
@@ -751,7 +751,7 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
   await mockApi(page);
   await page.goto('/reader');
 
-  // ⚠ **Both headline figures, or the page is advertising.** 99.2% understood
+  // Both headline figures, or the page is advertising. 99.2% understood
   // is the claim and 4.6% unnameable is its ceiling; a render that dropped the
   // second would still look correct in isolation, which is exactly why the
   // assertion names both.
@@ -774,7 +774,7 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
   // The subtraction the page makes rather than the server: 63,642 unconfirmable.
   await page.getByText('63,642', { exact: false }).waitFor();
 
-  // ⚠ **Tables are drawn as their own kind, and the page SAYS so.** The figures
+  // Tables are drawn as their own kind, and the page SAYS so. The figures
   // alone would read as a subset of the file counts above them, which is the
   // one misreading this whole separation exists to prevent.
   await page.getByText('tables, not files').waitFor();
@@ -782,8 +782,8 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
   await page.getByText('151').first().waitFor();
   await page.getByText('location_equipment_option').waitFor();
 
-  // ⚠ **The two lists that are NOT the worklist, and the page has to say which
-  // is which.** A call to a script's own function and a call named by a
+  // The two lists that are NOT the worklist, and the page has to say which
+  // is which. A call to a script's own function and a call named by a
   // variable are both counted and neither can ever be taught, so drawing them
   // as unread commands would put work on the queue that nobody can do.
   await page.getByText('a function the calling script declares itself', { exact: false }).waitFor();
@@ -799,7 +799,7 @@ test('reader — an unmined artefact says so, rather than drawing zeroes @ phone
   page,
 }, testInfo) => {
   await mockApi(page);
-  // ⚠ **404, not an empty body.** "Nothing has been mined" and "the survey found
+  // 404, not an empty body. "Nothing has been mined" and "the survey found
   // nothing" are different claims, and a page that rendered 0.0% for the first
   // would be stating the second.
   await page.route('**/api/reading', (r) => r.fulfill({ status: 404, body: '' }));

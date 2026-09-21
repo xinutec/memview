@@ -10,20 +10,20 @@
 //! would resolve, against the share that *Reading is not running* keeps as
 //! holes whatever the world says.
 //!
-//! ⚠ **It reads the same population as `--example opaque-shapes`, on purpose.**
+//! It reads the same population as `--example opaque-shapes`, on purpose.
 //! Same corpus, same [`Reading`] accounts, so the two are comparable line for
 //! line and any disagreement is the *classification* and nothing else. That
 //! census cuts by shape — is a locus known, is a language — which is the right
 //! question for the static artefact and cannot answer this one: two subjects of
 //! identical shape fall on opposite sides of the line here.
 //!
-//! ⚠ **The headline is a CEILING, never a hit rate.** An environment name is
+//! The headline is a CEILING, never a hit rate. An environment name is
 //! answerable in the sense that a lookup runs no command and returns something;
 //! whether this session's environment actually holds it is a fact about a
 //! moment, and a prediction is stamped and discarded rather than cached. So
 //! this counts what may be asked, which bounds above what may be answered.
 //!
-//! ⚠ **And it says nothing about whether a resolved prediction is CORRECT.**
+//! And it says nothing about whether a resolved prediction is CORRECT.
 //! That is the oracle's job — `reader/tests/suite/oracle.rs` shims `PATH` and can
 //! falsify the dynamic claim `S = L ∩ Files(D, t)` exactly, because it is
 //! stronger than the static `S ⊆ L` it already checks. A ceiling and a
@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     // uses, distinct, and the first witnesses — kept in the map's own order so
     // the instrument does not choose what it shows.
     //
-    // ⚠ **But that order is a SORT here, and memview#1445 is what it cost.**
+    // But that order is a SORT here, and memview#1445 is what it cost.
     // `by_word` is ordered, so `$(` sorts ahead of `$A` and the first four
     // witnesses of a 416-shape bucket were all substitutions — which read as a
     // finding about the bucket and was an artefact of the alphabet. So the
@@ -115,13 +115,13 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // ⚠ **The SCRIPT's answer to the same population, and not a second guess**
+    // The SCRIPT's answer to the same population, and not a second guess
     // (memview#1450). Everything above classifies a WORD by its spelling; this
     // classifies it by whether the script it appeared in binds the name — a
     // question the word cannot carry, decided at extraction where the bindings
     // are in hand, and summing to the same total.
     //
-    // ⚠ **"the script binds it" means bound and DISTRUSTED.** A binding the
+    // "the script binds it" means bound and DISTRUSTED. A binding the
     // reader trusts is substituted before a word is ever refused, so it cannot
     // appear here; every name reaching this point is either distrusted or
     // absent. That is what makes "no scope here binds it" the ceiling — the only
@@ -138,7 +138,7 @@ fn main() -> anyhow::Result<()> {
         };
         println!("  {:<46} {uses:>6}  {share:>5.1}%", why.label());
     }
-    // ⚠ Two accounts of one population that can disagree are two populations.
+    // Two accounts of one population that can disagree are two populations.
     // `every_refusal_has_exactly_one_reason` holds this in the tests; printed
     // here so a corpus run cannot drift from it quietly either.
     if by_reason != words {
@@ -169,8 +169,8 @@ fn main() -> anyhow::Result<()> {
         "unnamed words leaked from the census"
     );
 
-    // ⚠ **#1447's question, and only the CROSS of the two classifications can
-    // answer it.** The answerable row is decided by SPELLING: an all-uppercase
+    // #1447's question, and only the CROSS of the two classifications can
+    // answer it. The answerable row is decided by SPELLING: an all-uppercase
     // name is an environment variable by convention. The convention is not a
     // binding — this corpus assigns `A="adb -s host"` and `GEB="ssh …"` as
     // script variables — so some share of that row is the script's own variable,
@@ -195,7 +195,7 @@ fn main() -> anyhow::Result<()> {
     // The population the resolver is judged against: everything the text could
     // not resolve to a path, minus what was never a path subject.
     let population = words + bounded + located - excluded;
-    // ⚠ **MEASURED, where this used to be a convention** (memview#1447, #1450).
+    // MEASURED, where this used to be a convention (memview#1447, #1450).
     // The all-uppercase spelling cannot tell an exported variable from a
     // script's own `A="adb -s host"`, which this corpus writes constantly, so
     // this row was a ceiling that erred toward flattering the resolver and said
@@ -206,7 +206,7 @@ fn main() -> anyhow::Result<()> {
     let looked_up = answerable.saturating_sub(flattered);
     let exact = bounded + looked_up;
     println!("\nof the {population} subjects the text could not name:");
-    // ⚠ **"at most" still, and the word is still load-bearing.** The readdir
+    // "at most" still, and the word is still load-bearing. The readdir
     // half is exact — a bounded glob resolves to `S = L ∩ Files(D, t)` and
     // nothing else. What remains of the environment half is every name no scope
     // in its own script binds, which is the most a lookup could ever answer and
@@ -229,8 +229,8 @@ fn main() -> anyhow::Result<()> {
     );
     println!("\n⚠ {excluded} were never a path subject and are excluded above.");
 
-    // ⚠ **The one number `docs/concept-model.md` names as able to reopen a
-    // decision.** *Reading is not running* says `$(…)` stays a hole, revisable
+    // The one number `docs/concept-model.md` names as able to reopen a
+    // decision. *Reading is not running* says `$(…)` stays a hole, revisable
     // "only by a measurement, not by convenience", and the measurement it names
     // is substitution holes DOMINATING real predictions. So it is printed as
     // its own line, against the hole side rather than the whole population,

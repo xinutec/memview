@@ -44,7 +44,7 @@ describe('opening', () => {
 
 describe('scrolling away', () => {
   it('stops following as soon as they leave the end', () => {
-    // ⚠ **A line, not a screen.** This wanted 300px of travel before it would
+    // A line, not a screen. This wanted 300px of travel before it would
     // believe somebody had scrolled up, so a small scroll ended with the page
     // pulling itself back down — reported as "I need to scroll up quite a lot,
     // then it won't do that". Scrolling up by a line stops a terminal, a
@@ -82,7 +82,7 @@ describe('scrolling away', () => {
 
 describe('growth under a reader who has not moved', () => {
   it('does not count as leaving', () => {
-    // ⚠ **The reason the answer is remembered rather than measured.** Growth
+    // The reason the answer is remembered rather than measured. Growth
     // moves the end without firing a scroll event, so nothing here is asked
     // again — a fresh measurement would watch the end run away and call it
     // leaving. It was measured that way once: captures at 122, 125, 129, 130 and
@@ -96,7 +96,7 @@ describe('growth under a reader who has not moved', () => {
   });
 
   it('ignores the scroll event a write of its own causes', () => {
-    // ⚠ The view is set to the bottom and the browser queues a scroll event;
+    // The view is set to the bottom and the browser queues a scroll event;
     // more of the answer renders before that event is delivered; the handler
     // then runs against the NEW height and the OLD position, and one or two
     // deltas' worth of gap looks like a reader walking away. It bit two runs in
@@ -111,7 +111,7 @@ describe('growth under a reader who has not moved', () => {
 
 describe('while the reader holds the screen', () => {
   it('stops writing scroll positions', () => {
-    // ⚠ A session writing its answer pulled the view to the end on every delta,
+    // A session writing its answer pulled the view to the end on every delta,
     // including while the reader had a thumb on the glass reading the sentence
     // as it arrived — they had not scrolled, so they were still at the end, and
     // being at the end is exactly what moved the view.
@@ -141,7 +141,7 @@ describe('while the reader holds the screen', () => {
   });
 
   it('leaves a drag where it ended rather than snapping back', () => {
-    // ⚠ Letting go of a drag is the end of a scroll, not the end of a pause.
+    // Letting go of a drag is the end of a scroll, not the end of a pause.
     // The first version caught up on release whatever had happened during the
     // hold, which put the view straight back at the end.
     const following = opened(10000);
@@ -182,7 +182,7 @@ describe('while the reader holds the screen', () => {
 });
 
 describe('following · a gap the reader did not make', () => {
-  // ⚠ **Replays the measurement that caused it**, from the console's own client
+  // Replays the measurement that caused it, from the console's own client
   // telemetry: `top=15730 height=16360 view=609`, a gap of 21 —
   // five pixels past SLACK — while `entries` climbed 163 → 164 → 165 and the
   // view never moved again. The transcript was live and read as a dead session.
@@ -228,7 +228,7 @@ describe('following · a gap the reader did not make', () => {
 });
 
 describe('following · a thumb on the glass, measured 2026-08-10', () => {
-  // ⚠ **Replays the phone measurement that settled #116**, made by holding the
+  // Replays the phone measurement that settled #116, made by holding the
   // transcript still — deliberately not scrolling — while a session wrote into
   // it. The trace: `gap=19 top=110310 was=110316 wrote=110328 held=true
   // height=110938 view=609`. Six pixels of movement, eighteen from the last
@@ -274,7 +274,7 @@ describe('following · a thumb on the glass, measured 2026-08-10', () => {
   });
 
   it('catches up though the session wrote all through the hold', () => {
-    // ⚠ The end ran 1,879px away from a reader who never moved. Judged against
+    // The end ran 1,879px away from a reader who never moved. Judged against
     // the transcript they let go of, every hold longer than a moment is a drag —
     // the contamination this file's header describes, on the one path that had
     // not been fixed for it.
@@ -313,7 +313,7 @@ describe('following · a thumb on the glass, measured 2026-08-10', () => {
 });
 
 describe('following · the composer takes the window, measured 2026-08-11', () => {
-  // ⚠ **Replays the phone measurement in memview#731.** Typing a message grows
+  // Replays the phone measurement in memview#731. Typing a message grows
   // the composer, which takes height from the transcript. The trace:
   //
   //     gap=44 top=138573 was=138617 wrote=138617 held=false view=562 height=139179
@@ -385,7 +385,7 @@ describe('following · the composer takes the window, measured 2026-08-11', () =
 });
 
 describe('following · saying something', () => {
-  // ⚠ **Measured on the phone (#731).** Sending re-lays the page out
+  // Measured on the phone (#731). Sending re-lays the page out
   // as the composer collapses, and the browser moves the position while it does:
   //
   //     unpinned gap=92 top=145066 was=145157 wrote=145157 held=false view=534
@@ -406,7 +406,7 @@ describe('following · saying something', () => {
   });
 
   it('does not take a reader who had scrolled away back to the end', () => {
-    // ⚠ **Sending PROTECTS following, it does not restore it** — Pippijn's rule.
+    // Sending PROTECTS following, it does not restore it — Pippijn's rule.
     // A message sent from halfway up the morning arrives at the end whether or
     // not it is watched, and being yanked there is what #82 exists to prevent.
     const following = new Following();

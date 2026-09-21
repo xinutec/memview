@@ -5,14 +5,14 @@
 //! "which tables did this read, and which did it change" — a different kind of
 //! subject, kept in a different field for that reason.
 //!
-//! ⚠ **It contributes NOTHING to any file count, and that is a measurement rather
-//! than a simplification.** Across the corpus's SQL-client commands there is not one
+//! It contributes NOTHING to any file count, and that is a measurement rather
+//! than a simplification. Across the corpus's SQL-client commands there is not one
 //! `INTO OUTFILE`, not one `LOAD DATA INFILE`, and not one sqlite
 //! `.read`/`.output`/`.dump`. The forms are read anyway — a rule apiece against a
 //! silent write — but a table is not a file.
 //!
-//! ⚠ **The direction of a table is decided by the VERB, never by the clause it sits
-//! in.** `SELECT … FROM x` reads `x`; `DELETE FROM x` changes it. A reader that
+//! The direction of a table is decided by the VERB, never by the clause it sits
+//! in. `SELECT … FROM x` reads `x`; `DELETE FROM x` changes it. A reader that
 //! mapped `FROM` to "read" would report every deletion in the corpus as a read of
 //! the table it emptied.
 
@@ -94,7 +94,7 @@ enum Direction {
     /// `DELETE`, `TRUNCATE`, `DROP`, `ALTER`, `CREATE` — the table named by the
     /// statement's own clause is changed.
     ///
-    /// ⚠ A `JOIN` under one of these is still a READ: `DELETE a FROM a JOIN b`
+    /// A `JOIN` under one of these is still a READ: `DELETE a FROM a JOIN b`
     /// empties `a` and only consults `b`.
     Changes,
     /// `INSERT`, `REPLACE`, `UPDATE` — the target is changed and anything it
@@ -105,12 +105,12 @@ enum Direction {
 
 /// What a verb does, and what to call it in a tally.
 ///
-/// ⚠ **Takes the `Rule`, not its name.** This first took a `&str` and matched
+/// Takes the `Rule`, not its name. This first took a `&str` and matched
 /// literals — which meant formatting the rule with `{:?}`, lowercasing it, and
 /// matching the result: a closed set laundered through a string and back, where
 /// a renamed rule becomes a silent `other` instead of a compile error. The
 /// grammar already gives us the enum.
-// ⚠ NOT named `verb`: the grammar has a `verb` rule, so a binding by that name
+// NOT named `verb`: the grammar has a `verb` rule, so a binding by that name
 // shadows `Rule::verb` and rustc denies it outright.
 fn direction(kind: Rule) -> (Direction, &'static str) {
     match kind {
@@ -172,7 +172,7 @@ fn targeted(pair: Pair<Rule>, out: &mut Queried) {
                 took_target = true;
                 tables(part, out, true);
             }
-            // ⚠ Everything after the target is CONSULTED, not changed:
+            // Everything after the target is CONSULTED, not changed:
             // `UPDATE a SET x = (SELECT y FROM b)` writes `a` and reads `b`.
             Rule::from | Rule::table_list => tables(part, out, false),
             Rule::join => tables(part, out, false),
@@ -200,7 +200,7 @@ fn statement(pair: Pair<Rule>, out: &mut Queried) {
 
     for clause in inner {
         match clause.as_rule() {
-            // ⚠ `FROM` is a read under `SELECT` and a WRITE under `DELETE`. This
+            // `FROM` is a read under `SELECT` and a WRITE under `DELETE`. This
             // one line is the reason `Direction` exists.
             Rule::from => {
                 let writes = how == Direction::Changes;
@@ -270,7 +270,7 @@ fn dot_command(pair: Pair<Rule>, out: &mut Queried) {
 
 /// Strip the quoting a name or literal was written with.
 ///
-/// ⚠ **Doubled quotes are an ESCAPE inside a SQL string** — `'it''s'` is one
+/// Doubled quotes are an ESCAPE inside a SQL string — `'it''s'` is one
 /// value, not two — so they collapse rather than terminating.
 fn qualified_name(text: &str) -> String {
     text.split('.').map(unquote).collect::<Vec<_>>().join(".")

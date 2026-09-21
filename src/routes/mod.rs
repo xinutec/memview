@@ -18,8 +18,8 @@ use crate::state::AppState;
 
 /// How long a static response may be reused without asking again.
 ///
-/// ⚠ **`index.html` MUST REVALIDATE, and shipping it without saying so cost a
-/// deploy nobody could see.** With no `Cache-Control` at all a client falls back
+/// `index.html` MUST REVALIDATE, and shipping it without saying so cost a
+/// deploy nobody could see. With no `Cache-Control` at all a client falls back
 /// to *heuristic* caching from `Last-Modified`, and is free to keep the document
 /// for as long as it likes without ever asking again. MEASURED on a sibling
 /// app: an Android WebView fetched the whole API — `/api/me`,
@@ -27,7 +27,7 @@ use crate::state::AppState;
 /// The phone ran a build several deploys old for hours while the server had been
 /// serving the new one all along.
 ///
-/// ⚠ The symptom is "the change did not deploy", which sends you to CI, the
+/// The symptom is "the change did not deploy", which sends you to CI, the
 /// image tag, the rollout and the manifests — all of which are correct. What
 /// identified it was a rendering detail that could only come from old code.
 ///
@@ -53,8 +53,8 @@ fn cache_control_for(res: &Response<ServeFileSystemResponseBody>) -> Option<Head
 /// Serve the app's page for a client-side ROUTE, and 404 anything that plainly
 /// named a file.
 ///
-/// ⚠ **A missing FILE must not be handed the page, and the mistake is
-/// invisible**: the wrong answer is a `200`, so a browser that asked for a
+/// A missing FILE must not be handed the page, and the mistake is
+/// invisible: the wrong answer is a `200`, so a browser that asked for a
 /// woff2 and got HTML renders broken icons and reports nothing anywhere.
 /// Measured — `/media/nope.woff2` answered `200 text/html` (#1478).
 ///
@@ -115,7 +115,7 @@ pub fn router(state: AppState) -> Router {
             let index = index.clone();
             async move { spa(&index, uri.path()) }
         }));
-        // ⚠ The layer wraps only the STATIC service: an API response is neither
+        // The layer wraps only the STATIC service: an API response is neither
         // a document to revalidate nor an immutable asset, and giving JSON a
         // year-long `immutable` would be the same bug pointing the other way.
         let serve = ServiceBuilder::new()

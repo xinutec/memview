@@ -87,7 +87,7 @@ export class SessionView implements OnDestroy {
    * Not `session().busy`: that rides the five-second poll, so it lagged the
    * work it described and missed anything shorter than the interval.
    *
-   * ⚠ **Except before the stream has spoken at all**, where the poll is the only
+   * Except before the stream has spoken at all, where the poll is the only
    * one of the two that knows anything — see [[Held.spoken]]. A status is
    * announced when it changes, so a client that reconnects to a session already
    * working hears nothing about it until it stops; falling back for that window
@@ -101,7 +101,7 @@ export class SessionView implements OnDestroy {
    * Whether to draw the activity strip — which is not the same question as
    * [doing], and was answered with it until this was split out.
    *
-   * ⚠ **Nothing is arriving while a question stands, whatever the status says.**
+   * Nothing is arriving while a question stands, whatever the status says.
    * A status is announced when it CHANGES and asking is not a change, so a
    * session blocked on `can_use_tool` still reads `requesting`: it is not
    * requesting anything, it is waiting for you, and the card saying so is on the
@@ -115,8 +115,8 @@ export class SessionView implements OnDestroy {
   /**
    * Now, to the second, but only while something is still happening.
    *
-   * ⚠ **A clock that ticks for ever is a change-detection pass every second, for
-   * ever** — on a phone, over a transcript of two thousand entries, for a page
+   * A clock that ticks for ever is a change-detection pass every second, for
+   * ever — on a phone, over a transcript of two thousand entries, for a page
    * that is usually sitting still. So the interval is started by the first thing
    * that starts running and stopped by the last one that finishes; see the
    * effect in the constructor.
@@ -156,7 +156,7 @@ export class SessionView implements OnDestroy {
   /**
    * How many background tasks the harness has told us about and not closed.
    *
-   * ⚠ **The runner's count, not one kept here.** This page used to derive it
+   * The runner's count, not one kept here. This page used to derive it
    * from its own event stream, which meant two answers to one question the
    * moment the list started showing it: the page's reset whenever the transcript
    * was re-seeded, the runner's did not, so a reload inside a session showed `0`
@@ -180,7 +180,7 @@ export class SessionView implements OnDestroy {
    * The last poll's verdict on whether the Mac is reachable — its own signal,
    * cleared by the next poll that succeeds.
    *
-   * ⚠ Separate from [trouble] because the two have opposite lifetimes. A failed
+   * Separate from [trouble] because the two have opposite lifetimes. A failed
    * action is news that stays true until it is retried; a failed poll is a
    * snapshot that the next poll five seconds later supersedes. Sharing one
    * signal meant a single missed poll — a phone freezing, a socket dropped mid
@@ -221,7 +221,7 @@ export class SessionView implements OnDestroy {
   /**
    * How many pages have been fetched, only ever read to re-arm the observer.
    *
-   * ⚠ **An IntersectionObserver reports transitions, not states.** After a page
+   * An IntersectionObserver reports transitions, not states. After a page
    * lands, the mark is normally pushed out of view and the next crossing is a
    * real one — but when the page that arrived is shorter than the screen the
    * mark never leaves, no transition happens, and the reader is left at the top
@@ -287,7 +287,7 @@ export class SessionView implements OnDestroy {
       const tick = setInterval(() => this.now.set(Date.now()), 1000);
       onCleanup(() => clearInterval(tick));
     });
-    // ⚠ **The end of the transcript moves when the transcript does not.** The
+    // The end of the transcript moves when the transcript does not. The
     // composer sits above it as a fixed-size row, so every line typed takes a
     // line off the scrolling region: nobody scrolled, nothing arrived, and the
     // message being answered slides out of sight — measured at 65px for four
@@ -298,7 +298,7 @@ export class SessionView implements OnDestroy {
     // happen at once — the keyboard, a rotation, a growing composer — and asks
     // the same question each time: is the reader still meant to be at the end.
     //
-    // ⚠ In an effect, not inline: `viewChild` is a signal that holds nothing
+    // In an effect, not inline: `viewChild` is a signal that holds nothing
     // during construction, so wiring this up in the constructor body observes
     // `undefined` and silently never fires. That is what the first version of
     // this did, and the measurement below still read 65px with it in place.
@@ -348,7 +348,7 @@ export class SessionView implements OnDestroy {
    *  summary rather than the stream, because they are totals and a client that
    *  reconnected mid-session has not seen every event that built them. */
   private refresh(): void {
-    // ⚠ **Tied to this view's life, and it has to be.** A request does not stop
+    // Tied to this view's life, and it has to be. A request does not stop
     // when the page that made it does: leaving a session clears the open
     // conversation in `ngOnDestroy`, and a poll already in flight then lands and
     // puts it straight back — so the LIST was titled with the session just left,
@@ -379,7 +379,7 @@ export class SessionView implements OnDestroy {
   /**
    * Keep the newest in view.
    *
-   * ⚠ A transcript opened at the top, which for a resumed conversation means
+   * A transcript opened at the top, which for a resumed conversation means
    * opening a hundred turns behind the present. The newest message is what
    * anybody came for, and scrolling to it by hand every time is the sort of
    * thing that reads as the page being broken.
@@ -412,7 +412,7 @@ export class SessionView implements OnDestroy {
   /**
    * Whether the reader is at the newest message.
    *
-   * ⚠ **Remembered as they scroll, not measured when it is wanted.** It was
+   * Remembered as they scroll, not measured when it is wanted. It was
    * measured, and the moment it is wanted includes the soft keyboard opening:
    * by then the transcript has already lost half its height, so the arithmetic
    * says "several hundred pixels from the bottom" about a reader who has not
@@ -424,8 +424,8 @@ export class SessionView implements OnDestroy {
   /**
    * Whether the reader has ever scrolled this transcript by hand.
    *
-   * ⚠ **Until they have, no scroll event may unpin, whatever the position
-   * says.** Measured on the phone, three times in a row: `follow` scrolled to the
+   * Until they have, no scroll event may unpin, whatever the position
+   * says. Measured on the phone, three times in a row: `follow` scrolled to the
    * bottom of what had arrived and wrote 1941; the browser then moved it to
    * 1960 on its own — scroll anchoring, holding the visible content still while
    * the rest of the seed rendered around it. Eighteen or nineteen pixels, every
@@ -451,7 +451,7 @@ export class SessionView implements OnDestroy {
    * `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
    * following rather than as having been left behind.
    *
-   * ⚠ **A scroll this component performed is not a reader's decision**, and
+   * A scroll this component performed is not a reader's decision, and
    * failing to tell the two apart is what made following stop at random. The
    * sequence, measured: `follow` sets `scrollTop` to the bottom and the browser
    * queues a scroll event; more of the answer renders before that event is
@@ -468,7 +468,7 @@ export class SessionView implements OnDestroy {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
     if (box.scrollTop === this.wrote) return;
-    // ⚠ **A scroll with no gesture behind it is not a decision.** See [handled]
+    // A scroll with no gesture behind it is not a decision. See [handled]
     // for the measurement. The new position is taken as ours rather than
     // ignored: the browser moved it, we did not object, and treating it as
     // outstanding would make the next event look like a reader's move too.
@@ -479,7 +479,7 @@ export class SessionView implements OnDestroy {
     const NEAR = 120;
     const gap = box.scrollHeight - box.scrollTop - box.clientHeight;
     const followed = this.pinned;
-    // ⚠ **Leaving and returning are not the same measurement**, and asking the
+    // Leaving and returning are not the same measurement, and asking the
     // distance-from-the-end question for both is what kept unpinning a reader
     // who had not moved. While following, the transcript is growing underneath
     // them: `scrollHeight` rises before the scroll event is handled, so the gap
@@ -488,7 +488,7 @@ export class SessionView implements OnDestroy {
     // So leaving is measured against where we last put them, which growth cannot
     // move; returning is measured against the end, because the end is what they
     // are coming back to and it has moved since they left.
-    // ⚠ **And the two directions do not share a threshold.** `NEAR` is the slack
+    // And the two directions do not share a threshold. `NEAR` is the slack
     // for arriving at the end, a few lines. Leaving it needs a bigger number:
     // measured on the device, the browser's own adjustments reach 122px, so a
     // 120px slack calls a motionless reader "gone" on the strength of movement
@@ -497,7 +497,7 @@ export class SessionView implements OnDestroy {
     // `AWAY` costs nothing real and puts the decision well clear of the noise.
     const AWAY = 300;
     this.pinned = followed ? this.wrote < 0 || this.wrote - box.scrollTop < AWAY : gap < NEAR;
-    // ⚠ **The moment following stops, with the numbers that stopped it.**
+    // The moment following stops, with the numbers that stopped it.
     // Reported from a phone as a conversation opening part-way up and coming
     // right on a second open — which the layout harness cannot reproduce,
     // because it hands the seed over in one chunk and the real runner streams
@@ -510,7 +510,7 @@ export class SessionView implements OnDestroy {
         `gap=${Math.round(gap)} top=${Math.round(box.scrollTop)} wrote=${Math.round(this.wrote)} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.settled}`,
       );
     }
-    // ⚠ **Kept, not cleared.** It was cleared here, which threw away the only
+    // Kept, not cleared. It was cleared here, which threw away the only
     // record of where this component had put the view — and the rule above needs
     // it for every scroll after the first, not just the one that follows a write.
     // Cleared, `wrote` was -1 for exactly the events that mattered: every capture
@@ -610,7 +610,7 @@ export class SessionView implements OnDestroy {
   /**
    * The transcript as it is drawn: runs of tool calls folded into one row.
    *
-   * ⚠ **Grouped here rather than in [[fold]]**, so a result still finds its call
+   * Grouped here rather than in [[fold]], so a result still finds its call
    * by id in a flat list. See `transcript.ts`.
    */
   readonly blocks = computed<Block[]>(() => blocks(this.entries()));
@@ -624,7 +624,7 @@ export class SessionView implements OnDestroy {
    * Whether a run is open. Closed until somebody opens it, and that is the whole
    * rule.
    *
-   * ⚠ **Two versions of "open it for them" were tried and both were worse.**
+   * Two versions of "open it for them" were tried and both were worse.
    * The first read `running > 0` live, which flickers: a session making one call
    * at a time turns a pair into a run and opens it, its result empties the run
    * and folds it, the next call opens it again — a dozen sequential calls, a
@@ -777,7 +777,7 @@ export class SessionView implements OnDestroy {
   /**
    * Whether this card is answering in words rather than by choice.
    *
-   * ⚠ **The two are alternatives, not companions.** The CLI's result builder
+   * The two are alternatives, not companions. The CLI's result builder
    * tests `response` before `answers` and reports only the one it finds, so
    * words sent alongside a set of taps would throw the taps away without saying
    * so. Typing therefore takes the card over: the options go quiet, and clearing

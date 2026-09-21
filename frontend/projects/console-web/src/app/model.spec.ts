@@ -25,7 +25,7 @@ describe('model names', () => {
   });
 
   it('returns an unrecognised id untouched rather than half-parsing it', () => {
-    // ⚠ New models arrive between releases. A header confidently naming one it
+    // New models arrive between releases. A header confidently naming one it
     // has never seen is worse than one showing the id — the id is at least true,
     // and it is the thing worth reporting when the name looks wrong.
     expect(modelName('claude-newthing-9')).toBe('claude-newthing-9');

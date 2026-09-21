@@ -28,7 +28,7 @@ fn matching_is_exact_on_pre_period_opens() {
     assert!(matching.unmatched.is_empty());
 }
 
-/// ⚠ A treated memory with no control at its level is REPORTED, not dropped. A
+/// A treated memory with no control at its level is REPORTED, not dropped. A
 /// silent drop would shrink the sample toward whichever memories happened to
 /// match, which is a second selection on top of the one being controlled for.
 #[test]
@@ -63,7 +63,7 @@ fn matching_is_deterministic() {
     assert_eq!(names(&once)[0], ("t_a".to_string(), "c_y".to_string()));
 }
 
-/// ⚠ **The trap the control group exists for.** Demotion was assigned because
+/// The trap the control group exists for. Demotion was assigned because
 /// opens were low, so treated memories regress upward or fall on their own. Here
 /// both arms fall by exactly 2: a naive before/after on the treated alone would
 /// report a fall of 2 and read as proof the index line works. The DiD is 0.
@@ -158,7 +158,7 @@ fn the_null_band_is_the_same_on_every_machine_and_every_run() {
 fn the_sampled_band_is_the_exact_permutation_distribution() {
     // 7 pairs is 2^7 = 128 possible sign patterns, so the true null can be
     // enumerated and the sampler checked against it rather than against itself.
-    // ⚠ This is also why two seeds return the SAME band at this size: 4000 draws
+    // This is also why two seeds return the SAME band at this size: 4000 draws
     // saturate 128 outcomes. Seed-independence here is the sampler working, and
     // a test asserting the seeds disagree would have been asserting a defect.
     let diffs = vec![-3.0, 1.0, 0.0, 2.0, -1.0, 4.0, -2.0];
@@ -336,11 +336,11 @@ fn a_flat_series_has_no_slope_and_nothing_to_correct() {
     assert!(out.effect.abs() < 1e-9, "and nothing to subtract: {out:?}");
 }
 
-/// ⚠ **The case the raw estimator gets wrong.** The arms are already diverging
+/// The case the raw estimator gets wrong. The arms are already diverging
 /// before `t` and NOTHING happens at `t`. A before/after reads the drift as an
 /// effect; this must read it as the drift.
 ///
-/// ⚠ The arms are EQUAL in the bin before `t`, and they have to be: matching is
+/// The arms are EQUAL in the bin before `t`, and they have to be: matching is
 /// exact on opens in that bin, so a fixture whose arms are far apart there
 /// produces no pairs at all and tests nothing. That is a property of the design
 /// under test, not a convenience — a real treated arm was selected FROM the
@@ -372,7 +372,7 @@ fn a_pure_pre_existing_trend_is_not_an_effect() {
     );
 }
 
-/// ⚠ **The case it must still catch.** A real step at `t`, on top of the drift.
+/// The case it must still catch. A real step at `t`, on top of the drift.
 #[test]
 fn a_step_on_top_of_a_trend_is_recovered_at_its_true_size() {
     let opens = |name: &str, lo: i64, _hi: i64| -> u32 {
@@ -425,7 +425,7 @@ fn one_usable_lead_cannot_give_a_slope_and_says_so() {
     );
 }
 
-/// ⚠ **The anchor bin is zero by construction and must not be fitted through.**
+/// The anchor bin is zero by construction and must not be fitted through.
 /// Matching is exact on opens in the bin before `t`, so its gap is a definition.
 /// Including it drags the slope toward flat — which is the parallel-trends
 /// assumption creeping back in through the fit.

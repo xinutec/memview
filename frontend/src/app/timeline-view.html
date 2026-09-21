@@ -22,7 +22,7 @@
     files, and the command that did it.
   </p>
 
-  <!-- ⚠ Of the WHOLE filtered range, not of the rows below. Two hundred rows
+  <!-- Of the WHOLE filtered range, not of the rows below. Two hundred rows
        cannot show the shape of two hundred thousand, so the server counts every
        kind that matched. Reading this off the visible page would quietly
        describe a sample and call it the answer. -->
@@ -52,7 +52,7 @@
       @let m = row.m;
       <li [class.open]="isOpen(m)">
         @if (row.episode; as episode) {
-          <!-- ⚠ **What was asked is not here and cannot be**: no prompt text
+          <!-- What was asked is not here and cannot be: no prompt text
                reaches the artefact. What an episode can say is that a stretch
                was one instruction, how long it ran and how much it held — which
                is the thing the timeline could not show at all. -->
@@ -67,7 +67,7 @@
              is the row itself rather than a control competing with them. -->
         <button class="row" (click)="open(m)" [attr.aria-expanded]="isOpen(m)">
           <span class="when">{{ when(m.at) }}</span>
-          <!-- ⚠ **Plain text, and it used to be a filter.** A click target
+          <!-- Plain text, and it used to be a filter. A click target
                nested in the row is a hit-target hazard, not a convenience: the
                row wraps at 412px, so its CENTRE lands on the session name — a
                thumb aiming at the row filtered by agent instead of opening the
@@ -106,7 +106,7 @@
           <div class="evidence">
             <!-- Narrowing lives here rather than in the row above.
 
-                 ⚠ **Labelled by FACET, not by value.** These read `only health`
+                 Labelled by FACET, not by value. These read `only health`
                  and `only health` when a session is named after the repository
                  it works in — which is the common case, not a contrived one —
                  so two buttons that do different things were indistinguishable.
@@ -145,7 +145,7 @@
                            words rather than folded into the verdict, because the
                            two are different claims.
 
-                           ⚠ `certain`, NOT `reached`: the server joins the
+                           `certain`, NOT `reached`: the server joins the
                            text's condition with the call's outcome
                            (`Verdict::admits`). This tested `!e.reached` against
                            a three-valued enum typed `boolean`, so it never
@@ -158,7 +158,7 @@
                     </li>
                   }
                 </ul>
-                <!-- ⚠ Drawn, never dropped. 7,305 effects in the artefact have a
+                <!-- Drawn, never dropped. 7,305 effects in the artefact have a
                      subject nobody could name, and a list of only what resolved
                      would read as a complete account of the turn. -->
                 @if (ev.unnamed) {
@@ -171,7 +171,7 @@
                 }
               }
             } @else {
-              <!-- ⚠ NOT an empty list. "Nothing to show" and "nothing yet" are
+              <!-- NOT an empty list. "Nothing to show" and "nothing yet" are
                    different sentences, and drawing the first while the request is
                    in flight is a claim the page cannot support. -->
               <mat-progress-bar mode="indeterminate" />

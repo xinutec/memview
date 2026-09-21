@@ -20,7 +20,7 @@ use reader::shell_files;
 
 /// Whether `text` declares `name` as a shell function.
 ///
-/// ⚠ **Both spellings, and the space is not optional to allow.** `probe() {` and
+/// Both spellings, and the space is not optional to allow. `probe() {` and
 /// `probe () {` are the same declaration and this corpus writes both. A test for
 /// the first alone misses the second silently, which is the failure mode this
 /// whole probe exists to catch one level up.

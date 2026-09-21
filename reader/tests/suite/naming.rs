@@ -47,7 +47,7 @@ fn every_shape() -> Vec<Op> {
     ]
 }
 
-/// ⚠ **The keys are a CONTRACT WITH A STYLESHEET, which nothing compiles.**
+/// The keys are a CONTRACT WITH A STYLESHEET, which nothing compiles.
 /// `parse-sheet.scss` selects on `[data-kind='shell']`, `[data-kind='unknown']`
 /// and five more; renaming a key there is silent — the chip loses its colour and
 /// nothing says so. This list is where such a rename becomes loud.
@@ -82,7 +82,7 @@ fn the_style_keys_are_the_ones_the_stylesheet_selects_on() {
     }
 }
 
-/// ⚠ **The word carrying the meaning must not be the one dropped.** `Nothing`
+/// The word carrying the meaning must not be the one dropped. `Nothing`
 /// means the command touched no FILES. The chip said bare "nothing", which
 /// beside `ping` or `task list` reads as "this command did nothing at all".
 #[test]
@@ -107,7 +107,7 @@ fn a_chip_is_short_enough_for_a_phone() {
     }
 }
 
-/// ⚠ **What one shared table buys.** Before it, the console labelled a chip and
+/// What one shared table buys. Before it, the console labelled a chip and
 /// the viewer labelled a histogram row from two exhaustive matches: both
 /// compiled, and both kept compiling while they disagreed.
 #[test]

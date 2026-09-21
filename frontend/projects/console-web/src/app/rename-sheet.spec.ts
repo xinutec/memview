@@ -15,7 +15,7 @@ describe('offered', () => {
   });
 
   it('offers nothing once the suggestion is what the box says', () => {
-    // ⚠ Otherwise the button stays under a field it already filled, and a tap
+    // Otherwise the button stays under a field it already filled, and a tap
     // that changes nothing reads as a broken control rather than a finished one.
     expect(offered('Lean port', 'Lean port')).toBeUndefined();
   });

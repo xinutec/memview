@@ -24,7 +24,7 @@ describe('Restyle', () => {
     vi.useFakeTimers();
     for (const link of sheets()) link.remove();
     window.brokenAssets = [];
-    // ⚠ Without this the root injector hands back the SAME service to every
+    // Without this the root injector hands back the SAME service to every
     // test, so each `init` leaves another live listener on the window and one
     // failure is answered several times over. That is a real hazard rather than
     // a test artefact — hence the guard in `init` — but the tests still have to
@@ -39,7 +39,7 @@ describe('Restyle', () => {
   });
 
   it('asks again for a stylesheet that broke before the app booted', () => {
-    // ⚠ The case that actually happened. Stylesheets are requested while the
+    // The case that actually happened. Stylesheets are requested while the
     // HTML is parsed and module scripts run after it, so the app boots into a
     // page that is already unstyled and no error is left to hear. The inline
     // recorder in index.html is the only witness; this is what acts on it.

@@ -125,7 +125,7 @@ b
 fi'
 
 section "7 · a body that ends in & takes no ; after it"
-# ⚠ Asked with `bash -n` rather than `declare -f`, because the question is
+# Asked with `bash -n` rather than `declare -f`, because the question is
 # whether the text PARSES: this is the one shape the printer can emit that no
 # gate would object to. Gate 1 re-reads our own output with our own parser, which
 # is more permissive here, and gate 2 is shown the original command by design.

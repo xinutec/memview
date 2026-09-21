@@ -1,6 +1,6 @@
 //! The heredoc language sniff, against the shapes it was getting wrong.
 //!
-//! ⚠ **It had no tests until the third time it was wrong**, which is how a guess
+//! It had no tests until the third time it was wrong, which is how a guess
 //! stays wrong: the report it feeds prints a plausible number either way. Each
 //! case here is a body shape taken from the corpus, with paths replaced.
 use reader::sniff::looks_like;

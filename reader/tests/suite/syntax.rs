@@ -103,7 +103,7 @@ fn the_three_spellings_of_a_word_are_one_word() {
 
 #[test]
 fn a_glob_is_not_the_character_that_spells_it() {
-    // ⚠ The case the round-trip law cannot catch on its own: absorb `*` into a
+    // The case the round-trip law cannot catch on its own: absorb `*` into a
     // literal and the text still prints and re-reads identically. It names a
     // different set of files, and nothing downstream could tell.
     let globbed = &words("ls a*b")[1];
@@ -178,7 +178,7 @@ fn a_bracket_is_a_builtin_until_it_closes() {
             .iter()
             .all(|segment| matches!(segment.kind, SegmentKind::Literal(_)))
     );
-    // ⚠ **And an unclosed one is ordinary text, not a refusal.** `[abc` expands
+    // And an unclosed one is ordinary text, not a refusal. `[abc` expands
     // to itself — measured — so reading it as anything else would be a wrong
     // tree, and the three answers a `[` can have are Literal, a set, or a set
     // this reader cannot own.
@@ -188,7 +188,7 @@ fn a_bracket_is_a_builtin_until_it_closes() {
 
 #[test]
 fn a_bracket_expression_names_a_set_and_only_matching_can_say_so() {
-    // ⚠ **No gate can see this one.** Bash prints a bracket expression back
+    // No gate can see this one. Bash prints a bracket expression back
     // verbatim, so `[a-z]` read as five literal characters prints and re-reads
     // as itself and bash agrees with the mistake. The oracle is matching, which
     // `reader/probes/bracket.sh` does against real files; these assert what it
@@ -214,7 +214,7 @@ fn a_bracket_expression_names_a_set_and_only_matching_can_say_so() {
         class("ls [[:digit:]]").items,
         vec![ClassItem::Named("digit".into())]
     );
-    // ⚠ `[^a]` and `[!a]` match identically, the caret included, so they are ONE
+    // `[^a]` and `[!a]` match identically, the caret included, so they are ONE
     // tree — and the printer picks the POSIX spelling.
     assert_eq!(class("ls [!a]"), class("ls [^a]"));
     assert!(class("ls [!a]").negated);
@@ -232,7 +232,7 @@ fn a_bracket_expression_names_a_set_and_only_matching_can_say_so() {
     // is the wrong tree neither gate can object to.
     assert_eq!(refusal("ls [$x]"), Reason::BracketExpression);
     assert_eq!(refusal(r"ls [\]]"), Reason::BracketExpression);
-    // ⚠ A glob only where pathname expansion happens: `FOO=[ab]` binds four
+    // A glob only where pathname expansion happens: `FOO=[ab]` binds four
     // characters, exactly as `FOO=*.txt` binds five.
     assert_eq!(
         tree("FOO=[ab]").items.len(),
@@ -265,15 +265,15 @@ fn an_array_literal_is_a_value_made_of_words() {
     };
     assert_eq!(elements("x=(a b c)").len(), 3);
     assert!(elements("x=()").is_empty());
-    // ⚠ A newline between elements is a separator, not a terminator — which is
+    // A newline between elements is a separator, not a terminator — which is
     // how the corpus writes a long one.
     assert_eq!(elements("x=(\n  a\n  b\n)").len(), 2);
-    // ⚠ An element may name its own slot, and `[0]=a` is an INDEX where `[0]a`
+    // An element may name its own slot, and `[0]=a` is an INDEX where `[0]a`
     // is a glob. Only the `=` after the `]` tells them apart.
     let keyed = elements("x=([0]=a [1]=b)");
     assert!(keyed.iter().all(|element| element.key.is_some()));
     assert!(elements("x=([0]a)")[0].key.is_none());
-    // ⚠ **Legal in exactly two places, and bash decides by the command NAME.**
+    // Legal in exactly two places, and bash decides by the command NAME.
     // `declare x=(a)` parses and `echo x=(a)` is a syntax error — measured, both
     // — so reading one anywhere else would accept text bash refuses.
     assert!(parse("declare -a T=(a b)").is_ok());
@@ -310,7 +310,7 @@ fn the_law_holds_across_the_array_shapes() {
             survey(text)
         );
     }
-    // ⚠ Bash NORMALISES the whitespace between elements, so the second gate can
+    // Bash NORMALISES the whitespace between elements, so the second gate can
     // see a mis-split in here — the rare word-internal shape it has an opinion
     // about. The printer therefore writes one space, as bash does.
     assert_eq!(print(&tree("x=(a   b)")), "x=(a b)");
@@ -391,7 +391,7 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
 
 #[test]
 fn an_argument_is_not_a_command_name() {
-    // ⚠ Regression. Preserving `at_command_start` across a word made every word
+    // Regression. Preserving `at_command_start` across a word made every word
     // on the line look like a command head, so `BatchMode=yes` was reported as
     // an assignment prefix and `in` as a reserved word — 191 corpus commands
     // where the survey claimed a construct the parser had accepted.
@@ -406,8 +406,8 @@ fn an_argument_is_not_a_command_name() {
 
 #[test]
 fn the_survey_reports_the_construct_and_not_its_punctuation() {
-    // ⚠ **An EXTRA finding is as wrong as a missing one, and only the extras
-    // hide.** The invariant pins one direction — what the parser refused is in
+    // An EXTRA finding is as wrong as a missing one, and only the extras
+    // hide. The invariant pins one direction — what the parser refused is in
     // the set — so an over-report passes it silently, and the survey's whole
     // purpose is the OTHER number: what building one construct would unlock.
     //
@@ -486,7 +486,7 @@ fn time_and_bang_are_fields_not_argv() {
 
 #[test]
 fn either_order_of_the_prefixes_is_one_tree() {
-    // ⚠ Bash accepts both and prints `time` first — `! time a | b` comes back
+    // Bash accepts both and prints `time` first — `! time a | b` comes back
     // from `declare -f` as `time ! a | b`. Two texts, one tree, and the printer
     // picks bash's spelling.
     assert_eq!(pipeline("! time a | b"), pipeline("time ! a | b"));
@@ -553,7 +553,7 @@ fn the_law_holds_across_the_pipeline_shapes() {
 
 #[test]
 fn a_pipeline_prefix_does_not_start_the_command() {
-    // ⚠ Regression, found by the corpus invariant on ONE command out of 131k:
+    // Regression, found by the corpus invariant on ONE command out of 131k:
     // `time PYTHONPATH=… python -m recall doctor`. Treating `time` as the
     // command name made the assignment after it look like an argument, so the
     // survey reported nothing where the parser refused.
@@ -584,7 +584,7 @@ fn a_list_holds_its_connectors_in_order() {
 
 #[test]
 fn background_belongs_to_the_list_not_its_last_pipeline() {
-    // ⚠ `a && b &` backgrounds the WHOLE list — `declare -f` prints it back
+    // `a && b &` backgrounds the WHOLE list — `declare -f` prints it back
     // that way. Hanging the flag on `b` would say something else.
     let l = list("a && b &");
     assert!(l.background);
@@ -612,7 +612,7 @@ fn a_newline_after_a_connector_continues_the_list() {
 fn an_operator_with_nothing_after_it_is_refused() {
     assert_eq!(refusal("a &&"), Reason::EmptyOperand);
     assert_eq!(refusal("a |"), Reason::EmptyOperand);
-    // ⚠ Bash accepts a comment here and DELETES it. Keeping comments byte-exact
+    // Bash accepts a comment here and DELETES it. Keeping comments byte-exact
     // and accepting this are incompatible, so it is refused rather than dropped.
     assert_eq!(refusal("a && # note\nb"), Reason::CommentInList);
 }
@@ -650,7 +650,7 @@ fn redirects(text: &str) -> Vec<reader::syntax::Redirect> {
 
 #[test]
 fn a_redirect_is_not_a_word_and_its_position_is_not_recorded() {
-    // ⚠ Bash prints `> out cat f` back as `cat f > out`, so the position among
+    // Bash prints `> out cat f` back as `cat f > out`, so the position among
     // the words carries nothing. Both spellings must be one tree.
     assert_eq!(tree("> out cat f"), tree("cat f > out"));
     assert_eq!(words("cat f > out").len(), 2);
@@ -686,7 +686,7 @@ fn every_form_reaches_its_own_node() {
 
 #[test]
 fn the_dup_forms_default_their_descriptor_and_the_others_do_not() {
-    // ⚠ `>&2` comes back from `declare -f` as `1>&2`, so the two are one tree.
+    // `>&2` comes back from `declare -f` as `1>&2`, so the two are one tree.
     assert_eq!(tree("cat >&2"), tree("cat 1>&2"));
     assert_eq!(redirects("cat >&2")[0].fd, Some(1));
     // `> out` never gains a descriptor, and bash never prints one.
@@ -709,7 +709,7 @@ fn a_descriptor_must_touch_its_operator() {
 #[test]
 fn what_is_still_refused_is_named() {
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
-    // ⚠ **A glued redirection is now SPLIT, as bash splits it** — this pair used
+    // A glued redirection is now SPLIT, as bash splits it — this pair used
     // to be refused. `awk NF>10 f` is `awk NF f` with stdout on a file called
     // `10`, however little anybody meant that, and `echo a<<<b` is a here-string.
     // Refusing them cost every nested script that contained one, which is a
@@ -722,7 +722,7 @@ fn what_is_still_refused_is_named() {
 
 #[test]
 fn closing_a_descriptor_has_no_direction() {
-    // ⚠ Measured: bash prints `3<&-` back as `3>&-`, and `<&-` as `0>&-`. So
+    // Measured: bash prints `3<&-` back as `3>&-`, and `<&-` as `0>&-`. So
     // closing fd 3 is ONE operation however it was written, and a tree keeping
     // the direction made it two. Found by the second gate on one command in
     // 129,329 — neither the round-trip law nor construction could see it,
@@ -774,7 +774,7 @@ fn the_law_holds_across_the_redirection_shapes() {
 
 #[test]
 fn a_tilde_expands_only_where_the_shell_expands_one() {
-    // ⚠ The quoting rule that is semantic INSIDE a word: `~/x` is a home
+    // The quoting rule that is semantic INSIDE a word: `~/x` is a home
     // directory, `"~/x"` is a filename that starts with a tilde. Absorbing the
     // first into a literal is the error the refusal discipline exists for, and
     // it is exactly what the parser did until the tilde got a node.
@@ -829,7 +829,7 @@ fn the_law_holds_across_the_tilde_shapes() {
 
 #[test]
 fn a_quote_may_not_touch_a_tilde_prefix() {
-    // ⚠ Regression, 319 corpus commands. `~'/x'` is the literal `~/x` to bash,
+    // Regression, 319 corpus commands. `~'/x'` is the literal `~/x` to bash,
     // so quoting the segment after a tilde changes what the word means. The
     // slash goes through bare and closes the prefix; quoting is safe after it.
     assert_eq!(
@@ -844,7 +844,7 @@ fn a_quote_may_not_touch_a_tilde_prefix() {
 
 #[test]
 fn a_backslash_newline_joins_a_word() {
-    // ⚠ Regression found by the second gate on one corpus command. Bash removes
+    // Regression found by the second gate on one corpus command. Bash removes
     // the continuation and keeps ONE word; ending the word here split a single
     // long argument into three, and both the law and the survey agreed with it.
     assert_eq!(words("perl -e \"a\"\\\n\"b\"").len(), 3);
@@ -870,7 +870,7 @@ fn here(text: &str) -> reader::syntax::ast::Heredoc {
 
 /// The first heredoc in a script of ANY shape.
 ///
-/// ⚠ [`here`] asserts a single-item script, which is right for the cases it was
+/// [`here`] asserts a single-item script, which is right for the cases it was
 /// written for and wrong for the ones where the terminator decides how many
 /// commands there are (memview#1564): the whole question there is whether the
 /// text after the body is a command or is body, so the item count is the
@@ -891,7 +891,7 @@ fn first_here(text: &str) -> reader::syntax::ast::Heredoc {
 
 #[test]
 fn every_quoted_spelling_of_a_delimiter_is_one_tree() {
-    // ⚠ The distinction bash itself does not keep: `declare -f` prints all four
+    // The distinction bash itself does not keep: `declare -f` prints all four
     // of these back as `<<'EOF'`. A tree that recorded the spelling would say
     // they differ, and the second gate — which compares bash's rendering of each
     // — could never object, because it is bash that collapsed them.
@@ -933,7 +933,7 @@ fn an_empty_body_is_not_a_missing_one() {
 
 #[test]
 fn a_dash_strips_leading_tabs_and_only_tabs() {
-    // ⚠ Bash strips at PARSE time and prints the `-` back with an unindented
+    // Bash strips at PARSE time and prints the `-` back with an unindented
     // body, so the tree holds the stripped text and the operator both.
     assert_eq!(here("cat <<-EOF\n\tbody\n\tEOF").body, "body\n");
     assert_eq!(
@@ -960,7 +960,7 @@ fn a_terminator_is_matched_exactly() {
 
 #[test]
 fn several_heredocs_on_one_line_take_their_bodies_in_order() {
-    // ⚠ The reason the body-to-opener match is positional: two heredocs may
+    // The reason the body-to-opener match is positional: two heredocs may
     // share a delimiter, so nothing in the text pairs them but order.
     let redirects = redirects("cat <<A <<A\none\nA\ntwo\nA");
     let bodies: Vec<String> = redirects
@@ -976,7 +976,7 @@ fn several_heredocs_on_one_line_take_their_bodies_in_order() {
 
 #[test]
 fn the_body_starts_after_the_logical_line_not_the_next_newline() {
-    // ⚠ Both measured in `reader/probes/heredoc.sh`, and both are why the body
+    // Both measured in `reader/probes/heredoc.sh`, and both are why the body
     // is read where a line ending is CONSUMED rather than by scanning ahead for
     // the next `\n`.
     assert_eq!(here("cat <<EOF \\\nextra\nbody\nEOF").body, "body\n");
@@ -996,7 +996,7 @@ fn the_body_starts_after_the_logical_line_not_the_next_newline() {
 
 #[test]
 fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
-    // ⚠ Bash resolves the continuation at parse time, so `quoted` decides what
+    // Bash resolves the continuation at parse time, so `quoted` decides what
     // the body STRING is and not only what will expand later.
     assert_eq!(here("cat <<EOF\na\\\nb\nEOF").body, "ab\n");
     assert_eq!(here("cat <<'EOF'\na\\\nb\nEOF").body, "a\\\nb\n");
@@ -1007,7 +1007,7 @@ fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
     assert_eq!(here("cat <<EOF\n\\$lit\nEOF").body, "\\$lit\n");
 }
 
-/// ⚠ **A join that FORMS the delimiter is the terminator** (memview#1564).
+/// A join that FORMS the delimiter is the terminator (memview#1564).
 ///
 /// This asserted a refusal once, reasoning that `EO\` + `F` makes a
 /// body line reading `EOF` the printer could not write back. Both halves were
@@ -1047,7 +1047,7 @@ fn a_continuation_that_swallows_the_delimiter_keeps_the_body_open() {
     assert_eq!(first_here(text).body, "XEOF\necho after\n");
 }
 
-/// ⚠ **A QUOTED delimiter joins nothing, so neither rule above applies.**
+/// A QUOTED delimiter joins nothing, so neither rule above applies.
 /// Pinned because the fix would be easy to write as "always join", which would
 /// break this: `<<'EOF'` over `EO\` + `F` keeps both lines and terminates at the
 /// literal `EOF`.
@@ -1083,7 +1083,7 @@ fn a_heredoc_defaults_to_stdin_and_takes_a_descriptor() {
 
 #[test]
 fn a_body_with_no_terminator_runs_to_the_end_of_the_input() {
-    // ⚠ **Read, not refused.** Bash takes the rest of the input as the body and
+    // Read, not refused. Bash takes the rest of the input as the body and
     // warns; the corpus is shell history, so these are commands that really ran
     // and refusing them would drop real work. `declare -f` cannot render one —
     // the runaway body eats the wrapper's brace — so gate 2 excludes them the
@@ -1117,7 +1117,7 @@ fn the_survey_agrees_with_the_parser_about_heredocs() {
         "cat <<EOF\nbody\nEOF ",
         "cat <<$x\nbody\n$x",
         "cat <<EOF\n$(danger)\nEOF",
-        // ⚠ Inside a substitution, where the survey has to find the closing
+        // Inside a substitution, where the survey has to find the closing
         // paren past a body that may hold one. A commit message is prose, and
         // prose holds `)` and apostrophes.
         "git commit -m \"$(cat <<'EOF'\nfixed (mostly), didn't break\nEOF\n)\"",
@@ -1165,7 +1165,7 @@ fn the_law_holds_across_the_heredoc_shapes() {
 
 #[test]
 fn each_dollar_form_is_named_apart() {
-    // ⚠ A reason is a unit of work, and these are not one build: naming a
+    // A reason is a unit of work, and these are not one build: naming a
     // parameter is a leaf, `${x%%y}` is a small language, and `$(…)` is a whole
     // script this parser would have to recurse into.
     // The operator family is built, substring and all.
@@ -1181,7 +1181,7 @@ fn each_dollar_form_is_named_apart() {
 
 #[test]
 fn a_dollar_that_opens_nothing_is_an_ordinary_character() {
-    // ⚠ Measured, not assumed: bash parses all of these and prints them back
+    // Measured, not assumed: bash parses all of these and prints them back
     // unchanged, so refusing them would drop commands over a character that
     // expands to itself.
     assert_eq!(words("echo $")[1].as_literal().as_deref(), Some("$"));
@@ -1203,7 +1203,7 @@ fn a_dollar_that_opens_nothing_is_an_ordinary_character() {
 
 #[test]
 fn an_ansi_c_string_is_a_literal_with_its_escapes_resolved() {
-    // ⚠ **A spelling, not a construct.** Bash resolves the escapes at parse
+    // A spelling, not a construct. Bash resolves the escapes at parse
     // time and prints an ordinary single-quoted string back, so `$'\x41'` and
     // `'A'` are ONE tree — and because the second gate compares our tree against
     // the tree of bash's resolved output, it can check every decoding below
@@ -1232,7 +1232,7 @@ fn an_ansi_c_string_is_a_literal_with_its_escapes_resolved() {
     // word quoted, so `$'a b'` is one argument rather than two.
     assert_eq!(words("echo x$'a'y")[1].as_literal().as_deref(), Some("xay"));
     assert_eq!(words("echo $'a b'").len(), 2);
-    // ⚠ `\u` is refused rather than decoded: measured on bash 5.3.15, it comes
+    // `\u` is refused rather than decoded: measured on bash 5.3.15, it comes
     // back re-spelled with the escape intact and the hex uppercased rather than
     // resolved to a character — and guessing what another build does with it is
     // not worth the commands it would buy.
@@ -1242,7 +1242,7 @@ fn an_ansi_c_string_is_a_literal_with_its_escapes_resolved() {
 
 #[test]
 fn a_binding_is_decided_by_the_name_not_by_the_word() {
-    // ⚠ Regression, and a silent one: `FOO="bar" cmd` parsed as a command NAMED
+    // Regression, and a silent one: `FOO="bar" cmd` parsed as a command NAMED
     // `FOO=bar`, because the check ran on the finished word and any quote in it
     // turned the check off. Bash asks only whether the NAME was quoted — all
     // four measured — and a wrong tree here prints and re-reads as itself, so
@@ -1289,7 +1289,7 @@ fn parameter(text: &str) -> reader::syntax::ast::Parameter {
 
 #[test]
 fn quoting_a_parameter_is_semantic_and_quoting_a_literal_is_not() {
-    // ⚠ The distinction the tree MUST keep, and the reason `quoted` is a field
+    // The distinction the tree MUST keep, and the reason `quoted` is a field
     // rather than a print-time choice: an unquoted expansion is split into words
     // and then globbed, a quoted one is one word whatever it holds. `'a'`, `"a"`
     // and `a` collapse; `$x` and `"$x"` do not.
@@ -1308,7 +1308,7 @@ fn the_braces_are_a_spelling_and_the_name_is_the_node() {
     assert_eq!(parameter("echo ${@}").name, "@");
     assert_eq!(parameter("echo $?").name, "?");
     assert_eq!(parameter("echo ${HOME}").name, "HOME");
-    // ⚠ One digit unbraced: `$10` is `${1}` and a `0`. Settled by running bash,
+    // One digit unbraced: `$10` is `${1}` and a `0`. Settled by running bash,
     // because its printer spells both the same.
     assert_eq!(parameter("echo ${10}").name, "10");
     assert_eq!(
@@ -1383,7 +1383,7 @@ fn a_parameter_is_not_a_literal_and_cannot_be_read_as_one() {
 
 #[test]
 fn a_binding_survives_a_value_that_expands() {
-    // ⚠ The regression this construct would otherwise have caused: with `$x` a
+    // The regression this construct would otherwise have caused: with `$x` a
     // segment, `FOO=$x cmd` has no literal-only first word, so a check that read
     // the finished word would have skipped silently.
 
@@ -1431,7 +1431,7 @@ fn the_law_holds_across_the_parameter_shapes() {
 
 #[test]
 fn a_bracket_pair_split_across_segments_is_still_quoted() {
-    // ⚠ Regression found by the round-trip law on 2 corpus commands. `[rc=` and
+    // Regression found by the round-trip law on 2 corpus commands. `[rc=` and
     // `]` each need no quoting alone, and printed bare they compose into
     // `[rc="$?"]` — which reads back as a bracket expression, not as this word.
     // The rule is per-word and the quoting decision was per-segment.
@@ -1452,7 +1452,7 @@ fn assignments(text: &str) -> Vec<reader::syntax::ast::Assignment> {
 
 #[test]
 fn a_binding_is_a_prefix_and_stops_at_the_command_name() {
-    // ⚠ `A=1 cmd B=2` binds A and passes `B=2` as an argument — bash prints
+    // `A=1 cmd B=2` binds A and passes `B=2` as an argument — bash prints
     // exactly that back, so the prefix ends at the first word.
     let bound = assignments("A=1 cmd B=2");
     assert_eq!(bound.len(), 1);
@@ -1475,7 +1475,7 @@ fn a_binding_is_a_prefix_and_stops_at_the_command_name() {
 
 #[test]
 fn a_value_does_not_glob_and_an_argument_does() {
-    // ⚠ Measured: `FOO=*.txt` binds those five characters, while `cmd *.txt`
+    // Measured: `FOO=*.txt` binds those five characters, while `cmd *.txt`
     // names files. Recording a `Glob` in a value would claim an expansion the
     // shell does not do, and no gate could see it — bash prints both verbatim.
     assert_eq!(
@@ -1488,7 +1488,7 @@ fn a_value_does_not_glob_and_an_argument_does() {
 
 #[test]
 fn a_value_expands_a_tilde_after_a_colon() {
-    // ⚠ The other half of why a value cannot share the argument reader: bash
+    // The other half of why a value cannot share the argument reader: bash
     // binds `T=a:~/x` to `a:/home/…/x`, and no argument would.
     let value = &assignments("PATH=a:~/bin")[0].value;
     assert!(
@@ -1560,7 +1560,7 @@ fn the_law_holds_across_the_assignment_shapes() {
 
 #[test]
 fn each_reserved_word_belongs_to_the_construct_it_opens() {
-    // ⚠ A reason is a unit of work, and these keywords are five grammars, not
+    // A reason is a unit of work, and these keywords are five grammars, not
     // one: counting them together would say how many commands hold a keyword,
     // which is not a number anything can be built against. `if` was in this
     // list until the conditional was built, and the split is what said it was
@@ -1568,7 +1568,7 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     assert!(parse("if a; then b; fi").is_ok());
     assert!(parse("case $x in a) b;; esac").is_ok());
     assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
-    // ⚠ `function NAME` is bash's own spelling — `declare -f` prints every
+    // `function NAME` is bash's own spelling — `declare -f` prints every
     // definition that way — so the parser must READ it, or it cannot read back
     // its own print. What is still refused is the keyword with no body.
     assert!(parse("function f { a; }").is_ok());
@@ -1597,7 +1597,7 @@ fn case_of(text: &str) -> reader::syntax::ast::Case {
 
 #[test]
 fn a_pattern_is_a_word_and_quoting_it_changes_what_it_matches() {
-    // ⚠ **The second gate has no opinion here.** Bash prints a pattern back
+    // The second gate has no opinion here. Bash prints a pattern back
     // verbatim — `'*')` stays `'*')` — so a tree that absorbed the quotes into a
     // literal, or dropped them, would print and re-read as itself and bash would
     // agree with both. Construction is the only thing deciding it, and the
@@ -1633,7 +1633,7 @@ fn the_three_arm_terminators_are_three_programs() {
     assert_eq!(arms[0].end, ArmEnd::Stop);
     assert_eq!(arms[1].end, ArmEnd::FallThrough);
     assert_eq!(arms[2].end, ArmEnd::KeepTesting);
-    // ⚠ A missing terminator on the last arm is not recorded, because bash
+    // A missing terminator on the last arm is not recorded, because bash
     // writes `;;` in when it prints — so the two spellings are one tree. It
     // needs the newline: on one line `b esac` glues into an argument and bash
     // refuses the whole command.
@@ -1645,7 +1645,7 @@ fn the_three_arm_terminators_are_three_programs() {
 
 #[test]
 fn what_a_case_collapses_and_what_it_keeps() {
-    // ⚠ A leading `(` is not recorded: bash prints `(a)` back as `a)`, so a tree
+    // A leading `(` is not recorded: bash prints `(a)` back as `a)`, so a tree
     // holding it would make one command two trees.
     assert_eq!(
         case_of("case $x in (a) b;; esac"),
@@ -1657,7 +1657,7 @@ fn what_a_case_collapses_and_what_it_keeps() {
         3
     );
     assert!(case_of("case $x in a) ;; esac").arms[0].body.is_empty());
-    // ⚠ `esac` right after `in` is a case with no arms, and legal.
+    // `esac` right after `in` is a case with no arms, and legal.
     assert!(case_of("case $x in esac").arms.is_empty());
     // A pattern is not a command position, so a keyword there is an ordinary
     // pattern — except `esac`, which bash takes as the terminator, so only a
@@ -1740,7 +1740,7 @@ fn a_test_expression_is_a_language_and_not_the_bracket_builtin() {
         CommandKind::Test(expr) => expr.clone(),
         other => panic!("{text:?} is not a test: {other:?}"),
     };
-    // ⚠ **A bare word desugars to `-n word`**, which is bash's own rendering:
+    // A bare word desugars to `-n word`, which is bash's own rendering:
     // `[[ a && b ]]` comes back from `declare -f` as `[[ -n a && -n b ]]`. So
     // the tree does it too — recording the omission would make one command two.
     assert!(matches!(
@@ -1751,9 +1751,9 @@ fn a_test_expression_is_a_language_and_not_the_bracket_builtin() {
         }
     ));
     assert_eq!(print(&tree("[[ a && b ]]")), "[[ -n a && -n b ]]");
-    // ⚠ Negation is a TOGGLE — bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
+    // Negation is a TOGGLE — bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
     assert_eq!(expr("[[ ! ! a ]]"), expr("[[ a ]]"));
-    // ⚠ `=` and `==` are one operation, and parens are not a node: the printer
+    // `=` and `==` are one operation, and parens are not a node: the printer
     // rebuilds them from precedence, exactly as it does for arithmetic.
     assert_eq!(expr("[[ $x = y ]]"), expr("[[ $x == y ]]"));
     assert_eq!(expr("[[ ( a ) ]]"), expr("[[ a ]]"));
@@ -1765,7 +1765,7 @@ fn a_test_expression_is_a_language_and_not_the_bracket_builtin() {
         print(&tree("[[ a || b && c ]]")),
         "[[ -n a || -n b && -n c ]]"
     );
-    // ⚠ **No pathname expansion in here at all** — `[[ -f *.txt ]]` tests a file
+    // No pathname expansion in here at all — `[[ -f *.txt ]]` tests a file
     // literally named `*.txt`, measured — except the right-hand side of `==`,
     // which IS a pattern.
     let pattern = |text: &str| match expr(text) {
@@ -1790,7 +1790,7 @@ fn a_test_expression_is_a_language_and_not_the_bracket_builtin() {
 
 #[test]
 fn a_regex_right_hand_side_is_refused_and_all_three_gates_would_have_passed() {
-    // ⚠ **The sharpest case of the failure no gate can see.** Quoting is
+    // The sharpest case of the failure no gate can see. Quoting is
     // SEMANTIC in a `=~` right-hand side — measured by running it: `[[ abc =~
     // ^a.*c$ ]]` matches and `[[ abc =~ '^a.*c$' ]]` does not, because quoting
     // any part makes that part literal. A word in this tree collapses quoting by
@@ -1891,7 +1891,7 @@ fn a_body_is_a_command_list_and_layout_is_not_recorded() {
 
 #[test]
 fn an_omitted_list_is_desugared_the_way_bash_desugars_it() {
-    // ⚠ `for f; do …` comes back from `declare -f` as `for f in "$@"; do …`, so
+    // `for f; do …` comes back from `declare -f` as `for f in "$@"; do …`, so
     // the tree holds the explicit list. Recording the omission would make one
     // command two trees, and the second gate would say so.
     assert_eq!(
@@ -1926,7 +1926,7 @@ fn a_condition_is_a_list_not_a_command() {
 
 #[test]
 fn a_loop_takes_its_redirections_after_done() {
-    // ⚠ Bash prints them there, and it says so structurally by moving one:
+    // Bash prints them there, and it says so structurally by moving one:
     // `for f in a; do b; done > out`.
     assert_eq!(redirects("for f in a; do b; done > out").len(), 1);
     assert!(check("for f in a; do b; done > out").holds());
@@ -1951,22 +1951,22 @@ fn a_heredoc_inside_a_body_still_finds_its_body() {
 
 #[test]
 fn a_comment_in_a_body_takes_the_line_it_needs() {
-    // ⚠ **A comment runs to the end of ITS line, so a list holding one cannot be
-    // written on a single line at all.** That is why it was refused: not that
+    // A comment runs to the end of ITS line, so a list holding one cannot be
+    // written on a single line at all. That is why it was refused: not that
     // the tree could not hold it, but that the printer had nowhere to put it.
     // The answer is the one a heredoc inside `$( )` got — take the lines.
     assert_eq!(
         print(&tree("for f in a; do\n# note\nb\ndone")),
         "for f in a; do # note\nb\ndone"
     );
-    // ⚠ **And the closing keyword needs a line of its own once the body spans
-    // any**, for two different reasons. A comment: `# note; done` is all comment
+    // And the closing keyword needs a line of its own once the body spans
+    // any, for two different reasons. A comment: `# note; done` is all comment
     // and the loop never closes.
     assert_eq!(
         print(&tree("for f in a; do\nb\n# note\ndone")),
         "for f in a; do b\n# note\ndone"
     );
-    // ⚠ And a heredoc TERMINATOR, which must be a line holding the delimiter and
+    // And a heredoc TERMINATOR, which must be a line holding the delimiter and
     // nothing else — `PY; done` is body text, the heredoc runs away, and the
     // `done` is gone. Found by the round-trip law on one command in 134,555, and
     // gate 3 could not see it: bash accepts a runaway heredoc with a warning and
@@ -2070,7 +2070,7 @@ fn substitution(text: &str) -> reader::syntax::ast::Substitution {
 
 #[test]
 fn a_substitution_holds_a_script_the_gates_can_see_into() {
-    // ⚠ Unlike a word, bash NORMALISES what is inside: `$(a|b)` comes back as
+    // Unlike a word, bash NORMALISES what is inside: `$(a|b)` comes back as
     // `$(a | b)` and `$(ls |& cat)` as `$(ls 2>&1 | cat)`. So the interior is a
     // real parse on both sides of the second gate, and a misparse in there
     // would be caught rather than printed straight back.
@@ -2104,14 +2104,14 @@ fn a_substitution_nests_and_sits_inside_a_word() {
 
 #[test]
 fn a_backtick_is_the_same_node_as_a_substitution() {
-    // ⚠ **One tree, because the two mean the same thing** — the difference is
+    // One tree, because the two mean the same thing — the difference is
     // spelling, which this tree normalises away as it does `\'a\'` and `a`. The
     // printer writes the modern form, and bash's own print of the original is
     // verbatim, so the second gate parses that back to this same tree.
     assert_eq!(tree("echo `a|b`"), tree("echo $(a|b)"));
     assert_eq!(print(&tree("echo `a|b`")), "echo $(a | b)");
     assert!(check("echo `a|b`").holds());
-    // ⚠ **The interior is not the source text.** `\\`` `\\$` and `\\\\` resolve
+    // The interior is not the source text. `\\`` `\\$` and `\\\\` resolve
     // before it is a script at all — measured — so a nested run is a nested
     // substitution rather than the syntax error a raw scan would make of it.
     assert_eq!(
@@ -2129,7 +2129,7 @@ fn a_backtick_is_the_same_node_as_a_substitution() {
 fn what_a_substitution_cannot_carry_is_named() {
     // An unclosed one is a syntax error to bash too.
     assert_eq!(refusal("echo $(a"), Reason::UnterminatedExpansion);
-    // ⚠ And so is a body that runs past the `)`: it swallows the paren, and bash
+    // And so is a body that runs past the `)`: it swallows the paren, and bash
     // reports the same thing this reason does — `unexpected EOF while looking
     // for matching ')'`, measured in `reader/probes/substitution-heredoc.sh`.
     assert_eq!(
@@ -2167,7 +2167,7 @@ fn only_body(items: &[Item]) -> String {
 
 #[test]
 fn a_heredoc_in_a_substitution_is_paired_inside_it() {
-    // ⚠ **Neither gate can see this pairing go wrong.** Swap the two bodies and
+    // Neither gate can see this pairing go wrong. Swap the two bodies and
     // the printed form still reads back as the swapped tree, so the round-trip
     // law holds; bash prints a substitution's interior and a heredoc's body back
     // verbatim, so its own rendering parses to the swapped tree too. Only
@@ -2199,7 +2199,7 @@ fn a_heredoc_in_a_substitution_is_paired_inside_it() {
 
 #[test]
 fn a_substitutions_heredoc_ends_where_the_substitution_does() {
-    // ⚠ **An opener still waiting at the `)` gets an EMPTY body**, and the text
+    // An opener still waiting at the `)` gets an EMPTY body, and the text
     // after the substitution is not its to take. Bash agrees, with a warning and
     // a zero exit: `x=$(cat <<X); echo "[$x]"` prints `[]`.
     assert_eq!(only_body(&interior(&words("echo $(cat <<X)")[1])), "");
@@ -2227,7 +2227,7 @@ fn a_substitution_carrying_a_heredoc_prints_across_lines() {
 
 #[test]
 fn a_process_substitution_is_a_segment_and_not_a_command() {
-    // ⚠ **It glues, and no gate can see it if the tree splits the word.** Bash
+    // It glues, and no gate can see it if the tree splits the word. Bash
     // prints `diff x<(a)` back verbatim, so the second gate agrees with a tree
     // that made it two words; our print of that tree would be `diff x <(a)`,
     // which re-reads as the same wrong tree, so the law holds too. Only
@@ -2333,7 +2333,7 @@ fn conditional(text: &str) -> reader::syntax::ast::Conditional {
 
 #[test]
 fn elif_is_desugared_the_way_bash_desugars_it() {
-    // ⚠ Measured in `reader/probes/conditional.sh`: bash prints
+    // Measured in `reader/probes/conditional.sh`: bash prints
     // `if a; then b; elif c; then d; fi` back as
     // `if a; then b; else if c; then d; fi; fi`. So an `elif` is an `else`
     // holding one nested conditional, and a tree with a list of arms would make
@@ -2355,7 +2355,7 @@ fn a_conditional_is_three_lists_and_layout_is_not_recorded() {
         conditional("if a\nthen\n  b\nfi")
     );
     let c = conditional("if a; b; then c; d; else e; fi");
-    // ⚠ The condition is a LIST whose last status decides the branch, not one
+    // The condition is a LIST whose last status decides the branch, not one
     // command: `if a; b; then` runs both and tests `b`.
     assert_eq!(c.condition.len(), 2);
     assert_eq!(c.then.len(), 2);
@@ -2380,7 +2380,7 @@ fn a_conditional_that_does_not_close_is_refused_by_name() {
     // A branch keyword with no `if` open is refused where it stands.
     assert_eq!(refusal("fi"), Reason::Conditional);
     assert_eq!(refusal("then b"), Reason::Conditional);
-    // ⚠ Each of those is in the survey's set too, or the invariant that pins
+    // Each of those is in the survey's set too, or the invariant that pins
     // the two scanners together would be broken.
     for text in [
         "if a; then b",
@@ -2408,7 +2408,7 @@ fn a_quoted_keyword_is_a_program_and_stays_one() {
 
 #[test]
 fn what_a_comment_still_cannot_be_part_of() {
-    // ⚠ **An and-or list is ONE line by bash's own split**, so a comment inside
+    // An and-or list is ONE line by bash's own split, so a comment inside
     // one has nowhere to go however many lines the printer takes: `a && b` stays
     // together where `a; b` breaks apart. Refused rather than dropped.
     assert_eq!(refusal("a && # note\nb"), Reason::CommentInList);
@@ -2423,7 +2423,7 @@ fn what_a_comment_still_cannot_be_part_of() {
 
 #[test]
 fn a_body_ending_in_an_ampersand_takes_no_semicolon_after_it() {
-    // ⚠ Measured: `if a; then b & fi` is legal and `if a; then b & ; fi` is a
+    // Measured: `if a; then b & fi` is legal and `if a; then b & ; fi` is a
     // syntax error. The printer emitted the second for every compound whose
     // body ended in a `&` — invalid shell that BOTH gates passed, because gate
     // 1 re-reads it with this parser and gate 2 never sees our print.
@@ -2491,7 +2491,7 @@ fn parameter_of(text: &str) -> reader::syntax::ast::Parameter {
 
 #[test]
 fn the_colon_is_a_field_because_it_changes_what_substitutes() {
-    // ⚠ `${x-y}` substitutes only for an UNSET x; `${x:-y}` also for an empty
+    // `${x-y}` substitutes only for an UNSET x; `${x:-y}` also for an empty
     // one. Bash prints both back as written, so nothing downstream would catch
     // these being collapsed — construction is the only defence.
     use reader::syntax::ast::ParameterOp;
@@ -2558,7 +2558,7 @@ fn a_subscript_names_an_element_and_forces_the_braces() {
         parameter_of("echo ${a[@]}").subscript,
         Some(Subscript::All)
     ));
-    // ⚠ `[@]` and `[*]` differ the way `"$@"` and `"$*"` do — how many words.
+    // `[@]` and `[*]` differ the way `"$@"` and `"$*"` do — how many words.
     assert!(matches!(
         parameter_of("echo ${a[*]}").subscript,
         Some(Subscript::Joined)
@@ -2567,7 +2567,7 @@ fn a_subscript_names_an_element_and_forces_the_braces() {
     // `$a[0]` is `$a` and the literal `[0]`: a different word entirely, so the
     // printer may never drop these braces.
     assert_eq!(print(&tree("echo ${a[0]}")), "echo ${a[0]}");
-    // ⚠ `$a[0]` is `$a` followed by the bracket EXPRESSION `[0]` — a glob, not
+    // `$a[0]` is `$a` followed by the bracket EXPRESSION `[0]` — a glob, not
     // the subscript above. That the two spellings reach different nodes is the
     // whole reason the printer may never drop the braces.
     match &words("echo $a[0]")[1].segments[..] {
@@ -2588,7 +2588,7 @@ fn a_subscript_names_an_element_and_forces_the_braces() {
 
 #[test]
 fn an_operand_nests_and_holds_spaces_bare() {
-    // ⚠ Both measured: `${x:-$(date)}` means the operand cannot be found by
+    // Both measured: `${x:-$(date)}` means the operand cannot be found by
     // scanning to the first `}`, and `${x:-a b}` is ONE word, so it cannot stop
     // at a space either.
     assert!(parse("echo ${x:-$(date)}").is_ok());
@@ -2652,7 +2652,7 @@ fn what_this_build_does_not_reach_is_still_refused_by_name() {
 #[test]
 fn a_substring_takes_arithmetic_and_one_space_decides_which_operator_it_is() {
     use reader::syntax::ast::{Arith, ParameterOp};
-    // ⚠ **One space, two different programs.** `${x:-3}` substitutes a default
+    // One space, two different programs. `${x:-3}` substitutes a default
     // and `${x: -3}` takes the last three characters — run, not reasoned. Bash
     // prints both back verbatim, so the second gate has no opinion and only
     // construction keeps them apart.
@@ -2664,7 +2664,7 @@ fn a_substring_takes_arithmetic_and_one_space_decides_which_operator_it_is() {
         parameter_of("echo ${x: -3}").op,
         Some(ParameterOp::Substring { .. })
     ));
-    // ⚠ And the printer has to put the space BACK, or the tree prints as the
+    // And the printer has to put the space BACK, or the tree prints as the
     // other operator. The law catches this one, which is why it is here twice.
     assert_eq!(print(&tree("echo ${x: -3}")), "echo ${x: -3}");
     assert!(check("echo ${x: -3}").holds());
@@ -2686,7 +2686,7 @@ fn a_substring_takes_arithmetic_and_one_space_decides_which_operator_it_is() {
 #[test]
 fn a_transformation_is_ten_letters_and_ten_programs() {
     use reader::syntax::ast::{ParameterOp, Transform};
-    // ⚠ **Ten different programs, and bash prints every one of them verbatim.**
+    // Ten different programs, and bash prints every one of them verbatim.
     // Measured on `a b`: `@U` gives `A B`, `@u` gives `A b`, `@L` gives `a b`,
     // `@Q` gives `'a b'`. So the second gate has no opinion, and a tree that
     // collapsed any two of them would satisfy both gates and be wrong.
@@ -2696,7 +2696,7 @@ fn a_transformation_is_ten_letters_and_ten_programs() {
     );
     assert_ne!(parameter_of("echo ${x@U}"), parameter_of("echo ${x@u}"));
     assert_ne!(parameter_of("echo ${x@U}"), parameter_of("echo ${x@L}"));
-    // ⚠ An eleventh letter is a RUNTIME error — `${x@Z}: bad substitution` —
+    // An eleventh letter is a RUNTIME error — `${x@Z}: bad substitution` —
     // which `bash -n` accepts, so it is refused by name rather than stored.
     assert_eq!(refusal("echo ${x@Z}"), Reason::ParameterOperator);
     assert!(survey("echo ${x@Z}").contains(&Reason::ParameterOperator));
@@ -2785,7 +2785,7 @@ fn brace_of(text: &str) -> reader::syntax::ast::Brace {
 
 #[test]
 fn a_brace_with_nothing_to_expand_is_ordinary_text() {
-    // ⚠ Measured: `{a}` and `{}` are printed AND expanded by bash as
+    // Measured: `{a}` and `{}` are printed AND expanded by bash as
     // themselves. So reading them as literal characters is what bash does — not
     // a construct being absorbed — and the decision is a lookahead made before
     // anything is consumed.
@@ -2808,7 +2808,7 @@ fn a_range_is_digits_or_single_letters_and_its_step_is_always_a_number() {
     ));
     assert!(matches!(brace_of("echo {a..e..2}"), Brace::Range { .. }));
     assert!(matches!(brace_of("echo {-3..3}"), Brace::Range { .. }));
-    // ⚠ These do NOT expand, so they must not become Range nodes — a wrong tree
+    // These do NOT expand, so they must not become Range nodes — a wrong tree
     // here prints and re-reads as itself, and bash prints braces verbatim, so
     // neither gate could report it.
     for text in [
@@ -2908,7 +2908,7 @@ fn arith_of(text: &str) -> reader::syntax::ast::Arith {
 #[test]
 fn precedence_is_in_the_tree_not_in_the_text() {
     use reader::syntax::ast::{Arith, BinaryOp};
-    // ⚠ The whole reason arithmetic is a tree: `1+2*3` and `(1+2)*3` are
+    // The whole reason arithmetic is a tree: `1+2*3` and `(1+2)*3` are
     // different answers, and a reader that kept the source text would satisfy
     // the round-trip law while recording neither. Bash prints arithmetic
     // verbatim, so the second gate cannot tell them apart either.
@@ -2937,7 +2937,7 @@ fn spacing_is_not_recorded_but_the_tree_is_the_same() {
 #[test]
 fn a_base_prefix_belongs_to_the_number() {
     use reader::syntax::ast::Arith;
-    // ⚠ `$((08))` is an invalid octal and `$((10#08))` is 8 — which is why the
+    // `$((08))` is an invalid octal and `$((10#08))` is 8 — which is why the
     // corpus writes it for a zero-padded minute. Three commands were refused
     // until the node held the base.
     assert!(matches!(arith_of("echo $((10#08))"), Arith::Based { .. }));
@@ -2963,7 +2963,7 @@ fn the_c_style_for_keeps_its_three_expressions_apart() {
         panic!("not a C-style for");
     };
     assert!(loop_.init.is_some() && loop_.condition.is_some() && loop_.step.is_some());
-    // ⚠ Each is ABSENT rather than empty where the text omits it: `for ((;;))`
+    // Each is ABSENT rather than empty where the text omits it: `for ((;;))`
     // loops forever, which an empty expression could not say.
     let CommandKind::ForArith(forever) = loop_of("for ((;;)); do x; done") else {
         panic!("not a C-style for");
@@ -3025,7 +3025,7 @@ fn the_law_holds_across_the_arithmetic_shapes() {
 /// A redirection glued to the end of a word, which bash splits and this reader
 /// did not.
 ///
-/// ⚠ **Refusing cost a whole nested script each time.** `$(pgrep -f "…">/dev/null
+/// Refusing cost a whole nested script each time. `$(pgrep -f "…">/dev/null
 /// && echo RUNNING)` is the corpus shape: the operator abuts a closing quote, so
 /// nothing separates the word from the redirect but bash's own tokenising rule.
 #[test]
@@ -3044,7 +3044,7 @@ fn a_redirection_glued_to_a_word_still_redirects() {
 
 /// A substring whose length is not arithmetic is refused, and should be.
 ///
-/// ⚠ **`bash -n` accepting something is not evidence that it runs.** `-n` parses
+/// `bash -n` accepting something is not evidence that it runs. `-n` parses
 /// without evaluating, and a substring's length is an arithmetic expression
 /// evaluated at *runtime* — so `${x:0:12:-0}` passes `bash -n` and then dies with
 /// `arithmetic syntax error in expression (error token is ":-0")`. Measured when
@@ -3062,7 +3062,7 @@ fn a_substring_length_that_is_not_arithmetic_is_refused() {
     );
 }
 
-/// ⚠ **The survey has to SEE a dangling redirect, not merely the parser**
+/// The survey has to SEE a dangling redirect, not merely the parser
 /// (memview#1370).
 ///
 /// The two scanners are deliberately separate, and the invariant is that
@@ -3086,7 +3086,7 @@ fn a_dangling_redirect_is_seen_by_both_scanners() {
     }
 }
 
-/// ⚠ **And must NOT see one where a target exists.** The refusal is for an
+/// And must NOT see one where a target exists. The refusal is for an
 /// operator with no target, never for redirection — this is the over-report the
 /// fix above could have introduced, and the half of the invariant that IS
 /// checked on accepted commands.
@@ -3123,13 +3123,13 @@ fn a_redirect_with_a_target_reports_nothing() {
     }
 }
 
-/// ⚠ **`$(( ))` expands its interior and only THEN evaluates it** (memview#1370).
+/// `$(( ))` expands its interior and only THEN evaluates it (memview#1370).
 ///
 /// This parser evaluated the grammar first, so two operands with nothing between
 /// them were refused — and in bash that is how a value is spliced into a number.
 /// Measured: with `c=2`, `$((1$c))` is 12; with `cmd=1f`, `$((0x$cmd))` is 31.
 ///
-/// ⚠ **The survey said `{}` for every one of these.** The drift check was
+/// The survey said `{}` for every one of these. The drift check was
 /// reporting the parser as the one behind, in a direction nobody had read.
 #[test]
 fn arithmetic_splices_an_expansion_into_its_text() {
@@ -3156,7 +3156,7 @@ fn arithmetic_splices_an_expansion_into_its_text() {
     }
 }
 
-/// ⚠ **A splice is spelling, so the printer may not reformat it.** Both of the
+/// A splice is spelling, so the printer may not reformat it. Both of the
 /// printer's habits change the program here rather than tidy it: a space makes
 /// `1 $c` an error for `c=2`, and a paren makes `$((1$c * 3))` nine instead of
 /// seven for `c=+2`. Measured against bash, both of them.
@@ -3169,18 +3169,18 @@ fn a_splice_prints_with_no_separator_and_no_parens() {
     assert_eq!(print(&tree("x=$((1$c * 3))")), "x=$((1$c * 3))");
 }
 
-/// ⚠ **And a run of LITERALS is still refused**, which is what keeps the change
+/// And a run of LITERALS is still refused, which is what keeps the change
 /// above a reading of bash rather than a widening. No value of any variable
 /// rescues `$((1 2))` or `$((a b))` — bash calls both an arithmetic syntax
 /// error — so admitting them would claim a program that cannot exist.
 ///
-/// ⚠ **`$((1 $c))` stays refused too, and the blank is the whole reason.** It is
+/// `$((1 $c))` stays refused too, and the blank is the whole reason. It is
 /// legal only for values that supply an operator (`c=+2` gives 3) and an error
 /// for those that do not (`c=2` gives `1 2`), so it is a different program from
 /// `$((1$c))` — and one this reader cannot print without choosing between them.
 /// Refusing is the choice that claims nothing.
 ///
-/// ⚠ **`bash -n` ACCEPTS `$((1 2))`**, because `-n` does not evaluate
+/// `bash -n` ACCEPTS `$((1 2))`, because `-n` does not evaluate
 /// arithmetic. `Reason::Arithmetic` is deliberately absent from
 /// `syntax-report`'s adjudication list for that reason, and must stay off it.
 #[test]
@@ -3190,14 +3190,14 @@ fn a_run_of_literals_in_arithmetic_is_still_refused() {
     }
 }
 
-/// ⚠ **A `${…}` operand is a PATTERN, so a literal `*` has to stay escaped.**
+/// A `${…}` operand is a PATTERN, so a literal `*` has to stay escaped.
 ///
 /// `${p%%\?*}` holds the literal `?` and then the glob; printed bare as
 /// `${p%%?*}` it reads back as two globs and cuts at the first character
 /// instead of at a question mark. The quoting route reaches the same wrong tree
 /// — `${x:-'*'}` — because the operand printer adds no quotes by design.
 ///
-/// ⚠ **This is the failure mode the law is FOR**, and the only `A₂ ≠ A₁` on the
+/// This is the failure mode the law is FOR, and the only `A₂ ≠ A₁` on the
 /// corpus: one command in 211,920, reduced to two characters. A misparse that
 /// printed faithfully would have been invisible here.
 #[test]
@@ -3216,12 +3216,12 @@ fn an_escaped_pattern_character_survives_the_operand_printer() {
             check(text).label()
         );
     }
-    // ⚠ And the two are still DIFFERENT programs after a round trip, which is
+    // And the two are still DIFFERENT programs after a round trip, which is
     // what the law would not notice if the printer collapsed them both.
     assert_ne!(tree(r"x=${p%%\?*}"), tree(r"x=${p%%?*}"));
 }
 
-/// ⚠ **An expansion inside arithmetic includes ARITHMETIC** (memview#1370).
+/// An expansion inside arithmetic includes ARITHMETIC (memview#1370).
 ///
 /// `$(( 1 + $(( 2 * 3 )) ))` is 7 and a backtick in the same position works too,
 /// but the operand reader admitted only `$x` and `$(cmd)` — so a corpus command
@@ -3229,7 +3229,7 @@ fn an_escaped_pattern_character_survives_the_operand_printer() {
 /// modelled. This was the third drift, and the ticket had guessed it was the
 /// juxtaposition gap; it is its own cause.
 ///
-/// ⚠ **ANSI-C quoting is NOT admitted here, and that is not an oversight.**
+/// ANSI-C quoting is NOT admitted here, and that is not an oversight.
 /// `$(( $'\x02' ))` is `arithmetic syntax error: operand expected` — bash reads
 /// the quote as text, and text is not a number. Measured, unlike the `${…}`
 /// operand below where the same spelling is legal.
@@ -3258,7 +3258,7 @@ fn arithmetic_nests_inside_arithmetic() {
     );
 }
 
-/// ⚠ **ANSI-C quoting is legal in every `${…}` operator** (memview#1370).
+/// ANSI-C quoting is legal in every `${…}` operator (memview#1370).
 ///
 /// `operand` read a `$(…)` and a backtick in this position and refused `$'…'`
 /// alone, which was a gap rather than a boundary. It is the spelling the operand

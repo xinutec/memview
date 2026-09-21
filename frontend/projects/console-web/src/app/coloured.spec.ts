@@ -6,7 +6,7 @@ const ESC = '\x1b';
 
 describe('ANSI in tool output', () => {
   it('turns a colour code into a class rather than showing the code', () => {
-    // ⚠ **The shape Pippijn actually sees.** vitest writes its summary in SGR,
+    // The shape Pippijn actually sees. vitest writes its summary in SGR,
     // and with nothing reading it the ESC byte is invisible while the bracket
     // codes are not — so the phone showed `[2m Test Files [22m [1m[32m22 passed`.
     expect(colour(`${ESC}[32m22 passed${ESC}[39m`)).toBe(
@@ -31,7 +31,7 @@ describe('ANSI in tool output', () => {
   });
 
   it('escapes the text it is given, before any of its own markup', () => {
-    // ⚠ **Tool output is a file, a web page, or a model's words.** It is not a
+    // Tool output is a file, a web page, or a model's words. It is not a
     // threat model, but it is not ours either, and this is the one thing that
     // turns it into HTML.
     expect(colour('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
@@ -48,7 +48,7 @@ describe('ANSI in tool output', () => {
   });
 
   it('lets a carriage return overwrite the line, as a terminal would', () => {
-    // ⚠ **Progress bars, which build logs are made of.** `cargo` and `pnpm`
+    // Progress bars, which build logs are made of. `cargo` and `pnpm`
     // rewrite one line hundreds of times; printed in full they bury the output
     // that matters under their own history.
     expect(colour('10%\r50%\r100% done')).toBe('100% done');

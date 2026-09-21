@@ -54,7 +54,7 @@ pub struct FileUse {
 
 /// Why a word this reader refused could not be resolved.
 ///
-/// ⚠ **Deliberately NOT `program::Why`.** That enum names reasons a *program* could
+/// Deliberately NOT `program::Why`. That enum names reasons a *program* could
 /// not be followed; reusing it here would collapse the one distinction this census
 /// exists to make — whether the value comes from outside the script at all.
 ///
@@ -96,7 +96,7 @@ pub struct Extract {
     /// Commands whose operation is not known, by name. Not an error — the honest size
     /// of what this does not yet read.
     ///
-    /// ⚠ **This is the WORKLIST**, and everything on it must be work somebody could do.
+    /// This is the WORKLIST, and everything on it must be work somebody could do.
     /// See [`Extract::local`] for what was not.
     pub unhandled: BTreeMap<String, usize>,
     /// Calls to a function the same script declares, by name.
@@ -113,7 +113,7 @@ pub struct Extract {
     /// The same third outcome as [`Extract::local`], and for the same reason: the name
     /// means a different program in every script that sets it.
     ///
-    /// ⚠ **Only a name still unresolved AFTER expansion.** A variable the script itself
+    /// Only a name still unresolved AFTER expansion. A variable the script itself
     /// binds does resolve, and what comes back is a command with its arguments in one
     /// word, because [`crate::shell_ops::expand`] returns one word where bash
     /// word-splits an unquoted expansion. That is a misreading of a knowable name and it
@@ -149,7 +149,7 @@ pub struct Extract {
     pub javascript: crate::program::Tally,
     /// What the SQL inside the shell touched — **tables, not files**.
     ///
-    /// ⚠ **Kept apart from `files` on a measurement, not on taste.** Across the corpus's
+    /// Kept apart from `files` on a measurement, not on taste. Across the corpus's
     /// SQL-client commands there is no `INTO OUTFILE`, no `LOAD DATA INFILE` and no
     /// sqlite `.read`/`.output`: SQL here names a file exactly never. Folding table
     /// reads into the file counts would have inflated the figure the whole reader is
@@ -164,14 +164,14 @@ pub struct Extract {
     /// Reported because it moves the denominator under every other figure here: once
     /// loops are unrolled, "simple commands" counts executions.
     ///
-    /// ⚠ **Subtracting it does not give the commands written.** A `bash -c` inside a
+    /// Subtracting it does not give the commands written. A `bash -c` inside a
     /// loop body is parsed once per iteration, so the commands *it* contains are
     /// duplicated without any level counting them here.
     pub unrolled: usize,
     /// Subjects the text does not determine, by the word that stood for them.
     ///
-    /// ⚠ **An unknown and an absence are different facts, and this is what keeps them
-    /// apart.** A refused word left no trace, so `wc -l "$f"` inside a glob loop
+    /// An unknown and an absence are different facts, and this is what keeps them
+    /// apart. A refused word left no trace, so `wc -l "$f"` inside a glob loop
     /// recorded what `wc -l` with no operand records — nothing — and the corpus read as
     /// more completely understood than it is. See `shell_ops::undetermined` for which
     /// refusals qualify and, just as importantly, which do not.
@@ -179,7 +179,7 @@ pub struct Extract {
     /// Subjects the text does not determine but does **bound**, by the pattern they are
     /// a subset of.
     ///
-    /// ⚠ **A glob is not a shrug.** `for f in *.log; do wc -l "$f"; done` names no file
+    /// A glob is not a shrug. `for f in *.log; do wc -l "$f"; done` names no file
     /// this reader can produce, but it is not the same fact as `$(git rev-parse HEAD)`,
     /// which could be anything at all. What the text says is
     ///
@@ -204,7 +204,7 @@ pub struct Extract {
     /// transduction of a name is not a pattern this reader will build an automaton for.
     /// Both are `some S ⊆ L ∩ Files(D, t)` — here `L` is everything.
     ///
-    /// ⚠ **ROOTED AT, not contained in, and the difference is a `..` nobody can see.**
+    /// ROOTED AT, not contained in, and the difference is a `..` nobody can see.
     /// The word resolves from that directory, so a run of the script touches something
     /// under it unless the expansion itself climbs out. An absolute-looking expansion
     /// does NOT escape (`a/b//c` is `a/b/c`); only `..` does. Stated this way it stays
@@ -224,7 +224,7 @@ pub struct Extract {
     pub refused_why: BTreeMap<Refused, usize>,
     /// The refused words whose name their own script binds, by word.
     ///
-    /// ⚠ **The totals cannot answer #1447; only this can.** That ticket asks how many
+    /// The totals cannot answer #1447; only this can. That ticket asks how many
     /// all-uppercase words are the script's own variable wearing the environment's
     /// spelling. A count per reason cannot say, because the two classifications are made
     /// in different places over different keys. Crossing them needs the WORDS.
@@ -239,7 +239,7 @@ pub struct Extract {
     pub nested_unparsed: BTreeMap<String, usize>,
     /// The walk itself, command by command — empty unless [`trace`] asked for it.
     ///
-    /// ⚠ **Recorded by the walk rather than reconstructed from its results.** Everything
+    /// Recorded by the walk rather than reconstructed from its results. Everything
     /// else on this struct is a *total*. Given only those, anybody wanting to know why
     /// one command attributed one file has to run the walk again in their own code, with
     /// their own idea of expansion and of what a `cd` did — and a second implementation
@@ -300,7 +300,7 @@ pub struct Step {
     pub bounded: Vec<String>,
     /// And those whose directory the text gave, as the locus they are rooted at.
     ///
-    /// ⚠ **Would be a silent hole without it.** A located subject is off `unnamed`, so a
+    /// Would be a silent hole without it. A located subject is off `unnamed`, so a
     /// step that did not carry it would stop showing the word — a view would report the
     /// command as naming nothing rather than as naming something it could locate.
     pub located: Vec<String>,
@@ -418,7 +418,7 @@ impl Extract {
         for (name, n) in inner.local {
             *self.local.entry(name).or_insert(0) += n;
         }
-        // ⚠ **A field added here and not merged is a SILENT loss**, and the arithmetic is
+        // A field added here and not merged is a SILENT loss, and the arithmetic is
         // what shows it: `not in the table` fell while this held, so calls in nested
         // scripts left `commands()` altogether — a denominator shrinking, which is the one
         // move a coverage figure must never make on its own.
@@ -431,7 +431,7 @@ impl Extract {
         for (word, n) in inner.unnamed {
             *self.unnamed.entry(word).or_insert(0) += n;
         }
-        // ⚠ **Travels with `unnamed`, or a third of the corpus goes uncounted.**
+        // Travels with `unnamed`, or a third of the corpus goes uncounted.
         // A devshell wrapper's inner script is extracted separately and merged
         // here; a reason map that stayed behind would sum to less than the
         // refusals beside it, and the two are checked against each other.
@@ -456,7 +456,7 @@ impl Extract {
 
     /// Every subject a command named and this reader could not, from **both** readers.
     ///
-    /// ⚠ **The fold that was missing, and the headline it moved.** Two readers keep two
+    /// The fold that was missing, and the headline it moved. Two readers keep two
     /// accounts — the shell's undetermined words, Python's computed paths and refused
     /// uses — and for a while only the first was added up. Python's undetermined
     /// subjects outnumber the shell's, so "of all uses" was a rate over a denominator
@@ -469,7 +469,7 @@ impl Extract {
             + self.bounded.values().sum::<usize>()
             + self.located.values().sum::<usize>()
             + self.python.unresolved.values().sum::<usize>()
-            // ⚠ **Bounded, but NOT located, and they are not two accounts here.** Python
+            // Bounded, but NOT located, and they are not two accounts here. Python
             // records both for the same operation when the candidates share a directory — the
             // set IS the language and the directory is a fact about it — where the shell's two
             // maps are exclusive. Adding both would count such an operation twice.
@@ -482,7 +482,7 @@ impl Extract {
 
 /// The words the shell would have run, without the keyword that introduced them.
 ///
-/// ⚠ **`do` never ran.** `for f in a.log; do wc -l "$f"; done` is three commands to
+/// `do` never ran. `for f in a.log; do wc -l "$f"; done` is three commands to
 /// this parser, and the body's words arrive as `["do", "wc", "-l", "a.log"]` because
 /// `shell.pest` has no rule for a keyword — deliberately, since a rule would have to
 /// decide whether `echo done` ends a loop. Classification is unaffected, but a
@@ -585,7 +585,7 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
         | Op::RemoteRun { .. }
         | Op::Python { .. }
         | Op::JavaScript { .. } => Vec::new(),
-        // ⚠ **The direction of the database file comes from the STATEMENTS.**
+        // The direction of the database file comes from the STATEMENTS.
         // `sqlite3 x.db 'SELECT …'` and `sqlite3 x.db 'DELETE …'` are the same argv shape,
         // and calling both a read would credit every deletion as a lookup.
         //
@@ -620,7 +620,7 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
 
 /// Cut an expanded word into shell words, splitting ONLY inside `produced`.
 ///
-/// ⚠ **Whitespace that was in the word all along does not split it.** It got there by
+/// Whitespace that was in the word all along does not split it. It got there by
 /// being quoted — `'a b'` is one word in any shell — so cutting on it invents words
 /// the shell never ran (#1195).
 fn split_produced(expanded: &str, produced: &[(usize, usize)]) -> Vec<String> {
@@ -697,8 +697,8 @@ fn turned_down(argv: &[String], refused: &[String]) -> bool {
 
 /// Whether this `cd` would enter a directory the line says it is already in.
 ///
-/// ⚠ **The rule that makes the transcript's `cwd` usable without settling what it
-/// means.** On single-call lines beginning with a relative `cd X`, some carry the
+/// The rule that makes the transcript's `cwd` usable without settling what it
+/// means. On single-call lines beginning with a relative `cd X`, some carry the
 /// directory the command *started* in and some the one it *ended* in — both
 /// readings, in the same transcript, at the same CLI version (memview#449).
 ///
@@ -739,7 +739,7 @@ fn already_there(argv: &[String], here: Option<&str>) -> bool {
 /// As [`extract`], and keeping [`Extract::steps`]: the same walk, saying what it did
 /// as it did it.
 ///
-/// ⚠ **A separate entry point rather than the default**, because the corpus runs this
+/// A separate entry point rather than the default, because the corpus runs this
 /// hundreds of thousands of times in one pass and a step per command is a hundred
 /// megabytes nobody asked for.
 pub fn trace(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
@@ -748,7 +748,7 @@ pub fn trace(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
 
 /// Resolve one carried program's file uses against the shell's directory.
 ///
-/// ⚠ **The rules here belong to the SHELL, not to the language**: which directory a
+/// The rules here belong to the SHELL, not to the language: which directory a
 /// relative path is read against, and whether a word may be a path at all. Both
 /// readers go through this one function so the two languages cannot drift apart on
 /// either question.
@@ -766,7 +766,7 @@ fn carried(
 ) -> (usize, crate::program::Refused) {
     let mut kept = 0;
     let mut refused = crate::program::Refused::default();
-    // ⚠ **The loop closes here.** A program that ran a command ran a shell's worth of
+    // The loop closes here. A program that ran a command ran a shell's worth of
     // work, and until this the whole of it was invisible. Followed at the shell's own
     // directory, because that is where the program was started — and what comes back
     // may be another Python program, which is how `bash -c 'python3 -c "os.system(…)"'`
@@ -815,7 +815,7 @@ fn carried(
         // computed — and a wrong directory is how a real path becomes an
         // invented one.
         let anchored = used.path.starts_with('/') || used.path.starts_with('~');
-        // ⚠ **Each refusal is recorded, not dropped.** A use turned away here left no trace
+        // Each refusal is recorded, not dropped. A use turned away here left no trace
         // at all until memview#824, so a program that named a file this layer would not
         // resolve counted exactly as a program that named none.
         if !anchored && program.chdir {
@@ -859,8 +859,8 @@ fn extract_nested(
     // never be substituted as one. See [`Extract::bounded`].
     let mut patterns: BTreeMap<Vec<usize>, BTreeMap<String, String>> = BTreeMap::new();
 
-    // ⚠ **The `&&`s a loop's exit status cannot reach were demoted when the
-    // loop was run out, not here.** A loop reports only its LAST iteration's
+    // The `&&`s a loop's exit status cannot reach were demoted when the
+    // loop was run out, not here. A loop reports only its LAST iteration's
     // status, so every earlier iteration's `&&` is unconfirmable — and that is
     // only visible once the body exists as one copy per value, which is why
     // `project::run_out` applies `forget_discarded_status` after unrolling
@@ -869,12 +869,12 @@ fn extract_nested(
     let cmds = &ran.commands;
     for cmd in cmds {
         let here = current(&dirs, &cmd.scope);
-        // ⚠ **Expansion happens before anything else looks at the words**, so
+        // Expansion happens before anything else looks at the words, so
         // every stage below — the verb table, the path guard, the nested parse —
         // sees the command the shell would have run. A name nobody bound is left
         // written as it was and refused later, exactly as before.
         let env = visible(&binds, &cmd.scope);
-        // ⚠ **An unquoted expansion becomes SEVERAL words, and a quoted one never does.**
+        // An unquoted expansion becomes SEVERAL words, and a quoted one never does.
         // `A="adb -s host"; $A logcat` runs `adb` with three arguments; `"$A" logcat` looks
         // for a program whose whole name is `adb -s host`. The two are one string by the
         // time they get here, so [`crate::shell::Simple::split`] carries the difference
@@ -987,7 +987,7 @@ fn extract_nested(
             continue;
         }
 
-        // ⚠ **The confession comes out of the same walk as the operation**, not from a
+        // The confession comes out of the same walk as the operation, not from a
         // second pass over the words: which of a command's words were even *subjects* is
         // the flag table's answer, and asking it twice is how two answers come to disagree.
         let mut unnamed = Vec::new();
@@ -998,7 +998,7 @@ fn extract_nested(
             here.as_deref(),
             home,
         );
-        // ⚠ **A glob loop bounds what its variable ranges over**, so a body that refuses
+        // A glob loop bounds what its variable ranges over, so a body that refuses
         // `$f` is not the same admission as one refusing `$(git …)`. Recorded here rather
         // than in the path guard because only the walk knows which loop is standing over
         // this command. Every enclosing scope, not just this one — a body that opens a
@@ -1009,7 +1009,7 @@ fn extract_nested(
         let (mut refused_here, mut bounded_here) = (Vec::new(), Vec::new());
         let mut located_here = Vec::new();
         for word in unnamed {
-            // ⚠ **A glob bound is tried FIRST and wins**, because it carries the
+            // A glob bound is tried FIRST and wins, because it carries the
             // locus as well as the language — filing a bounded subject as merely
             // located would throw away the half that makes it falsifiable.
             match bounded_by(&word, &over, here.as_deref(), home) {
@@ -1023,7 +1023,7 @@ fn extract_nested(
                         located_here.push(dir);
                     }
                     None => {
-                        // ⚠ **Classified HERE, where the bindings are still in hand** (memview#1450).
+                        // Classified HERE, where the bindings are still in hand (memview#1450).
                         // `unnamed` is keyed by word and aggregated across every script, so by the time
                         // anything reads it the scope is gone and this question cannot be asked at all.
                         //
@@ -1037,7 +1037,7 @@ fn extract_nested(
                             .iter()
                             .any(|name| bound_names(&binds, &cmd.scope).contains(name))
                         {
-                            // ⚠ **ANY, not all.** One name the script binds is
+                            // ANY, not all. One name the script binds is
                             // enough: the word cannot be answered by a lookup
                             // even if every other part of it could be.
                             Refused::BoundInScript
@@ -1054,7 +1054,7 @@ fn extract_nested(
                 },
             }
         }
-        // ⚠ **Pushed before the operation is carried out**, so that a wrapper
+        // Pushed before the operation is carried out, so that a wrapper
         // stands in front of the commands it opens instead of behind them. Its
         // files are attached afterwards, once it is known which of them are this
         // command's own.
@@ -1079,7 +1079,7 @@ fn extract_nested(
             // producing a file: the scope's own directory moves, and no
             // enclosing one does.
             Op::ChangeDir { to } => {
-                // ⚠ **A move the shell refused is not a move.** Everything after `cd nope` ran
+                // A move the shell refused is not a move. Everything after `cd nope` ran
                 // where it already was, so applying this would file each of its relative paths
                 // under a directory that does not exist. Only ever known from the call's own
                 // output; see [`crate::doing::refused_dirs`].
@@ -1098,8 +1098,8 @@ fn extract_nested(
                 if name == "cd" {
                     dirs.insert(cmd.scope.clone(), None);
                 }
-                // ⚠ **A call to a function THIS TEXT declares is not a command nobody taught the
-                // table** — it is one nobody ever could, since `probe` is a different function in
+                // A call to a function THIS TEXT declares is not a command nobody taught the
+                // table — it is one nobody ever could, since `probe` is a different function in
                 // every script that declares one. It was the largest single category on the
                 // worklist, and every one of them work that cannot be done (memview#1124).
                 //
@@ -1110,7 +1110,7 @@ fn extract_nested(
                     *out.local.entry(name.clone()).or_insert(0) += 1;
                     continue;
                 }
-                // ⚠ **A name that is STILL an expansion has already been through `expand`**, so
+                // A name that is STILL an expansion has already been through `expand`, so
                 // nobody bound it in this text and no table entry could ever match it.
                 //
                 // Recorded WITHOUT skipping the rest of the loop, because the activity is pushed at
@@ -1241,7 +1241,7 @@ fn extract_nested(
                 out.javascript.refused.merge(&refused);
                 out.javascript.absorb(program);
             }
-            // ⚠ **Read here as well as in `files_of`, and that is not a double count.**
+            // Read here as well as in `files_of`, and that is not a double count.
             // `files_of` asks whether the database file is read or changed and answers in
             // FILES; this asks what tables the statements named and answers in tables.
             Op::Sql { source, .. } => {
@@ -1259,7 +1259,7 @@ fn extract_nested(
             }
         }
         if let Some(at) = at {
-            // ⚠ **A wrapper claims its redirects and stops there.** Everything pushed after
+            // A wrapper claims its redirects and stops there. Everything pushed after
             // them came from the script it opened, and those commands have steps of their own —
             // attributing them here as well would show one write twice.
             let (files_to, away_to) = match op {
@@ -1293,7 +1293,7 @@ fn glob_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
     }
-    // ⚠ Not [`determinate`], which refuses `*` — that is precisely what makes these
+    // Not [`determinate`], which refuses `*` — that is precisely what makes these
     // loops unrunnable, and testing for it rejects the whole population. What must be
     // absent is an *expansion*: a `$` or a backtick leaves the pattern itself unknown,
     // and a brace expands one word into several.
@@ -1333,15 +1333,15 @@ fn ranging(
 /// `${name%SUFFIX}` against a pattern that literally ends in `SUFFIX`, as the text
 /// it leaves behind.
 ///
-/// ⚠ **The one transduction that needs no automaton, which is why it is the only one
-/// taken.** [`bounded_by`] refuses `${f%%:*}` because honouring a rational function
+/// The one transduction that needs no automaton, which is why it is the only one
+/// taken. [`bounded_by`] refuses `${f%%:*}` because honouring a rational function
 /// of a language needs machinery this reader does not build. When the SUFFIX is
 /// literal and the pattern ends in exactly that text, removing it is deleting a
 /// known tail from a known string, and every member of `L(P·S)` maps into `L(P)` by
 /// construction.
 ///
-/// ⚠ **A suffix holding a glob metacharacter is refused, and the soundness rests on
-/// that guard.** `${f%*}` strips the SHORTEST match of `*`, the empty string — so a
+/// A suffix holding a glob metacharacter is refused, and the soundness rests on
+/// that guard. `${f%*}` strips the SHORTEST match of `*`, the empty string — so a
 /// pattern ending in `*` would be "truncated" to something the shell never produces.
 ///
 /// `%%` needs no separate rule: longest and shortest match coincide when there is no
@@ -1371,7 +1371,7 @@ fn truncation(word: &str, name: &str, pattern: &str) -> Option<(String, String)>
 
 /// The pattern a refused word is a subset of, if a glob loop bound its name.
 ///
-/// ⚠ **A plain substitution keeps the bound, and so does exactly one operator.** `$f`
+/// A plain substitution keeps the bound, and so does exactly one operator. `$f`
 /// and `$f/package.json` are the pattern and the pattern concatenated with a literal
 /// — both regular, both honestly stateable. `${f%%:*}` is a *rational transduction*
 /// of it, which needs the automaton this deliberately does not build.
@@ -1384,7 +1384,7 @@ fn bounded_by(
     home: &str,
 ) -> Option<String> {
     for (name, pattern) in patterns {
-        // ⚠ **The one transduction that needs no automaton.** See [`truncation`].
+        // The one transduction that needs no automaton. See [`truncation`].
         if let Some((whole, base)) = truncation(word, name, pattern) {
             let put = word.replace(&whole, &base);
             if put.contains('$') {
@@ -1419,7 +1419,7 @@ fn bounded_by(
 
 /// The directory a finite-set generator walks, when the text names it.
 ///
-/// ⚠ **`git ls-files` and `git diff` look alike and are not one rule.** `ls-files`
+/// `git ls-files` and `git diff` look alike and are not one rule. `ls-files`
 /// with no pathspec lists what is tracked at or below the working directory, printed
 /// relative to it — so the cwd is its locus. `git diff --name-only` and `git status`
 /// print relative to the REPOSITORY ROOT wherever they run, and this reader does not
@@ -1460,7 +1460,7 @@ fn generated_in(word: &str) -> Option<&str> {
 /// * **the last `/` must not be at position 0.** `/$p/x` says only that the answer
 ///   is somewhere on the filesystem, and a locus that excludes nothing is not one.
 fn locus_of(word: &str, cwd: Option<&str>, home: &str) -> Option<String> {
-    // ⚠ **Before the whitespace guard, because a generator is nothing but whitespace.**
+    // Before the whitespace guard, because a generator is nothing but whitespace.
     // `$(find . -name '*.ts')` is a walk over a directory the text names, and the guard
     // below exists to keep jq filters out — it would throw this away with them.
     if let Some(dir) = generated_in(word) {
@@ -1496,7 +1496,7 @@ fn keepable(value: &str) -> bool {
 /// rather than the variable. The unknown part of a value must not hide the known
 /// part.
 ///
-/// ⚠ **A name bound twice to different values becomes unknown, and stays unknown.**
+/// A name bound twice to different values becomes unknown, and stays unknown.
 /// "The last assignment wins" looks obvious reading top to bottom, but the moment a
 /// branch or a loop is involved it is a guess, and this reader takes no branches.
 /// `python.rs` drew the same line for the same reason.
@@ -1546,7 +1546,7 @@ fn visible(
 
 /// Every name a visible scope BINDS, valued or not.
 ///
-/// ⚠ **Deliberately not [`visible`], which REMOVES a name bound to `None`.** That
+/// Deliberately not [`visible`], which REMOVES a name bound to `None`. That
 /// removal is right for expansion: a binding the reader distrusts must shadow an
 /// outer valued one. It is wrong for the question this answers — *is the name the
 /// script's own?* A binding with no value is still a binding, and still means no

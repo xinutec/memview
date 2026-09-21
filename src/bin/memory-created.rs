@@ -2,17 +2,17 @@
 //!
 //!     cargo run --release --bin memory-created
 //!
-//! ⚠ **This replaces an ad-hoc python script that lived in the DATA directory.**
+//! This replaces an ad-hoc python script that lived in the DATA directory.
 //! `~/.claude/memview/memory-created.py` wrote its output to `/tmp` and existed
 //! in no repository, so nothing could find what made the artefact beside it —
 //! "a derived artefact with no repo is one nobody can trace" (memview#1240).
 //!
-//! ⚠ **And it is more correct than the script**, not merely relocated: the shell
+//! And it is more correct than the script, not merely relocated: the shell
 //! arm goes through `reader::shell_files` rather than tokenising a command on
 //! `>`, `tee` and `mv`. A heredoc, a `tee -a`, or a redirect glued to the word
 //! before it are writes the string test misses.
 //!
-//! ⚠ **The dates themselves now live in each memory's frontmatter** — see
+//! The dates themselves now live in each memory's frontmatter — see
 //! `memory-dated`, which is what a reader should use. This file exists so the
 //! frontmatter can be rebuilt, and so a memory since DELETED still has its date
 //! recorded somewhere.

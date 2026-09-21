@@ -3,7 +3,7 @@
 //! The index is edited in place and versioned nowhere before 2026-08-14, so what it
 //! CONTAINED on a given day exists only where a session happened to read it back.
 //!
-//! ⚠ **This was believed unrecoverable and it is not.** The artefact it rebuilds
+//! This was believed unrecoverable and it is not. The artefact it rebuilds
 //! carried a note calling the baseline perishable — the premise memview#1240
 //! refuted. It was unrecomputable because nobody had written this, not because the
 //! evidence had gone.
@@ -38,7 +38,7 @@ pub fn day_of(stamp: &str) -> Option<&str> {
 
 /// Pull the memory names out of one rendering of the index.
 ///
-/// ⚠ **Link targets only, never prose.** An entry is `[label](name.md)` and the
+/// Link targets only, never prose. An entry is `[label](name.md)` and the
 /// labels carry arbitrary text, file names in backticks among it. Reading
 /// anything but the parenthesised target would count a memory that is merely
 /// MENTIONED as one that is indexed — the exact distinction the demotion study
@@ -72,7 +72,7 @@ pub fn names_in(text: &str) -> BTreeSet<String> {
 impl Readings {
     /// Fold one reading in, keeping the day's LAST.
     ///
-    /// ⚠ **Chosen by timestamp, never by arrival.** Transcripts are walked file
+    /// Chosen by timestamp, never by arrival. Transcripts are walked file
     /// by file, so readings reach this out of order and "whatever landed last"
     /// would pick a different day's winner on a different filesystem. And it is
     /// the last rather than the largest deliberately: the index is edited

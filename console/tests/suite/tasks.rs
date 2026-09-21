@@ -50,7 +50,7 @@ use axum::response::IntoResponse;
 
 /// A reader pointed at `address`.
 ///
-/// ⚠ **Told where to look, rather than through `TASKS_URL`.** These tests run in
+/// Told where to look, rather than through `TASKS_URL`. These tests run in
 /// parallel in one process, and an environment variable is shared by all of
 /// them: setting it per test had each stub answering somebody else's reader.
 fn reading(address: SocketAddr) -> Tasks {
@@ -58,7 +58,7 @@ fn reading(address: SocketAddr) -> Tasks {
     // that panics unless the caller remembered something is a trap — see the
     // note there.
     //
-    // ⚠ **Pointed at a store that is not there.** Left at its default this
+    // Pointed at a store that is not there. Left at its default this
     // counts the leftovers in the real `~/.claude/tasks` of whoever is running
     // the suite, so every assertion about which sessions appear would depend on
     // the machine — eleven extra rows on this Mac today, none on a fresh one.
@@ -67,8 +67,8 @@ fn reading(address: SocketAddr) -> Tasks {
 
 /// A directory under the temp dir that belongs to this call and to nothing else.
 ///
-/// ⚠ **Unique per CALL, not per name and not per process, and both of those were
-/// tried.** The failure is always the same one: `remove_dir_all` then
+/// Unique per CALL, not per name and not per process, and both of those were
+/// tried. The failure is always the same one: `remove_dir_all` then
 /// `create_dir_all` is not atomic, so one caller removing the directory between
 /// another's remove and create fails as `AlreadyExists` — which reads as a
 /// defect in whatever was changed last rather than as a race in the harness.
@@ -126,7 +126,7 @@ async fn a_session_that_was_never_handed_anything_is_absent_rather_than_zero() {
 
 #[tokio::test]
 async fn a_session_that_finished_its_list_still_gets_a_row() {
-    // ⚠ The case `open > 0` used to hide, and the reason the rule is now keyed
+    // The case `open > 0` used to hide, and the reason the rule is now keyed
     // on the total: `0/9` is a session that cleared its plate, which is a
     // different fact from never having been given one — and the better of the
     // two to be able to see.
@@ -183,7 +183,7 @@ async fn what_is_left_in_the_store_this_replaced_is_counted_beside_it() {
         swept.sessions["alive"].stray, 3,
         "the dotfiles are not tasks"
     );
-    // ⚠ The one that has cleaned up says nothing rather than zero, so the number
+    // The one that has cleaned up says nothing rather than zero, so the number
     // on a card only ever means there is something to do about it.
     assert_eq!(swept.sessions["cleared"].stray, 0);
 }
@@ -243,7 +243,7 @@ async fn a_list_carries_what_a_row_needs_and_not_the_prose() {
     let (address, _) = serving(vec![("/api/tasks", body)]).await;
     let listed = reading(address).listed("whoever").await;
     assert_eq!(listed.len(), 2);
-    // ⚠ The number arrives as a JSON number and is a string everywhere above
+    // The number arrives as a JSON number and is a string everywhere above
     // this — it is what a session calls a task in its own prose, `#631`.
     assert_eq!(listed[0].id, "631");
     assert_eq!(listed[0].subject, "A slash command becomes prose");
@@ -257,8 +257,8 @@ async fn a_list_carries_what_a_row_needs_and_not_the_prose() {
 
 #[tokio::test]
 async fn a_deadline_and_a_blocker_are_carried_through_as_the_service_decided_them() {
-    // ⚠ **Both `overdue` and `blocked` come from the service and neither may be
-    // worked out here.** `overdue` is answered from the database's clock so the
+    // Both `overdue` and `blocked` come from the service and neither may be
+    // worked out here. `overdue` is answered from the database's clock so the
     // CLI, the app and the digest cannot disagree about what day it is; and
     // `blocked` is NOT `blocked_on` being non-empty — the link is kept after a
     // blocker closes, as a record of how the work went, and stops counting.
@@ -275,7 +275,7 @@ async fn a_deadline_and_a_blocker_are_carried_through_as_the_service_decided_the
     assert_eq!(listed[0].due.as_deref(), Some("2026-08-01"));
     assert!(listed[0].overdue);
     assert!(listed[0].blocked);
-    // ⚠ The ids arrive as NUMBERS and are strings everywhere above this, so a
+    // The ids arrive as NUMBERS and are strings everywhere above this, so a
     // blocker reads as `#92` beside the `id` it names rather than as `92` beside
     // `"412"`.
     assert_eq!(
@@ -316,7 +316,7 @@ async fn a_rank_is_carried_through_and_no_rank_stays_absent() {
     assert_eq!(listed[0].priority, None);
     assert_eq!(listed[1].priority.as_deref(), Some("P3"));
 
-    // ⚠ Absent on the way out as well as in. A `null` here would be a rank a
+    // Absent on the way out as well as in. A `null` here would be a rank a
     // client could draw a placeholder for, on the 98% of rows that have none.
     let out = serde_json::to_string(&listed[0]).expect("serialisable");
     assert!(
@@ -337,7 +337,7 @@ async fn a_task_with_no_prose_offers_none() {
 async fn a_task_with_prose_returns_the_markdown_not_the_html() {
     // Both are sent. The console renders markdown itself — see `rendered.ts` —
     // and taking the HTML would put content outside that renderer's rules.
-    // ⚠ `r###"…"###`, not one or two hashes. The body starts `"## Why`, and
+    // `r###"…"###`, not one or two hashes. The body starts `"## Why`, and
     // that sequence closes BOTH `r#"…"#` and `r##"…"##`. Same trap as the
     // `## Context Usage` fixture in `console/tests/suite/past.rs`.
     let full = r###"{"id":98,"subject":"x","status":"open","assignee":{"kind":"nobody"},"detailed":true,"created_at":"2026-08-08T10:00:00Z","updated_at":"2026-08-08T10:00:00Z","body":"## Why\n\nBecause.","body_html":"<h2>Why</h2>","events":[]}"###;

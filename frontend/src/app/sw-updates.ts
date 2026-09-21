@@ -20,20 +20,20 @@ const RECOVERY_KEY = 'memview.sw-recovery-attempted';
  * `@xinutec/ui-harness/sw-updates`; this is the adapter.
  *
  * The memory corpus is read from a phone, so the shell is cached and the app
- * opens without waiting for the network. ⚠ **ngsw alone would then cache a build
- * that never learns a newer one exists**, which is worse than no caching because
+ * opens without waiting for the network. ngsw alone would then cache a build
+ * that never learns a newer one exists, which is worse than no caching because
  * it looks fine. That is why the update path arrives in the same change
  * (dev-lint#1384).
  *
- * ⚠ **This is `memview-web` only. `console-web` in `projects/` has none**, and
+ * This is `memview-web` only. `console-web` in `projects/` has none, and
  * that is a decision rather than an oversight: the console is PUBLISHED on its
  * own schedule and upgrading it is already known not to change what the phone
  * loads, so putting a second cache in front of that is a question to answer on
- * its own rather than a line to copy. ⚠ The absent-check reads the
+ * its own rather than a line to copy. The absent-check reads the
  * `serviceWorker` setting from ANY build target in the workspace, so it is green
  * either way — it cannot tell you which app you wired.
  *
- * ⚠ **No dataGroups.** A memory is read to be believed; one served from cache
+ * No dataGroups. A memory is read to be believed; one served from cache
  * after the corpus moved is a wrong answer rather than a slow one. The shell is
  * cached, the app opens offline, and it shows nothing.
  *

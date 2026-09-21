@@ -148,7 +148,7 @@ describe('SessionStore', () => {
   });
 
   it('lets go of what it was doing when the stream starts again', () => {
-    // ⚠ **A turn that ends during a reconnect ends for nobody.** `doing` is
+    // A turn that ends during a reconnect ends for nobody. `doing` is
     // cleared by the `turn` event, so a console that replaced itself mid-turn
     // left the page showing a session working, timer running, for as long as it
     // stayed open — while the front page, reading the runner's own flag, said
@@ -169,7 +169,7 @@ describe('SessionStore', () => {
   });
 
   it('does not let the replayed transcript answer for the present', () => {
-    // ⚠ **The defect this exists for, reported from the phone:**
+    // The defect this exists for, reported from the phone:
     // the page said `idle` for twelve minutes over a session that was working
     // the whole time, so messages sent to it looked like messages going nowhere.
     //
@@ -201,7 +201,7 @@ describe('SessionStore', () => {
   });
 
   it('closes the stream when the reader jumps, so nothing is appended under the past', () => {
-    // ⚠ **The reason a jump is not just another page.** Left running, the next
+    // The reason a jump is not just another page. Left running, the next
     // thing the session said would land under an hour-old page with nothing
     // between them and no way to tell the join from a continuation.
     const held = store.open('jumper');
@@ -274,13 +274,13 @@ describe('SessionStore', () => {
   });
 
   describe('a stream that drops', () => {
-    // ⚠ **The browser retries on its own, about every three seconds** — measured
+    // The browser retries on its own, about every three seconds — measured
     // against the phone-width harness, whose mocked stream ends at once and was
     // re-requested five times in fifteen seconds. So a marker on the raw state
     // would blink at a reader whose connection is fine. What is drawn is
     // CONTINUOUS loss.
     //
-    // ⚠ Fake timers are installed and removed AROUND each test rather than inside
+    // Fake timers are installed and removed AROUND each test rather than inside
     // it: a failed assertion skips whatever follows it, and one leaked set of fake
     // timers stalled the next three tests into their own timeouts.
     beforeEach(() => vi.useFakeTimers());

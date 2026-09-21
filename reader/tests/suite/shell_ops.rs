@@ -139,7 +139,7 @@ fn staging_is_named_rather_than_dropped() {
 
 #[test]
 fn an_unknown_command_names_itself_so_the_gap_can_be_counted() {
-    // ⚠ This has been `ffmpeg`, then `verified_cli`, each replaced because the
+    // This has been `ffmpeg`, then `verified_cli`, each replaced because the
     // example got taught. Whatever stands here is a
     // placeholder for the next thing to teach, and that is the point of the
     // variant: a gap that names itself can be counted and worked down. This
@@ -209,7 +209,7 @@ fn a_python_script_file_keeps_its_heredoc_as_input() {
 
 #[test]
 fn a_versioned_interpreter_is_still_python() {
-    // ⚠ The table matched `python` and `python3` as literals, so `python3.12`
+    // The table matched `python` and `python3` as literals, so `python3.12`
     // produced no `Op::Python` at all — absent from every Python report rather
     // than wrong in one, which is the failure a coverage figure cannot show.
     assert_eq!(
@@ -240,7 +240,7 @@ fn a_nixpkgs_attribute_is_not_an_interpreter() {
 
 #[test]
 fn a_flag_cluster_still_names_the_script() {
-    // ⚠ `-lc` is `-l` and `-c`, not a flag called `lc`. Testing the token for
+    // `-lc` is `-l` and `-c`, not a flag called `lc`. Testing the token for
     // equality with "-c" missed 120 of the corpus's 10,053 shell `-c`
     // invocations, and missed them silently — see `shell_c_value`.
     assert_eq!(
@@ -259,7 +259,7 @@ fn a_flag_cluster_still_names_the_script() {
 
 #[test]
 fn the_commands_that_name_no_file_say_so_rather_than_going_unread() {
-    // ⚠ **`Op::Nothing` and `Op::Unknown` are different claims**, and the whole
+    // `Op::Nothing` and `Op::Unknown` are different claims, and the whole
     // worklist depends on the difference: one says "understood, touches no
     // file", the other says "not read yet". `task` was 12,761 calls at the top
     // of the unread list, three times the next entry, and it is a work queue
@@ -293,7 +293,7 @@ fn ffmpeg_reads_its_inputs_and_writes_its_last_operand() {
             to: "/home/example/Code/health/enhanced.wav".to_string(),
         }
     );
-    // ⚠ **`-f null -` writes no file, and the guard is what says so** — a
+    // `-f null -` writes no file, and the guard is what says so — a
     // reading that took "the last operand" literally would record a write to a
     // file called `-`.
     assert_eq!(
@@ -314,7 +314,7 @@ fn ffmpeg_reads_its_inputs_and_writes_its_last_operand() {
 
 #[test]
 fn an_archives_members_are_not_files_on_this_machine() {
-    // ⚠ `FS/data/misc/bluetooth/logs/*` has slashes, so every path test passes
+    // `FS/data/misc/bluetooth/logs/*` has slashes, so every path test passes
     // it — and it names something INSIDE the zip. Only the archive is a file
     // here, and `-d extracted` is a directory, which this table does not
     // attribute.
@@ -336,7 +336,7 @@ fn a_digest_reads_what_it_is_given_and_a_subcommand_is_not_a_path() {
             ],
         }
     );
-    // ⚠ `openssl x509 -noout -enddate` reads its certificate from a PIPE, and
+    // `openssl x509 -noout -enddate` reads its certificate from a PIPE, and
     // the guard is what keeps `x509` and `-enddate` from becoming filenames.
     assert_eq!(
         one("openssl x509 -noout -enddate"),
@@ -352,7 +352,7 @@ fn a_digest_reads_what_it_is_given_and_a_subcommand_is_not_a_path() {
 
 #[test]
 fn screen_writes_when_it_is_asked_to_and_not_otherwise() {
-    // ⚠ The reason that list was checked command by command rather than swept:
+    // The reason that list was checked command by command rather than swept:
     // 222 of `screen`'s calls are `-X hardcopy /tmp/…`, which writes a real
     // file. Filing it under "touches no file" would have deleted those, and
     // nothing downstream could have noticed.
@@ -384,7 +384,7 @@ fn a_converter_that_names_both_ends_in_flags_has_no_operand() {
 
 #[test]
 fn perl_with_an_in_place_flag_rewrites_its_operands() {
-    // ⚠ **3,300 of the corpus's perl calls are this**, and reading `perl` as an
+    // 3,300 of the corpus's perl calls are this, and reading `perl` as an
     // interpreter recorded the file it rewrites as a script it RAN — a read,
     // against a file that was being written. The flag is spelled `-0pi` 2,114
     // times and `-pi` 1,028, so a `starts_with("-i")` test sees none of them.
@@ -409,8 +409,8 @@ fn perl_with_an_in_place_flag_rewrites_its_operands() {
 
 #[test]
 fn a_value_carrying_an_i_is_not_an_in_place_flag() {
-    // ⚠ **The concept census surfaced `perl -Itest/lib -e '…'` lifted as a
-    // Rewrite**: the `i` in `lib` — a character of
+    // The concept census surfaced `perl -Itest/lib -e '…'` lifted as a
+    // Rewrite: the `i` in `lib` — a character of
     // `-I`'s attached VALUE — read as the in-place flag. `in_place` decides
     // the operands' direction, so the file this command read was recorded as
     // one it rewrote. A cluster's letters end where a value-taking flag
@@ -448,7 +448,7 @@ fn perl_without_the_flag_only_reads() {
 
 #[test]
 fn a_container_payload_that_is_not_a_shell_stays_an_argv() {
-    // ⚠ **memview#1028, and it was 700 of the 769 nested refusals.** `kubectl
+    // memview#1028, and it was 700 of the 769 nested refusals. `kubectl
     // exec` hands its words to `exec()`; no shell re-splits them and no shell
     // removes a quote. Joining them back into one string and parsing THAT as
     // shell put SQL in front of the shell grammar, where `ROW_COUNT()` reads as
@@ -510,8 +510,8 @@ fn a_clustered_flag_is_not_glued_onto_a_remote_payload() {
     );
 }
 
-/// ⚠ **`jq --arg NAME VALUE` consumes TWO words, and skipping one shifted every
-/// operand after it.** The value became the first operand and was recorded as
+/// `jq --arg NAME VALUE` consumes TWO words, and skipping one shifted every
+/// operand after it. The value became the first operand and was recorded as
 /// the jq program — `2026-01-01` and `5` appear in the corpus census that way —
 /// while the real filter fell through to the path list, where its `$name` made
 /// it an unnamed file subject. 146 phantom subjects across the corpus, and a
@@ -579,7 +579,7 @@ fn a_flag_taking_one_value_still_eats_one() {
     assert!(unnamed.is_empty());
 }
 
-/// ⚠ **`--slurpfile NAME FILE` loads that file, and the fix must not lose it.**
+/// `--slurpfile NAME FILE` loads that file, and the fix must not lose it.
 /// Before `Flags::pair_file`, the flag was unmodelled: its two words fell
 /// through as operands, which put the file in the read set BY ACCIDENT and
 /// recorded the NAME as jq's program. Skipping both words would have tidied the
@@ -632,7 +632,7 @@ fn arithmetic_is_not_a_subject_the_reader_could_not_name() {
     );
 }
 
-/// ⚠ **The boundary, and the reason the test is narrow.** A path CONTAINING
+/// The boundary, and the reason the test is narrow. A path CONTAINING
 /// arithmetic is still a path, and dropping it would delete a real subject to
 /// make the opacity figure look better — the trade this whole change exists to
 /// avoid.
@@ -673,7 +673,7 @@ fn a_positional_parameter_is_still_a_subject() {
     assert_eq!(unnamed, ["$1"]);
 }
 
-/// ⚠ **A nested `$(( … ))` must be skipped WHOLE.** Stopping at the first `)`
+/// A nested `$(( … ))` must be skipped WHOLE. Stopping at the first `)`
 /// leaves `* c ))` behind, and a stray paren is not in the set of characters an
 /// arithmetic operand may leave — so the word would read as a path again. Found
 /// while rewriting the scan for a clippy lint: the lint was about style and the
@@ -700,7 +700,7 @@ fn nested_arithmetic_is_skipped_whole() {
 
 /// A word that spans lines is a program body, not a file subject.
 ///
-/// ⚠ **The population is real and it is one command shape.** Count it with
+/// The population is real and it is one command shape. Count it with
 /// `--example body-subjects`: nearly every use is `perl /tmp/wire.pl <file>
 /// '<TypeScript body>'` — a local script whose second argument is source text.
 /// It reaches `unnamed`
@@ -730,7 +730,7 @@ fn a_program_body_spanning_lines_is_not_a_file_subject() {
         unnamed.is_empty(),
         "a program body counted as a file nobody could name: {unnamed:?}"
     );
-    // ⚠ **And the file it edits is still credited.** Dropping the body must not
+    // And the file it edits is still credited. Dropping the body must not
     // cost the operand beside it, which is the only way this fix could pay for
     // a better number with a real read.
     match op {
@@ -782,7 +782,7 @@ fn ss_names_no_file() {
 /// `mysqladmin` is `mariadb-admin` under its old name — 284 calls, 5 distinct
 /// spellings, every one a `ping` with connection flags.
 ///
-/// ⚠ **`--socket=/…/mysqld.sock` IS a path**, and it is a path this reading
+/// `--socket=/…/mysqld.sock` IS a path, and it is a path this reading
 /// throws away. It survives only because the flag is glued (`--socket=…`), so no
 /// operand is left behind; the day one is written `--socket /path`, this entry
 /// is where it goes wrong quietly. Same shape as the `wg setconf` note above.
@@ -814,8 +814,8 @@ fn verified_cli_names_no_file() {
 
 /// `replay` reads one session directory, named positionally.
 ///
-/// ⚠ **The mode flags take NO value, and guessing from their names got this
-/// backwards.** `--words <dir>` reads as though `--words` were valued; the
+/// The mode flags take NO value, and guessing from their names got this
+/// backwards. `--words <dir>` reads as though `--words` were valued; the
 /// source (`scanner/server/src/bin/replay.rs`) shows `--words`, `--slots`,
 /// `--tables`, `--pdf`, `--paper`, `--bands` are bare `flag("--x")` tests and
 /// the directory is the only positional. Reading the source did not confirm the
@@ -832,7 +832,7 @@ fn replay_reads_the_session_directory() {
     }
 }
 
-/// ⚠ **The boundary: `--page N` is the one flag that DOES take a value**, and a
+/// The boundary: `--page N` is the one flag that DOES take a value, and a
 /// bare `2` left as an operand would resolve against the cwd into a file called
 /// `2` that nothing ever touched.
 #[test]
@@ -847,7 +847,7 @@ fn replays_page_number_is_not_a_file() {
     }
 }
 
-/// ⚠ **A kind for a caller that has no business with flag tables**, and the
+/// A kind for a caller that has no business with flag tables, and the
 /// obvious way to give it one is a build failure: [`Verb`] carries [`Flags`], so
 /// making it public emits `private_interfaces`, and the gate runs
 /// `-D warnings`. `verb_kind` is the payload-free half (memview#1364).
@@ -860,7 +860,7 @@ fn a_command_name_has_a_kind_without_exposing_its_flag_table() {
     assert_eq!(verb_kind("git"), Some("git"));
 }
 
-/// ⚠ **`None` is "not taught yet", the same answer [`verb`] gives** — never a
+/// `None` is "not taught yet", the same answer [`verb`] gives — never a
 /// bucket a stranger falls into. A concept layer reading this must be able to
 /// tell a command the table knows from one it does not.
 #[test]
@@ -869,7 +869,7 @@ fn a_name_nobody_taught_it_has_no_kind_rather_than_a_default() {
     assert_eq!(verb_kind(""), None);
 }
 
-/// ⚠ **The point of the pair: two spellings of one act share a kind.** This is
+/// The point of the pair: two spellings of one act share a kind. This is
 /// what makes `Rewrite` reachable across `sed -i` and `perl -pi` — measured
 /// identical at `Op::Transform { program, in_place }`, and the kind is the
 /// coarse half of the same claim.

@@ -1,6 +1,6 @@
 //! Where memview keeps its own files, as opposed to where Claude Code keeps its.
 //!
-//! ⚠ **`~/.claude` is Anthropic's namespace and we were writing into it.** Nine
+//! `~/.claude` is Anthropic's namespace and we were writing into it. Nine
 //! artefacts of ours sat directly beside Claude Code's own state — mined
 //! rollups, recovered dates, a study's arms — indistinguishable in `ls` from
 //! files the CLI owns and manages. Each was put there because that is where the
@@ -10,7 +10,7 @@
 //! Everything of ours now lives under one directory, so it can be found,
 //! backed up, excluded or moved as one thing.
 //!
-//! ⚠ **This is the only place that names it.** Nine call sites across three
+//! This is the only place that names it. Nine call sites across three
 //! crates each built the path themselves, so a move meant nine edits and any
 //! one of them could be missed silently — a tool would simply find no artefact
 //! and report an empty corpus.
@@ -33,7 +33,7 @@ pub fn dir() -> PathBuf {
 /// One of memview's RECORDS, by name — a file nothing can rebuild, tracked in
 /// git.
 ///
-/// ⚠ **Two files live here and both are frozen for a reason**, not merely
+/// Two files live here and both are frozen for a reason, not merely
 /// unrebuilt: `memory-roles.json` is a model's judgement that memview#884 is
 /// pre-registered on, so re-running it is a different experiment rather than a
 /// refresh, and `trap-admissible.json` holds #1050's arms. `index-history.json`
@@ -46,7 +46,7 @@ pub fn file(name: &str) -> PathBuf {
 
 /// One of memview's CACHES, by name — rebuilt by a command, ignored by git.
 ///
-/// ⚠ **The split is a directory rather than a list, and that is the point.**
+/// The split is a directory rather than a list, and that is the point.
 /// `.gitignore` used to enumerate every derived file, which meant a new artefact
 /// was tracked-by-default and someone had to remember to add a line. It failed
 /// exactly that way once: `trap-admissible.json` sat neither tracked nor
@@ -54,8 +54,8 @@ pub fn file(name: &str) -> PathBuf {
 /// or one cleanup away from either fate. A file written through here lands on
 /// the right side by construction.
 ///
-/// ⚠ **The test for which function to use is not "is it derived" but "does a
-/// rebuild return the same thing, or LESS?"** Run it and diff before moving a
+/// The test for which function to use is not "is it derived" but "does a
+/// rebuild return the same thing, or LESS?" Run it and diff before moving a
 /// file to this side; every name here has a command that was run and compared.
 pub fn cache(name: &str) -> PathBuf {
     dir().join("cache").join(name)
@@ -64,7 +64,7 @@ pub fn cache(name: &str) -> PathBuf {
 /// Claude Code's own directory — its transcripts and corpus, which we READ and
 /// never write.
 ///
-/// ⚠ Kept distinct from [`dir`] on purpose: the whole point of the split is
+/// Kept distinct from [`dir`] on purpose: the whole point of the split is
 /// that a path into Anthropic's tree and a path into ours are different kinds
 /// of thing, and a single `root` variable serving both is how they merged.
 pub fn claude_dir() -> PathBuf {

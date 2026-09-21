@@ -19,7 +19,7 @@ fn corpus(dir: &std::path::Path, index: &str, docs: &[(&str, Option<&str>)]) -> 
     Corpus::load(dir).expect("loads")
 }
 
-/// ⚠ **The finding the artefact exists for**: an index line that has come apart
+/// The finding the artefact exists for: an index line that has come apart
 /// from the memory it describes. Before the teaser lived in the doc, nothing
 /// connected the two.
 #[test]
@@ -35,12 +35,12 @@ fn a_line_that_disagrees_with_its_memory_is_drift() {
     assert_eq!(drifted, vec!["a"]);
     assert_eq!(s.drifted[0].written.as_deref(), Some("stale cue"));
     assert_eq!(s.drifted[0].teaser, "the CURRENT cue");
-    // ⚠ And the assembled file carries the MEMORY's text, not the file's — the
+    // And the assembled file carries the MEMORY's text, not the file's — the
     // whole point is that the memory is the authority on its own cue.
     assert!(render(&s).contains("- [the CURRENT cue](a.md)"));
 }
 
-/// ⚠ **Two absences, and they are not the same claim.** A memory that declares
+/// Two absences, and they are not the same claim. A memory that declares
 /// no teaser cannot be assembled at all, which says nothing about whether it
 /// belongs; a memory that declares one and is not carried says only that
 /// somebody wrote a line for it. Neither is a proposal, and folding them
@@ -67,7 +67,7 @@ fn the_two_kinds_of_absence_are_reported_apart() {
     assert!(!out.contains("(c.md)"), "c must not be admitted: {out}");
 }
 
-/// ⚠ **Order is INHERITED, not decided.** A generated ordering would make every
+/// Order is INHERITED, not decided. A generated ordering would make every
 /// line a diff line and bury the membership findings. So the assembled file
 /// follows the written one, which means a matching order is the algorithm
 /// declining to have an opinion rather than agreeing.

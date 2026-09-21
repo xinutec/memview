@@ -3,13 +3,13 @@ import { Pipe, type PipeTransform } from '@angular/core';
 /**
  * A memory's slug, with a break opportunity after each `_`.
  *
- * ⚠ **CSS cannot do this.** `overflow-wrap: anywhere` is what stops an
+ * CSS cannot do this. `overflow-wrap: anywhere` is what stops an
  * unbreakable slug running off a 412px screen, and it breaks at the last
  * character that fits — so `feedback_no_magic_strings_use_upstream_taxonomy`
  * came out as `…taxonom` / `y`, a lone letter that reads as a rendering fault.
  * `_` is not a break opportunity to any engine, and no property adds one.
  *
- * ⚠ **`<wbr>`, not a zero-width space.** Both offer the break; only the element
+ * `<wbr>`, not a zero-width space. Both offer the break; only the element
  * leaves `textContent` alone. U+200B would ride along in every copied slug, and
  * a slug is copied to be pasted into a command.
  *

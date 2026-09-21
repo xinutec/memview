@@ -1,6 +1,6 @@
 //! What a reader who holds nothing is sent.
 //!
-//! ⚠ **Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`.** That is
+//! Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`. That is
 //! process-wide and a session reads it whenever it recounts — the same reason
 //! `idle.rs` stands alone. Both tests here share ONE directory, set once: two
 //! tests setting it to two scratch paths is a race that reads as this feature
@@ -15,7 +15,7 @@
 //! because a change that quietly stopped doing the second would look exactly like
 //! this one passing.
 //!
-//! ⚠ **`Ask` is the one console-only event that IS put back**, and it has its own
+//! `Ask` is the one console-only event that IS put back, and it has its own
 //! test here. A display that goes missing is a display; a question that goes
 //! missing stops the session. `tests/provenance.rs` is where that distinction is
 //! made once for every event kind, rather than remembered.
@@ -128,7 +128,7 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
     let path = folder.join(format!("{id}.jsonl"));
     let mut lines = vec!["{\"type\":\"system\",\"cwd\":\"/home/example/Code\"}".to_string()];
     for turn in 0..turns {
-        // ⚠ **Stamped, and the test is empty without it.** With no `timestamp`
+        // Stamped, and the test is empty without it. With no `timestamp`
         // the marker and the last line both carry `None`, and an assertion that
         // they match passes by both being absent — a check that cannot fail.
         // Times are a fixed minute apart from a fixed start, so nothing here
@@ -145,13 +145,13 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
 
 /// How long to wait for something that should already be true.
 ///
-/// ⚠ **Do not shrink this to keep the file fast.** The wait returns the moment
+/// Do not shrink this to keep the file fast. The wait returns the moment
 /// the condition holds — the whole file runs in under a second — so the budget
 /// is only ever spent by a genuine hang, and a tight one instead fails on a busy
 /// machine, which is where these tests run. Nothing here is testing a timeout,
 /// so the count is free to be generous.
 ///
-/// ⚠ **A failure here does not mean the code under test broke.** These run
+/// A failure here does not mean the code under test broke. These run
 /// inside `nix build .#sessions`, alongside whatever else is building; CPU load
 /// alone does not reproduce it. tasks#1586 holds what is known.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -224,7 +224,7 @@ async fn a_reader_holding_nothing_is_sent_the_end_of_the_transcript_and_no_more(
         "expected a page and its marker out of 600 turns, got {} events",
         events(&cold)
     );
-    // ⚠ **Dated where the page ends, not when this reader arrived.** Stamped
+    // Dated where the page ends, not when this reader arrived. Stamped
     // with the clock it sat at the foot of the transcript as the newest thing
     // in it, and moved every time the session was opened — a fact about the
     // connection wearing the clothes of a fact about the conversation.
@@ -328,7 +328,7 @@ async fn compressed(addr: std::net::SocketAddr, path: &str) -> (TcpStream, Vec<u
         }
         seen.extend_from_slice(&buffer[..read]);
     }
-    // ⚠ **Raw, not a lossy string.** These bytes are a gzip member, and
+    // Raw, not a lossy string. These bytes are a gzip member, and
     // `from_utf8_lossy` replaces every invalid sequence with U+FFFD — which
     // decodes to nothing at all. Read back as text for the header check only.
     (socket, seen)
@@ -412,7 +412,7 @@ async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
     let addr = serve(roster).await;
     let cold = opening(addr, &format!("/api/sessions/{}/events", session.id)).await;
 
-    // ⚠ **The list and the conversation have to agree.** `Summary::asked` is
+    // The list and the conversation have to agree. `Summary::asked` is
     // computed from the session's own state and says *waiting for you* whatever
     // the stream carried, so a seed that dropped the question left the front
     // page asking and the session showing nothing to answer — seen on a real
@@ -430,7 +430,7 @@ async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
 
 #[tokio::test]
 async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page() {
-    // ⚠ **The ordering is the whole test.** `asked` binds to the first `Prompt`
+    // The ordering is the whole test. `asked` binds to the first `Prompt`
     // seen while nothing is bound, and `adopt` seeds from the transcript right
     // after building its state — so a label restored AFTER the seed, or not at
     // all, is taken by whatever prompt happens to start the last page. Measured
@@ -440,7 +440,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
     let id = "a-session-with-a-page-full-of-prompts";
     let folder = scratch.join("project");
     std::fs::create_dir_all(&folder).expect("project dir");
-    // ⚠ **Opens with plumbing, as real transcripts do.** A `<local-command-caveat>`
+    // Opens with plumbing, as real transcripts do. A `<local-command-caveat>`
     // is not something anybody asked, and `read_recorded` already declines to
     // make it a prompt — so a reader that took the first LINE would name the
     // session after a caveat block.
@@ -500,7 +500,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
     )
     .expect("adopt");
 
-    // ⚠ **Started before the page, and still running.** `execve` leaves the
+    // Started before the page, and still running. `execve` leaves the
     // children alone, so a monitor armed an hour ago is still armed — but its
     // `tool` event is long out of the replayed page, so a re-seed forgets it and
     // the card says nothing is in flight. Carried, like the question and the
@@ -520,7 +520,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
 
 #[tokio::test]
 async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
-    // ⚠ **`None` is the answer, not a fallback.** When a conversation runs out
+    // `None` is the answer, not a fallback. When a conversation runs out
     // of context the CLI opens a fresh transcript with a summary and a
     // `This session is being continued…` message — the harness talking, not
     // Pippijn. Measured on a real conversation: its first user text is hundreds
@@ -578,7 +578,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
         "a continued conversation claimed an origin it does not have"
     );
 
-    // ⚠ **And it has to STAY none.** Three places name a session after a prompt
+    // And it has to STAY none. Three places name a session after a prompt
     // when it has no name — right for a session with no transcript, wrong here:
     // the file was read and had no beginning to give. Without `origin_read` the
     // blank lasts until the next message and the false claim comes straight
@@ -593,7 +593,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
 
 /// The payload out of an HTTP chunked body, as far as it goes.
 ///
-/// ⚠ **Needed before any decoding.** The stream is `Transfer-Encoding: chunked`,
+/// Needed before any decoding. The stream is `Transfer-Encoding: chunked`,
 /// so the bytes on the socket are `size CRLF data CRLF` — feeding those to a gzip
 /// decoder hands it a hex length where a header should be and yields nothing at
 /// all, which reads exactly like a compressor that never flushed. Stops at the

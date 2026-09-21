@@ -6,7 +6,7 @@
 //! when a rule silently fails to match there is nothing in the reader's output
 //! to look at, and guessing which one bailed is how an afternoon disappears.
 //!
-//! ⚠ **A statement is not always the element you would draw.** `for p in xs:`
+//! A statement is not always the element you would draw. `for p in xs:`
 //! is a `binder` holding only `for p` — the `in` and the iterable are separate
 //! elements after it — which is why a rule about what a loop ranges over cannot
 //! be written against the binder alone.

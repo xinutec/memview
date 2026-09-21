@@ -20,7 +20,7 @@
 //! deployment the target is a PVC mount while `/tmp` is the container's own
 //! filesystem.
 //!
-//! ⚠ This is atomicity, not mutual exclusion. Two processes each holding their
+//! This is atomicity, not mutual exclusion. Two processes each holding their
 //! own copy of a whole-file document still lose one of the two updates, whoever
 //! renames last — see `ShareStore`, and #744 for why memview's Deployment is
 //! `Recreate` rather than rolling.
@@ -36,7 +36,7 @@ use anyhow::{Context, Result};
 /// `<name>.tmp` after a crash is recognisable rather than one of a growing pile
 /// of unexplained files. `agents.rs` already treats `.tmp` as leftover litter.
 pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
-    // ⚠ **The directory may not exist yet, and that must not be a failure.**
+    // The directory may not exist yet, and that must not be a failure.
     // The caches moved under `memview/cache/` (#1240), so the first run on a
     // fresh checkout — or with `MEMVIEW_DIR` pointed at a temp dir, which is how
     // every ablation is run — writes into a directory nothing has created. A

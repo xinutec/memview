@@ -15,14 +15,14 @@
 //! — a literal ending in `/` locates, a literal starting with `.` names, and a
 //! literal in the middle of two variables does neither.
 //!
-//! ⚠ **This is lexical and approximate, deliberately, exactly as
-//! `fstring-shapes` is.** It reads the operands immediately around a `+` and
+//! This is lexical and approximate, deliberately, exactly as
+//! `fstring-shapes` is. It reads the operands immediately around a `+` and
 //! renders a non-literal as `*`. It therefore misses `p = a + b` followed by
 //! `open(p)`, which `scope()` handles, and it will read a `+` inside an
 //! unrelated expression as a concatenation when a string literal happens to sit
 //! beside it. Read the buckets against the positioned population, not the total.
 //!
-//! ⚠ **It does NOT call `python::path_shaped`.** Same argument the f-string
+//! It does NOT call `python::path_shaped`. Same argument the f-string
 //! census makes: an instrument that asks the implementation's own question can
 //! never show a shape the implementation gets wrong.
 //!
@@ -40,7 +40,7 @@
 //! slice rather than the f-strings: mostly filenames, rarely a directory. Do not
 //! size a locus-only rule from this.
 //!
-//! ⚠ **The first run of this census reported 1.** `operand` returned the index
+//! The first run of this census reported 1. `operand` returned the index
 //! where its scan STOPPED rather than where the operand BEGAN, so
 //! `in_path_position` asked whether `open(ba` ends with `open(`. A control
 //! corpus of four hand-written programs — three concatenations sitting literally
@@ -134,7 +134,7 @@ fn worth(pattern: &str) -> Worth {
 /// else becomes `*`.
 ///
 /// Returns the operand's text and the index where it BEGINS in source order —
-/// not where the scan stopped. ⚠ Returning the scan end instead is what made the
+/// not where the scan stopped. Returning the scan end instead is what made the
 /// first run of this census report 1 positioned concatenation in the whole
 /// corpus: `in_path_position` looks at the text ENDING at the index it is given,
 /// so a mid-token index asked whether `open(ba` ends with `open(`, which nothing

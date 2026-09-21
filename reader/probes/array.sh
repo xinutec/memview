@@ -73,7 +73,7 @@ for s in "${shapes[@]}"; do
 done
 
 section "2 · where one is legal at all"
-# ⚠ The whole reason the parser needs the command NAME: bash decides by it.
+# The whole reason the parser needs the command NAME: bash decides by it.
 for s in 'x=(a) cmd' 'declare x=(a b)' 'typeset x=(a)' 'export x=(a)' \
          'readonly x=(a)' 'local x=(a)' 'A=1 declare x=(a)' \
          'echo x=(a)' 'cmd x=(a b)' 'echo "x=(a)"'; do

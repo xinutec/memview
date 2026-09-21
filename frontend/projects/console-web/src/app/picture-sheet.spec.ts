@@ -12,13 +12,13 @@ const AT = 'http://10.0.0.2:8917/data/peek/peekA-350-view_top_down.png';
 /**
  * jsdom has no blob URLs, so the two statics are supplied.
  *
- * ⚠ **The two statics, and not the global.** The first cut replaced `URL`
+ * The two statics, and not the global. The first cut replaced `URL`
  * wholesale with `{...URL, createObjectURL, revokeObjectURL}` — a plain object,
  * so every `new URL(…)` in the app under test threw, and `pointedAt` quietly
  * answered `undefined` for a link that was perfectly well formed. The test that
  * caught it was testing something else.
  *
- * ⚠ **The stub still answers `blob:`**, which is the part being measured: whether
+ * The stub still answers `blob:`, which is the part being measured: whether
  * Angular's `[src]` sanitiser lets that scheme reach the element. A stub
  * returning `x` would pass while the real app showed nothing.
  */
@@ -66,7 +66,7 @@ async function open(): Promise<{ host: Element; http: HttpTestingController; don
 
 describe('the picture sheet', () => {
   it('asks the console for the picture, rather than the address it was written at', async () => {
-    // ⚠ **The whole reason this exists.** The phone cannot reach the LAN those
+    // The whole reason this exists. The phone cannot reach the LAN those
     // addresses name; the Mac can, and the phone is already talking to it.
     const { http, done } = await open();
 
@@ -92,7 +92,7 @@ describe('the picture sheet', () => {
   });
 
   it('says what the console said, not what the status was', async () => {
-    // ⚠ **The failure arrives as a `Blob`, because the request asked for one.**
+    // The failure arrives as a `Blob`, because the request asked for one.
     // Without reading it back the person sees "the runner answered 502", which
     // names neither of the two things it actually means.
     const { host, http, done } = await open();

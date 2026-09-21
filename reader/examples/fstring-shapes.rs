@@ -13,8 +13,8 @@
 //! anything. A bare `f"{p}"` renders `*` and buys nothing; `f"{root}/out.json"`
 //! has no locus but a real language; `f"logs/{d}/x.log"` has both.
 //!
-//! ⚠ **This classifies the TEXT of every f-string in every Python program the
-//! chain read, NOT only those in a file operation's path argument.** The
+//! This classifies the TEXT of every f-string in every Python program the
+//! chain read, NOT only those in a file operation's path argument. The
 //! reader's own traversal is what decides that, and asking it here would mean
 //! rebuilding it. So this sizes the SHAPE question — how much literal text do
 //! interpolated strings carry — and the exact subset is what the change itself
@@ -33,7 +33,7 @@
 //! So roughly **226 of 289 would gain a real answer**, and reading the
 //! unfiltered total instead would have sized the same rule at 2.6%.
 //!
-//! ⚠ **289 is a LOWER bound on the population, not the population.** This
+//! 289 is a LOWER bound on the population, not the population. This
 //! matches an f-string sitting directly inside `open(`/`Path(`/…, so it misses
 //! `p = f"…"` followed by `open(p)` entirely — which `scope()` handles and which
 //! is common. The reader's own count of the category is 601 (#1142).
@@ -57,7 +57,7 @@ enum Worth {
 
 /// Render an f-string body as a glob, `{…}` becoming `*`.
 ///
-/// ⚠ **Nesting is not followed and does not need to be.** A format spec
+/// Nesting is not followed and does not need to be. A format spec
 /// (`{x:>3}`) and a nested brace both end at the first `}` for this purpose:
 /// everything between the braces is unknown either way, and the point is the
 /// text OUTSIDE them.
@@ -87,13 +87,13 @@ fn pattern(inner: &str) -> String {
     out
 }
 
-/// ⚠ **"Has literal text" is NOT "is a path", and reading it that way put 94.5%
-/// of the corpus's f-strings in the language bucket on the first run.** What
+/// "Has literal text" is NOT "is a path", and reading it that way put 94.5%
+/// of the corpus's f-strings in the language bucket on the first run. What
 /// was in there was `*=*`, `* *`, `Bearer *` — `print` format strings, whose
 /// literal characters are spaces and colons. A path shape has to be asked for.
 ///
-/// ⚠ **This deliberately does NOT call `python::path_shaped`, which is the rule
-/// it sized.** Same argument as `python-calls::is_interpreter`: an instrument
+/// This deliberately does NOT call `python::path_shaped`, which is the rule
+/// it sized. Same argument as `python-calls::is_interpreter`: an instrument
 /// that asks the implementation's own question can never show a shape the
 /// implementation gets wrong. They agree today, and the buckets are printed with
 /// samples so a session can see when they stop agreeing.
@@ -113,7 +113,7 @@ fn worth(pattern: &str) -> Worth {
     if !literal.contains('/') && !extension {
         return Worth::Nothing;
     }
-    // ⚠ `*/*` passes every test above and says nothing: a separator alone
+    // `*/*` passes every test above and says nothing: a separator alone
     // names neither a directory nor a file. The literal has to carry a
     // character that could be part of a NAME.
     if literal.chars().all(|c| c == '/' || c == '.') {
@@ -127,7 +127,7 @@ fn worth(pattern: &str) -> Worth {
 
 /// The file operations whose path argument is the population this is about.
 ///
-/// ⚠ **Names only, and the match is on the text just before the literal.** The
+/// Names only, and the match is on the text just before the literal. The
 /// reader's traversal is what really decides argument position; this is an
 /// approximation of it, and it is here so the buckets can be read against the
 /// population that matters instead of against every f-string in the corpus.

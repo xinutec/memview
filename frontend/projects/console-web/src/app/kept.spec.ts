@@ -11,7 +11,7 @@ const said = (text: string): Entry => ({ kind: 'said', text });
 /**
  * A store on a database of its own.
  *
- * ⚠ **Against a REAL IndexedDB**, provided by `fake-indexeddb` in
+ * Against a REAL IndexedDB, provided by `fake-indexeddb` in
  * `src/test-setup.ts`. jsdom has none, and [[Local]] is deliberately quiet when
  * storage is refused — so without that setup every assertion here would read back
  * nothing and agree with itself.
@@ -45,7 +45,7 @@ describe('Kept', () => {
   });
 
   /**
-   * ⚠ **Nothing is not worth keeping, and keeping it costs the real copy.** The
+   * Nothing is not worth keeping, and keeping it costs the real copy. The
    * first event of a stream arrives before anything has been folded, so the
    * emptiest call is the one that would win the throttle — blocking the next
    * five seconds of the conversation behind a copy of nothing.
@@ -71,7 +71,7 @@ describe('Kept', () => {
   });
 
   /**
-   * ⚠ **Checked field by field, not cast.** Storage outlives every deploy that
+   * Checked field by field, not cast. Storage outlives every deploy that
    * touched this phone, so a row may have been written by a build two versions
    * gone — and the damage from a cast lands in the renderer, not here.
    */
@@ -90,7 +90,7 @@ describe('Kept', () => {
   });
 
   /**
-   * ⚠ **A transcript is this phone's copy and must not reach another device.**
+   * A transcript is this phone's copy and must not reach another device.
    * It is kept in [[Local]], which has no sync of any kind — where the draft it
    * sits beside is a document the runner is told about. Nothing here can leak by
    * being written to the wrong store, because the other store is not a store.

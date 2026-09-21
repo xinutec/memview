@@ -37,7 +37,7 @@ describe('questionsOf', () => {
   });
 
   it('drops the whole ask rather than showing part of a question', () => {
-    // ⚠ The case this exists for. A person choosing from a list cannot tell that
+    // The case this exists for. A person choosing from a list cannot tell that
     // an option is missing, so a half-read question would be answered wrongly
     // with no way to notice. Falling back to allow/refuse is visibly less, and
     // wrong-looking beats wrong.
@@ -138,7 +138,7 @@ describe('complete', () => {
   });
 
   it('counts a question answered by a note alone', () => {
-    // ⚠ The CLI accepts this and reports `(no option selected) notes: …`, so a
+    // The CLI accepts this and reports `(no option selected) notes: …`, so a
     // card that waited for a tap would sit grey over something sendable.
     expect(complete(questions, {}, { 'how far should the question UI go?': 'ask me later' })).toBe(
       true,

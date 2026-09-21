@@ -48,8 +48,8 @@ export class SearchView {
   readonly query = signal('');
   readonly results = signal<SearchHit[] | null>(null);
   /**
-   * The search did not run. ⚠ **A distinct state from "no hits", because the
-   * empty list is a CLAIM** — the template answers it with "No matches.", which
+   * The search did not run. A distinct state from "no hits", because the
+   * empty list is a CLAIM — the template answers it with "No matches.", which
    * says these memories are not there. Swallowing a 500 into that claim is how a
    * reader concludes a memory does not exist and writes a second one.
    */
@@ -92,7 +92,7 @@ export class SearchView {
     // a much bigger artefact and waiting for it would slow the search down for
     // the sake of a panel beside it.
     //
-    // ⚠ **This swallow makes no claim, which is why it stays a swallow.** The
+    // This swallow makes no claim, which is why it stays a swallow. The
     // panel renders only when the list is non-empty, so a failure here shows
     // nothing at all rather than asserting that nobody works on this — unlike
     // the hit list above, whose empty state is a sentence. A 403 is the

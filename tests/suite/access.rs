@@ -88,7 +88,7 @@ async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
         status(&state, "/api/work?q=dhall", Some(&token)).await,
         StatusCode::FORBIDDEN,
     );
-    // ⚠ **And least of all the effects**, which carry the command text
+    // And least of all the effects, which carry the command text
     // verbatim. A link to one memory that also served `sed -i … /Users/…` would
     // disclose more than the roster does, not less.
     assert_eq!(
@@ -99,7 +99,7 @@ async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
 
 #[tokio::test]
 async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
-    // ⚠ **The question this artefact exists to answer.** A timeline row says
+    // The question this artefact exists to answer. A timeline row says
     // "geo was editing, at 10:00, and it worked". Standing on it, the reader
     // asks which files — and a claim they cannot check is worth less than no
     // claim, so every row carries the command that produced it.
@@ -131,7 +131,7 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
     );
     // An admission from the same turn, which must travel with it.
     one(Did::Unnamed, None, "wc -l $OUT/report.txt", 100);
-    // ⚠ **A located one counts as an admission too** (memview#1458). It carries
+    // A located one counts as an admission too (memview#1458). It carries
     // a path, so a counter keyed on "has no path" would read it as resolved —
     // and `unnamed` is what tells the reader the page is not a complete account.
     one(
@@ -173,9 +173,9 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
         body.contains(r#""command":"sed -i s/a/b/ src/osm.ts""#),
         "{body}"
     );
-    // ⚠ The turn's other minute is not this turn.
+    // The turn's other minute is not this turn.
     assert!(!body.contains("README.md"), "{body}");
-    // ⚠ **The admission is in the answer, and counted.** A page showing only
+    // The admission is in the answer, and counted. A page showing only
     // what resolved would read as a complete account of the turn — which is the
     // one way this artefact could mislead.
     assert!(
@@ -183,7 +183,7 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
         "{body}"
     );
     assert!(body.contains(r#""total":3"#), "{body}");
-    // ⚠ **2, not 1.** The located row is an admission with a path on it; before
+    // 2, not 1. The located row is an admission with a path on it; before
     // #1458 the artefact emitted no such row at all, so this counter had never
     // been asked whether it spanned the class.
     assert!(body.contains(r#""unnamed":2"#), "{body}");
@@ -365,7 +365,7 @@ async fn a_wrong_share_token_is_not_a_viewer() {
     );
 }
 
-/// ⚠ **A callback that a browser is SENT to must answer in HTML.**
+/// A callback that a browser is SENT to must answer in HTML.
 ///
 /// `/auth/callback` is a navigation target — nothing calls it as an API — and
 /// `AppError` renders as `{"error":"…"}`. In `tasks`, the same code on the same

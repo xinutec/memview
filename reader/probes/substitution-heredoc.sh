@@ -117,7 +117,7 @@ for s in "${shapes[@]}"; do
 done
 
 section "2 · which body goes to which opener, run for real"
-# ⚠ The pairing is what a positional walk over the tree has to reproduce, and
+# The pairing is what a positional walk over the tree has to reproduce, and
 # printing it is the only way to know it rather than argue it.
 show() { printf 'arg=<%s> stdin=<%s>\n' "$1" "$(cat)"; }
 
@@ -168,7 +168,7 @@ for s in "${degenerate[@]}"; do
   else
     printf 'bash -n refuses · '
   fi
-  # ⚠ The exit code is half the finding — a warning leaves it 0 and a syntax
+  # The exit code is half the finding — a warning leaves it 0 and a syntax
   # error makes it 2 — so it is captured rather than allowed to end the script.
   out=$(printf '%s\n' "$s" | bash 2>&1) && status=0 || status=$?
   printf 'exit %d · %s\n' "$status" "$(printf '%s' "$out" | tr '\n' '⏎')"

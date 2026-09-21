@@ -7,7 +7,7 @@
  * would arrive, match nothing, and vanish: no error, no log, a line missing from
  * a transcript nobody knows is short.
  *
- * ⚠ **It does not throw, and that is the point.** A phone can be holding an
+ * It does not throw, and that is the point. A phone can be holding an
  * older bundle than the runner it is talking to — that is the normal state of
  * this app for the minutes between an upgrade and a reload — and a client that
  * crashed on an unfamiliar event would turn every new variant into an outage.

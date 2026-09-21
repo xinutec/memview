@@ -8,7 +8,7 @@
 //! `memory-lint` reports as an error, and `originSessionId:`, which it does not
 //! report at all.
 //!
-//! ⚠ **The stamp is recoverable and the AUTHOR is the harder half.**
+//! The stamp is recoverable and the AUTHOR is the harder half.
 //! `modified:` can always be taken from the file's mtime. Authorship exists only
 //! in the transcripts, so a memory written without this has an author for
 //! exactly as long as its transcript is reachable — which is why it is worth a
@@ -17,7 +17,7 @@
 //! #1240). Sessions predating that archive are gone, and a few memories name
 //! one.
 //!
-//! ⚠ **This is NOT wired into the gate, deliberately.** `memory-lint` must go on
+//! This is NOT wired into the gate, deliberately. `memory-lint` must go on
 //! failing on a missing stamp, because the stamp is the only visible symptom of
 //! a write that skipped the stamping path — silence it and the authorship loss
 //! continues unseen. See `feedback_a_precondition_that_can_pass_wrongly`. What
@@ -63,7 +63,7 @@ fn main() -> Result<()> {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         match found.get(name.as_ref()) {
             Some(Author { session, at }) => {
-                // ⚠ **Say which fields will actually be written.** Printing
+                // Say which fields will actually be written. Printing
                 // `{at} {session}` was true when every listed memory was missing
                 // both; now that one half can be absent alone, it announced a
                 // `modified:` this will refuse to touch. A dry run that shows
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
                     stamp(path, session, at)?;
                 }
             }
-            // ⚠ **Named, not guessed.** No transcript claims this file, which
+            // Named, not guessed. No transcript claims this file, which
             // means the transcript is gone or something outside a session wrote
             // it. `modified:` could still be taken from the mtime, but writing
             // an author would be inventing one, and a wrong author is worse than
@@ -107,14 +107,14 @@ fn absent(path: &Path) -> Missing {
 
 /// The memories missing EITHER half of the stamp.
 ///
-/// ⚠ **Keyed on `modified:` alone, this tool was blind to the field it exists
-/// to recover.** Every memory carries a `modified:` — because `missing-modified`
+/// Keyed on `modified:` alone, this tool was blind to the field it exists
+/// to recover. Every memory carries a `modified:` — because `missing-modified`
 /// is an ERROR and gets fixed — while a handful carried no
 /// `originSessionId`, which no rule asked about at all. So the twelve were
 /// invisible to the check AND to the repair, and this printed "every memory
 /// carries a stamp" over them. What is measured gets fixed; what is not, drifts.
 ///
-/// ⚠ **Not a legacy set.** The newest of the twelve was written the same
+/// Not a legacy set. The newest of the twelve was written the same
 /// afternoon the gap was found, so this is a live path and not a backlog.
 ///
 /// The predicate itself is [`memview::stamped::missing`], in the library so a
@@ -151,7 +151,7 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
         .find('\n')
         .map(|n| start + 1 + n)
         .unwrap_or(text.len());
-    // ⚠ **Each field only if ABSENT, and `modified:` was NOT guarded.** A
+    // Each field only if ABSENT, and `modified:` was NOT guarded. A
     // memory can be missing one and not the other, and appending a second
     // `modified:` would do worse than duplicate it: the
     // value written here is the write this scan FOUND, so it would overwrite a
@@ -171,7 +171,7 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
     }
     let mut out = text.clone();
     out.insert_str(line_end, &added);
-    // ⚠ Rename rather than truncate-then-write: a memory is read by the viewer
+    // Rename rather than truncate-then-write: a memory is read by the viewer
     // and by every session at once — see `reference_write_then_rename_or_the_reader_sees_half`.
     atomic::write(path, out.as_bytes())?;
     Ok(())

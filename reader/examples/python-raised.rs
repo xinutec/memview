@@ -35,11 +35,11 @@
 //!   the program that ran was fine and flagging it would delete real work. Two
 //!   rules meeting, not a defect.
 //! - **14 are genuinely broken** — an unterminated triple-quoted string, an
-//!   unclosed bracket, a stray `⚠`; mostly a heredoc whose body was cut short.
+//!   unclosed bracket, a stray ``; mostly a heredoc whose body was cut short.
 //!   Their file operations are still counted, and catching them would mean
 //!   validating Python syntax, which `python.pest` declines to do by design.
 //!
-//! ⚠ **The over-claim direction is the one that costs.** Flagging a program
+//! The over-claim direction is the one that costs. Flagging a program
 //! *discards* everything it named, so a false positive destroys knowledge while
 //! a false negative only fails to gain any. An earlier, broader rule — any
 //! backslash in a replacement field — read two working programs as broken,
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         };
         for op in &shell_files::extract(&parsed, cwd, &home).ops {
             let Op::Python { source } = op else { continue };
-            // ⚠ **Both directions, or the claim is only half-checked.** Without
+            // Both directions, or the claim is only half-checked. Without
             // `--all` this prints what the reader discards, and a real parser
             // says whether any of it should have been kept. With `--all` it
             // prints everything, and the same parser says what the reader

@@ -104,7 +104,7 @@ for s in "${bad[@]}"; do
 done
 
 section "3 · what the word's VALUE is, run for real"
-# ⚠ It is a path bash invents, so nothing about it is determined by the text —
+# It is a path bash invents, so nothing about it is determined by the text —
 # which is the whole reason the reader counts it as a named-nothing rather than
 # resolving it.
 printf 'argument: '; echo <(true)

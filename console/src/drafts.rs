@@ -8,7 +8,7 @@
 //! `/api/sync/drafts`, in the shape life uses: two mechanisms writing one map is
 //! how drafts diverge silently.
 //!
-//! ⚠ **There is no such thing as a conflict here, by construction.** The earlier
+//! There is no such thing as a conflict here, by construction. The earlier
 //! design compared whole texts and refused a push whose assumed master had moved,
 //! leaving a person to choose between two versions of their own sentence. Its
 //! premise was written down — *prose cannot be field-merged* — and it is wrong:
@@ -97,7 +97,7 @@ pub struct Checkpoint {
 
 /// One change from a client: an update to merge into whatever is held.
 ///
-/// ⚠ **No assumed state, and nothing to refuse.** An update carries its own
+/// No assumed state, and nothing to refuse. An update carries its own
 /// causal context, so the runner never has to be told what the client thought was
 /// here — which is exactly the question the old protocol asked and got wrong.
 #[derive(Debug, Deserialize)]
@@ -140,7 +140,7 @@ pub struct Drafts {
 
 /// The document an encoded update reads as, or `None` if it is not one.
 ///
-/// ⚠ **A bad update is dropped, never fatal.** It arrives over the wire from a
+/// A bad update is dropped, never fatal. It arrives over the wire from a
 /// client that may be older than this binary, and refusing to start — or
 /// poisoning the store — would turn one malformed push into an outage for every
 /// conversation.
@@ -244,7 +244,7 @@ impl Drafts {
 
     /// Merge a device's document into what is held, and answer with the result.
     ///
-    /// ⚠ **This cannot fail on a disagreement, and that is the point.** Two updates
+    /// This cannot fail on a disagreement, and that is the point. Two updates
     /// written without knowledge of each other merge into one document holding both
     /// edits, and applying the same update twice changes nothing. There is no state a
     /// caller can be in that this has to refuse.
@@ -324,7 +324,7 @@ impl Drafts {
 
     /// Merge everything a client sent, and answer with the merged documents.
     ///
-    /// ⚠ **Always the merged state, never a refusal.** The client applies what comes
+    /// Always the merged state, never a refusal. The client applies what comes
     /// back and is then level with the runner — the round trip the old protocol spent
     /// asking whether it was allowed to write at all.
     pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {

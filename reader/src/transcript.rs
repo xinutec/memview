@@ -13,8 +13,8 @@ use std::path::Path;
 
 /// Whether this path is a conversation, as opposed to the directory beside it.
 ///
-/// ⚠ **The extension is the whole rule, and leaving it out has already cost a
-/// session.** Claude Code files a transcript as `<id>.jsonl` and may put a DIRECTORY
+/// The extension is the whole rule, and leaving it out has already cost a
+/// session. Claude Code files a transcript as `<id>.jsonl` and may put a DIRECTORY
 /// named `<id>` right beside it. A directory's file stem is its whole name, so
 /// anything matching on the stem finds the directory whenever `read_dir` returns it
 /// first — a coin toss, which made a first regression test pass under ablation.
@@ -74,7 +74,7 @@ pub const AS_CONVERSATION: [&NameLine; 2] = [&CUSTOM_TITLE, &AGENT_NAME];
 /// a title is what one view calls it.
 pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 
-// ⚠ **THE TWO CRATES DISAGREED, AND THE ANSWER IS THAT BOTH WERE RIGHT.** The
+// THE TWO CRATES DISAGREED, AND THE ANSWER IS THAT BOTH WERE RIGHT. The
 // console preferred `custom-title`, the viewer `agent-name`, each with a confident
 // rationale, and the rationales were opposite. Resolved by reading the CLI rather
 // than by choosing: **it carries both orders, split by what the name is for.** From
@@ -90,7 +90,7 @@ pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 // it already had, and the order is now a stated decision instead of two independent
 // guesses that happened to agree.
 //
-// ⚠ **`ai-title` is deliberately in neither.** It is the CLI's own description of a
+// `ai-title` is deliberately in neither. It is the CLI's own description of a
 // conversation, written once near the head of the file and never changed. Acceptable
 // as a caption; wrong as a name on a page about who did the work.
 //
@@ -106,7 +106,7 @@ pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 
 /// Whether this path is a *conversation*, and not merely something `.jsonl`.
 ///
-/// ⚠ **Stricter than [`is_transcript`], and both are correct.** That one tests
+/// Stricter than [`is_transcript`], and both are correct. That one tests
 /// the extension alone, which is what a viewer wants: it walks the whole tree,
 /// takes what it understands and shrugs at the rest. A checker cannot shrug. A
 /// session's sidecar directory holds `subagents/workflows/wf_*/journal.jsonl`,
@@ -150,11 +150,11 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// A line that describes the conversation from outside it, and never carries
 /// identity — no `uuid`, no `parentUuid`, anywhere in the corpus.
 ///
-/// ⚠ Sixteen types exist, not fifteen. A survey that found fifteen missed `pr-link`
+/// Sixteen types exist, not fifteen. A survey that found fifteen missed `pr-link`
 /// entirely, and an unknown type is indistinguishable from a corrupt one, so the
 /// omission would have been reported as damage.
 ///
-/// ⚠ **`atis-latch` is that same lesson a second time.** The harness began writing
+/// `atis-latch` is that same lesson a second time. The harness began writing
 /// `{type, atis, sessionId}` — no identity, like everything else here — and because
 /// this list did not name it, every one read as damage, across every transcript and
 /// still climbing while live sessions wrote more. The cost was that `transcript-lint`
@@ -200,7 +200,7 @@ pub const MESSAGE_TYPES: [&str; 2] = ["user", "assistant"];
 
 /// The only type that ever carries a `promptId`.
 ///
-/// ⚠ It is NOT required even there — a handful of `user` lines lack it, so only
+/// It is NOT required even there — a handful of `user` lines lack it, so only
 /// the converse is a rule. `couse` inherits this field down the parent chain
 /// precisely because it is sparse, which is what makes link integrity load
 /// bearing for a published number rather than merely tidy.
@@ -228,7 +228,7 @@ pub enum Rule {
     MalformedUuid,
     /// A conversation line with no `parentUuid` key at all.
     ///
-    /// ⚠ Distinct from a `parentUuid` of `null`, and conflating the two is not
+    /// Distinct from a `parentUuid` of `null`, and conflating the two is not
     /// hypothetical: doing so once reported 81,062 roots where there are 3,260,
     /// and 349,636 broken links where there were three.
     MissingParentField,
@@ -314,8 +314,8 @@ pub struct Violation {
 
 /// Whether the last line may be half-written.
 ///
-/// ⚠ **This is the ONLY concession to leniency, and it exists because of a
-/// race, not because a viewer should be forgiving.** Claude Code appends to a
+/// This is the ONLY concession to leniency, and it exists because of a
+/// race, not because a viewer should be forgiving. Claude Code appends to a
 /// transcript while we read it — open, append, close, per line, holding no
 /// descriptor between — so a read can catch a record with its newline not yet
 /// written. Being strict about that would fail a file that is perfectly well
@@ -607,7 +607,7 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
 
 /// How much damage should fail this run.
 ///
-/// ⚠ **A damaged transcript can never be repaired.** A rewrite drops a message and it
+/// A damaged transcript can never be repaired. A rewrite drops a message and it
 /// is gone, so a run that fails on any damage anywhere fails **forever**, for every
 /// session — which is what happened: one session's transcript lost a message and
 /// memview's gate became unpassable for everybody (#1062). A check that cannot go
@@ -618,12 +618,12 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
 /// nightly — the count is reported in full and gates NOTHING; it rides into
 /// fleetwatch so the TREND is visible.
 ///
-/// ⚠ **This paragraph described the nightly for three weeks while the code did the
-/// opposite** (memview#1546). `None => damaged` made `verify/memview` red over two
+/// This paragraph described the nightly for three weeks while the code did the
+/// opposite (memview#1546). `None => damaged` made `verify/memview` red over two
 /// unrepairable files, hiding every check that does test the code.
 ///
-/// ⚠ **The cost, said plainly: outside a session damage can no longer turn this check
-/// red.** That is deliberate but not free — a check that cannot fail is weak. It is
+/// The cost, said plainly: outside a session damage can no longer turn this check
+/// red. That is deliberate but not free — a check that cannot fail is weak. It is
 /// the better half of the trade because the alternative cannot PASS, and a
 /// permanently-red check takes every healthy one down with it. The alarm moved
 /// somewhere that can act on a rising number: `claude-sync.sh` runs this with
@@ -643,7 +643,7 @@ pub struct Turn {
     pub uuid: String,
     /// When the CLI recorded it, ISO-8601.
     ///
-    /// ⚠ **For a queued turn this is when it was ENQUEUED, not delivered.** The
+    /// For a queued turn this is when it was ENQUEUED, not delivered. The
     /// attachment repeats the enqueue's stamp inside itself while the row's own
     /// stamp is when the running turn consumed it — and the gap between them is
     /// real, running to minutes. Taking the row's stamp would date a message to
@@ -658,7 +658,7 @@ pub struct Turn {
 
 /// Every human turn in a conversation, in order.
 ///
-/// ⚠ **Five facts, each of which has cost somebody an afternoon.** They are listed
+/// Five facts, each of which has cost somebody an afternoon. They are listed
 /// here because the crate owns them and callers kept re-deriving them (memview#1215):
 ///
 /// 1. **Dedupe by `uuid`, keep the FIRST.** The CLI rewrites earlier stretches back
@@ -754,7 +754,7 @@ fn queued_turn(row: &serde_json::Value, uuid: String) -> Option<Turn> {
 
 /// Fact 4: strip what the CLI wrapped round what the person said.
 ///
-/// ⚠ **A `<command-name>` block means the person typed a SLASH COMMAND**, so the
+/// A `<command-name>` block means the person typed a SLASH COMMAND, so the
 /// turn is not dropped — the command is what they said. Only the machinery
 /// around it goes.
 fn spoken(text: &str) -> String {

@@ -1,11 +1,11 @@
 //! Command-line flags that carry a VALUE, read so that a bad one is refused.
 //!
-//! ⚠ **`.parse().ok().unwrap_or(default)` makes `--half-life bogus` produce output
-//! BYTE-IDENTICAL to passing no flag** — the flag is accepted and its value thrown
+//! `.parse().ok().unwrap_or(default)` makes `--half-life bogus` produce output
+//! BYTE-IDENTICAL to passing no flag — the flag is accepted and its value thrown
 //! away. `memory-rank` and `memory-tiers` produce the figures quoted in task bodies,
 //! so that is a wrong measurement rather than a wrong run.
 //!
-//! ⚠ **Absent and unusable are DIFFERENT.** No flag means "the default is what I
+//! Absent and unusable are DIFFERENT. No flag means "the default is what I
 //! want" and stays silent; a missing or unparseable value means the caller asked for
 //! something the tool cannot do, and falling back is how they come to believe a
 //! number nobody computed.
@@ -29,7 +29,7 @@ where
     let Some(raw) = args.get(at + 1) else {
         bail!("{name} needs a value, and none followed it");
     };
-    // ⚠ A following FLAG is a missing value, not a value. `--breadth --lease-days
+    // A following FLAG is a missing value, not a value. `--breadth --lease-days
     // 30` would otherwise try to parse `--lease-days` and report it as a bad
     // number, which sends the reader to the wrong flag.
     if raw.starts_with("--") {

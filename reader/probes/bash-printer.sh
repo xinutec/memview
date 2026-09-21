@@ -26,7 +26,7 @@
 #      current flat grammar, which reads the laid-out form as one command more.
 #   4. It DELETES COMMENTS, so they are excluded from the comparison.
 #
-# ⚠ **And it executes.** See the last section: the function wrapper holds only
+# And it executes. See the last section: the function wrapper holds only
 # because `eval` parses its whole argument before running any of it, and a
 # balanced payload defeats that. The corpus is shell history and carries such
 # text by accident, so the gate runs its bash under `sandbox-exec` — the profile
@@ -88,7 +88,7 @@ for s in "${shapes[@]}"; do
 done
 
 section "2 · the wrapper does not contain the command"
-# ⚠ Demonstrated, because the safety claim in the doc is worth more as an
+# Demonstrated, because the safety claim in the doc is worth more as an
 # observation than as an argument. The payload closes the function, runs, and
 # reopens a group for the wrapper's own trailing brace to close — so eval's
 # whole-string parse succeeds and there is nothing left to refuse.

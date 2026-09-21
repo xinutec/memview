@@ -86,7 +86,7 @@ describe('AgentsView — every dimension of the evidence', () => {
 
   it('keeps uses that may never have happened out of every count they are not', () => {
     const row = first(fixture.componentInstance.rows());
-    // ⚠ The property the whole separation exists for. The fixture's 5 maybe
+    // The property the whole separation exists for. The fixture's 5 maybe
     // reads and 3 maybe edits are carried, and are in NEITHER the totals nor the
     // shell breakdown — those stay at the 10/10 and 6/9 asserted above. Summing
     // them would spend the distinction the miner went to the trouble of keeping:

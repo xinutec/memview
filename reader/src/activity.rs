@@ -52,7 +52,7 @@ pub enum Activity {
     Query,
     /// Handed work to another agent — the `Agent` tool.
     ///
-    /// ⚠ **Its own kind rather than [`Activity::Other`]**, which is the bucket for a
+    /// Its own kind rather than [`Activity::Other`], which is the bucket for a
     /// command nothing in the table names. A turn that delegates is doing something
     /// quite different from one that runs an unrecognised program.
     Delegate,
@@ -78,7 +78,7 @@ pub struct Where {
 
 /// Whether a redirect puts bytes somewhere that is a file.
 ///
-/// ⚠ **The refusal has to match [`shell_ops::resolve`]'s**, or the activity a
+/// The refusal has to match [`shell_ops::resolve`]'s, or the activity a
 /// command is filed under stops agreeing with the files it is recorded as
 /// touching — which is exactly the split this was written to close. Only the
 /// device rule is shared: an unresolvable `> "$LOG"` is still a write, because
@@ -98,13 +98,13 @@ pub fn of(op: &Op, cmd: &Simple) -> Activity {
     // corpus's writing is done: `echo … > f`, `cat <<EOF > f`, and the commands that
     // are a redirect and nothing else.
     //
-    // ⚠ **Except where the target is not a file.** `2>/dev/null` discards stderr and
+    // Except where the target is not a file. `2>/dev/null` discards stderr and
     // edits nothing, and reading it as a write filed every `ls -la x 2>/dev/null` on
     // the timeline as an edit. [`shell_ops::resolve`] has always refused `/dev/*`, so
     // the two dimensions disagreed: no file was recorded, and the work was still called
     // editing.
     //
-    // ⚠ **Found by the description corpus** (`docs/concept-model.md`, the zeroth
+    // Found by the description corpus (`docs/concept-model.md`, the zeroth
     // lift-check): the `edit` kind's commonest stated intents were *read*, *find*,
     // *list* and *inspect*, and sampling them showed `ls`. The authors were right and
     // the reader was wrong, which is what that instrument exists to catch.
@@ -286,7 +286,7 @@ impl Activity {
 
     /// What a TOOL call is, as opposed to a shell command.
     ///
-    /// ⚠ **The timeline was Bash-only once**, so half the fleet's
+    /// The timeline was Bash-only once, so half the fleet's
     /// work was invisible in it: the history holds 87,918 `Bash` calls against
     /// 36,371 `Write` and `Edit` ones, and an agent that reaches for `Edit`
     /// showed an emptier day than one reaching for `sed`. The vocabulary already
@@ -300,7 +300,7 @@ impl Activity {
             "Read" | "NotebookRead" => Activity::Inspect,
             "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Activity::Edit,
             "Grep" | "Glob" => Activity::Search,
-            // ⚠ `Agent`, not `Task`: measured, `"name":"Task"` appears nowhere
+            // `Agent`, not `Task`: measured, `"name":"Task"` appears nowhere
             // in the corpus, and the `Task*` tools in it are a task store.
             "Agent" | "Task" => Activity::Delegate,
             // A fetch is a look at something that is not this machine, which is

@@ -2,13 +2,13 @@
 //!
 //!     cargo run --release -p bash-oracle --bin syntax-report -- <corpus.jsonl> [--oracle] [--why SUBSTRING]
 //!
-//! ⚠ **Two runs either side of a change are only comparable over the SAME
-//! corpus file** — `~/.claude/memview/cache/bash-corpus.jsonl`, or a copy of it
+//! Two runs either side of a change are only comparable over the SAME
+//! corpus file — `~/.claude/memview/cache/bash-corpus.jsonl`, or a copy of it
 //! for the duration of the work. The live mine grows nightly, so re-mining
 //! between two measurements moves the denominator under them.
 //!
-//! ⚠ **This said the live transcripts SHRINK and named `corpus/union.jsonl` as a
-//! fixed denominator against that. Both are gone (memview#1240):** nothing that
+//! This said the live transcripts SHRINK and named `corpus/union.jsonl` as a
+//! fixed denominator against that. Both are gone (memview#1240): nothing that
 //! held a conversation has been deleted, and the union it pointed at held 6 rows
 //! out of 177,467 that a fresh mine does not produce — all six the same commands
 //! captured worse. See `docs/execution-model.md`.
@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
         match syntax::check(command) {
             Outcome::Refused(refusal) => {
                 refused.add(command);
-                // ⚠ Every reason that asserts the TEXT is broken, not merely
+                // Every reason that asserts the TEXT is broken, not merely
                 // unmodelled. `EmptyOperand` belongs here too: bash refuses
                 // `a &&` and `cat >` exactly as we do, so the claim is
                 // falsifiable and has to be falsified.
@@ -194,7 +194,7 @@ fn main() -> anyhow::Result<()> {
 
     // ---- what would actually unlock a command ----
     //
-    // ⚠ The ranking above answers "what stopped us first", which is not the same
+    // The ranking above answers "what stopped us first", which is not the same
     // question and cannot be added up. A command needs EVERY construct in it
     // before it can be read, so the unlock figures below are the ones to plan
     // from.
@@ -289,7 +289,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if run_oracle {
-        // ⚠ Checked before the tree comparison, because it asks a different and
+        // Checked before the tree comparison, because it asks a different and
         // more basic question: are the refusals that call the input broken
         // actually right? A wrong one here is a command being dropped from the
         // denominator for a defect of ours.
@@ -314,7 +314,7 @@ fn main() -> anyhow::Result<()> {
         println!("  {:>7}  checked, {wrong} wrong", claimed_invalid.len());
 
         println!("\ngate 2 — bash's own printer, over what the law held for:");
-        // ⚠ The ORIGINAL command text, not our print of it. Feeding bash our
+        // The ORIGINAL command text, not our print of it. Feeding bash our
         // own output can only confirm it agrees with our canonical form; the
         // misparse to catch is of the text the corpus actually holds.
         let texts: Vec<String> = accepted.iter().map(|(text, _)| text.clone()).collect();
@@ -327,8 +327,8 @@ fn main() -> anyhow::Result<()> {
                 entry.1.push(command.to_string());
             }
         }
-        // ⚠ **`bash refused our print` is not always a defect, and the
-        // difference has to be measured rather than assumed.** A heredoc whose
+        // `bash refused our print` is not always a defect, and the
+        // difference has to be measured rather than assumed. A heredoc whose
         // delimiter never appears takes the rest of the input as its body — bash
         // says so with a warning — and that body swallows the closing brace of
         // the wrapper `declare -f` needs, so bash cannot render the command at
@@ -348,14 +348,14 @@ fn main() -> anyhow::Result<()> {
         }
         for (label, (count, examples)) in &grouped {
             println!("  {count:>7}  {label}");
-            // ⚠ A group entirely accounted for by the known exclusion prints no
+            // A group entirely accounted for by the known exclusion prints no
             // examples. Showing them as findings is how a real defect in the
             // same group learns to look like noise.
             if *label == Verdict::BashRefused.label() && unrenderable == *count {
                 continue;
             }
             for example in examples {
-                // ⚠ **Whole, not truncated.** A gate-2 disagreement is rare and
+                // Whole, not truncated. A gate-2 disagreement is rare and
                 // is the one finding worth acting on immediately; a 90-column
                 // sample of it is not enough to find the command again, and
                 // twice cost a wrong one being investigated instead.
@@ -373,7 +373,7 @@ fn main() -> anyhow::Result<()> {
             println!("           ---\n{command}\n           ---");
         }
 
-        // ⚠ **A different question from either gate above.** Gate 1 asks whether
+        // A different question from either gate above. Gate 1 asks whether
         // `t₂` reads back as the same tree — with THIS parser, which is more
         // permissive than bash in places — and gate 2 never sees `t₂` at all.
         // Neither notices a printer emitting text bash refuses, and one did:

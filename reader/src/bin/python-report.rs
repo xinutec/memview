@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
 
     let recognised: usize = tally.calls.values().sum();
     let unresolved: usize = tally.unresolved.values().sum();
-    // ⚠ **Subtracted from the named, not added to them.** These operations know
+    // Subtracted from the named, not added to them. These operations know
     // every path they could have used and not which one ran, so counting them
     // as named would move this rate without anything more being known — the
     // first version of this line read 87.2% while `file uses` had risen by

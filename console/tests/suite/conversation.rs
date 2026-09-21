@@ -17,7 +17,7 @@ fn his(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// ⚠ **A compaction summary wears the user's role.** It reached `last --user` as
+/// A compaction summary wears the user's role. It reached `last --user` as
 /// Pippijn's words, which is the one question that flag exists to answer.
 #[test]
 fn a_compaction_summary_is_not_something_he_said() {

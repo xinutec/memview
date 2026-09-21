@@ -108,7 +108,7 @@ async fn a_session_starts_takes_a_message_and_answers() {
 
 #[tokio::test]
 async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
-    // ⚠ **The list is drawn without opening anything.** This used to be counted
+    // The list is drawn without opening anything. This used to be counted
     // by the session's own page from its event stream, so the one screen that
     // could say "something is still running here" was the screen you had to be
     // on already. The runner watches the same two events and the count rides the
@@ -161,7 +161,7 @@ async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
 
 #[tokio::test]
 async fn killing_one_brings_the_count_down_because_nothing_else_will() {
-    // ⚠ **The ending that reports nothing.** A stopped task never produces a
+    // The ending that reports nothing. A stopped task never produces a
     // notification, and the notification is what the count is keyed by — so the
     // number stayed up for the life of the session. Measured over this machine's
     // transcripts: 162 kills, none of them notified, 162 of the 209 counts that
@@ -230,8 +230,8 @@ async fn one_process_serves_several_turns() {
     }
     assert!(session.alive(), "still one live process after three turns");
 
-    // ⚠ **`total_cost_usd` is already the session total, so it must not be
-    // added up.** Summing totals gives a triangular sum — on a live session it
+    // `total_cost_usd` is already the session total, so it must not be
+    // added up. Summing totals gives a triangular sum — on a live session it
     // reached $59.32 against a true $12.35 — and it looks perfectly plausible
     // while doing it. The stub reports a rising total (0.25, 0.50, 0.75) the way
     // the CLI does, so this can fail.
@@ -571,8 +571,8 @@ async fn what_was_chosen_is_told_to_everybody_watching() {
 
 #[tokio::test]
 async fn words_instead_of_a_choice_travel_on_their_own() {
-    // ⚠ **`response` overrides `answers` in the CLI, so the two are never both
-    // sent.** Its result builder tests `response` first and reports only that —
+    // `response` overrides `answers` in the CLI, so the two are never both
+    // sent. Its result builder tests `response` first and reports only that —
     // prose alongside a set of choices would throw the choices away silently.
     // The stub reports whichever it received, so this fails if both go.
     let dir = std::env::temp_dir();
@@ -610,7 +610,7 @@ async fn words_instead_of_a_choice_travel_on_their_own() {
 
 #[tokio::test]
 async fn a_note_rides_with_the_choice_rather_than_replacing_it() {
-    // ⚠ **The difference from `response`.** Words in the reply field override
+    // The difference from `response`. Words in the reply field override
     // the choices; a note qualifies one. The CLI reports
     // `"<question>"="<label>" notes: <notes>`, so both have to arrive.
     let dir = std::env::temp_dir();
@@ -794,7 +794,7 @@ async fn a_session_keeps_the_pipes_an_upgrade_would_carry() {
 
 #[tokio::test]
 async fn a_live_pipe_can_be_taken_out_of_close_on_exec() {
-    // ⚠ Rust marks every pipe it creates close-on-exec, so without this the
+    // Rust marks every pipe it creates close-on-exec, so without this the
     // upgraded image inherits nothing at all — the failure would be total and
     // silent, which is why it is asserted rather than assumed.
     let dir = std::env::temp_dir();
@@ -830,7 +830,7 @@ fn carried_pipe() -> (std::os::fd::RawFd, std::os::fd::RawFd) {
 
 #[tokio::test]
 async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
-    // ⚠ **The result line is never written to disk.** It is what carries the
+    // The result line is never written to disk. It is what carries the
     // cost, the rate-limit status and the window — and grepping
     // the whole corpus for `"type":"result"` finds none, so [`seed`] cannot get
     // these back the way it gets the conversation back. Either the previous
@@ -874,7 +874,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     let summary = session.summary();
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
     assert_eq!(summary.mode.as_deref(), Some("auto"), "the mode restarted");
-    // ⚠ **The label, which the transcript DOES record and cannot give back.**
+    // The label, which the transcript DOES record and cannot give back.
     // A re-seed replays one page, so `asked` bound to whatever prompt started it
     // and moved on every upgrade — see the note on `Tally::asked` (memview
     // #1146).
@@ -891,7 +891,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
 
 #[tokio::test]
 async fn an_upgrade_keeps_a_session_that_was_working_working() {
-    // ⚠ **The defect this exists for, measured on the phone.** A status is
+    // The defect this exists for, measured on the phone. A status is
     // announced when it CHANGES, and none of them is written to the transcript —
     // so a session mid-turn when the console replaced itself came back with
     // nothing saying so, and the re-seed could not put it back. The front page
@@ -943,7 +943,7 @@ async fn an_upgrade_keeps_a_session_that_was_working_working() {
 
 #[tokio::test]
 async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
-    // ⚠ **The defect this exists for, measured on a live session.** `execve`
+    // The defect this exists for, measured on a live session. `execve`
     // does not touch the child, so a session blocked on `can_use_tool` is STILL
     // blocked after an upgrade — but the pending request lived only in the image
     // that was replaced. It was dropped, and a control request is not a
@@ -1078,7 +1078,7 @@ async fn nothing_is_inherited_when_this_image_was_not_exec_by_an_upgrade() {
 
 #[tokio::test]
 async fn a_session_reports_the_mode_it_was_actually_started_with() {
-    // ⚠ **Unset is not unknown.** With no `--permission-mode` the CLI runs on
+    // Unset is not unknown. With no `--permission-mode` the CLI runs on
     // its own default, under which every tool call needing permission comes back
     // to whoever is holding the phone. Saying nothing about the mode there
     // leaves the header silent about the one setting that governs every tap —
@@ -1118,7 +1118,7 @@ async fn a_mode_change_that_could_not_be_sent_leaves_the_old_one_showing() {
 
 #[tokio::test]
 async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions() {
-    // ⚠ A handover written before the mode was carried has no such field, and
+    // A handover written before the mode was carried has no such field, and
     // serde reads that as `None`. Left alone, an upgraded session shows nothing
     // where "what may this do" belongs — which reads as the careful setting, and
     // is the one case it might not be. Seen for real: the first upgrade after
@@ -1215,7 +1215,7 @@ const ENDED: &str =
 
 #[tokio::test]
 async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose() {
-    // ⚠ **The defect, measured against CLI 2.1.221/226.** A slash
+    // The defect, measured against CLI 2.1.221/226. A slash
     // command written to a working session is not run: the CLI parks it as a
     // `queued_command` with `commandMode: "prompt"` and hands it to the MODEL as
     // words. `/rename` sent from the phone got "Noted the rename (CLI-side,
@@ -1316,8 +1316,8 @@ async fn a_command_is_not_held_by_a_session_that_is_not_working() {
 
 /// When the console is prepared to say a session has stopped listening.
 ///
-/// ⚠ **This is the alarm that was missing, and its absence cost two manual
-/// diagnoses in one morning.** A message written to a session that has gone deaf
+/// This is the alarm that was missing, and its absence cost two manual
+/// diagnoses in one morning. A message written to a session that has gone deaf
 /// gets the same *waiting to be read* marker as one a busy session will pick up
 /// in a minute, so a session sat silent for twenty minutes twice while the
 /// screen said the ordinary thing. See
@@ -1342,7 +1342,7 @@ mod deafness {
 
     #[test]
     fn a_working_session_is_never_deaf_however_long_it_is_quiet() {
-        // ⚠ **The false positive that would have made this useless.** A session
+        // The false positive that would have made this useless. A session
         // ten minutes into a tool call says nothing at all, and parks incoming
         // messages on purpose — several held and released together, the oldest
         // after twelve minutes. `idle_since` is
@@ -1387,8 +1387,8 @@ mod deafness {
 
     #[test]
     fn an_answer_the_session_never_acted_on_is_deafness_on_its_own() {
-        // ⚠ **The case the message test cannot see, and it cost thirty-one
-        // minutes.** A session blocked on a question is MID-TURN, so
+        // The case the message test cannot see, and it cost thirty-one
+        // minutes. A session blocked on a question is MID-TURN, so
         // `idle_since` is unset and the test above is silent for ever. But a
         // session that asked a question and stopped is not working — it said so —
         // and the console had written the answer into its pipe. One session was
@@ -1424,7 +1424,7 @@ mod deafness {
 
     #[test]
     fn a_compaction_is_given_far_longer_but_not_for_ever() {
-        // ⚠ **The one legitimate silence with no pulse.** A compaction leaves
+        // The one legitimate silence with no pulse. A compaction leaves
         // the transcript frozen for minutes — measured on `hardware`, sent at
         // 09:50:46 with the file still stopped at 09:49:53 twenty seconds
         // later — so nothing shorter than this can tell it from a fault.
@@ -1474,7 +1474,7 @@ async fn a_message_stops_being_in_flight_when_the_session_reads_it_back() {
 
 #[tokio::test]
 async fn a_slash_command_is_never_counted_as_in_flight() {
-    // ⚠ **Measured against CLI 2.1.221:** `--replay-user-messages` does not
+    // Measured against CLI 2.1.221: `--replay-user-messages` does not
     // replay a command. Counting one would leave it in flight for ever, and
     // ninety seconds later the console would call a perfectly well session deaf
     // every time anybody typed `/compact`.
@@ -1497,7 +1497,7 @@ async fn a_slash_command_is_never_counted_as_in_flight() {
 
 /// What a conversation is allowed to do, across everything that forgets.
 ///
-/// ⚠ **Resuming used to drop a session to Manual and report that as the truth.**
+/// Resuming used to drop a session to Manual and report that as the truth.
 /// A session in `auto`, stopped and resumed, came back `default` — and then
 /// stops at the first tool call
 /// needing approval and waits, which from a phone is the stall it was restarted
@@ -1508,8 +1508,8 @@ mod remembering_the_mode {
 
     #[test]
     fn a_mode_survives_the_console_that_learnt_it() {
-        // ⚠ **The case that actually happened, and the reason memory is not
-        // enough.** An upgrade carries only LIVE sessions, so the ended one is
+        // The case that actually happened, and the reason memory is not
+        // enough. An upgrade carries only LIVE sessions, so the ended one is
         // dropped from the roster — and an ended session is precisely what
         // somebody is resuming. Nothing in the process knows the mode by then;
         // only the file does.
@@ -1561,7 +1561,7 @@ mod remembering_the_mode {
 
 /// Whether a turn is running, as the runner observes it.
 ///
-/// ⚠ **The console called a working session idle.** Reported from the phone:
+/// The console called a working session idle. Reported from the phone:
 /// "It says you're idle. My messages aren't seen by you yet." The
 /// session was mid-turn throughout, running tools — but `busy` is announced only
 /// when it CHANGES, and no status was drawn as *idle* (memview #112).
@@ -1570,7 +1570,7 @@ mod whether_it_is_working {
 
     #[tokio::test]
     async fn a_session_that_has_not_said_anything_yet_is_not_working() {
-        // ⚠ **The case that shipped wrong.** `working` was derived from "no turn
+        // The case that shipped wrong. `working` was derived from "no turn
         // has ended", which is also true of a session that has said NOTHING —
         // still starting, no `Started` line on the wire. A brand-new session
         // with an empty transcript was reported as working, on screen, within a
@@ -1620,7 +1620,7 @@ mod whether_it_is_working {
         assert!(!session.summary().working, "the turn ended");
     }
 
-    /// ⚠ **Hours of `working` over a process doing nothing.** A session was
+    /// Hours of `working` over a process doing nothing. A session was
     /// resumed whose transcript ended mid-turn, so the seeded events said
     /// "speaking" and no `Turn` ever followed to take it back. The card claimed a
     /// turn was running while the process held no API socket and a flat sliver of
@@ -1688,7 +1688,7 @@ mod whether_it_is_working {
 
 #[tokio::test]
 async fn a_stop_writes_down_when_the_kill_is_due() {
-    // ⚠ **Because the timer that carries it does not survive an upgrade.** The
+    // Because the timer that carries it does not survive an upgrade. The
     // kill lives in a `tokio::spawn`, and `handover` re-execs this process; the
     // session is not carried either, since closing stdin makes its descriptors
     // unkeepable. A stopped session ran on for two and a quarter hours,
@@ -1723,7 +1723,7 @@ async fn a_stop_writes_down_when_the_kill_is_due() {
 
 #[test]
 fn a_listing_that_merely_mentions_a_conversation_is_not_that_conversation() {
-    // ⚠ The trap `words_of_claude_processes` exists for, reached from the other
+    // The trap `words_of_claude_processes` exists for, reached from the other
     // side: this decides whether a SIGKILL is sent, so a line matching by
     // accident is a kill aimed at whatever that pid happens to be now.
     let id = "b1b1b1b1-0000-4000-8000-000000000003";
@@ -1748,7 +1748,7 @@ fn a_listing_that_merely_mentions_a_conversation_is_not_that_conversation() {
 
 #[test]
 fn a_pid_that_is_not_that_conversation_any_more_is_left_alone() {
-    // ⚠ **The whole risk in finishing a stop late.** The deadline is up to
+    // The whole risk in finishing a stop late. The deadline is up to
     // thirty seconds old and a pid is not a handle: by the time it comes round,
     // the system may have started something else in that pid's place. The
     // warning is already written down at `Roster::revive`; this is the guard.
@@ -1775,7 +1775,7 @@ fn a_pid_that_is_not_that_conversation_any_more_is_left_alone() {
 /// A process whose command line looks like a `claude` running `id`, so that the
 /// guard in `finish` lets a kill through to it.
 ///
-/// ⚠ **A symlink named `claude`, because that is exactly what the guard reads.**
+/// A symlink named `claude`, because that is exactly what the guard reads.
 /// `words_of_claude_processes` decides on the first word's last path element —
 /// the account of why is beside it — so a test that used a differently-named
 /// process would only ever exercise the refusing half.
@@ -1784,7 +1784,7 @@ fn wearing_the_name(dir: &std::path::Path, id: &str) -> Disguised {
     let looks_like = dir.join("claude");
     let _ = std::fs::remove_file(&looks_like);
     std::os::unix::fs::symlink("/bin/sh", &looks_like).expect("symlink");
-    // ⚠ **A shell rather than `sleep` itself, and the loop is not decoration.**
+    // A shell rather than `sleep` itself, and the loop is not decoration.
     // `sleep 30 <id>` looks right and exits immediately — "invalid time
     // interval" — so both of these tests passed while proving nothing, which an
     // ablation of the kill caught by staying green. And a shell given one plain
@@ -1802,7 +1802,7 @@ fn wearing_the_name(dir: &std::path::Path, id: &str) -> Disguised {
 
 /// The disguised process, cleaned up however the test ends.
 ///
-/// ⚠ **`Drop`, and not a line at the end of the test.** A failed assertion
+/// `Drop`, and not a line at the end of the test. A failed assertion
 /// unwinds straight past that line, and what it leaves behind is a shell in a
 /// spin loop still holding the test binary's stdout — which is a run that never
 /// finishes rather than one that fails. Measured while ablating the kill on
@@ -1827,7 +1827,7 @@ impl Disguised {
     /// SIGKILL is delivered by the time `kill` returns, but the process table
     /// takes a moment to catch up, so this waits rather than asking once.
     ///
-    /// ⚠ **Blocking, so it is for the synchronous test only.** A `tokio::test`
+    /// Blocking, so it is for the synchronous test only. A `tokio::test`
     /// is a current-thread runtime: sleeping the thread inside one starves the
     /// task the code under test just spawned, and the kill that never arrives
     /// looks exactly like the bug. Seen here — the async test below failed
@@ -1867,7 +1867,7 @@ fn the_kill_does_land_on_the_process_that_is_still_that_conversation() {
 
 #[tokio::test]
 async fn a_kill_the_last_image_could_not_deliver_is_delivered_by_this_one() {
-    // ⚠ **The whole of #750, from the receiving end.** The old image wrote down
+    // The whole of #750, from the receiving end. The old image wrote down
     // what it was in the middle of stopping; this reads it and finishes the job
     // it could not, because `execve` took its timer with it.
     //

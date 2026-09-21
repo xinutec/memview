@@ -13,7 +13,7 @@
 #      back as written, so gate 2 cannot see inside one — the same blindness it
 #      has about a word and about `${…}`. Construction and the round-trip law
 #      are the whole defence.
-#   2. ⚠ **A brace with nothing to expand is ORDINARY TEXT.** `{a}` and `{}` are
+#   2. A brace with nothing to expand is ORDINARY TEXT. `{a}` and `{}` are
 #      printed and expanded as themselves. So reading them as literal characters
 #      is what bash does, not a construct being swallowed — and it is why the
 #      decision is a lookahead made before anything is consumed.

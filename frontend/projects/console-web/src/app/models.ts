@@ -151,7 +151,7 @@ export type Questioned = (ToolCall & Ask) | Asking;
 /**
  * Anything that names an ask: what everything keyed by one takes.
  *
- * ⚠ **Not the id itself.** A `ToolCall` carries two ids — `call`, the tool_use,
+ * Not the id itself. A `ToolCall` carries two ids — `call`, the tool_use,
  * and `ask`, the control request — and both are strings, so a function taking
  * `ask: string` accepts the wrong one happily and files an answer under an id no
  * runner will ever quote back. Taking the carrier makes that unsayable without a
@@ -166,7 +166,7 @@ export function asking(entry: Entry): entry is Questioned {
 /**
  * A question still open — the only thing that can be answered.
  *
- * ⚠ **A separate type because "already decided" was four runtime guards.**
+ * A separate type because "already decided" was four runtime guards.
  * Every method that sends a verdict re-checked `allowed !== undefined` and
  * returned early, which is an invariant kept by remembering rather than by the
  * compiler: a fifth path would have answered a question twice. Taking this type

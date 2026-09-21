@@ -1,8 +1,8 @@
 //! **A resumed mine must give the answer a whole mine gives.** For any corpus,
 //! cut at any point.
 //!
-//! ⚠ **This exists because six bugs of one family were found BY HAND, each
-//! needing a stronger fixture than the one before it**
+//! This exists because six bugs of one family were found BY HAND, each
+//! needing a stronger fixture than the one before it
 //! (memview#1240). All six were the same shape — a fold written to run over
 //! everything, made to run over what changed — and none was visible to the test
 //! that preceded it:
@@ -17,7 +17,7 @@
 //! Doing that comparison by hand once per bug is how five of them survived to
 //! be found late. Here it is the invariant, checked at every cut.
 //!
-//! ⚠ **The corpus is TRUNCATED and RESTORED, never synthesised in two halves.**
+//! The corpus is TRUNCATED and RESTORED, never synthesised in two halves.
 //! Hand-written appended lines do not exercise the pipeline: two rounds of them
 //! moved `agents.json` and left `doing.json` and `effects.json` byte-identical,
 //! which reads as a pass and proves nothing. Cutting real generated content on a
@@ -33,15 +33,15 @@
 //!     doing rows sorted on a partial key    NOT CAUGHT
 //!     effects rows sorted on a partial key  NOT CAUGHT
 //!
-//! ⚠ **The two total-order sorts are NOT proven by this fixture and that is
-//! stated rather than assumed.** A stable sort only differs when a tie is
+//! The two total-order sorts are NOT proven by this fixture and that is
+//! stated rather than assumed. A stable sort only differs when a tie is
 //! inserted in a different order, and here the carried rows and the tail happen
 //! to arrive in the same relative order the whole scan visits them in. They are
 //! defensive; the renumbering is what made the real corpus agree. **Do not read
 //! a green run as covering them** — a fixture that does would need a tie whose
 //! two sides swap across the cut.
 //!
-//! ⚠ **Every assertion is guarded against being VACUOUS.** Two empty artefacts
+//! Every assertion is guarded against being VACUOUS. Two empty artefacts
 //! compare equal. A fixture that silently produces no rows — the one that cost a
 //! wrong test, because `log.push` needs a tool-use `id` nobody had
 //! noticed — would otherwise pass this file completely.
@@ -77,7 +77,7 @@ fn transcript(session: &str, agent: &str, turns: usize, day: i64) -> String {
                 r#"{{"type":"user","sessionId":"{session}","uuid":"u{t}-{session}","timestamp":"{stamp}","cwd":"/code/{agent}","message":{{"role":"user","content":"turn {t}"}}}}"#
             ),
         );
-        // ⚠ **A Bash call, because EFFECTS come only from parsed shell steps.**
+        // A Bash call, because EFFECTS come only from parsed shell steps.
         // The first version of this fixture had none and produced an empty
         // `effects.json` — which the vacuity guard caught, and which would
         // otherwise have compared empty to empty at every cut.
@@ -89,7 +89,7 @@ fn transcript(session: &str, agent: &str, turns: usize, day: i64) -> String {
                 t % 2
             ),
         );
-        // ⚠ The `id` is what makes this produce a timeline row at all.
+        // The `id` is what makes this produce a timeline row at all.
         for (k, tool, path) in [
             (0, "Read", format!("/code/{agent}/src/a{}.rs", t % 3)),
             (1, "Edit", format!("/code/{agent}/src/b{}.rs", t % 2)),
@@ -123,13 +123,13 @@ struct Corpus {
 
 /// A repository with one commit, so commit ATTRIBUTION is exercised.
 ///
-/// ⚠ Without this the fixture had no git history at all, `commits` was 0 on both
+/// Without this the fixture had no git history at all, `commits` was 0 on both
 /// sides, and removing the reset that stops a resumed run DOUBLING them still
 /// passed.
 fn repo_with_a_commit(root: &std::path::Path) -> String {
     let repo = root.join("alpha");
     std::fs::create_dir_all(&repo).expect("mkdir");
-    // ⚠ **Strip EVERY GIT_* variable, not a list.** Inside the gate this
+    // Strip EVERY GIT_* variable, not a list. Inside the gate this
     // fixture runs under memview's own pre-commit hook, which exports GIT_DIR,
     // GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY and more to every child. An
     // enumerated subset missed GIT_COMMON_DIR, so `git init` here bound the new
@@ -146,7 +146,7 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
                 c.env_remove(key);
             }
         }
-        // ⚠ **Fixed dates, so the hash is DETERMINISTIC.** A commit made from
+        // Fixed dates, so the hash is DETERMINISTIC. A commit made from
         // the wall clock gets a different sha every run, and
         // `commits::hash_candidates` deliberately refuses an all-digit short
         // hash (3.4% of the fleet's real commits) — so roughly one run in forty
@@ -172,7 +172,7 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
     let sha = String::from_utf8_lossy(&git(&["rev-parse", "--short=8", "HEAD"]).stdout)
         .trim()
         .to_string();
-    // ⚠ **The one property the whole fixture rests on.** An all-digit hash is
+    // The one property the whole fixture rests on. An all-digit hash is
     // never attributed, on purpose, so it would make every comparison below
     // vacuous — and the failure reads as "the resumed mine lost the commits"
     // rather than "the fixture cannot express the question". With the dates
@@ -191,7 +191,7 @@ fn corpus() -> Corpus {
     std::fs::create_dir_all(&proj).expect("mkdir");
     let mut cut_in = std::path::PathBuf::new();
     let mut whole = String::new();
-    // ⚠ **The same day for all three, deliberately.** Rows only tie on a minute
+    // The same day for all three, deliberately. Rows only tie on a minute
     // when sessions OVERLAP in time, and a tie is the only thing a stable sort
     // can order by traversal. With a day each, the ablation that removes the
     // total order still passed — the fixture could not express the bug.
@@ -300,7 +300,7 @@ fn shape(a: &Agents) -> String {
     .expect("serialise")
 }
 
-/// ⚠ A fixture that produces nothing would pass every comparison below.
+/// A fixture that produces nothing would pass every comparison below.
 fn refuse_vacuous(a: &Agents) {
     assert!(!a.agents.is_empty(), "fixture produced no agents");
     assert!(
@@ -313,12 +313,12 @@ fn refuse_vacuous(a: &Agents) {
         a.agents.iter().any(|x| x.transcripts > 0),
         "fixture counted no transcripts"
     );
-    // ⚠ Without a commit attributed, the doubling ablation cannot be seen.
+    // Without a commit attributed, the doubling ablation cannot be seen.
     assert!(
         a.agents.iter().any(|x| x.commits > 0),
         "fixture attributed no commits"
     );
-    // ⚠ Without ties on a minute, a stable sort cannot be caught ordering by
+    // Without ties on a minute, a stable sort cannot be caught ordering by
     // traversal — the whole point of the total-order comparator.
     let mut minutes: Vec<i64> = a.effects.rows.iter().map(|r| r.t).collect();
     minutes.sort_unstable();
@@ -354,7 +354,7 @@ fn a_resumed_mine_equals_a_whole_mine_at_every_cut() {
 
         // Restore the withheld REAL content, byte for byte.
         std::fs::write(&c.cut_in, &c.whole).expect("restore");
-        // ⚠ The timeline and the evidence are carried THROUGH THE WIRE FORM,
+        // The timeline and the evidence are carried THROUGH THE WIRE FORM,
         // which is how a real resume receives them. Passing `default()` here
         // instead makes the resumed run start with no rows and quietly compares
         // a tail against a whole corpus — that is a broken test, not a finding.
@@ -376,7 +376,7 @@ fn a_resumed_mine_equals_a_whole_mine_at_every_cut() {
     }
 }
 
-/// ⚠ **A cut that changes nothing must also change nothing.** This is the case
+/// A cut that changes nothing must also change nothing. This is the case
 /// that cannot catch a per-read counter — it reads no transcript at all — and is
 /// kept precisely so the difference between the two is on the record.
 #[test]

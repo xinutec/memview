@@ -51,7 +51,7 @@ export default tseslint.config(
     },
   },
   {
-    // ⚠ **The e2e trees need a project that knows about node.** `projectService`
+    // The e2e trees need a project that knows about node. `projectService`
     // resolves each file against the nearest `tsconfig.json`, and neither the
     // app's nor the spec's reaches `e2e/` — so `spawn()` came back unresolved
     // and every use of it read as an unsafe call on `any`. `tsconfig.e2e.json`

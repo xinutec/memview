@@ -132,7 +132,7 @@ fn a_session_still_fails_on_its_own_memory() {
     ));
 }
 
-/// ⚠ **A missing author is REPORTED, and reported as a WARNING** — two halves of
+/// A missing author is REPORTED, and reported as a WARNING — two halves of
 /// one claim, pinned together (memview#1499).
 ///
 /// Reported at all, because nothing used to ask. `modified:` was an ERROR and
@@ -145,7 +145,7 @@ fn a_session_still_fails_on_its_own_memory() {
 /// to remove. [`an_unstamped_memory_fails_no_session`] below is the other half.
 #[test]
 fn a_missing_author_is_a_warning_because_nobody_can_be_charged_with_it() {
-    // ⚠ **NOT `findings()`, which filters to `Severity::Error`.** Reaching for
+    // NOT `findings()`, which filters to `Severity::Error`. Reaching for
     // it here reported nothing and then made the negative assertion below pass
     // for the wrong reason — a warning is invisible to that helper whether or
     // not the rule fired, so BOTH halves would have been green with no rule at
@@ -173,7 +173,7 @@ fn a_missing_author_is_a_warning_because_nobody_can_be_charged_with_it() {
     // And a memory that HAS one must not be reported, or the rule is just a
     // count of the corpus.
     //
-    // ⚠ A SECOND tempdir: `stamped` rewrites the index but leaves the previous
+    // A SECOND tempdir: `stamped` rewrites the index but leaves the previous
     // memory file on disk, so reusing this one loads a corpus of both and the
     // unstamped `project_a` is still correctly reported.
     let other = tempfile::tempdir().expect("tempdir");
@@ -212,7 +212,7 @@ fn an_error_in_the_index_still_fails_a_session() {
 
 // --- who BROKE it, not whose it is (memview#1553) ----------------------------
 
-/// ⚠ **The case the whole ticket is about: I damaged a memory I did not write.**
+/// The case the whole ticket is about: I damaged a memory I did not write.
 ///
 /// `project_a` belongs to `session-2`, so attribution by `originSessionId` alone
 /// answers "not yours" and passes — which is what happened for real, when a bad
@@ -231,10 +231,10 @@ fn damaging_another_sessions_memory_fails_this_session() {
     ));
 }
 
-/// ⚠ **And the tolerance #1047 bought is KEPT** — this is the control that
+/// And the tolerance #1047 bought is KEPT — this is the control that
 /// stops the fix above from becoming "fail on every error", which is what #1047
-/// was written to remove. ⚠ **The whole point: another session's memory does not
-/// fail this one's commit.** Somebody else's memory, somebody else's last write:
+/// was written to remove. The whole point: another session's memory does not
+/// fail this one's commit. Somebody else's memory, somebody else's last write:
 /// still not this session's problem.
 #[test]
 fn inheriting_another_sessions_error_still_fails_nobody() {
@@ -248,7 +248,7 @@ fn inheriting_another_sessions_error_still_fails_nobody() {
     ));
 }
 
-/// ⚠ **The residual, pinned so it is a decision and not a surprise.** With no
+/// The residual, pinned so it is a decision and not a surprise. With no
 /// recorded writer the verdict falls back to `originSessionId` and this passes.
 /// Almost every memory edited in the last week has a record, while not quite
 /// half the corpus does — so this path is rare where it matters and common
@@ -383,7 +383,7 @@ fn quoting_a_retracted_figure_without_linking_the_retraction_is_an_error() {
     );
 }
 
-/// ⚠ The requirement is a LINK, never a phrasing. A grep for the correction
+/// The requirement is a LINK, never a phrasing. A grep for the correction
 /// banner in a file that has one returned nothing, because it reads "no 173/173
 /// figure IS comparable" rather than "not comparable".
 #[test]
@@ -421,7 +421,7 @@ fn all_findings(corpus: &Corpus, rule: &str) -> Vec<memview::lint::Finding> {
         .collect()
 }
 
-/// ⚠ **The rule exists because prose did not work.** "A new line is paid for by
+/// The rule exists because prose did not work. "A new line is paid for by
 /// demoting a finished one" has been in `MEMORY.md`'s own header — injected into
 /// every session, every turn — for weeks, and the root grew past the ceiling
 /// anyway. A budget that is only ever asked for is not a budget.
@@ -455,8 +455,8 @@ fn an_index_under_the_ceiling_is_silent() {
     assert!(found.is_empty(), "{found:?}");
 }
 
-/// ⚠ **It must stay a WARNING until the corpus reaches zero, and this test is
-/// the thing that says so.** `claude-sync` sets `corpus_ok=false` on any lint
+/// It must stay a WARNING until the corpus reaches zero, and this test is
+/// the thing that says so. `claude-sync` sets `corpus_ok=false` on any lint
 /// ERROR and withholds the entire corpus from its history — so promoting this
 /// while the root is over would not tighten the budget, it would stop every
 /// memory being committed at all. A gate that can never go green is not a
@@ -575,7 +575,7 @@ fn dated(dir: &std::path::Path, created: &str, modified: &str) -> Corpus {
 
 #[test]
 fn a_memory_created_after_it_was_modified_is_an_error() {
-    // ⚠ **A shape memories have really been in**: git shows a file existing
+    // A shape memories have really been in: git shows a file existing
     // before the `created` a later backfill wrote for it. Nothing downstream
     // reads the pair together, so they sat unremarked — a memory whose age is
     // stated backwards still recalls and still renders.
@@ -612,7 +612,7 @@ fn a_memory_written_and_never_changed_is_silent() {
 
 #[test]
 fn the_stamps_are_compared_as_instants_and_not_as_text() {
-    // ⚠ **The case a string comparison gets backwards.** `08:00:00+03:00` is
+    // The case a string comparison gets backwards. `08:00:00+03:00` is
     // 05:00 UTC, which is BEFORE `06:00:00Z` — but sorts after it as text, and
     // both shapes are written into this corpus. A rule on the raw frontmatter
     // would report a memory that is perfectly in order.
@@ -629,8 +629,8 @@ fn the_stamps_are_compared_as_instants_and_not_as_text() {
     assert!(found.is_empty(), "{found:?}");
 }
 
-/// ⚠ **Every racy rule must be a rule, and this test exists because one was
-/// not** (memview#1456). `RACY` named `"not-in-index"`, renamed to
+/// Every racy rule must be a rule, and this test exists because one was
+/// not (memview#1456). `RACY` named `"not-in-index"`, renamed to
 /// `"unreachable"` when the rule became reachability rather than
 /// membership. The dead string compiled, read as deliberate, and matched no
 /// finding — so `memory-lint`'s settle-and-retry protected one of its two rules
@@ -665,7 +665,7 @@ fn every_racy_rule_is_an_error() {
 /// The three ways an indexed memory can carry a role, and the one way it cannot
 /// — memview#1537.
 ///
-/// ⚠ **The record counts as a judgement.** 597 memories were judged into
+/// The record counts as a judgement. 597 memories were judged into
 /// `memory-roles.json` before the frontmatter field existed, and a rule that
 /// read only the frontmatter would report a gap of 597 that is not there. The
 /// field is how a memory declares its own role from now on; the record is what
@@ -679,7 +679,7 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
         ("declares", Some("tripwire")),
         ("in_record", None),
         ("neither", None),
-        // ⚠ An unrecognised word must read as UNJUDGED, not as a third kind —
+        // An unrecognised word must read as UNJUDGED, not as a third kind —
         // otherwise a typo silently exempts a memory from demotion forever,
         // which is the failure this rule exists to catch.
         ("typo", Some("tripwyre")),
@@ -704,7 +704,7 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
         .collect();
     assert_eq!(flagged, vec!["neither".to_string(), "typo".to_string()]);
 
-    // ⚠ Without the record the rule is SKIPPED, not inverted — a lint run on a
+    // Without the record the rule is SKIPPED, not inverted — a lint run on a
     // fresh checkout must not invent 597 findings it has no evidence for.
     let none: Vec<String> = check(&corpus, None, None)
         .into_iter()
@@ -714,7 +714,7 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
     assert!(none.is_empty(), "skipped without the record, got {none:?}");
 }
 
-/// ⚠ **A bare label is CORRECT for a pointer and mute for a tripwire** —
+/// A bare label is CORRECT for a pointer and mute for a tripwire —
 /// memview#822. A tripwire's line has to act on a reader who did not come
 /// looking, so a line stating no claim reminds somebody who already knows it
 /// and warns nobody else. The pointer half of this test is the control that

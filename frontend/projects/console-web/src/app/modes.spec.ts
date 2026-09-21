@@ -4,7 +4,7 @@ import { MODES, modeIcon, modeIsLoud, modeTitle, offeredModes } from './modes';
 
 describe('permission modes', () => {
   it('shows the CLI its own words, not a prettified guess', () => {
-    // ⚠ `default` is displayed as *Manual*. Title-casing the stored name would
+    // `default` is displayed as *Manual*. Title-casing the stored name would
     // put a word on screen that appears nowhere in the tool the same person is
     // using — and would quietly disagree with it about what the session is
     // doing.

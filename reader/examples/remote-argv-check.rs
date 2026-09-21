@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
 
 /// Every container payload in `script`, at any depth.
 ///
-/// ⚠ **Depth is the whole point.** Only 120 of these are top-level; the rest sit
+/// Depth is the whole point. Only 120 of these are top-level; the rest sit
 /// inside an `ssh host '…'`, which is exactly how the refusal they caused came to
 /// be counted by `shell-files` and invisible to the first version of this probe.
 fn walk(

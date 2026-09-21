@@ -164,7 +164,7 @@ fn command_substitution_is_parsed_as_the_commands_it_is() {
 
 #[test]
 fn a_substitution_inside_double_quotes_is_still_a_command() {
-    // ⚠ **REGRESSION, and the largest one this reader has had.** `dquoted` was
+    // REGRESSION, and the largest one this reader has had. `dquoted` was
     // fully atomic, so `"$( … )"` was a single opaque token and the command
     // inside it was never walked — 8,300 distinct commands, 6.5% of the corpus,
     // 12,755 occurrences (memview#918). Worse in kind than an unparsed command:
@@ -198,8 +198,8 @@ fn a_substitution_inside_double_quotes_is_still_a_command() {
             vec!["echo", "`git rev-parse HEAD`"],
         ]
     );
-    // ⚠ **And it corrects WORD BOUNDARIES, which is the half that was not just
-    // invisible but wrong.** Quoting restarts inside `$( )`, so the `"` around
+    // And it corrects WORD BOUNDARIES, which is the half that was not just
+    // invisible but wrong. Quoting restarts inside `$( )`, so the `"` around
     // `x` below does not end the outer string. The old rule scanned to the first
     // unescaped `"` and stopped there, splitting one argument into three and
     // failing outright on 17 corpus commands. The `echo` takes TWO arguments.
@@ -214,7 +214,7 @@ fn a_substitution_inside_double_quotes_is_still_a_command() {
 
 #[test]
 fn single_quotes_expand_nothing_and_that_asymmetry_is_the_point() {
-    // ⚠ **The one direction this fix must NOT go.** Inside single quotes a
+    // The one direction this fix must NOT go. Inside single quotes a
     // substitution is six characters of text, so walking it would invent a
     // command nobody ran — the error this reader exists to avoid, and the reason
     // `squoted` stays fully atomic while `dquoted` is compound-atomic.
@@ -260,7 +260,7 @@ fn escaped_parens_belong_to_the_word() {
     // REGRESSION. `find . \( … \)` — the word ended at the backslash and the bare
     // `(` opened a group that never closed.
     //
-    // ⚠ The backslash is gone from the value, because the shell removes it:
+    // The backslash is gone from the value, because the shell removes it:
     // `printf '%s|' find . \( … \)` prints `find|.|(|…`, so `(` is the word
     // `find` was handed. argv is what the command received, not what was typed.
     assert_eq!(
@@ -318,7 +318,7 @@ fn an_unclosed_quote_is_an_error_not_a_silent_half_parse() {
 /// What had to hold for each command in a script to run, in order.
 #[test]
 fn a_backslash_outside_quotes_escapes_the_character_after_it() {
-    // ⚠ **`'\''` is how a single quote gets inside a single-quoted string** —
+    // `'\''` is how a single quote gets inside a single-quoted string —
     // close, escaped quote, reopen — and reading the `\'` as two literal
     // characters gave back a word with a backslash where the quote belongs.
     // Found by the round-trip probe (memview#833) rather than by a failing case:
@@ -342,7 +342,7 @@ fn conditions(script: &str) -> Vec<Reached> {
 
 #[test]
 fn the_separator_says_whether_the_next_command_runs() {
-    // ⚠ **The only thing in the text that says a command happened.** Without
+    // The only thing in the text that says a command happened. Without
     // this the reader credits an agent with `b` in `a && b` when `a` failed and
     // `b` never ran — 1,220 file uses in the corpus's failed calls.
     assert_eq!(conditions("a; b"), [Reached::Always, Reached::Always]);
@@ -369,14 +369,14 @@ fn a_chain_of_ands_is_still_one_condition() {
 
 #[test]
 fn the_knowledge_in_a_failed_or_chain_is_declined_on_size_not_on_principle() {
-    // ⚠ **These three are all `Sometimes`, and one of them need not be.**
+    // These three are all `Sometimes`, and one of them need not be.
     // memview #101 asked for a fourth domain point, `OnFailure`, to recover the
     // right-hand side of a `||` when the call failed. Measured over
     // 132,554 calls: 4,945 failed at all, 390 of those contain `||`, and 113
     // file uses inside them land in this bucket — a ceiling, and 0.59% of it.
     // Too small to pay for, so the reader keeps saying "cannot tell".
     //
-    // ⚠ **What the measuring found that the task had not.** The recoverable
+    // What the measuring found that the task had not. The recoverable
     // knowledge is not one point in a lattice, it is one sentence: *a non-zero
     // exit proves the last `||` alternative of the final segment ran.* Both
     // shapes below fall out of it — a chain, because each link failing in turn
@@ -402,8 +402,8 @@ fn the_knowledge_in_a_failed_or_chain_is_declined_on_size_not_on_principle() {
 
 #[test]
 fn a_status_a_semicolon_threw_away_can_never_be_confirmed() {
-    // ⚠ **The call reports ONE exit status, and `;` discards the one before
-    // it.** In `a && b; c` exit 0 says `c` worked and nothing whatever about
+    // The call reports ONE exit status, and `;` discards the one before
+    // it. In `a && b; c` exit 0 says `c` worked and nothing whatever about
     // `a`, so `b` is unconfirmable however the call turned out — not merely
     // conditional on success. Counting it as certain is an over-claim worth
     // 15,981 file uses in the corpus's *successful* calls alone.
@@ -420,7 +420,7 @@ fn a_status_a_semicolon_threw_away_can_never_be_confirmed() {
 
 #[test]
 fn at_most_one_arm_of_an_if_ran_so_neither_is_certain() {
-    // ⚠ **The one place this reader could invent a file use.** Every other gap
+    // The one place this reader could invent a file use. Every other gap
     // in it records less than happened; recording both arms as certain records
     // MORE, and does it under the label that means "this definitely happened".
     // The condition is not a branch — `grep` really runs.
@@ -444,7 +444,7 @@ fn at_most_one_arm_of_an_if_ran_so_neither_is_certain() {
             Reached::Always,
         ]
     );
-    // `fi` closes exactly one level, so what follows is certain again. ⚠ One
+    // `fi` closes exactly one level, so what follows is certain again. One
     // command can carry TWO keywords: `then if b` both stands in the outer
     // branch and opens an inner one, and reading only its first word would let
     // the inner `fi` close the outer statement — putting `d` back on the
@@ -506,8 +506,8 @@ fn a_verdict_and_a_condition_together_decide_what_certainly_ran() {
 
 #[test]
 fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
-    // ⚠ **`done`, `fi` and `esac` arrive here looking like unconditional
-    // commands sitting after the body they close.** Treated as real ones, the
+    // `done`, `fi` and `esac` arrive here looking like unconditional
+    // commands sitting after the body they close. Treated as real ones, the
     // last of them anchors the final segment and demotes every `&&` in the whole
     // script — one `for` loop was enough to make everything before it
     // unconfirmable.
@@ -529,7 +529,7 @@ fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
 /// others. `case` cannot be waved through, because `completed*)` closes a paren
 /// that was never opened, so the command dies at the FIRST arm.
 ///
-/// ⚠ **The reason to care is not the `case`.** It is almost always the CI or
+/// The reason to care is not the `case`. It is almost always the CI or
 /// deploy wait — poll, match the status, break — so while the statement would
 /// not parse, every `ssh`, `kubectl` and file write in the loop AROUND it was
 /// invisible. It was the largest bucket of unreadable commands by a factor of
@@ -557,7 +557,7 @@ fn at_most_one_case_arm_ran_so_none_of_them_is_certain() {
     // arms are alternatives, so recording one as certain claims a file use that
     // never happened.
     //
-    // ⚠ **The subject is not an arm.** `case $(readlink -f x) in` really does
+    // The subject is not an arm. `case $(readlink -f x) in` really does
     // run `readlink`, whichever way the match goes, so it keeps the condition
     // standing outside the statement.
     assert_eq!(
@@ -599,7 +599,7 @@ fn a_case_inside_a_loop_is_reached_through_the_do_keyword() {
 
 #[test]
 fn defining_a_function_runs_none_of_it() {
-    // ⚠ **The other place this reader could invent a file use**, and it was
+    // The other place this reader could invent a file use, and it was
     // there from the round that added `name() { … }` — surfacing only when the
     // #901 grammar made nine more definitions parse. Binding a name writes
     // nothing, so recording the body as certain credits a write to `/tmp/o` to a
@@ -636,7 +636,7 @@ fn a_subshell_after_a_loop_keyword_is_still_a_subshell() {
             vec!["done"],
         ]
     );
-    // ⚠ **The subshell must keep its own directory.** That is the whole reason
+    // The subshell must keep its own directory. That is the whole reason
     // the group is not just flattened into the enclosing command: without a
     // scope of its own, every later relative path resolves against `$d`.
     let cmds = parse("for d in a b; do (cd $d && git commit -m x) ; done").unwrap();
@@ -646,7 +646,7 @@ fn a_subshell_after_a_loop_keyword_is_still_a_subshell() {
     assert!(after.scope.is_empty());
 }
 
-/// ⚠ **`<<` is not an operator just because it is two characters.**
+/// `<<` is not an operator just because it is two characters.
 ///
 /// The opener scan reads bytes, so anything merely CONTAINING `<<` looked like
 /// a heredoc: an arithmetic shift, a quoted string that mentions redirection, a
@@ -691,7 +691,7 @@ fn a_pattern_that_looks_for_a_heredoc_does_not_open_one() {
 fn a_heredoc_inside_a_quoted_argument_is_still_a_heredoc() {
     // The case the naive fix would break, and the commonest shape in the corpus.
     //
-    // ⚠ The body is NOT on the outer command, and asserting that it was is how
+    // The body is NOT on the outer command, and asserting that it was is how
     // this test first failed against correct code. It belongs to `python3 -`,
     // which is not a command on this pass at all — it is text inside an argument,
     // re-parsed later from this very substring. The marker travels with the text

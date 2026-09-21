@@ -1,6 +1,6 @@
 //! When a memory was first written, put back into the memory itself.
 //!
-//! ⚠ **This was written as a closing window and it is not one.** A creation date
+//! This was written as a closing window and it is not one. A creation date
 //! exists nowhere but the transcripts — `~/.claude` git history begins 2026-08-14 —
 //! and the transcripts were believed to be evaporating. Measured against odin's
 //! snapshots: nothing holding a conversation has been deleted since the archive
@@ -14,7 +14,7 @@
 //! right — it makes age an O(1) file read and puts the fact in the one place that
 //! is versioned (memview#1210).
 //!
-//! ⚠ **Insertion, never rewriting.** A memory is somebody's file. Everything here
+//! Insertion, never rewriting. A memory is somebody's file. Everything here
 //! refuses rather than guesses: no `metadata:` block to write under, a `created:`
 //! already present, or a date that disagrees with one already there.
 
@@ -22,7 +22,7 @@ use anyhow::{Result, bail};
 
 /// The `created:` a memory's frontmatter already declares.
 ///
-/// ⚠ **Frontmatter only.** A `created:` in the body is prose — `memory-stamp`
+/// Frontmatter only. A `created:` in the body is prose — `memory-stamp`
 /// learned the same thing about `modified:`, and a body match would make this
 /// skip a memory that needs stamping.
 pub fn created_in(text: &str) -> Option<&str> {

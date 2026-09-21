@@ -35,7 +35,7 @@ body {
   color: var(--mat-sys-on-surface);
 }
 
-// ⚠ **An icon has one correct size, so it never shrinks.** Material gives
+// An icon has one correct size, so it never shrinks. Material gives
 // `mat-icon` `overflow: hidden`, and a flex or grid item whose overflow is not
 // `visible` loses the `min-width: auto` floor that would stop it collapsing
 // below its own content — so its floor is 0. When the line it sits on has to

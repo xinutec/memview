@@ -41,7 +41,7 @@ fn a_picture_is_kept_where_it_can_be_opened_again() {
 
 #[test]
 fn what_it_is_comes_from_the_bytes_and_not_from_the_client() {
-    // ⚠ **The media type is what the CLI is told and what the API believes.** A
+    // The media type is what the CLI is told and what the API believes. A
     // mislabelled file would be sent as something it is not, and the refusal
     // would arrive minutes later, in another process, as a failed turn with no
     // reason attached.
@@ -73,7 +73,7 @@ fn every_format_the_api_takes_is_recognised() {
 
 #[test]
 fn a_name_that_could_walk_out_of_the_directory_is_refused() {
-    // ⚠ The session comes off the URL. The roster is asked for it first, so it is
+    // The session comes off the URL. The roster is asked for it first, so it is
     // an id this console holds — but this is the console's only write of a file
     // named from outside, and `Path::join` on `..` leaves the directory without
     // saying anything.
@@ -136,7 +136,7 @@ fn two_pictures_in_the_same_second_do_not_become_one() {
 
 #[test]
 fn the_message_puts_the_picture_before_the_question() {
-    // ⚠ **Anthropic's own guidance, and not cosmetic**: a question read before
+    // Anthropic's own guidance, and not cosmetic: a question read before
     // the thing it is about is answered from the question alone. The path rides
     // in the text so the session can open the picture again at full size after
     // the context has moved on.
@@ -180,7 +180,7 @@ fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
 
 #[test]
 fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
-    // ⚠ The round trip is the whole feature. What the runner writes to the CLI
+    // The round trip is the whole feature. What the runner writes to the CLI
     // is what a reader meets again in the transcript, and until this the reader
     // met a sentence about a file path — so the one person who could not see the
     // screenshot was the one who took it.
@@ -257,7 +257,7 @@ fn a_kept_picture_can_be_read_back_by_name() {
 
 #[test]
 fn a_name_that_climbs_out_of_the_directory_is_not_served() {
-    // ⚠ Both halves arrive off a URL, and this one hands the bytes back. Without
+    // Both halves arrive off a URL, and this one hands the bytes back. Without
     // the whitelist it is a file reader with the console's own permissions.
     let root = scratch("climb");
     keep(&root, "s1", "image/png", PNG, "2026-08-05-184700Z").expect("kept");
@@ -297,7 +297,7 @@ fn directories(root: &std::path::Path) -> Vec<String> {
 
 #[test]
 fn pictures_go_when_the_conversation_they_belong_to_does() {
-    // ⚠ Nothing removed one before this. Deleting a transcript left its pictures
+    // Nothing removed one before this. Deleting a transcript left its pictures
     // behind for good — megabytes each, under a name that no longer answered to
     // anything, and no page that could ever show them again.
     let root = scratch("tidy-gone");
@@ -410,7 +410,7 @@ async fn a_picture_from_elsewhere_is_what_its_bytes_say_and_not_what_the_server_
 
 #[tokio::test]
 async fn an_error_page_that_came_back_200_is_refused_with_its_own_first_line() {
-    // ⚠ **The case a status check alone would pass.** A server that lost the
+    // The case a status check alone would pass. A server that lost the
     // file, a proxy that wants a login, a directory listing — all of them are a
     // successful HTTP response, and all of them would reach the phone as a
     // picture that will not draw. The first line is what tells them apart, and
@@ -463,8 +463,8 @@ async fn a_far_end_that_is_not_listening_is_a_sentence_rather_than_a_wait() {
 
 #[tokio::test]
 async fn a_scheme_this_does_not_fetch_is_refused_before_anything_is_asked() {
-    // ⚠ **This used to include `file:`, on an argument that was already false
-    // when it was written.** It said refusing the scheme was what stopped
+    // This used to include `file:`, on an argument that was already false
+    // when it was written. It said refusing the scheme was what stopped
     // `~/.ssh/id_ed25519` being served to whoever tapped a link — but the `/`
     // arm at the top of [`fetch`] has always read any local path, so the same
     // key was reachable by writing it without the scheme. The refusal guarded
@@ -492,7 +492,7 @@ async fn something_too_large_for_the_wire_is_refused_on_the_servers_own_claim() 
 
     let why = fetch(&at).await.expect_err("refused");
 
-    // ⚠ **The sentence, not just the refusal.** Both guards refuse this body;
+    // The sentence, not just the refusal. Both guards refuse this body;
     // only the wording says which one did, so an assertion on "too large" would
     // pass with the early arm deleted and this test would be testing the one
     // below twice.
@@ -504,7 +504,7 @@ async fn something_too_large_for_the_wire_is_refused_on_the_servers_own_claim() 
 
 #[tokio::test]
 async fn something_too_large_is_refused_while_it_arrives_when_nothing_declared_it() {
-    // ⚠ **The arm above cannot cover this one.** A `Content-Length` is the
+    // The arm above cannot cover this one. A `Content-Length` is the
     // server's claim about itself; a chunked answer makes no claim, and this is
     // the guard that decides how much of one this process will hold. Refused
     // part way rather than after, so the memory is bounded by [`REACH`] and not
@@ -522,7 +522,7 @@ async fn something_too_large_is_refused_while_it_arrives_when_nothing_declared_i
 // ---------------------------------------------------------------------------
 // The same route, given a place on this disk rather than an address.
 //
-// ⚠ **The shape a session actually writes.** It has the file it just rendered;
+// The shape a session actually writes. It has the file it just rendered;
 // the URL exists only if it is also running a server. observe wrote
 // `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)`.
 // ---------------------------------------------------------------------------
@@ -550,7 +550,7 @@ async fn a_picture_named_by_its_place_on_this_disk_is_read_from_it() {
 
 #[tokio::test]
 async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
-    // ⚠ **The bound on what this route can hand out.** It will open any path,
+    // The bound on what this route can hand out. It will open any path,
     // which is deliberate (see `from_disk`) — what stops it being a way to read
     // a key or a transcript is that nothing which fails the sniff comes back.
     let path = on_disk("secret", b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 pippijn@mac\n");
@@ -570,8 +570,8 @@ async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
     );
 }
 
-/// ⚠ **`file:` was refused, and the refusal was recorded as proof the bound
-/// held.** It was only ever put to a scheme nobody writes. `coach` writes
+/// `file:` was refused, and the refusal was recorded as proof the bound
+/// held. It was only ever put to a scheme nobody writes. `coach` writes
 /// `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary prose, and
 /// every one of those was dead while the identical path without the scheme
 /// served 200 image/png. A refusal tested only against a hostile shape looks
@@ -587,8 +587,8 @@ async fn a_file_url_is_the_path_it_names() {
     assert_eq!(got.bytes, PNG);
 }
 
-/// ⚠ **Percent-decoded, because a `file:` URL is encoded and a disk path is
-/// not.** Reading the raw text would hand the filesystem `soft%20squat.png`,
+/// Percent-decoded, because a `file:` URL is encoded and a disk path is
+/// not. Reading the raw text would hand the filesystem `soft%20squat.png`,
 /// which names nothing — and the render server writes names with spaces.
 #[tokio::test]
 async fn a_file_url_is_decoded_before_the_disk_sees_it() {
@@ -604,7 +604,7 @@ async fn a_file_url_is_decoded_before_the_disk_sees_it() {
     assert_eq!(got.bytes, PNG);
 }
 
-/// ⚠ **A host is another machine, and this console must not answer for it.**
+/// A host is another machine, and this console must not answer for it.
 /// `file://elsewhere/render.png` names a file on `elsewhere`; reading it off
 /// THIS disk would be the mistake `shell_ops::resolve` refuses for `host:path`.
 /// Refused before anything is opened, so it is an `Asked` and a 400.

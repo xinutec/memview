@@ -1,6 +1,6 @@
 //! Which constructs does a command need, not which one stopped us first.
 //!
-//! ⚠ **The refusal ranking is not a work queue on its own.** The parser stops at the
+//! The refusal ranking is not a work queue on its own. The parser stops at the
 //! first thing it cannot read, so a command holding a pipe and a redirection is
 //! counted once, under whichever the scan reached first. Reading those percentages
 //! as "what building X would unlock" is wrong in both directions: it over-credits
@@ -19,11 +19,11 @@
 //! descended into, including a substitution's interior, because the parser reads
 //! those.
 //!
-//! ⚠ **An EXTRA finding is as wrong as a missing one, and only the extras hide** —
+//! An EXTRA finding is as wrong as a missing one, and only the extras hide —
 //! the invariant below pins one direction, so an over-report on a command that was
 //! refused anyway passes silently.
 //!
-//! ⚠ The survey can only ever be *approximately* right, so it is pinned to the parser
+//! The survey can only ever be *approximately* right, so it is pinned to the parser
 //! by an invariant rather than trusted: whatever the parser refuses must appear in
 //! the survey's set. `reader/tests/suite/syntax.rs` asserts it, and the corpus report
 //! re-checks it on every row.
@@ -84,14 +84,14 @@ impl Survey<'_> {
         let mut in_word = false;
         // Is the word being read a `NAME=value` prefix rather than a word?
         let mut word_is_binding = false;
-        // ⚠ Where a loop is, so the two shapes the parser refuses inside one can
+        // Where a loop is, so the two shapes the parser refuses inside one can
         // be reported: a comment (the printer puts a loop on one line, so there
         // is nowhere to put it) and a redirection in a `for` header (a syntax
         // error to bash as well). Neither is visible without knowing that a
         // loop is open.
         let mut loop_header = false;
         let mut loop_depth = 0usize;
-        // ⚠ Where the `if` chain stands — see [`conditional_keyword`]. The
+        // Where the `if` chain stands — see [`conditional_keyword`]. The
         // keywords are modelled now, so an `if` is not a finding, but the shapes
         // bash refuses still are and nothing else here can see them.
         let mut if_stack: Vec<bool> = Vec::new();
@@ -99,7 +99,7 @@ impl Survey<'_> {
         // makes and nothing else here can see.
         let mut parens = 0usize;
         let mut braces = 0usize;
-        // ⚠ Where each open `case` stands, innermost last — see [`CaseStage`].
+        // Where each open `case` stands, innermost last — see [`CaseStage`].
         // It is the only thing that can tell an arm's `)` apart from an
         // unmatched one, and the `(` in front of a pattern from a subshell.
         let mut cases: Vec<CaseStage> = Vec::new();
@@ -109,21 +109,21 @@ impl Survey<'_> {
         let mut for_stage = 0u8;
         // Did the word just finished open a new command list — `do`, `then`?
         let mut word_opens_list = false;
-        // ⚠ Was the word just finished a command NAME? `probe () { … }` is a
+        // Was the word just finished a command NAME? `probe () { … }` is a
         // definition with a blank before the parens, so by the time the `(` is
         // read the name is behind us and `at_command_start` has been cleared.
         let mut after_name = false;
-        // ⚠ WHICH command, because an array literal is legal in argument
+        // WHICH command, because an array literal is legal in argument
         // position only after a declaration builtin — bash's own rule, and the
         // only thing that tells `declare x=(a)` from `echo x=(a)`.
         let mut command_name = String::new();
-        // ⚠ How many `[[ … ]]` are open. Inside one the grammar is different:
+        // How many `[[ … ]]` are open. Inside one the grammar is different:
         // `(` groups an expression rather than opening a subshell, `!` negates
         // rather than being a misplaced pipeline negation, and `<` compares
         // strings rather than redirecting.
         let mut test_depth = 0usize;
 
-        // ⚠ **Finishing a word clears `at_command_start`, and only finishing a word does.**
+        // Finishing a word clears `at_command_start`, and only finishing a word does.
         // Preserving it here instead made every word on a line look like a command name, so
         // `ssh -o BatchMode=yes …` reported an assignment prefix that is plainly an
         // argument. A separator sets the flag back on afterwards; whitespace must not.
@@ -134,11 +134,11 @@ impl Survey<'_> {
         macro_rules! finish {
             () => {
                 if in_word {
-                    // ⚠ Here rather than on the whitespace path alone, because a keyword can end a word
+                    // Here rather than on the whitespace path alone, because a keyword can end a word
                     // at a `;` or a newline too: `for f in a\ndo\n…` left the header open, and every
                     // `>` in the body then read as a malformed header.
                     //
-                    // ⚠ A `for` header that never says `in` is a syntax error. Outside the
+                    // A `for` header that never says `in` is a syntax error. Outside the
                     // `at_command_start` guard, because only the FIRST word of a command is at a
                     // command start — the name and the `in` that follow it are not.
                     match for_stage {
@@ -155,7 +155,7 @@ impl Survey<'_> {
                         command_name = word.clone();
                     }
                     word_opens_list = false;
-                    // ⚠ `case x in` — the same shape as a `for` header, and
+                    // `case x in` — the same shape as a `for` header, and
                     // outside the `at_command_start` guard for the same reason:
                     // the subject and the `in` are not at a command start. After
                     // it, the arms are — which is what lets a bare
@@ -176,7 +176,7 @@ impl Survey<'_> {
                             conditional_keyword(&mut if_stack, &mut self.found, branch);
                         }
                         match word.as_str() {
-                            // ⚠ Only `for` and `select`. A `while` condition is
+                            // Only `for` and `select`. A `while` condition is
                             // an ordinary command list and may redirect —
                             // `while a > out; do x; done` is legal, and flagging
                             // it claimed a construct on 1977 commands the parser
@@ -186,7 +186,7 @@ impl Survey<'_> {
                                 for_stage = 1;
                             }
                             "while" | "until" => loop_header = false,
-                            // ⚠ A new command list starts after these, so the
+                            // A new command list starts after these, so the
                             // next word is a command NAME. Without it, `do [[ …`
                             // read the `[[` as an argument and the survey missed
                             // a construct the parser refuses.
@@ -227,7 +227,7 @@ impl Survey<'_> {
                             _ => {}
                         }
                     }
-                    // ⚠ Outside the command-start guard, because neither of
+                    // Outside the command-start guard, because neither of
                     // these is at one: a test's closing keyword follows an
                     // operand, and its operators sit between two.
                     if test_depth > 0 {
@@ -260,7 +260,7 @@ impl Survey<'_> {
         macro_rules! end_word {
             () => {
                 if in_word {
-                    // ⚠ Decided BEFORE `finish!`, assigned after. `finish_word`
+                    // Decided BEFORE `finish!`, assigned after. `finish_word`
                     // reads both flags, so clearing them first makes every
                     // command name look like an argument — `FOO=bar cmd` then
                     // reports nothing at all.
@@ -272,12 +272,12 @@ impl Survey<'_> {
                     if at_pipeline_head && word == "time" {
                         seen_time = true;
                     }
-                    // ⚠ A binding keeps the command START open and closes the
+                    // A binding keeps the command START open and closes the
                     // pipeline HEAD: `A=1 time x` runs /usr/bin/time, because
                     // `time` is grammar only before a whole pipeline.
                     let was_binding = word_is_binding;
                     finish!();
-                    // ⚠ A prefix word does not start the command either: after
+                    // A prefix word does not start the command either: after
                     // `time`, the NEXT word is the command name, and treating it
                     // as an argument hid the assignment in
                     // `time PYTHONPATH=… python -m x`.
@@ -316,7 +316,7 @@ impl Survey<'_> {
         }
 
         while let Some(byte) = self.peek() {
-            // ⚠ At the word's start and from the raw bytes, exactly as the
+            // At the word's start and from the raw bytes, exactly as the
             // parser does it: whether the NAME is quoted is what decides it, and
             // a finished word cannot answer that.
             //
@@ -359,7 +359,7 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'#' if !in_word => {
-                    // ⚠ Modelled everywhere a command list is — the printer
+                    // Modelled everywhere a command list is — the printer
                     // takes a line for one now. What is left is the two places
                     // the TREE has no slot for it: between the `in` of a `case`
                     // and its first pattern, and inside an array literal, which
@@ -408,8 +408,8 @@ impl Survey<'_> {
                     }
                 }
                 b'<' | b'>' => {
-                    // ⚠ **A process substitution is a word SEGMENT, so neither
-                    // rule below applies to it.** It is legal in a `for` header
+                    // A process substitution is a word SEGMENT, so neither
+                    // rule below applies to it. It is legal in a `for` header
                     // and legal glued into a word — `diff x<(a)` is one word —
                     // and testing it after those two claimed a redirection on
                     // every glued one.
@@ -419,14 +419,14 @@ impl Survey<'_> {
                     if loop_header && !opens_process {
                         self.found.insert(Reason::Loop);
                     }
-                    // ⚠ **Glued into a word it IS a redirection — the word
-                    // simply ends there, as bash ends it.** This used
+                    // Glued into a word it IS a redirection — the word
+                    // simply ends there, as bash ends it. This used
                     // to record `Reason::Redirection` to match a parser that
                     // refused, and leaving it behind made the second gate report
                     // drift on the first `pgrep -f "x">/dev/null` it met: parser
                     // accepted, survey still calling the construct unmodelled.
                     end_word!();
-                    // ⚠ Four different constructs share these two characters,
+                    // Four different constructs share these two characters,
                     // and only one of them is "a redirection to a file". Counted
                     // apart because they are not one build: a heredoc's operand
                     // is on the FOLLOWING lines, and a process substitution is a
@@ -465,7 +465,7 @@ impl Survey<'_> {
                         // second gate print that the survey had drifted and its figures were unsound, over
                         // the very ranking the next build is chosen from.
                         //
-                        // ⚠ **The whole operator must be stepped over BEFORE asking, and `>|` is why.** `|`
+                        // The whole operator must be stepped over BEFORE asking, and `>|` is why. `|`
                         // is itself an end-of-command byte, so testing after the first `>` would call every
                         // `>|` empty. This looks ahead by the same amount `parse` consumes WITHOUT moving
                         // `at`, so the scanner's stepping is exactly what it was.
@@ -495,17 +495,17 @@ impl Survey<'_> {
                         self.at += 1;
                     }
                 }
-                // ⚠ **Three constructs share these four characters and only one of them is still
-                // unread.** `( … )`, `{ … ; }` and `name() { … }` are modelled; a brace inside a
+                // Three constructs share these four characters and only one of them is still
+                // unread. `( … )`, `{ … ; }` and `name() { … }` are modelled; a brace inside a
                 // WORD is expansion, which is a different build; and an unmatched one is neither.
                 // Counting them together said "how many commands hold a brace".
                 //
-                // ⚠ **A subshell opens only where a COMMAND does.** `echo (` is refused by the
+                // A subshell opens only where a COMMAND does. `echo (` is refused by the
                 // parser and by bash, and `at_command_start` is the flag that says which `(` this
                 // is — "not inside a word" is not the same test, and using it read every
                 // parenthesis in a prose argument as a subshell.
                 //
-                // ⚠ **The `(` in front of a case PATTERN opens nothing.** Bash allows `(a) b;;` and
+                // The `(` in front of a case PATTERN opens nothing. Bash allows `(a) b;;` and
                 // prints it back as `a) b;;`, so counting it as a subshell left the group
                 // unbalanced.
                 b'(' if !in_word && cases.last() == Some(&CaseStage::Pattern) => {
@@ -518,7 +518,7 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'(' => {
-                    // ⚠ `((…))` is arithmetic, not two subshells — `((a))`
+                    // `((…))` is arithmetic, not two subshells — `((a))`
                     // evaluates where `( (a) )` runs a command called `a`.
                     // Stepped over whole: the interior is an expression, so
                     // nothing in it is a construct this scanner reports, and a
@@ -540,7 +540,7 @@ impl Survey<'_> {
                         && is_binding_prefix(&word)
                         && (at_command_start || is_declaration(&command_name))
                     {
-                        // ⚠ `x=(a b)` is an array literal, which is not a
+                        // `x=(a b)` is an array literal, which is not a
                         // grouping at all — 16 of the 28 commands this reason
                         // used to hold. Legal as a command PREFIX and after a
                         // declaration builtin, and a syntax error anywhere else,
@@ -551,7 +551,7 @@ impl Survey<'_> {
                     {
                         // `name()` — a definition. Its body is scanned as the
                         // list it is.
-                        // ⚠ **And it must HAVE one.** `blocks()` with nothing
+                        // And it must HAVE one. `blocks()` with nothing
                         // after it is a syntax error to bash and the parser
                         // refuses it by name. Found the moment backticks were
                         // built: a `blocks()` inside one had been hidden behind
@@ -572,7 +572,7 @@ impl Survey<'_> {
                     }
                 }
                 b')' if cases.last() == Some(&CaseStage::Pattern) => {
-                    // ⚠ **A pattern is not a command position.** `in)` and `do)`
+                    // A pattern is not a command position. `in)` and `do)`
                     // are ordinary patterns to bash, so the word ending here
                     // must not be read as a command name — which is what would
                     // report a construct for one that spells a keyword.
@@ -610,7 +610,7 @@ impl Survey<'_> {
                     braces -= 1;
                     self.at += 1;
                 }
-                // ⚠ Whether a `{` opens an expansion has ONE answer, and it
+                // Whether a `{` opens an expansion has ONE answer, and it
                 // comes from the parser's own lookahead — see `brace_expansion`.
                 // A brace with nothing to expand (`{a}`) is ordinary text to
                 // bash and so to both readers.
@@ -707,7 +707,7 @@ impl Survey<'_> {
                         break;
                     }
                 }
-                // ⚠ The same three answers the parser gets, from the same
+                // The same three answers the parser gets, from the same
                 // function — a `[` that closes nothing is the test builtin or
                 // ordinary text, one this reader cannot own is a finding, and a
                 // set it can own is not.
@@ -756,7 +756,7 @@ impl Survey<'_> {
         // Direct, not `finish!` — nothing reads the word state after this, and
         // clearing it here is two dead stores the linter is right about.
         if in_word {
-            // ⚠ The last word of a text is a keyword too, and it is the one that
+            // The last word of a text is a keyword too, and it is the one that
             // matters most here: `fi` closes the chain, and a trailing `if`
             // opens one nothing can close. Missed while this path skipped the
             // bookkeeping, and `time PYTHONPATH=/x if` is the test.
@@ -766,11 +766,11 @@ impl Survey<'_> {
             {
                 conditional_keyword(&mut if_stack, &mut self.found, branch);
             }
-            // ⚠ And the same for a `case`, whose closing keyword is the LAST
+            // And the same for a `case`, whose closing keyword is the LAST
             // word of every command that holds one: `case $x in a) b;; esac`
             // ends on it, so skipping the bookkeeping here reported an unclosed
             // case for every well-formed one.
-            // ⚠ The last word of a text is a keyword too, and `]]` is the one
+            // The last word of a text is a keyword too, and `]]` is the one
             // that closes every `[[ … ]]` there is — missed while this path
             // skipped the bookkeeping, exactly as `esac` was.
             if word == "]]" && test_depth > 0 {
@@ -862,7 +862,7 @@ impl Survey<'_> {
     }
     /// Step over `(a b c)` — an array literal, whose elements are words.
     ///
-    /// ⚠ **Not descended into as a script.** The interior is a word LIST, and
+    /// Not descended into as a script. The interior is a word LIST, and
     /// scanning it as a command list would read the first element as a command
     /// name and every keyword in it as grammar. What is looked for instead is
     /// the one shape the parser refuses in there: a comment, which the printer
@@ -975,8 +975,8 @@ impl Survey<'_> {
 
     /// Step over a heredoc body, which is data rather than shell.
     ///
-    /// ⚠ **The terminator is matched exactly, with no trimming of trailing
-    /// whitespace.** Bash does not trim either — `EOF ` does not end a heredoc —
+    /// The terminator is matched exactly, with no trimming of trailing
+    /// whitespace. Bash does not trim either — `EOF ` does not end a heredoc —
     /// and a survey that were lenient here would step over a line the parser
     /// keeps reading, which is the direction that breaks the invariant.
     fn skip_heredoc_body(&mut self, delimiter: &str, strip_tabs: bool) {
@@ -1002,7 +1002,7 @@ impl Survey<'_> {
 
     /// Step over `$( … )`, reporting what the parser will refuse inside one.
     ///
-    /// ⚠ **Descended into**, because a construct in there is one the parser will meet and
+    /// Descended into, because a construct in there is one the parser will meet and
     /// refuse — a backtick inside a substitution is still a backtick. Guessing from the
     /// raw text instead reported a comment for every `#` in a path or a flag.
     ///
@@ -1012,7 +1012,7 @@ impl Survey<'_> {
         self.at += 1;
         let open = self.at;
         if !self.skip_balanced(b'(', b')') {
-            // ⚠ The parser refuses this by that name, so the survey has to say
+            // The parser refuses this by that name, so the survey has to say
             // it or the invariant that pins the two together fails. The shape it
             // most often takes is a heredoc body that runs past the `)` and
             // swallows it — which bash refuses too.
@@ -1029,7 +1029,7 @@ impl Survey<'_> {
 
     /// Step over `` ` … ` ``, whose interior is a script once it is unescaped.
     ///
-    /// ⚠ **Unescaped first, because the text is not the script.** Inside a
+    /// Unescaped first, because the text is not the script. Inside a
     /// backtick run bash resolves `` \` ``, `\$` and `\\`, so a nested
     /// `` \`…\` `` is a nested substitution — and scanning the raw text instead
     /// would end the run at the first escaped backtick and read the rest of the
@@ -1076,7 +1076,7 @@ impl Survey<'_> {
 
     /// Step over `<( … )` or `>( … )`, whose interior is a command list too.
     ///
-    /// ⚠ **The whole run, not the two opening characters.** Stepping over `<(`
+    /// The whole run, not the two opening characters. Stepping over `<(`
     /// alone left its `)` to be read as an unmatched paren, so every process
     /// substitution reported `Grouping` as well — an over-report the invariant
     /// cannot see, since it only pins that the parser's refusal is *in* the set.
@@ -1101,7 +1101,7 @@ impl Survey<'_> {
 
     /// Step over `$'…'`, reporting the escapes the parser still refuses.
     ///
-    /// ⚠ **`\'` does not close it**, so a naive single-quote skip ends the word
+    /// `\'` does not close it, so a naive single-quote skip ends the word
     /// in the middle of one — and the two readers then disagree about where
     /// everything after it is.
     fn ansi_quote(&mut self) {
@@ -1306,7 +1306,7 @@ impl Survey<'_> {
 
 /// How far through `case word in` an open case has got.
 ///
-/// ⚠ **Three words, and two of them can be wrong** — a case with no subject and
+/// Three words, and two of them can be wrong — a case with no subject and
 /// one that never says `in` are both syntax errors bash refuses, and the parser
 /// names each of them `Case`. Nothing else in this scan can see either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1350,7 +1350,7 @@ fn branch(word: &str) -> Option<Branch> {
 /// Where the `if` chain stands, one entry per open `if` — `true` while that arm is
 /// still waiting for the `then` that has to follow it.
 ///
-/// ⚠ **This is the whole of what the survey knows about conditionals**, and it exists
+/// This is the whole of what the survey knows about conditionals, and it exists
 /// because every shape it reports is one bash refuses: `if a then b; fi` never says
 /// `then` where a command begins, `fi` on its own closes nothing, `if a; then b`
 /// leaves the chain open. The parser refuses each by name, so the survey's set has
@@ -1405,7 +1405,7 @@ fn finish_word(
     if at_command_start
         && !quoted
         && let Some(reason) = reserved_word(word)
-        // ⚠ The loop, conditional, case and test keywords are modelled now, so
+        // The loop, conditional, case and test keywords are modelled now, so
         // they are not findings on their own — the caller reports the shapes of those
         // the parser still refuses. They stay in `reserved_word`, because the
         // printer has to quote a word that spells one to keep it a value.

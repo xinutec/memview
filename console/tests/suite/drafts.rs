@@ -6,7 +6,7 @@
 //! width, and the round trip through real browsers is
 //! `frontend/projects/console-web/e2e/two-devices.spec.ts`.
 //!
-//! ⚠ **The old suite spent thirteen tests on which push LOSES.** There is no
+//! The old suite spent thirteen tests on which push LOSES. There is no
 //! losing side any more — see the note at the top of `console/src/drafts.rs` for
 //! the measurement that ended that design.
 
@@ -29,7 +29,7 @@ fn store(dir: &std::path::Path) -> Drafts {
 
 /// A device that has typed `text` into a document of its own, as bytes to push.
 ///
-/// ⚠ **Each call makes a NEW document**, which is what makes two of them
+/// Each call makes a NEW document, which is what makes two of them
 /// concurrent: neither knows anything about the other's edits, exactly as two
 /// phones that have not synced do not.
 fn typed(text: &str) -> Vec<u8> {
@@ -65,7 +65,7 @@ fn a_draft_written_on_one_device_is_read_by_the_other() {
     assert_eq!(theirs.at, 1000);
 }
 
-/// ⚠ **The headline, and the whole reason for this design.** Two devices that
+/// The headline, and the whole reason for this design. Two devices that
 /// each wrote without seeing the other keep BOTH texts. Nobody is asked to
 /// choose, and nothing is thrown away.
 #[test]
@@ -208,7 +208,7 @@ fn a_pull_answers_only_past_the_checkpoint_and_says_how_far_it_got() {
     assert_eq!(nothing.checkpoint.rev, page.checkpoint.rev);
 }
 
-/// ⚠ **The counter is store-wide on purpose.** A per-conversation one left a
+/// The counter is store-wide on purpose. A per-conversation one left a
 /// fresh conversation at rev 1 behind a client already at 3, so it was never
 /// delivered — and looked random from outside.
 #[test]
@@ -318,7 +318,7 @@ fn emptied(had: &[u8]) -> Vec<u8> {
         .encode_state_as_update_v1(&yrs::StateVector::default())
 }
 
-/// ⚠ **With bytes a real browser produced**, not ones this process made. Two
+/// With bytes a real browser produced, not ones this process made. Two
 /// documents merging in Rust is not evidence that a document Yjs wrote merges
 /// into one yrs holds — and that is the pair production actually has.
 #[test]

@@ -9,7 +9,7 @@
 //! trust. Re-measure against `~/.claude/memview/cache/bash-corpus.jsonl`; it is a
 //! superset, so a count here can only be low.
 //!
-//! ⚠ **The disagreements are the point, so they are asserted on both sides.**
+//! The disagreements are the point, so they are asserted on both sides.
 //! A test that only pinned the tree's answer would pass just as well after
 //! somebody made the flat reader agree by making the tree wrong.
 
@@ -44,8 +44,8 @@ fn a_backslash_in_double_quotes_is_usually_a_character() {
         argv(r#"echo "a\"b" "c\\d" "e\$f""#),
         [["echo", r#"a"b"#, r"c\d", "e$f"]]
     );
-    // ⚠ **The flat reader dropped every one of them until this comparison
-    // pointed at it**, which turned each of 21,481 commands' regexes into a
+    // The flat reader dropped every one of them until this comparison
+    // pointed at it, which turned each of 21,481 commands' regexes into a
     // different regex. Asserted on that reader too, because the fix is in
     // `shell.rs` and the tree is what caught it.
     let flat = shell::parse(r#"grep -E "\.lpass" f"#).unwrap();
@@ -76,8 +76,8 @@ fn a_number_before_a_redirection_is_still_an_argument() {
     }
 }
 
-/// ⚠ **The three shapes where the flat reader claimed a command certainly ran
-/// and it had not**, which is the one direction of error this reader is built to
+/// The three shapes where the flat reader claimed a command certainly ran
+/// and it had not, which is the one direction of error this reader is built to
 /// avoid. All three are fixed in `shell.rs` and `shell.pest`; asserted on both
 /// readers, because a silent regression here over-counts rather than under.
 #[test]
@@ -116,7 +116,7 @@ fn the_flat_reader_no_longer_over_claims_certainty() {
     }
 }
 
-/// ⚠ **`${n}_v4` is not `$n_v4`** — they name different variables, and a value
+/// `${n}_v4` is not `$n_v4` — they name different variables, and a value
 /// built one segment at a time loses the difference because the braces are
 /// needed only by what FOLLOWS. 8 commands, all of them redirection targets,
 /// all of them a file nobody was recorded as writing to. The spelling lives in
@@ -154,8 +154,8 @@ fn a_loop_after_an_and_carries_the_condition_into_its_body() {
     );
 }
 
-/// ⚠ **The word holding a substitution has two readings, and only one of them
-/// is a reading.** Both readers find the inner command and agree about its
+/// The word holding a substitution has two readings, and only one of them
+/// is a reading. Both readers find the inner command and agree about its
 /// words. What they disagree about — 2,271 commands, in three buckets the report
 /// names `quoting`, `spacing` and `something else` — is how the substitution is
 /// *spelled back* into the outer argv string: the flat reader carries the source
@@ -186,7 +186,7 @@ fn an_inner_command_is_read_the_same_and_spelled_differently() {
     assert_eq!(flat[1].argv[1], r#"$(awk '{print $5 bytes}' f)"#);
 }
 
-/// ⚠ **The one thing this reader exists to get right.** Neither arm of an `if`,
+/// The one thing this reader exists to get right. Neither arm of an `if`,
 /// no arm of a `case`, and no line of a function body is certain — and the
 /// subject of a `case` is not an arm at all.
 #[test]
@@ -261,8 +261,8 @@ fn a_pipeline_prefix_is_not_a_command() {
 
 /// The loops the text determines, run out into what they ran.
 ///
-/// ⚠ **This is where the reader stops looking commands up and starts evaluating
-/// them**, so each rule below is bash's and each is asserted rather than
+/// This is where the reader stops looking commands up and starts evaluating
+/// them, so each rule below is bash's and each is asserted rather than
 /// described. `project` is what the script SAYS and `run_out` is what it DID;
 /// the two differ only here.
 #[test]
@@ -285,7 +285,7 @@ fn a_loop_the_text_determines_is_run_out() {
             vec!["wc", "-l", "b.log"]
         ]
     );
-    // ⚠ `${f}x` needs no special case: the tree holds one node for both
+    // `${f}x` needs no special case: the tree holds one node for both
     // spellings, so substituting it is exact where rewriting text was not.
     assert_eq!(ran("for f in a; do echo ${f}x; done")[1], ["echo", "ax"]);
     // An operator is a transduction this reader does not perform, so the value
@@ -337,8 +337,8 @@ fn a_loop_the_text_determines_is_run_out() {
     );
 }
 
-/// ⚠ **A body that may have run zero times must not be recorded as certainly
-/// run** — the same over-claim as both arms of an `if`, and a much larger one.
+/// A body that may have run zero times must not be recorded as certainly
+/// run — the same over-claim as both arms of an `if`, and a much larger one.
 /// The rule is bash's: `while` and `until` test first, a `for` over words that
 /// are all written out runs once per word, and a glob counts as written out
 /// because with `nullglob` off a pattern matching nothing expands to itself.

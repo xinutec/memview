@@ -7,7 +7,7 @@
 // and it is also why the directory only ever grew — to hundreds of files and
 // over a hundred megabytes, of which one main-*.js was current.
 //
-// ⚠ **It cannot simply keep the newest set.** A phone with the app open is
+// It cannot simply keep the newest set. A phone with the app open is
 // running a bundle the next publish supersedes, and it goes on asking that
 // bundle for its lazy chunks and fonts until it reloads. Deleting on publish is
 // how a session in someone's hand breaks halfway through a tap.
@@ -22,7 +22,7 @@
 // for the same reason the build output does: nothing that is not the app should
 // be reachable from the app's own path.
 //
-// ⚠ **The first run deletes nothing.** Everything already in console-live is
+// The first run deletes nothing. Everything already in console-live is
 // recorded as one legacy generation, so the 140 MB that predates this script
 // falls off after GENERATIONS more publishes rather than being cut out from
 // under a page that might be open right now. It is slower and it cannot break

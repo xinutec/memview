@@ -4,8 +4,8 @@
 //! holds the other half: the fold state a run must start FROM, so that reading only
 //! the tails gives the answer reading everything would give.
 //!
-//! ⚠ **The mined artefacts do not contain that state, and this is the finding that
-//! shapes the file.** Three of `agents::scan`'s five folds are consumed on the way
+//! The mined artefacts do not contain that state, and this is the finding that
+//! shapes the file. Three of `agents::scan`'s five folds are consumed on the way
 //! out and never written down:
 //!
 //!   * **`resolved`** — session id to agent name. A session is named in the HEAD of
@@ -19,11 +19,11 @@
 //!     again. The weights decay by recency against the run's own `today`, so
 //!     yesterday's decayed number cannot be merged into today's either.
 //!
-//! ⚠ **This is a CACHE, not a record.** Everything here is reproduced exactly by one
+//! This is a CACHE, not a record. Everything here is reproduced exactly by one
 //! full mine, which is also the fallback whenever [`Plan::Full`] is chosen. Losing it
 //! costs one slow night and nothing else.
 //!
-//! ⚠ **`transcript-drift.json` must NEVER be used for this.** That file is an
+//! `transcript-drift.json` must NEVER be used for this. That file is an
 //! observatory: `transcript-drift` advances every `read_to` to the current end each
 //! time it runs, to keep the append assumption under standing measurement. A miner
 //! resuming from it would skip everything written between a drift run and the next
@@ -64,7 +64,7 @@ pub struct Carried {
     pub days: BTreeMap<String, DaysSeen>,
     /// The roster **before** renames are applied.
     ///
-    /// ⚠ **Not the roster from `agents.json`, and the difference is not cosmetic.** Git's
+    /// Not the roster from `agents.json`, and the difference is not cosmetic. Git's
     /// rename map is applied on the way out, and it is NOT idempotent: the live history
     /// contains a 2-CYCLE, because a file was archived and later restored. Feeding an
     /// already-renamed roster back in flips those paths, and every resumed run would
@@ -80,14 +80,14 @@ pub struct Carried {
 impl Carried {
     /// Read the state a previous run left.
     ///
-    /// ⚠ **Absent is a first run; UNPARSEABLE is reported and recovered from.**
+    /// Absent is a first run; UNPARSEABLE is reported and recovered from.
     ///
     /// This deliberately does NOT follow [`crate::agents::carry_forward`], which is fatal
     /// on a file it cannot read. That one guards `memory-days.json`, which holds days
     /// contributed by transcripts that no longer exist and is therefore NOT recomputable.
     /// This file is the opposite: every byte of it is reproduced by one full mine.
     ///
-    /// ⚠ **An earlier version was fatal, on reasoning that does not hold.** It argued
+    /// An earlier version was fatal, on reasoning that does not hold. It argued
     /// that a corrupt file read as `None` would "mine from offsets whose fold state was
     /// thrown away". There are no offsets when the state is absent:
     /// [`reader::watermark::plan`] then puts every transcript in `whole`, which IS a full

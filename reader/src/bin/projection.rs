@@ -15,7 +15,7 @@
 //! refuses to invent — so the buckets are named for the difference, and reading
 //! the samples is what says which side was wrong.
 //!
-//! ⚠ **A bucket with a big count is not the biggest problem.** One systematic
+//! A bucket with a big count is not the biggest problem. One systematic
 //! spelling difference can outnumber every real misreading in the corpus, which
 //! is why the samples are printed and why `--only` exists.
 
@@ -135,8 +135,8 @@ fn verdict(cmd: &str) -> (&'static str, String) {
 
 /// Which *kind* of difference two argv lists have.
 ///
-/// ⚠ **Because one systematic spelling difference outnumbers every real
-/// misreading in the corpus.** The tree holds a word as typed segments and has to
+/// Because one systematic spelling difference outnumbers every real
+/// misreading in the corpus. The tree holds a word as typed segments and has to
 /// spell an expansion back out to fill an argv string; the printer's spelling is
 /// canonical, not the corpus's, so `${x}` comes back as `$x` and `$( a|b )` as
 /// `$(a | b)`. Left in one bucket with the commands where a reader lost an
@@ -167,7 +167,7 @@ fn words(grammar: &[String], tree: &[String]) -> &'static str {
 struct Key {
     argv: Vec<String>,
     reached: Reached,
-    /// ⚠ **Depth, not the ids.** The two readers number their subshells in
+    /// Depth, not the ids. The two readers number their subshells in
     /// different orders — the tree walks a word's substitutions before the word
     /// and the grammar walks the pest children — so equal ids would be a
     /// coincidence and unequal ones say nothing. What must agree is how deeply
@@ -179,7 +179,7 @@ struct Key {
 
 /// The commands a reader found, with the grammar's own bookkeeping taken out.
 ///
-/// ⚠ **This is the one asymmetry the comparison is not allowed to count.** The
+/// This is the one asymmetry the comparison is not allowed to count. The
 /// flat grammar leaves `done`, `fi`, `esac` and the `for f in …` header behind as
 /// ordinary commands, and three tables downstream exist to take them back out;
 /// the tree has the structure they are a shadow of and emits none. Counting that

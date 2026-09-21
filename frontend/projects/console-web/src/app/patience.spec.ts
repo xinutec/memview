@@ -28,7 +28,7 @@ describe('Patience', () => {
   });
 
   it('does not restart the clock each time the trouble recurs', () => {
-    // ⚠ **Where a naive version never fires.** A poll every five seconds against a
+    // Where a naive version never fires. A poll every five seconds against a
     // runner that is down is trouble reported every five seconds; restarting on
     // each one leaves a permanently broken console permanently silent.
     const patience = new Patience();

@@ -17,8 +17,8 @@ interface Shape {
   /**
    * Whether this shape is an admission rather than an activity.
    *
-   * ⚠ **`not understood` is drawn in the same chart as the rest, not beneath
-   * it.** It is the size of the hole in this very chart, and a legend that
+   * `not understood` is drawn in the same chart as the rest, not beneath
+   * it. It is the size of the hole in this very chart, and a legend that
    * separated it would let a reader take the bars above as the whole picture.
    */
   gap: boolean;
@@ -35,7 +35,7 @@ const HAIRLINE = 0.004;
  * are views of it, so the only way they can disagree is by being from different
  * nights.
  *
- * ⚠ **Coverage and its ceiling are on the same screen, deliberately.** 99.2% of
+ * Coverage and its ceiling are on the same screen, deliberately. 99.2% of
  * commands understood is the headline and 4.6% of file uses having no nameable
  * subject is the limit, and a page that showed the first without the second
  * would be advertising rather than reporting. They measure different

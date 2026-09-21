@@ -5,7 +5,7 @@
 //! a reader asks next, standing on one of those rows: **which files, and how do you
 //! know?** One row per file use, each carrying the command it came from.
 //!
-//! ⚠ **A derived artefact keyed to the timeline, not a mirror of the history.**
+//! A derived artefact keyed to the timeline, not a mirror of the history.
 //! `scripts/sync.sh` removed a mined `history.json` for two reasons, and only one of
 //! them was privacy — Pippijn settled that, so the command text travels in full. The
 //! other reason stands on its own: memview is for reading the memory documents well,
@@ -14,7 +14,7 @@
 //! needs the command it rests on**, never so the history can be browsed. Nothing
 //! here is keyed by session or ordered as a conversation.
 //!
-//! ⚠ **`doing.json` does not change.** A row here carries `(agent, minute)` itself,
+//! `doing.json` does not change. A row here carries `(agent, minute)` itself,
 //! which is the key a timeline row already has, so opening a turn is a filter rather
 //! than a join and no published format is touched.
 //!
@@ -63,7 +63,7 @@ pub enum Did {
     /// The same, for a subject whose *directory* the text gave. The path field
     /// holds that directory — see [`crate::shell_files::Extract::located`].
     ///
-    /// ⚠ **Kept apart from [`Did::Unnamed`], whose path is a pattern.** A locus
+    /// Kept apart from [`Did::Unnamed`], whose path is a pattern. A locus
     /// is what the subject is rooted at, not a set it belongs to, and the
     /// difference is a `..` nobody can see. Filing one as the other would claim
     /// containment the reader never established.
@@ -95,7 +95,7 @@ pub struct Row {
     pub q: Option<u32>,
     /// Index into [`Effects::hosts`], when the file is on another machine.
     ///
-    /// ⚠ **Never mixed into the local paths.** The path exists there and not
+    /// Never mixed into the local paths. The path exists there and not
     /// here; a row without this field is a claim about this machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h: Option<u32>,
@@ -157,7 +157,7 @@ pub struct Log {
 impl Log {
     /// Continue the fold a previous run froze, instead of starting from nothing.
     ///
-    /// ⚠ **`pending` does not carry, and that is measured rather than assumed** —
+    /// `pending` does not carry, and that is measured rather than assumed —
     /// see [`crate::doing::Log::resume`], which loses the same three calls a
     /// night for the same reason. There is no episode state here, so this is the
     /// whole of it: the dictionaries rebuild positionally and the rows keep the
@@ -209,7 +209,7 @@ impl Log {
 
     /// Freeze into the artefact, oldest first.
     pub fn finish(mut self, generated: &str) -> Effects {
-        // ⚠ **A TOTAL order, for the reason `doing::Log::finish` has one.**
+        // A TOTAL order, for the reason `doing::Log::finish` has one.
         // `sort_by_key(|row| row.t)` is stable, so rows sharing a minute kept
         // their INSERTION order — the order transcripts happened to be read in,
         // which differs between a whole scan and a resumed one. This artefact

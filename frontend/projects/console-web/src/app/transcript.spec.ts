@@ -427,7 +427,7 @@ describe('transcript · a message the session has not read yet', () => {
   });
 
   it('does not break the model mid-sentence when a message is sent while it types', () => {
-    // ⚠ **The defect: one message became TWO.** A queued message is added the
+    // The defect: one message became TWO. A queued message is added the
     // moment it is sent, so the next delta found an `asked` at the end and
     // started a fresh `said`. On screen that is a paragraph break in the middle
     // of a sentence — and if the split falls inside a list or a code fence, BOTH

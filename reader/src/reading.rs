@@ -10,7 +10,7 @@
 //! view of this type, not a separate calculation** — the only form in which "the
 //! number on the phone is the number in the report" is a fact rather than a hope.
 //!
-//! ⚠ **Counted per call, not per distinct command.** Forty runs of one command count
+//! Counted per call, not per distinct command. Forty runs of one command count
 //! forty times, because frequency is the whole signal here: a command run four
 //! thousand times is worth adding to the table and one run once is not.
 //! `shell-report` counts the other way, and says so for the same reason.
@@ -24,7 +24,7 @@ use crate::shell_ops::{GitOp, Op};
 
 /// How one operation is named, in the three registers the views need.
 ///
-/// ⚠ **One definition, because two drifted.** The console labelled a chip and the
+/// One definition, because two drifted. The console labelled a chip and the
 /// viewer labelled a histogram row, each from its own exhaustive `match`. Both
 /// compile when an `Op` variant is added — the compiler forces a value, not a
 /// consistent one — so the same command could be called two different things in two
@@ -33,7 +33,7 @@ use crate::shell_ops::{GitOp, Op};
 pub struct Naming {
     /// A stable key for styling and data attributes.
     ///
-    /// ⚠ **Never displayed, so wording can change without breaking CSS.** The
+    /// Never displayed, so wording can change without breaking CSS. The
     /// console's chip colours select on this — `[data-kind='unknown']` — and
     /// when the key WAS the display string, improving a label silently dropped
     /// its colour.
@@ -91,7 +91,7 @@ pub fn naming(op: &Op) -> Naming {
         Op::Git(GitOp::Alter { .. }) => name("git", "git", "git alter"),
         Op::Git(GitOp::Inspect { .. }) => name("git", "git", "git inspect"),
         Op::Git(GitOp::Other { .. }) => name("git", "git", "git (other)"),
-        // ⚠ **"nothing" alone is FALSE and was on screen.** It means the command
+        // "nothing" alone is FALSE and was on screen. It means the command
         // touched no files; on a chip beside `ping`, `task list` or
         // `ssh host uptime` it reads as "this command did nothing". The word
         // that carries the meaning is the one the chip had dropped.
@@ -117,7 +117,7 @@ pub struct Row<'a> {
     pub refused: &'a [String],
     /// What became of the call.
     ///
-    /// ⚠ **Absence is `Unknown`, never success.** A corpus written before
+    /// Absence is `Unknown`, never success. A corpus written before
     /// outcomes were recorded has no such field, and reading that silence as
     /// `Ok` would attribute every file use in it to somebody.
     pub ran: crate::doing::Verdict,
@@ -139,7 +139,7 @@ pub struct Reading {
     pub by_name: BTreeMap<String, usize>,
     /// Calls to a function the calling script declares, and their names.
     ///
-    /// ⚠ **Its own line on every view, and it is NOT in `understood()`.** These
+    /// Its own line on every view, and it is NOT in `understood()`. These
     /// are not commands anybody can teach the table — see
     /// [`crate::shell_files::Extract::local`] — but the reader did not follow
     /// the call either, so a rate that counted them would say it understands
@@ -148,8 +148,8 @@ pub struct Reading {
     pub local_by_name: BTreeMap<String, usize>,
     /// Calls whose command NAME is a variable nobody bound, and their names.
     ///
-    /// ⚠ **The same standing as `local`: in `commands()`, not in
-    /// `understood()`.** `$BIN` names a different program in every script, so
+    /// The same standing as `local`: in `commands()`, not in
+    /// `understood()`. `$BIN` names a different program in every script, so
     /// there is no entry to teach — and nothing was read either, so a rate that
     /// counted it would claim an understanding it does not have. See
     /// [`crate::shell_files::Extract::from_a_variable`].
@@ -163,7 +163,7 @@ pub struct Reading {
     /// The same refusals as [`Reading::by_word`], split by WHY — the by-reason
     /// census #1142 built for Python and shell never had (memview#1450).
     ///
-    /// ⚠ **Sums to `by_word`, and a test says so.** Two maps over one population
+    /// Sums to `by_word`, and a test says so. Two maps over one population
     /// that can disagree are two accounts of it; the invariant is what makes
     /// this a split rather than a second guess.
     pub refused_why: BTreeMap<crate::shell_files::Refused, usize>,
@@ -182,15 +182,15 @@ pub struct Reading {
     pub computed: BTreeMap<String, usize>,
     /// Python operations whose path is one of a known finite set, by the set.
     ///
-    /// ⚠ **Counted by `subjects_not_named`, exactly as `computed` is.** These
+    /// Counted by `subjects_not_named`, exactly as `computed` is. These
     /// moved out of `computed` when the reader learned to keep a name's several
     /// literal bindings, and if the total had fallen by that many it would have
     /// been reporting a denominator change as knowledge.
     pub python_bounded: BTreeMap<String, usize>,
     /// The JavaScript reader's share of the same admission.
     ///
-    /// ⚠ **`subjects_not_named` has always counted these and this breakdown has
-    /// never shown them**, so the lines under the headline summed to 489 less
+    /// `subjects_not_named` has always counted these and this breakdown has
+    /// never shown them, so the lines under the headline summed to 489 less
     /// than the headline and a reader adding them up would find the table
     /// short. Listed rather than folded into another line: it is a different
     /// reader, and merging it would hide which one the work is in.
@@ -224,8 +224,8 @@ pub struct Reading {
     pub remote_paths: BTreeMap<(String, String), (usize, usize)>,
     /// A path substring to collect the evidence for, and how much of it.
     ///
-    /// ⚠ **This is the check that matters, and it lives here rather than in the
-    /// report for that reason.** Not how many paths came out, but whether a
+    /// This is the check that matters, and it lives here rather than in the
+    /// report for that reason. Not how many paths came out, but whether a
     /// given one came from a command that really names it — every doubt about
     /// this table has been settled by reading the commands behind one suspicious
     /// path, and a survey that could not answer it would send the next person
@@ -305,7 +305,7 @@ impl Reading {
                 .entry(name.clone())
                 .or_insert(0) += n;
         }
-        // ⚠ The total comes from `subjects_not_named`, which folds in the Python
+        // The total comes from `subjects_not_named`, which folds in the Python
         // and JavaScript readers' accounts too — the map below is the shell's
         // words alone, and reading a total off it is the undercount memview#824
         // was about.
@@ -315,8 +315,8 @@ impl Reading {
         for (word, n) in &found.unnamed {
             *self.by_word.entry(word.clone()).or_insert(0) += n;
         }
-        // ⚠ **The same population as `by_word`, split by reason — and it must SUM
-        // to it.** `by_word` is keyed by word and aggregated over every script,
+        // The same population as `by_word`, split by reason — and it must SUM
+        // to it. `by_word` is keyed by word and aggregated over every script,
         // so the scope that answers "does this script bind the name?" is gone by
         // the time anything reads it. The split is therefore made at extraction
         // and only carried here (memview#1450).
@@ -375,8 +375,8 @@ impl Reading {
 
     /// How much of what ran the table has an entry for.
     ///
-    /// ⚠ **`local` is in the DENOMINATOR and not in the numerator, and that is
-    /// the whole point of splitting it out.** Moving 2,493 calls from
+    /// `local` is in the DENOMINATOR and not in the numerator, and that is
+    /// the whole point of splitting it out. Moving 2,493 calls from
     /// `unhandled` into their own bucket must not raise this rate: nothing more
     /// was read, and a coverage figure that improves because calls left the
     /// denominator is a different fact from one that improves because the reader
@@ -388,7 +388,7 @@ impl Reading {
 
     /// The share of file uses whose subject the text does not determine.
     ///
-    /// ⚠ **Stated as a rate against the uses, not left as a bare count.**
+    /// Stated as a rate against the uses, not left as a bare count.
     /// Without it, `distinct` reads as "every file that was used", which is the
     /// overstatement this number exists to end.
     pub fn opaque(&self) -> f64 {
@@ -397,7 +397,7 @@ impl Reading {
 
     /// Read a `.jsonl` corpus in the shape `bash-corpus` writes.
     ///
-    /// ⚠ **A row whose outcome is present and UNREADABLE is an error**, not an
+    /// A row whose outcome is present and UNREADABLE is an error, not an
     /// `Unknown`. Quietly downgrading it would turn a corrupt corpus into a
     /// modest-looking one.
     pub fn of_corpus(text: &str, home: &str) -> anyhow::Result<Reading> {
@@ -471,13 +471,13 @@ pub struct Both {
 
 /// The compact view an API serves.
 ///
-/// ⚠ **Named for what it is rather than `Summary`, because the wire-mirror check
-/// matches TypeScript to Rust BY NAME.** `Reading` and `Summary` are both taken
+/// Named for what it is rather than `Summary`, because the wire-mirror check
+/// matches TypeScript to Rust BY NAME. `Reading` and `Summary` are both taken
 /// by unrelated wire types in this workspace — a subscription usage reading, and
 /// a session summary — and a mirror that resolves to the wrong struct reports
 /// every field of this one as drift, which is exactly what it did.
 ///
-/// ⚠ **Every list is truncated and the totals are not.** A summary that ranked
+/// Every list is truncated and the totals are not. A summary that ranked
 /// the top ten and reported ten as the total would be a lie by omission of
 /// exactly the kind this codebase keeps finding; so the counts above the lists
 /// are over everything, and the lists say how far down they go by being lists.
@@ -499,12 +499,12 @@ pub struct CorpusRead {
     pub unhandled: usize,
     /// Calls to a function the calling script declares.
     ///
-    /// ⚠ **In `commands` and not in `handled`**, so `understood` is unmoved by
+    /// In `commands` and not in `handled`, so `understood` is unmoved by
     /// splitting this out — nothing more was read. See [`Reading::understood`].
     pub local: usize,
     /// Calls whose command name is a variable nobody bound.
     ///
-    /// ⚠ **In `commands` and not in `handled`**, exactly as `local` is, and for
+    /// In `commands` and not in `handled`, exactly as `local` is, and for
     /// the same reason: nothing more was read.
     pub from_a_variable: usize,
     /// `handled` as a percentage of `commands`, computed once so two clients
@@ -536,7 +536,7 @@ pub struct CorpusRead {
     pub refused_here: usize,
     /// Table reads and changes, and how many distinct tables that is.
     ///
-    /// ⚠ **Beside the file counts and never inside them.** A table is not a
+    /// Beside the file counts and never inside them. A table is not a
     /// file: 2,747 table reads added to `reads` would be 2,747 files that do not
     /// exist. Measured — no statement in this corpus names a file at all.
     pub table_reads: usize,

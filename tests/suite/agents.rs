@@ -75,7 +75,7 @@ fn failed_bash(command: &str, cwd: &str, stamp: &str) -> String {
 /// tool input, and the command is a JSON string — both are why the miner parses
 /// these lines instead of scanning them for a needle.
 ///
-/// ⚠ **The result is not optional decoration.** A call whose outcome is
+/// The result is not optional decoration. A call whose outcome is
 /// unrecorded cannot have its `&&` confirmed — `a && b` only certainly runs `b`
 /// when the call is known to have exited 0 — so a fixture without one silently
 /// tests the rarest state there is (12 calls in the whole corpus) instead of the
@@ -300,7 +300,7 @@ fn the_registry_beats_the_name_the_transcript_remembers() {
 
 #[test]
 fn the_name_a_session_goes_by_beats_the_one_the_registry_made_up() {
-    // ⚠ Real shapes, both of them. The registry stopped holding chosen names and
+    // Real shapes, both of them. The registry stopped holding chosen names and
     // now carries the CLI's own handle for a session — `code-c4`, the working
     // directory and two hex digits — while the name somebody picked is appended
     // to the transcript as the session goes along. Trusting the registry first
@@ -556,7 +556,7 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     // ordinary answer, not a failure; the alternative is attributing it to
     // whoever happens to sort first.
     //
-    // ⚠ **Not because Claude Code prunes them.** memview#1240 measured that
+    // Not because Claude Code prunes them. memview#1240 measured that
     // nothing holding a conversation has been deleted since the archive began
     // on 2026-07-31; what is missing predates it.
     assert_eq!(roster.name_of_session("s-pruned"), None);
@@ -1385,7 +1385,7 @@ fn the_timeline_records_what_was_done_and_how_it_turned_out() {
 
 #[test]
 fn the_effects_say_which_file_and_which_command_did_it() {
-    // ⚠ **The question a reader asks standing on a timeline row.** `doing.json`
+    // The question a reader asks standing on a timeline row. `doing.json`
     // says "this turn was editing, in health, and it worked"; this says which
     // files, and shows the command, so the claim can be checked rather than
     // taken. Keyed by `(agent, minute)` — the key a timeline row already has —
@@ -1422,7 +1422,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 "2026-07-01T10:01:00Z",
             ),
             result("t2"),
-            // ⚠ THREE admissions, which have to travel or the artefact reads as
+            // THREE admissions, which have to travel or the artefact reads as
             // a complete account of the work: one subject a glob BOUNDS, one the
             // text LOCATES, and one nothing places at all.
             call("t3", "wc -l \"$OUT/report.txt\"", "2026-07-01T10:02:00Z"),
@@ -1433,7 +1433,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 "2026-07-01T10:03:00Z",
             ),
             result("t4"),
-            // ⚠ **The case that was emitted by nothing** (memview#1458). The
+            // The case that was emitted by nothing (memview#1458). The
             // directory is written down and the basename is a hole, so the
             // reader locates it without naming it. `Step` has carried these all
             // along; the writer knew about the two above and not this one, and
@@ -1506,7 +1506,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 None,
                 "wc -l $f",
             ),
-            // ⚠ **Located, and a THIRD fact again.** The path is the directory
+            // Located, and a THIRD fact again. The path is the directory
             // the subject is rooted AT — not a pattern it is a subset of, and
             // `Located` rather than `Unnamed` for exactly that reason: filing it
             // as a pattern would claim containment the text never gave.
@@ -1529,7 +1529,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
     assert_eq!(effects.agents, ["geo"]);
     // Oldest first, so a reader walks it forwards.
     assert!(effects.rows.windows(2).all(|w| w[0].t <= w[1].t));
-    // ⚠ **The command is a dictionary index, not a string per row.** That is
+    // The command is a dictionary index, not a string per row. That is
     // where the artefact's size went — measured over the real corpus, the
     // commands that bear an effect are 9.7 MB against 41.5 MB for every distinct
     // whole call.
@@ -1538,7 +1538,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
 
 #[test]
 fn a_call_the_user_refused_names_no_files() {
-    // ⚠ **A refused call never ran**, so every path in it is an intention and
+    // A refused call never ran, so every path in it is an intention and
     // not an act. 76 such calls in the corpus name 105 file uses — 21 of them
     // *writes*, to files that nothing ever wrote.
     //
@@ -1622,8 +1622,8 @@ fn a_call_the_user_refused_names_no_files() {
 
 #[test]
 fn a_tool_call_that_failed_changed_nothing() {
-    // ⚠ **990 failed `Edit`s and 289 failed `Write`s in the live corpus, every
-    // one counted as work.** An `Edit` fails when its `old_string` is not in the
+    // 990 failed `Edit`s and 289 failed `Write`s in the live corpus, every
+    // one counted as work. An `Edit` fails when its `old_string` is not in the
     // file, which means the file was left exactly as it was — crediting an agent
     // with that change credits it with something that did not happen.
     //
@@ -1667,7 +1667,7 @@ fn a_tool_call_that_failed_changed_nothing() {
 
 #[test]
 fn a_use_the_outcome_cannot_confirm_is_possible_rather_than_lost() {
-    // ⚠ **Neither counting it nor dropping it is true.** In `a && b` under a
+    // Neither counting it nor dropping it is true. In `a && b` under a
     // call that failed, `b` may or may not have run: counting it claims work
     // that may never have happened, and dropping it denies work that may well
     // have. 19,256 file uses in the corpus are of this kind, and the record
@@ -1695,7 +1695,7 @@ fn a_use_the_outcome_cannot_confirm_is_possible_rather_than_lost() {
 
 #[test]
 fn a_session_that_only_titles_another_is_not_an_agent() {
-    // ⚠ **These outnumbered the real agents four to one**: 307 of 324 rows on
+    // These outnumbered the real agents four to one: 307 of 324 rows on
     // the page were one-shot Haiku sessions the CLI spawns to name a
     // conversation, each a bare uuid with every counter at zero.
     //
@@ -1749,7 +1749,7 @@ fn a_session_that_only_titles_another_is_not_an_agent() {
 
 #[test]
 fn a_memory_read_from_the_shell_is_attributed_to_that_memory() {
-    // ⚠ **The shell half of the corpus was dropped entirely.** The tool-call
+    // The shell half of the corpus was dropped entirely. The tool-call
     // site has had a `memory_of` arm since it was written; the shell site had
     // only the code-root filter, and the corpus is outside the code root — so
     // `tail`, `grep`, `sed` and `cat >>` over a memory counted for nothing.
@@ -1788,7 +1788,7 @@ fn a_memory_read_from_the_shell_is_attributed_to_that_memory() {
 
 #[test]
 fn a_glob_over_the_corpus_names_no_memory() {
-    // ⚠ **A flat corpus makes `*.md` collapse to a stem of `*`.** Counted, that
+    // A flat corpus makes `*.md` collapse to a stem of `*`. Counted, that
     // invented a memory called `*` with 459 uses — more than any real one has,
     // and top of any report that iterates the map.
     //
@@ -1828,7 +1828,7 @@ fn a_glob_over_the_corpus_names_no_memory() {
 
 /// The episode boundary: which `user` line is somebody typing.
 ///
-/// ⚠ **This is the one predicate whose failure MERGES two instructions**, and a
+/// This is the one predicate whose failure MERGES two instructions, and a
 /// merge is unrecoverable downstream where a duplicate bracket is only noise.
 /// Testing `tool_result` as a bare word cost 17 of them across the corpus.
 mod is_prompt {
@@ -1878,7 +1878,7 @@ fn days_file(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
     p
 }
 
-/// ⚠ The whole point: a day the previous file recorded survives a run whose
+/// The whole point: a day the previous file recorded survives a run whose
 /// transcripts no longer show it, and is COUNTED so the pruning is visible.
 #[test]
 fn a_day_whose_transcript_is_gone_is_carried_and_counted() {
@@ -1951,7 +1951,7 @@ fn a_missing_previous_file_is_the_first_run() {
     );
 }
 
-/// ⚠ A file that EXISTS but will not parse must FAIL the mine. Returning 0 would
+/// A file that EXISTS but will not parse must FAIL the mine. Returning 0 would
 /// read as "nothing to carry" and the run would overwrite it, deleting the whole
 /// record silently — which is the failure this function was written to prevent.
 #[test]
@@ -1962,12 +1962,12 @@ fn a_corrupt_previous_file_fails_rather_than_being_overwritten() {
     assert!(carry_forward(&bad, &mut now).is_err());
 }
 
-/// ⚠ **A `generated` field nobody consults is decoration.** `agents.json` has
+/// A `generated` field nobody consults is decoration. `agents.json` has
 /// carried one all along and still produced three wrong analyses (#1210); the
 /// fourth was a demotion argued from breadth figures for memories written after
 /// the mine. These pin the refusal.
 ///
-/// ⚠ **The transcripts are the witness, not the filesystem.** The first version
+/// The transcripts are the witness, not the filesystem. The first version
 /// compared mtimes: 55 alarms for 2 real changes, because something had touched
 /// fifty-two files without altering a word.
 fn transcript(dir: &std::path::Path, name: &str, lines: &[&str]) -> std::path::PathBuf {
@@ -2012,7 +2012,7 @@ fn a_memory_written_after_the_mine_makes_it_stale_and_is_named() {
     assert_eq!(fresh.unseen, vec!["after".to_string()]);
 }
 
-/// ⚠ **Editing the index is not staleness.** `MEMORY.md` lives in the corpus
+/// Editing the index is not staleness. `MEMORY.md` lives in the corpus
 /// directory, so the write scan sees it like any other file — but both readers
 /// of `freshness` load the index live from disk, so a change to it cannot move
 /// a figure that comes from the artefact. Counting it made the refusal fire
@@ -2048,14 +2048,14 @@ fn a_memory_written_beside_an_index_edit_is_still_named() {
     assert_eq!(fresh.unseen, vec!["a_real_one".to_string()]);
 }
 
-// ⚠ A bare `> name.md` is NOT a memory, and asserting it was is how the first
+// A bare `> name.md` is NOT a memory, and asserting it was is how the first
 // version of this shipped. The test that stood here fed
 // `cat > written_by_heredoc.md` with no directory and expected a memory named
 // `written_by_heredoc`; the reader resolves the path and correctly refuses it.
 // Superseded by `a_heredoc_write_to_a_memory_is_seen`, which names a real corpus
 // path, and by `a_markdown_file_outside_the_corpus_is_not_a_memory` (#1218).
 
-/// ⚠ **Prose is not a path.** A transcript says things like "memory/preferences
+/// Prose is not a path. A transcript says things like "memory/preferences
 /// cannot fulfil them"; a bare `/memory/` substring match invented
 /// `preferences` as a memory. The tool argument is the anchor.
 #[test]
@@ -2068,7 +2068,7 @@ fn prose_mentioning_memory_is_not_a_write() {
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
-/// ⚠ **Without this exclusion the check refuses ALWAYS.** Claude Code appends to
+/// Without this exclusion the check refuses ALWAYS. Claude Code appends to
 /// the running session's transcript as the tool runs, so it postdates every
 /// artefact by construction — and a guard that always fires trains people to
 /// pass the override, which is worse than no guard.
@@ -2103,7 +2103,7 @@ fn bash_row(stamp: &str, command: &str) -> String {
     )
 }
 
-/// ⚠ **`echo x > /tmp/note.md` is not a memory**, and the `> name.md` heuristic
+/// `echo x > /tmp/note.md` is not a memory, and the `> name.md` heuristic
 /// this replaced counted it whenever the stem collided with one (#1218).
 #[test]
 fn a_markdown_file_outside_the_corpus_is_not_a_memory() {
@@ -2139,7 +2139,7 @@ fn a_heredoc_write_to_a_memory_is_seen() {
     assert_eq!(fresh.unseen, vec!["feedback_written".to_string()]);
 }
 
-/// ⚠ **Reading a memory is not writing one.** The redirect heuristic could not
+/// Reading a memory is not writing one. The redirect heuristic could not
 /// tell the two apart inside a compound command.
 #[test]
 fn reading_a_memory_does_not_make_the_mine_stale() {
@@ -2157,7 +2157,7 @@ fn reading_a_memory_does_not_make_the_mine_stale() {
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
-/// ⚠ **The accumulator that decides commit authorship is order-INDEPENDENT**,
+/// The accumulator that decides commit authorship is order-INDEPENDENT,
 /// and that is what makes a resumed or split scan possible: it keeps the
 /// earliest TIMESTAMP, not the first transcript walked. #1240 recorded the
 /// opposite, on a reading of the call site rather than of the rule.
@@ -2216,7 +2216,7 @@ fn a_sighting_only_one_half_has_survives_the_merge() {
     assert_eq!(into["bbb"].1, "recall");
 }
 
-/// ⚠ **A corpus grep is an open of what it MATCHED** — memview#1238. Counting
+/// A corpus grep is an open of what it MATCHED — memview#1238. Counting
 /// it as an open of everything scanned takes every memory over the breadth bar;
 /// counting it as nothing loses ~11% of the corpus's reach.
 ///
@@ -2247,7 +2247,7 @@ fn a_grep_that_printed_a_line_of_a_memory_counts_apart_from_a_read() {
     let uses = &agents[0].memories;
     assert_eq!(uses.get("feedback_alpha").map(|u| u.grep_matches), Some(1));
     assert_eq!(uses.get("reference_beta").map(|u| u.grep_matches), Some(1));
-    // ⚠ Neither colon-less form may arrive through this route.
+    // Neither colon-less form may arrive through this route.
     assert!(
         uses.get("project_gamma")
             .is_none_or(|u| u.grep_matches == 0)
@@ -2256,7 +2256,7 @@ fn a_grep_that_printed_a_line_of_a_memory_counts_apart_from_a_read() {
         uses.get("project_delta")
             .is_none_or(|u| u.grep_matches == 0)
     );
-    // ⚠ And a grep match is NOT a read: the counters stay apart.
+    // And a grep match is NOT a read: the counters stay apart.
     assert_eq!(uses.get("feedback_alpha").map(|u| u.reads), Some(0));
 }
 

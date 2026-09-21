@@ -1,6 +1,6 @@
 //! The `task` service's refusals, pinned by their live wording.
 //!
-//! ⚠ **These strings are copied verbatim from the service**, not
+//! These strings are copied verbatim from the service, not
 //! paraphrased. The bug they exist to catch was a sentinel that read plausibly
 //! and matched nothing the service ever said, so a paraphrase here would
 //! reproduce it exactly.
@@ -25,7 +25,7 @@ fn both_live_refusal_wordings_are_recognised() {
     assert!(is_duplicate_refusal(MODEL_READ));
 }
 
-/// ⚠ The regression, stated as a test rather than a comment: the sentinel this
+/// The regression, stated as a test rather than a comment: the sentinel this
 /// replaced matches NEITHER wording, so the retry it guarded never ran once.
 #[test]
 fn the_prose_sentinel_it_replaced_matched_neither() {
@@ -38,7 +38,7 @@ fn the_prose_sentinel_it_replaced_matched_neither() {
     }
 }
 
-/// ⚠ The guard that matters more than the match: a refusal that must NOT be
+/// The guard that matters more than the match: a refusal that must NOT be
 /// overruled. Re-running a missing `--priority` with `--no-duplicate-check` files
 /// nothing and reports a second error over the first.
 #[test]

@@ -7,8 +7,8 @@
 //! `bash-corpus --said` mines them into a parallel corpus of (command, stated
 //! intent) pairs. This is what reads it.
 //!
-//! ⚠ **The description is a CLAIM about the command, never evidence about what
-//! ran.** Nothing here treats it as truth: it is a second, independent reading
+//! The description is a CLAIM about the command, never evidence about what
+//! ran. Nothing here treats it as truth: it is a second, independent reading
 //! of the same text — to the concept layer what `declare -f` is to the syntax
 //! tree — and the useful output is where it AGREES and where it does not.
 //!
@@ -20,7 +20,7 @@
 //! either the kind is mis-cut or the vocabulary below it is richer than
 //! `Activity` — and telling those two apart is the next question, not this one.
 //!
-//! ⚠ **A high agreement figure is not a result.** `Activity` and the description
+//! A high agreement figure is not a result. `Activity` and the description
 //! are both about the same command and both written in ordinary English, so
 //! agreement is the null expectation. What is worth reading is the DISAGREEMENT
 //! and the concentration: a kind whose top words cover most of it names an
@@ -32,7 +32,7 @@ use reader::shell_files;
 
 /// The stated intents, by the pair that joins them to a corpus row.
 ///
-/// ⚠ **`(at, cmd)` was measured before it was relied on**: over 450,866
+/// `(at, cmd)` was measured before it was relied on: over 450,866
 /// described calls it resolves to 184,590 distinct keys, and not one of them
 /// carries two different descriptions. A row with no `at` is keyed
 /// on the command alone, which is weaker and rare — the corpus carries a stamp
@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         let found = shell_files::extract_knowing(&script, cwd, &home, &[]);
-        // ⚠ **One command can be several activities** — a `&&` chain, a nested
+        // One command can be several activities — a `&&` chain, a nested
         // shell — and the description is written about the WHOLE call. So the
         // call is filed under each DISTINCT kind of work it did: a chain that
         // greps three times is one `search`, because the sentence beside it is
@@ -167,7 +167,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 /// The first word of a stated intent, lowercased.
 ///
-/// ⚠ **Deliberately crude, and it is an instrument rather than an analysis.**
+/// Deliberately crude, and it is an instrument rather than an analysis.
 /// A description is a sentence — *"Run the reader tests"* — and its first word
 /// is nearly always the verb, so this is enough to ask whether one kind of work
 /// is called the same thing twice. It is NOT a reading of the sentence, and

@@ -48,7 +48,7 @@ $1
 section() { printf '\n=== %s\n' "$1"; }
 
 section "1 · what comes back, and is it a fixpoint"
-# ⚠ Piped through `cat -v`, or a resolved control character is invisible in the
+# Piped through `cat -v`, or a resolved control character is invisible in the
 # output and the finding cannot be read off it.
 shapes=(
   "echo \$'\\x41'"      # hex

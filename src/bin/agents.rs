@@ -19,12 +19,12 @@ fn main() -> Result<()> {
         &["--exports", "--resume"],
     )?;
     let home = std::env::var("HOME").unwrap_or_default();
-    // ⚠ **Flags taken out before the positionals are counted.** `root` and `out`
+    // Flags taken out before the positionals are counted. `root` and `out`
     // are read by position, so a bare `--resume` would otherwise become the
     // projects root and the mine would read an empty directory and report a
     // corpus of nothing — a wrong answer with no error.
-    // ⚠ **A flag's VALUE is not a positional argument, and getting this wrong is
-    // silent.** `--exports /tmp/x` left `/tmp/x` looking positional, so it became
+    // A flag's VALUE is not a positional argument, and getting this wrong is
+    // silent. `--exports /tmp/x` left `/tmp/x` looking positional, so it became
     // the projects ROOT: the mine read an empty directory, found no transcripts,
     // and wrote a resume state with zero marks over a good one. Green, fast, and
     // entirely wrong — the exact failure the `--resume` note warned about, then
@@ -73,20 +73,20 @@ fn main() -> Result<()> {
             .unwrap_or(0),
     );
 
-    // ⚠ **Opt-in, and it stays that way until parity is shown on the REAL
-    // corpus.** The fixtures prove a resumed scan equals a whole one; a fixture
+    // Opt-in, and it stays that way until parity is shown on the REAL
+    // corpus. The fixtures prove a resumed scan equals a whole one; a fixture
     // is not 6.28 GB of transcripts, and a wrong resume reads no error — it
     // mines from an offset that means something else and the artefact simply
     // becomes untrue. `--resume` is how that comparison gets run at all.
     let want_resume = std::env::args().any(|a| a == "--resume");
-    // ⚠ **`doing.json` and `effects.json` are EXPORTS, not local data.** 130 MB
+    // `doing.json` and `effects.json` are EXPORTS, not local data. 130 MB
     // that exists only to be pushed to the console — nothing on this Mac reads
     // them except this miner, to resume the timeline. `--exports <dir>` sends
     // them somewhere temporary so the push can carry them without leaving them
     // in `~/.claude`; `--exports none` skips them entirely, which is what the
     // hourly resumed mine wants.
     //
-    // ⚠ **`none` means NOT LOADED either.** A resumed run that cannot carry the
+    // `none` means NOT LOADED either. A resumed run that cannot carry the
     // previous timeline produces a wrong one — measured: 78 orphaned rows and
     // renumbered episodes (memview#1240). So it does not pretend to produce one.
     // Only a FULL mine writes a timeline anybody should read.
@@ -102,7 +102,7 @@ fn main() -> Result<()> {
     };
     let resume_file = reader::home::cache(memview::mine::FILE);
     let from = if want_resume {
-        // ⚠ An unparseable resume file is FATAL here, not "nothing to resume":
+        // An unparseable resume file is FATAL here, not "nothing to resume":
         // see `mine::Carried::load`.
         match memview::mine::Carried::load(&resume_file)? {
             None => {
@@ -125,7 +125,7 @@ fn main() -> Result<()> {
                 );
                 Some(agents::Resumed {
                     carried,
-                    // ⚠ Carried only when this run will WRITE a timeline. With
+                    // Carried only when this run will WRITE a timeline. With
                     // `--exports none` there is nothing to carry and nothing
                     // worth producing; the roster and the day sets do not
                     // depend on either.
@@ -220,7 +220,7 @@ fn main() -> Result<()> {
     // it. `Agents` marks the field `#[serde(skip)]`, so this is the only way it
     // is ever written.
     let timeline = std::mem::take(&mut found.doing);
-    // ⚠ **An export may only come from a run that HOLDS the whole timeline.**
+    // An export may only come from a run that HOLDS the whole timeline.
     // A resumed run that could not carry the previous one produces the tail
     // alone — measured here as a 108-byte `doing.json` with 0 effects, which
     // pushed to the console would replace a real timeline with nothing. A full
@@ -236,26 +236,26 @@ fn main() -> Result<()> {
          they would hold only the tail. Run a full mine, or pass --exports none."
     );
     if let Some(dir) = &exports {
-        // ⚠ Explicit: the directory usually exists, and if it cannot be made
+        // Explicit: the directory usually exists, and if it cannot be made
         // the `save` below fails with a message naming the path.
         let _ = std::fs::create_dir_all(dir);
         timeline.save(&dir.join("doing.json"))?;
     } else {
-        // ⚠ Said out loud. A run that silently stopped producing the console's
+        // Said out loud. A run that silently stopped producing the console's
         // data would look identical to one that produced it.
         println!("exports skipped (--exports none): no timeline or effects written");
     }
 
-    // ⚠ **Who last wrote each path, kept LOCALLY even when the evidence is not.**
+    // Who last wrote each path, kept LOCALLY even when the evidence is not.
     // `effects.json` is an export that leaves this machine, and `staged-check`
     // was only ever parsing 70 MB to answer this one question (memview#1258).
     //
-    // ⚠ **A full mine builds from EMPTY; a resumed one absorbs onto what it
-    // carried.** Folding a full read onto a stale map would keep entries for
+    // A full mine builds from EMPTY; a resumed one absorbs onto what it
+    // carried. Folding a full read onto a stale map would keep entries for
     // paths the read no longer mentions, so the artefact would stop being a
     // function of the corpus and no parity check could stand on it.
     //
-    // ⚠ **A resumed run must not CREATE it.** Absorbing the tail onto an absent
+    // A resumed run must not CREATE it. Absorbing the tail onto an absent
     // artefact yields a map of the few paths touched since the last mine — 21 of
     // them, measured — which is indistinguishable on disk from a complete one and
     // would answer "nobody wrote this" for everything else. Every later resume
@@ -299,7 +299,7 @@ fn main() -> Result<()> {
     let size = std::fs::metadata(&effects_file)
         .map(|m| m.len())
         .unwrap_or(0);
-    // ⚠ **The measured size, printed rather than estimated.** memview#93 was
+    // The measured size, printed rather than estimated. memview#93 was
     // planned against 55 MB, then against 20 MB once the unit was measured; both
     // were arithmetic on dictionaries, not a file on disk. Whoever adds this to
     // `sync.sh` should be reading a number nobody had to compute.
@@ -316,23 +316,23 @@ fn main() -> Result<()> {
     // The memory days go the same way and for the same reason — a different
     // question, and one no view draws. `memory-rank` reads this file.
     //
-    // ⚠ **"The same way" now includes HOW it is written.** This was the one
+    // "The same way" now includes HOW it is written. This was the one
     // sibling on a plain `fs::write` while `agents.json`, `doing.json` and
     // `effects.json` all went through `atomic::write` — so a `memory-rank` run
     // during the 00:30 mine could read a half-written file, and the mine takes
     // ~8 minutes. Write-then-rename or the reader sees half.
     let mut days = std::mem::take(&mut found.memory_days);
     let days_file = std::path::Path::new(&out).with_file_name("memory-days.json");
-    // ⚠ Union with what earlier runs saw — see [`memview::agents::carry_forward`].
+    // Union with what earlier runs saw — see [`memview::agents::carry_forward`].
     // #884's outcome IS this file, over a pre-period of 2026-07-17..08-14 that has
     // to survive to a harvest on 2026-09-11. Membership was already protected
     // this way (`index-history.json`); the outcome variable never was.
     let carried = memview::agents::carry_forward(&days_file, &mut days)?;
     if carried > 0 {
-        // ⚠ **Said out loud rather than folded into a total**: a silent carry
+        // Said out loud rather than folded into a total: a silent carry
         // reads exactly like a complete re-mine.
         //
-        // ⚠ **It used to say "transcripts have been pruned", and that is false**
+        // It used to say "transcripts have been pruned", and that is false
         // — memview#1240 measured that nothing holding a conversation has been
         // deleted since the archive began. What vanishes is temp-directory
         // sessions, which carried no conversation, plus whatever predates
@@ -365,12 +365,12 @@ fn main() -> Result<()> {
     found.save(std::path::Path::new(&out))?;
     println!("wrote {out}");
 
-    // ⚠ **Written on EVERY run, including a whole one.** A full mine is how the
+    // Written on EVERY run, including a whole one. A full mine is how the
     // resume state is bootstrapped and how it is repaired after a
     // `Plan::Full` — writing it only when `--resume` was asked for would mean
     // the first resumable run could never happen.
     //
-    // ⚠ **Written LAST, after every artefact it describes.** These marks assert
+    // Written LAST, after every artefact it describes. These marks assert
     // "the corpus up to here is already in those files"; saved first, a crash in
     // between would leave a resume state promising work no artefact holds, and
     // the next run would skip it silently.

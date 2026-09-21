@@ -31,7 +31,7 @@ fn a_bare_id_and_one_qualified_by_our_own_name_are_both_citations() {
     );
 }
 
-/// ⚠ **Another project's tracker is not ours to check.** Measured: the first
+/// Another project's tracker is not ours to check. Measured: the first
 /// version of this reported exactly two dangling ids corpus-wide and
 /// BOTH were this: `rxdb#7804` and `angular/components#33091`, real issues in
 /// other people's repositories, cited correctly, reported as corpus rot. On a
@@ -43,14 +43,14 @@ fn another_projects_issue_number_is_not_ours_to_resolve() {
     assert!(ids("angular/components#33091 is the upstream issue").is_empty());
 }
 
-/// ⚠ A markdown heading opens with `#` and a space. Reading it as a citation
+/// A markdown heading opens with `#` and a space. Reading it as a citation
 /// would make every structured memory cite a ticket it never mentions.
 #[test]
 fn a_heading_is_not_a_citation() {
     assert!(ids("## The build\n\n### Why").is_empty());
 }
 
-/// ⚠ A CSS colour is a `#` and six characters. `#1a2b3c` carries letters, and
+/// A CSS colour is a `#` and six characters. `#1a2b3c` carries letters, and
 /// `#123456` does not — so length refuses it, because a false dangling report
 /// costs more than a missed one on a check whose whole yield is about five.
 #[test]
@@ -74,7 +74,7 @@ fn a_subject_that_still_asks_its_question_is_caught() {
     ));
 }
 
-/// ⚠ **It must not reach past the one class with an oracle.** A subject naming a
+/// It must not reach past the one class with an oracle. A subject naming a
 /// measurement, or one whose body contradicts it, is not mechanically checkable
 /// — and a rule that guessed would fire on most of the corpus.
 #[test]
@@ -99,7 +99,7 @@ fn a_backticked_repo_path_is_a_citation() {
     assert!(got.contains("src/geo/stays.ts"));
 }
 
-/// ⚠ **Prose is full of slashes.** A matcher that took any slashed token would
+/// Prose is full of slashes. A matcher that took any slashed token would
 /// accuse sentences, and a rule that accuses sentences gets muted.
 #[test]
 fn prose_and_bare_directories_are_not_citations() {
@@ -108,14 +108,14 @@ fn prose_and_bare_directories_are_not_citations() {
     assert!(got.is_empty(), "{got:?}");
 }
 
-/// ⚠ A URL and an absolute path are both checked against the wrong thing.
+/// A URL and an absolute path are both checked against the wrong thing.
 #[test]
 fn urls_and_absolute_paths_are_not_repo_relative() {
     let got = cited_paths("see `https://example.com/a/b.ts` or `/etc/hosts.conf`");
     assert!(got.is_empty(), "{got:?}");
 }
 
-/// ⚠ Unfenced text is not a claim about a file — it is a sentence.
+/// Unfenced text is not a claim about a file — it is a sentence.
 #[test]
 fn only_fenced_tokens_count() {
     let got = cited_paths("the fix is in src/geo/stays.ts, near the top");

@@ -10,7 +10,7 @@ import type { Picture } from './picture';
 /**
  * Unsent words on this device, and what crosses to the runner.
  *
- * ⚠ **What the RUNNER does with a push is tested in Rust**, in
+ * What the RUNNER does with a push is tested in Rust, in
  * `console/tests/suite/drafts.rs`, and the two meeting for real is
  * `e2e/two-devices.spec.ts`. What is tested here is this side: that a keystroke
  * becomes the smallest edit it can, that what comes back merges rather than
@@ -128,7 +128,7 @@ describe('Drafts', () => {
   });
 
   it('merges what the runner sends rather than replacing what is here', async () => {
-    // ⚠ **The whole design in one assertion.** The other device's words arrive
+    // The whole design in one assertion. The other device's words arrive
     // while this one holds its own, and BOTH survive. Under the old protocol this
     // was the moment somebody was asked to choose between them.
     const { drafts } = harness((url) =>
@@ -143,8 +143,8 @@ describe('Drafts', () => {
   });
 
   it('does not push back what the runner just sent it', async () => {
-    // ⚠ **The echo loop, which is what a merging design gets wrong if it is
-    // careless.** A device that applies an arriving update and then counts it as
+    // The echo loop, which is what a merging design gets wrong if it is
+    // careless. A device that applies an arriving update and then counts it as
     // its own edit sends the runner's bytes back for ever.
     const { drafts, sent } = harness((url) =>
       url.includes('since=') ? holding('a', 'theirs') : new Response('[]', { status: 200 }),
@@ -209,7 +209,7 @@ describe('Drafts', () => {
 });
 
 describe('difference', () => {
-  // ⚠ **A keystroke has to be ONE insert.** Replacing the whole text instead
+  // A keystroke has to be ONE insert. Replacing the whole text instead
   // merges with a concurrent edit as two people retyping the sentence at once,
   // which is how a merging design can still lose words.
   it('takes a character added at the end as one insert', () => {

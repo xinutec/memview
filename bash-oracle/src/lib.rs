@@ -10,11 +10,11 @@
 //! comparison is tree against tree rather than text against text; and it deletes
 //! comments, so comments are excluded from both sides.
 //!
-//! ⚠ **Bash is shown the ORIGINAL text, never our print of it.** A gate fed its
+//! Bash is shown the ORIGINAL text, never our print of it. A gate fed its
 //! subject's own output can only confirm self-consistency. While it was, it
 //! caught nothing and a misparse of `a |\nb` passed both gates.
 //!
-//! ⚠ **The wrapper is not containment.** A balanced payload closes the function,
+//! The wrapper is not containment. A balanced payload closes the function,
 //! runs, and reopens a group for the trailing brace — measured, not reasoned
 //! about. It used to be harmless only because the accepted language refused
 //! `(`, `)`, `{` and `}`, which is an argument that expires the moment grouping
@@ -46,7 +46,7 @@ pub enum Verdict {
     Agrees,
     /// Bash would not render this command at all.
     ///
-    /// ⚠ **A defect in every case but one**, and the caller has to tell them
+    /// A defect in every case but one, and the caller has to tell them
     /// apart with [`bash_warns_of_a_runaway_heredoc`]: a heredoc whose delimiter
     /// never appears takes the rest of the input as its body, and that body eats
     /// the closing brace of the wrapper [`compare`] needs. Such a command is
@@ -80,7 +80,7 @@ impl Verdict {
 
 /// The profile gate 2's bash runs under.
 ///
-/// ⚠ **The wrapper does not contain the command, and never did.** `eval` parses
+/// The wrapper does not contain the command, and never did. `eval` parses
 /// its whole argument before running any of it, so a balanced payload —
 /// `echo a; }; touch X; { echo b` — closes the function, runs, and reopens a
 /// group for the trailing brace. `reader/probes/bash-printer.sh` demonstrates it
@@ -113,7 +113,7 @@ const SANDBOX: &str = "/usr/bin/sandbox-exec";
 
 /// May this text be shown to bash?
 ///
-/// ⚠ **The containment argument, made explicit and enforced.** It used to hold
+/// The containment argument, made explicit and enforced. It used to hold
 /// implicitly: the gate ran only on accepted commands, and the accepted language
 /// refused `(`, `)`, `{` and `}`, so nothing could close the wrapper. Building
 /// grouping dissolves that argument, so the check moved here — where a machine
@@ -134,7 +134,7 @@ pub fn renderable(text: &str) -> bool {
 pub fn compare(commands: &[String]) -> Result<Vec<Verdict>> {
     let mut verdicts = Vec::with_capacity(commands.len());
     for chunk in commands.chunks(BATCH) {
-        // ⚠ Text that could close the wrapper is replaced by a harmless
+        // Text that could close the wrapper is replaced by a harmless
         // placeholder rather than dropped, so every later block keeps the index
         // bash will name it by. Its verdict is filled in below.
         let printed: Vec<String> = chunk
@@ -183,7 +183,7 @@ fn judge(command: &str, bash_text: Option<&str>) -> Verdict {
         Ok(tree) => tree,
         Err(refusal) => return Verdict::Unreadable(refusal),
     };
-    // ⚠ Comments are dropped from BOTH sides. Bash deletes them, so keeping ours
+    // Comments are dropped from BOTH sides. Bash deletes them, so keeping ours
     // would report a difference on every commented command and drown the gate in
     // a known limitation.
     let ours = without_comments(&ours);
@@ -205,7 +205,7 @@ fn without_comments(script: &Script) -> Script {
     }
 }
 
-/// ⚠ **Recursive, because bash deletes a comment wherever it is.** A comment
+/// Recursive, because bash deletes a comment wherever it is. A comment
 /// inside a loop body is dropped by `declare -f` just as a top-level one is, so
 /// stripping only the outer list would report a difference on every commented
 /// body — a known limitation dressed as a finding.
@@ -272,13 +272,13 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
         driver.push_str("printf '\\0'\n");
     }
 
-    // ⚠ **The driver goes in a file, not down a pipe.** Writing a batch to
+    // The driver goes in a file, not down a pipe. Writing a batch to
     // bash's stdin while nothing drains its stdout deadlocks as soon as the
     // output passes the pipe buffer — measured at 500 commands, where it hangs
     // rather than failing. A file has no such coupling and costs one write.
     let script = Scratch::write(driver.as_bytes())?;
 
-    // ⚠ **This is the one call that RUNS corpus text**, so it is the one that
+    // This is the one call that RUNS corpus text, so it is the one that
     // has to be contained. See [`SANDBOX_PROFILE`]; `bash -n` elsewhere in this
     // file executes nothing and needs none of it.
     let output = sandboxed(&script.path)?
@@ -288,7 +288,7 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
         .output()
         .context("spawning bash to render a batch")?;
 
-    // ⚠ **Blocks are placed by the INDEX bash prints, never by position.**
+    // Blocks are placed by the INDEX bash prints, never by position.
     // The stream was read in order once, and a single command whose definition
     // bash declined left no block — shifting every later one, so a command was
     // judged against its neighbour's parse. That surfaced as exactly one
@@ -312,7 +312,7 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
 
 /// Is our printed form shell at all?
 ///
-/// ⚠ **The third gate, and it exists because the first two are blind to this.**
+/// The third gate, and it exists because the first two are blind to this.
 /// Gate 1 re-reads `t₂` with *this* parser, which is more permissive than bash
 /// in places; gate 2 is shown the ORIGINAL command by design, so it never looks
 /// at what we print. Between them sits a question neither asks: is `t₂` valid?
@@ -330,7 +330,7 @@ pub enum Validity {
 
 /// Run `bash -n` over each printed form, in batches.
 ///
-/// ⚠ **Safe to batch and safe to wrap, for one reason: `-n` executes nothing.**
+/// Safe to batch and safe to wrap, for one reason: `-n` executes nothing.
 /// Gate 2 must worry about a balanced payload closing its wrapper and running;
 /// here the worst a payload can do is parse. That is also why this gate can be
 /// applied to text gate 2 must never touch.
@@ -369,7 +369,7 @@ pub fn validity(printed: &[String]) -> Result<Vec<Validity>> {
 
 /// Does bash refuse this text too?
 ///
-/// ⚠ **Only some refusals are claims about the TEXT rather than about us.**
+/// Only some refusals are claims about the TEXT rather than about us.
 /// `UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` say the input is not
 /// valid shell; every other reason says only that this parser does not model a
 /// construct, which bash has no opinion about. So those are the ones to check,
@@ -384,7 +384,7 @@ pub fn bash_also_refuses(command: &str) -> Result<bool> {
 
 /// Does bash warn that a heredoc ran off the end of the input?
 ///
-/// ⚠ **This is what makes `BashRefused` legible.** A heredoc whose delimiter
+/// This is what makes `BashRefused` legible. A heredoc whose delimiter
 /// never appears takes the rest of the input as its body — bash accepts it,
 /// exits zero, and says so only on stderr — and that runaway body swallows the
 /// closing brace of the wrapper [`render`] needs, so bash cannot print the
@@ -414,7 +414,7 @@ fn bash_parse(command: &str) -> Result<(bool, String)> {
 
 /// The command that runs `script` under the sandbox, where there is one.
 ///
-/// ⚠ **Not a fallback to "run it anyway".** Where no sandbox exists, this still
+/// Not a fallback to "run it anyway". Where no sandbox exists, this still
 /// runs bash — but [`renderable`] has already replaced every text that could
 /// escape the wrapper, so what reaches an unsandboxed bash is only what the old
 /// containment argument already covered.

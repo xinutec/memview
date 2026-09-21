@@ -2,7 +2,7 @@
 //
 //     node e2e/fixtures/make-render.mjs
 //
-// ⚠ **A binary in a repository cannot say what it is for**, and `tiny.png` beside
+// A binary in a repository cannot say what it is for, and `tiny.png` beside
 // it is the reason this exists: at 2×4 it is smaller than the phone even at the
 // closest magnification, so a picture made from it has nowhere to be dragged to
 // and the pan assertion reads zero against a view that is behaving perfectly.

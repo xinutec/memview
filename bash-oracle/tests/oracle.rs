@@ -1,11 +1,11 @@
 //! Does the second gate actually compare anything?
 //!
-//! ⚠ **A gate that cannot fail is not a gate.** Over the corpus this one is
+//! A gate that cannot fail is not a gate. Over the corpus this one is
 //! green on every command, and that is not by itself evidence: a `judge` that
 //! returned `Agrees` unconditionally would look exactly the same. So each
 //! verdict it can reach is provoked here on purpose.
 //!
-//! ⚠ **It is load-bearing where bash's printer NORMALISES**, and nowhere else.
+//! It is load-bearing where bash's printer NORMALISES, and nowhere else.
 //! Over plain words bash prints back what it was given, so there is nothing it
 //! can see that the round-trip law cannot. Where it collapses two spellings into
 //! one — a heredoc delimiter's quoting, a descriptor on `1>`, a word split at a
@@ -68,7 +68,7 @@ fn bash_reads_our_printed_form_the_way_we_do() {
 
 #[test]
 fn the_gate_catches_a_misparse_of_the_original_text() {
-    // ⚠ The reason bash is shown the corpus command and not our print of it.
+    // The reason bash is shown the corpus command and not our print of it.
     //
     // `a |⏎b` is ONE pipeline: bash's grammar is `pipeline '|' newline_list
     // pipeline`. Read as two, it printed as two lines and read back as two just
@@ -118,7 +118,7 @@ fn printed(text: &str) -> String {
 
 #[test]
 fn the_printed_form_is_valid_shell() {
-    // ⚠ The shapes where the printer chooses a SEPARATOR, which is where it can
+    // The shapes where the printer chooses a SEPARATOR, which is where it can
     // emit text bash refuses. `a & ; b` is a syntax error where `a & b` is not,
     // and every compound below ends its body with one.
     let texts: Vec<String> = [
@@ -152,7 +152,7 @@ fn the_printed_form_is_valid_shell() {
 
 #[test]
 fn the_gate_catches_a_print_bash_would_refuse() {
-    // ⚠ **A gate that cannot fail is not a gate.** This is the exact text the
+    // A gate that cannot fail is not a gate. This is the exact text the
     // printer used to emit for a loop body ending in `&`, and it is why this
     // gate exists: gate 1 re-reads it happily with our own parser, and gate 2
     // never sees our print at all.
@@ -183,8 +183,8 @@ fn one_bad_print_in_a_batch_does_not_condemn_its_neighbours() {
 
 #[test]
 fn the_wrapper_does_not_contain_a_balanced_payload_but_the_sandbox_does() {
-    // ⚠ **Both arms, because a sandbox that silently does nothing looks exactly
-    // like one that works.** The first `eval` here is what `render` does, and it
+    // Both arms, because a sandbox that silently does nothing looks exactly
+    // like one that works. The first `eval` here is what `render` does, and it
     // demonstrates the escape: the payload closes the function, runs, and
     // reopens a group for the trailing brace. The second is the same text
     // through the gate, which must NOT write the file.

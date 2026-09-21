@@ -8,7 +8,7 @@
 //! another subject, and `+$((BASE + 1))` is arithmetic that is not a path at
 //! all. A count over a bucket that mixes those cannot size anything.
 //!
-//! ⚠ **This classifies the TEXT of a subject, not its meaning.** It is a
+//! This classifies the TEXT of a subject, not its meaning. It is a
 //! measurement to decide whether a domain is worth building, not the domain. So
 //! every rule is deliberately conservative, an `unclassified` bucket is kept and
 //! reported, and each bucket prints samples — a taxonomy nobody can check is a
@@ -57,8 +57,8 @@ enum Shape {
     /// A substitution [`substitution`] could not parse: trailing text after the
     /// `)`, nested parens, a body the corpus truncated.
     ///
-    /// ⚠ **Its own arm because it used to fall into [`Shape::BareName`], whose
-    /// resolvability is the OPPOSITE** (memview#1445). A bare parameter may be
+    /// Its own arm because it used to fall into [`Shape::BareName`], whose
+    /// resolvability is the OPPOSITE (memview#1445). A bare parameter may be
     /// answered by reading the environment at ask time; a substitution never is,
     /// by doctrine — *reading is not running*. Filing one as the other put both
     /// in a single row of 4,118 labelled "a bare name, bound elsewhere", which
@@ -106,7 +106,7 @@ fn substitution(word: &str) -> Option<&str> {
 }
 
 fn classify(word: &str) -> Shape {
-    // ⚠ **Before anything else: a subject that spans lines is not a subject.**
+    // Before anything else: a subject that spans lines is not a subject.
     // jq filters and TypeScript bodies reach this bucket, and classifying them
     // as paths would put a shape on something that never had one.
     if word.contains('\n') || word.trim_start().starts_with("/*") {
@@ -138,7 +138,7 @@ fn classify(word: &str) -> Shape {
     // A path with directory written out ahead of the first variable:
     // `Verified/Geo/${s%%:*}`, `/tmp/${f%%:*}.txt`, `/Users/me/Code/$p/node_modules`.
     //
-    // ⚠ **The variable does not have to be in the LEAF.** The first version of
+    // The variable does not have to be in the LEAF. The first version of
     // this rule split at the last `/` and required the whole directory to be
     // literal, so `Code/$p/node_modules` — 56 uses, and the largest single shape
     // in the unclassified bucket — was filed as having no locus at all, though
@@ -149,7 +149,7 @@ fn classify(word: &str) -> Shape {
     // template literal can carry both a `/` and a `$`, and widening the rule
     // without this guard would move a program fragment into "locus known" —
     // the direction that flatters the census.
-    // ⚠ What the guard costs, so nobody reads the unclassified bucket as a
+    // What the guard costs, so nobody reads the unclassified bucket as a
     // mystery: `/Users/me/Code/scanner/data/$(ls -t …)` has a locus AND a
     // located set, and is refused here for the space inside its `$( )`. Reading
     // that shape properly is the resolver's job, not this census's.
@@ -172,7 +172,7 @@ fn classify(word: &str) -> Shape {
         if name.is_empty() {
             return Shape::Unclassified;
         }
-        // ⚠ **Digits first.** `$1` is a positional parameter, and an all-caps
+        // Digits first. `$1` is a positional parameter, and an all-caps
         // test that accepts digits files 84 of them as environment variables —
         // which is what the first run of this did.
         if name.chars().all(|c| c.is_ascii_digit()) {
@@ -183,7 +183,7 @@ fn classify(word: &str) -> Shape {
         if name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
             return Shape::EnvDir;
         }
-        // ⚠ **Last, and only where the fall-through actually lands** — this is
+        // Last, and only where the fall-through actually lands — this is
         // the memview#1445 fix. `substitution()` above returned None, so a word
         // still carrying `$(` or a backtick is a substitution it could not
         // parse: trailing text after the `)`, nested parens, a truncated body.
@@ -238,8 +238,8 @@ fn main() -> anyhow::Result<()> {
         read.by_pattern.values().sum::<usize>(),
         read.by_pattern.len()
     );
-    // ⚠ **This census SIZED an opportunity the reader has since taken, and the
-    // row it sized has left the population above.** `locus known, leaf unknown`
+    // This census SIZED an opportunity the reader has since taken, and the
+    // row it sized has left the population above. `locus known, leaf unknown`
     // was 612 uses here until memview#1080 taught the walk to resolve them; they
     // now arrive as `Extract::located` and never reach `by_word`. Printed from
     // that map instead, so this table still adds up to the same object and
@@ -253,7 +253,7 @@ fn main() -> anyhow::Result<()> {
     println!("\nby what generated them:");
     let mut ranked: Vec<_> = by_shape.iter().collect();
     ranked.sort_by_key(|(shape, (uses, _))| (std::cmp::Reverse(*uses), **shape));
-    // ⚠ **"first by name", not "sample"** (memview#1445). `read.by_word` is a
+    // "first by name", not "sample" (memview#1445). `read.by_word` is a
     // `BTreeMap`, so these four are the alphabetically first members of the
     // bucket and `$(` sorts ahead of `$A`. Read as a sample they said the
     // dominant bucket was command substitutions — which would meet
@@ -272,12 +272,12 @@ fn main() -> anyhow::Result<()> {
 
     // The three numbers the question was asked to settle.
     //
-    // ⚠ **`read.by_locus` is added to the locus count and NOT to the total**,
+    // `read.by_locus` is added to the locus count and NOT to the total,
     // because those subjects left `by_word` when the reader learned to resolve
     // them. Leaving it out would report the locus rate falling on the day it
     // was acted on — the flattering direction inverted.
-    // ⚠ **Added to the NUMERATORS and to the DENOMINATOR both, or the rate
-    // moves for the wrong reason.** `LocusKnown` counted toward a locus and a
+    // Added to the NUMERATORS and to the DENOMINATOR both, or the rate
+    // moves for the wrong reason. `LocusKnown` counted toward a locus and a
     // language and toward `paths`; putting it back in only one of the three
     // would make this report change on the day the subjects did not.
     let resolved_locus: usize = read.by_locus.values().sum();

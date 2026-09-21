@@ -29,12 +29,12 @@
 //! none. A name bound twice to two LITERALS is the exception, and it is not a
 //! constant either — it is a set, reported as a bound.
 //!
-//! ⚠ **An imported name is not a path at all**, which is a stronger statement than
+//! An imported name is not a path at all, which is a stronger statement than
 //! "not a constant" and a different one. `Image.open(p)` reads like `p.open()` and
 //! means the opposite: the receiver is a library and the argument is the file. See
 //! [`callable`] for why that is three named pairs and not a rule about imports.
 //!
-//! ⚠ **Trusting only a name bound once is a limitation, not a principle.** "Bound
+//! Trusting only a name bound once is a limitation, not a principle. "Bound
 //! exactly once to a literal" is constant propagation with a domain of two values.
 //! `for p in ['a.ts', 'b.ts']:` is fully determined by the text — it names two
 //! files, not none — and so are the shell's loops over a literal word list. What
@@ -101,7 +101,7 @@ pub fn read(source: &str) -> Program {
 /// quote inside an f-string's replacement field.** `f"{d[\"k\"]}"` is written that
 /// way to survive the shell's quoting, and the backslashes reach the interpreter.
 ///
-/// ⚠ **Checked against the interpreters that ran this corpus, not assumed.**
+/// Checked against the interpreters that ran this corpus, not assumed.
 /// `SyntaxError` on 3.9.6 and on 3.12.14. PEP 701 lifted two neighbouring things on
 /// 3.12 and left this one an error: the unescaped nested quote `f"{d["k"]}"` now
 /// runs, and so does a backslash inside a *nested string*. An earlier rule here
@@ -123,7 +123,7 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
                     i += 1;
                 }
             }
-            // ⚠ **Every string is consumed whole, not only the f-strings.** This corpus
+            // Every string is consumed whole, not only the f-strings. This corpus
             // rewrites its own source — `s.replace('f"{a}\\n"', …)` — so an f-string appears
             // *inside* an ordinary literal as data. Scanning for `f"` without tracking which
             // quotes are open read such programs as broken and threw away the files they really
@@ -164,8 +164,8 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
 /// is ever rejected whole; this stays inside that rule, because an unclosed literal
 /// cannot be a program under ANY reading.
 ///
-/// ⚠ **A pass of its own rather than a branch in [`string`], because the two
-/// disagree about a newline on purpose.** `string` stops a one-line literal at its
+/// A pass of its own rather than a branch in [`string`], because the two
+/// disagree about a newline on purpose. `string` stops a one-line literal at its
 /// line's end, mirroring the grammar so an unterminated quote cannot swallow the
 /// rest of the program. That recovery is right for reading and wrong for judging:
 /// here the quote must actually be found, so the scan runs to the end.
@@ -222,7 +222,7 @@ fn never_closed(chars: &[char]) -> Option<&'static str> {
             _ => i += 1,
         }
     }
-    // ⚠ Only an unclosed OPEN counts. A surplus close is left alone: the
+    // Only an unclosed OPEN counts. A surplus close is left alone: the
     // corpus writes `python3 -c` fragments whose brackets were balanced by the
     // shell around them, and a negative depth says nothing about the program.
     (depth > 0).then_some("a bracket is never closed")
@@ -259,7 +259,7 @@ fn string(chars: &[char], at: usize, prefix: &str) -> Result<usize, &'static str
             '{' if formatted && chars.get(i + 1) == Some(&'{') => i += 1,
             '{' if formatted => depth += 1,
             '}' if formatted => depth = depth.saturating_sub(1),
-            // ⚠ **The escaped quote, not any backslash.** PEP 701 allows a
+            // The escaped quote, not any backslash. PEP 701 allows a
             // backslash inside a replacement field on 3.12 — `f"{'\n'.join(x)}"`
             // runs there — and flagging those discarded two programs that
             // worked. What both 3.9 and 3.12 refuse is the *outer* quote
@@ -290,7 +290,7 @@ struct Scope {
     /// Names the program bound to SEVERAL literals and nothing else, by the candidates
     /// in order. One of them was the path; which one is not knowable without running it.
     ///
-    /// ⚠ **Every binding has to be a literal.** One `p = compute()` among them and the
+    /// Every binding has to be a literal. One `p = compute()` among them and the
     /// set has a hole, so it bounds nothing and the name goes back to being opaque.
     candidates: BTreeMap<String, Vec<String>>,
     /// Names a `for` bound to a language — a glob's pattern, or a written-out
@@ -319,11 +319,11 @@ struct Scope {
 /// **literal list** gives a set. Both are languages, which is what separates them
 /// from `for p in files` — a name whose value came from somewhere this cannot see.
 ///
-/// ⚠ **`sorted`, `list`, `set`, `tuple` and `reversed` are transparent.** Order and
+/// `sorted`, `list`, `set`, `tuple` and `reversed` are transparent. Order and
 /// duplicates are not part of a language, so the answer is the same underneath them
 /// — and the corpus writes most of its glob loops as `sorted(glob.glob(…))`.
 ///
-/// ⚠ **`enumerate` is NOT**, and neither is `zip`: they yield tuples, so the loop's
+/// `enumerate` is NOT, and neither is `zip`: they yield tuples, so the loop's
 /// first name is an index and its second is the path.
 fn ranges_over(iterable: &Pair<Rule>) -> Option<Value> {
     let mut operands = iterable.clone().into_inner();
@@ -349,7 +349,7 @@ fn ranges_over(iterable: &Pair<Rule>) -> Option<Value> {
             for arg in args.into_inner() {
                 let mut parts = arg.into_inner();
                 let value = parts.next().filter(|p| p.as_rule() == Rule::value)?;
-                // ⚠ One member that is not a literal and the set has a hole, so
+                // One member that is not a literal and the set has a hole, so
                 // it bounds nothing — the rule `candidates` already keeps.
                 paths.push(literal(&value)?);
             }
@@ -396,7 +396,7 @@ fn ranges_over(iterable: &Pair<Rule>) -> Option<Value> {
 /// The directory a pattern is rooted at — the text ahead of its first wildcard,
 /// cut at the last `/`.
 ///
-/// ⚠ **Rooted at, not contained in**, exactly as the shell reader's locus is:
+/// Rooted at, not contained in, exactly as the shell reader's locus is:
 /// the answer lies under this directory unless the pattern climbs out, and only
 /// `..` does that. `*.log` has no locus and gets none.
 fn locus(pattern: &str) -> Option<String> {
@@ -440,10 +440,10 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             // `def write(fname, content):` — the NAME binds exactly as it did when a `def`
             // came through `binder`, and the parameters are new.
             //
-            // ⚠ **The name must still reach `bound`**, or a call on a function the program
+            // The name must still reach `bound`, or a call on a function the program
             // defined itself returns to the worklist as a library call somebody should teach.
             Rule::funcdef => {
-                // ⚠ **By RULE, not by position.** `def_kw` is atomic and still
+                // By RULE, not by position. `def_kw` is atomic and still
                 // yields a pair, so `inner.next()` is the word `def`: binding it
                 // named the KEYWORD and left every function the program defines
                 // back on the worklist as a library call to teach.
@@ -475,10 +475,10 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                     .into_inner()
                     .next()
                     .is_some_and(|keyword| keyword.as_str() == "import");
-                // ⚠ **`target` by name, not "everything after the keyword".**
+                // `target` by name, not "everything after the keyword".
                 // The header now carries `ranges_over` too, and flattening that
                 // would bind the loop to the words of its own iterable.
-                // ⚠ **One name only.** `for k, v in d.items()` yields a pair,
+                // One name only. `for k, v in d.items()` yields a pair,
                 // so a language over the sequence belongs to neither name and
                 // giving it to the first would bind a key to a set of paths.
                 let over = element
@@ -519,7 +519,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
-    // ⚠ **A parameter bound by its call site is bound BY THE PROGRAM**, and is fed into
+    // A parameter bound by its call site is bound BY THE PROGRAM, and is fed into
     // `bound` exactly as an assignment is (memview#1142). Everything downstream then
     // applies unchanged: one literal makes a const, two make a candidate set, anything
     // computed makes it `Why::Computed` rather than `Why::Outside`.
@@ -550,7 +550,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                 let Some(param) = params.get(at) else {
                     continue;
                 };
-                // ⚠ **One function only.** The reader has no scopes, so a
+                // One function only. The reader has no scopes, so a
                 // binding lands in one flat namespace: two functions sharing a
                 // parameter name would each contribute, and `open(p)` in the one
                 // would resolve to the other's argument. That is a FABRICATED
@@ -558,7 +558,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                 if uses_it.get(param.as_str()).is_none_or(|fns| fns.len() != 1) {
                     continue;
                 }
-                // ⚠ **And never a name the program also binds itself.** An
+                // And never a name the program also binds itself. An
                 // assignment, a loop or an import already has an account of it;
                 // adding a call's argument would make a name a set of two
                 // unrelated things.
@@ -568,8 +568,8 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                 from_calls.entry(param.clone()).or_default().push(value);
             }
         }
-        // ⚠ **A parameter every call site gives a literal goes to `params`, NOT to
-        // `bound`.** Through `bound` it would become a candidate SET, which says *one of
+        // A parameter every call site gives a literal goes to `params`, NOT to
+        // `bound`. Through `bound` it would become a candidate SET, which says *one of
         // these* where N call sites mean *all of these* — see [`Value::EachOf`]. Anything
         // mixed still goes to `bound`, where a `None` among the values makes it
         // `Why::Computed`.
@@ -594,8 +594,8 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             [Some(value)] => {
                 consts.insert(name, value.clone());
             }
-            // ⚠ **Was `_ => None`, and that one line was the largest unnamed
-            // shape in the corpus.** A name bound twice to two literals had BOTH
+            // Was `_ => None`, and that one line was the largest unnamed
+            // shape in the corpus. A name bound twice to two literals had BOTH
             // thrown away, so `p = 'a'; p = 'b'; open(p)` named nothing while the
             // reader held every path it could be.
             many if many.len() > 1 && many.iter().all(Option::is_some) => {
@@ -615,7 +615,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
-    // ⚠ **Bound once, by the loop that named the language.** A name the
+    // Bound once, by the loop that named the language. A name the
     // program also assigns has left the loop's space by the time it is used,
     // and `bound` is where that shows: one entry means one binding.
     ranging.retain(|name, _| bound_once.get(name).is_some_and(|ways| *ways == 1));
@@ -635,11 +635,11 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
 /// way an assignment's right-hand side is: `Some(literal)`, or `None` for a
 /// value this cannot read.
 ///
-/// ⚠ **Direct calls only.** `obj.method(…)` and `f()()` are not a name whose
+/// Direct calls only. `obj.method(…)` and `f()()` are not a name whose
 /// parameters this knows, and reading them as one would bind a parameter from a
 /// call to something else entirely.
 ///
-/// ⚠ **Positional only.** A keyword argument names its parameter rather than
+/// Positional only. A keyword argument names its parameter rather than
 /// taking a position, and binding it by index would put the value on the wrong
 /// one — a wrong path, which costs more than a missing one.
 fn call_arguments(pair: &Pair<'_, Rule>, out: &mut Vec<(String, Vec<Option<String>>)>) {
@@ -669,7 +669,7 @@ fn call_arguments(pair: &Pair<'_, Rule>, out: &mut Vec<(String, Vec<Option<Strin
             out.push((head.as_str().to_string(), args));
         }
     }
-    // ⚠ **The pair ITSELF first, then its children.** Descending straight into
+    // The pair ITSELF first, then its children. Descending straight into
     // `into_inner()` skipped exactly the case this exists for: a bare
     // `write('x.md', …)` statement IS the `expr`, so looking only at its
     // children never saw the call at all.
@@ -799,12 +799,12 @@ fn text(raw: &str) -> Option<String> {
 
 /// What an f-string still says about the path, as a glob.
 ///
-/// ⚠ **[`text`] returns `None` here and that is right for a literal** — the name is
+/// [`text`] returns `None` here and that is right for a literal — the name is
 /// genuinely not in the text. What is wrong is throwing away everything AROUND the
 /// hole: `f"data/{name}.stream"` is not unknowable, it is `data/*.stream`, a
 /// language with a locus, the same object a `glob.glob` argument produces.
 ///
-/// ⚠ **Refuses everything that is not path-shaped, and most f-strings are not.**
+/// Refuses everything that is not path-shaped, and most f-strings are not.
 /// Nearly all of the corpus's are `print` formatting — `*=*`, `Bearer *` — and a
 /// rule that filed those as bounded paths would invent thousands of subjects. So a
 /// space, a URL scheme, or a literal that is nothing but separators is refused.
@@ -902,29 +902,29 @@ enum Value {
     /// decided by the filesystem of the day and are gone; the pattern is not, and
     /// neither is the directory ahead of its first wildcard.
     ///
-    /// ⚠ **Distinct from [`Value::OneOf`] on purpose.** Rendering a pattern as a set
+    /// Distinct from [`Value::OneOf`] on purpose. Rendering a pattern as a set
     /// would claim a finite membership nobody can enumerate.
     Pattern(String),
     /// One of a known finite set of literals — a name the program bound more
     /// than once, every binding a literal.
     ///
-    /// ⚠ **Treated as unknown by everything except [`Reader::record`].** A set
+    /// Treated as unknown by everything except [`Reader::record`]. A set
     /// is not a path: joining onto it, or handing it to a command as a word,
     /// would need the choice this deliberately does not make.
     OneOf(Vec<String>),
     /// **Every** one of these, one per invocation — a function parameter, with the
     /// literal each call site passes.
     ///
-    /// ⚠ **The distinction from [`Value::OneOf`] is semantic rather than stylistic**
+    /// The distinction from [`Value::OneOf`] is semantic rather than stylistic
     /// (memview#1499). `p = 'a'; p = 'b'; open(p)` is ONE open holding one value, and
     /// which one is not knowable — a set. A parameter bound at three call sites is THREE
     /// invocations, each with its own value, and all three files were written. Calling
     /// that a set says *one of these* where the program says *all of these*.
     ///
-    /// ⚠ **A parameter's scope IS its function**, which is what makes this sound with no
+    /// A parameter's scope IS its function, which is what makes this sound with no
     /// block structure: an `open(param)` can only be inside the function declaring it.
     ///
-    /// ⚠ **Only when EVERY call site passes a literal.** One computed argument among
+    /// Only when EVERY call site passes a literal. One computed argument among
     /// them and the parameter goes back to being opaque.
     EachOf(Vec<String>),
     /// No value — and [`Why`] not, carried so that [`Reader::record`] can file
@@ -1098,7 +1098,7 @@ const NOTHING: &[&str] = &[
     "os.path.splitext",
     "os.path.getsize",
     "os.path.getmtime",
-    // ⚠ **The module spellings of what `PREDICATES` already handles as methods.**
+    // The module spellings of what `PREDICATES` already handles as methods.
     // `p.exists()` was understood and recorded as nothing — asking about a file is not
     // using it — while `os.path.exists(p)`, the same question written the other way,
     // was a call the reader did not know, sitting near the top of the unknown-calls
@@ -1310,7 +1310,7 @@ fn callable(name: &str) -> Option<Call> {
         "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
         | "shutil.copyfile" => Call::Transfer,
         "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk" => Call::Walk,
-        // ⚠ **A library that opens the file it is GIVEN**, which is the opposite shape from
+        // A library that opens the file it is GIVEN, which is the opposite shape from
         // `p.open()` and reads identically. `Image`, `wave` and `Store` are names the
         // program imported, so they are not paths. Only these three, because only these
         // three are what the corpus writes — `webbrowser.open` takes a URL, and a rule
@@ -1409,7 +1409,7 @@ impl Reader {
                     self.value(value);
                 }
             }
-            // ⚠ **A loop header is a statement too.** `for line in open(p)`
+            // A loop header is a statement too. `for line in open(p)`
             // opens a file whatever the body does, and now that the header
             // holds its own iterable nothing else would read it.
             Rule::binder => {
@@ -1541,7 +1541,7 @@ impl Reader {
                         name.push_str(attr.as_str().trim_start_matches('.'));
                     }
                 } else if self.imported.contains(&name) {
-                    // ⚠ **One attribute, and only when the table knows the pair.** An imported name is
+                    // One attribute, and only when the table knows the pair. An imported name is
                     // not a path, but reading every call on one as a library call would take a shape
                     // like `OUT.write_text(s)` out of the file-operation count altogether — a rate
                     // rising because operations stopped being counted. So an unknown pair keeps its old
@@ -1564,7 +1564,7 @@ impl Reader {
                     // A module is not a value, and neither is an attribute of
                     // one: only a name bound to a literal is.
                     None if name.contains('.') => Value::Unknown(Why::Expression),
-                    // ⚠ **Before `consts`, and it cannot collide with one**: a
+                    // Before `consts`, and it cannot collide with one: a
                     // parameter is only bound here when the program binds the
                     // name nowhere else. Asked first so the reading is obvious
                     // rather than dependent on that guard staying true.
@@ -1717,8 +1717,8 @@ impl Reader {
 
     /// A command handed to the system, recorded for the shell reader to follow.
     ///
-    /// ⚠ **Whether a shell is on the other side is decided by `shell=`, not by the shape
-    /// of the argument.** `subprocess.run("ls -la")` without it does NOT run a shell —
+    /// Whether a shell is on the other side is decided by `shell=`, not by the shape
+    /// of the argument. `subprocess.run("ls -la")` without it does NOT run a shell —
     /// Python looks for a program called `ls -la` and fails. `os.system` always has a
     /// shell; `subprocess` has one only when told.
     fn command(&mut self, name: &str, args: &[Arg]) {
@@ -1738,7 +1738,7 @@ impl Reader {
                 for item in items {
                     match item {
                         Value::Text(word) => argv.push(word.clone()),
-                        // ⚠ **One unknown word makes the whole argv unusable.**
+                        // One unknown word makes the whole argv unusable.
                         // `["ffmpeg", "-i", f]` with `f` computed would classify
                         // as an ffmpeg call over a file called `-i`, which is
                         // not a file anybody touched.
@@ -1839,7 +1839,7 @@ impl Reader {
                 }
                 *self.out.bounded.entry(pattern).or_insert(0) += 1;
             }
-            // ⚠ **N call sites are N invocations, so N uses** — not a set.
+            // N call sites are N invocations, so N uses — not a set.
             // See [`Value::EachOf`]: a parameter's scope is its function, so
             // this open ran once per call, each time with that call's literal.
             Some(Value::EachOf(paths)) if !paths.is_empty() => {
@@ -1916,13 +1916,13 @@ fn writes(mode: Option<&Value>) -> bool {
 
 /// A join where only some parts are known, as a language.
 ///
-/// ⚠ **One unknown part used to discard the known ones**, in all three spellings of a
+/// One unknown part used to discard the known ones, in all three spellings of a
 /// join. But `os.path.join(BACKUP, name)` is not unknowable: it is `BACKUP/*`, a
 /// locus with an uncertain leaf, and `os.path.join(d, 'meta.json')` is `*/meta.json`.
 /// The same object an interpolated f-string produces, judged by the same
 /// [`path_shaped`].
 ///
-/// ⚠ **A set becomes `*` rather than being multiplied out.** Joining onto a choice
+/// A set becomes `*` rather than being multiplied out. Joining onto a choice
 /// needs the choice made, and this reader does not multiply sets.
 fn joined_shape(parts: &[Value]) -> Value {
     let mut rendered = String::new();
@@ -1949,8 +1949,8 @@ fn joined_shape(parts: &[Value]) -> Value {
 
 /// A concatenation where only some parts are known, as a language.
 ///
-/// ⚠ **The difference from [`joined_shape`] is the separator, and it is the whole of
-/// what makes this shape weaker.** A join KNOWS a `/` goes between the parts, so
+/// The difference from [`joined_shape`] is the separator, and it is the whole of
+/// what makes this shape weaker. A join KNOWS a `/` goes between the parts, so
 /// `join(d, 'meta.json')` is `*/meta.json` however little is known about `d`.
 /// Concatenation inserts nothing: `base + name` is `*`, and only a literal carrying
 /// its own separator or extension leaves anything behind — `'logs/' + name` is
@@ -1964,7 +1964,7 @@ fn concat_shape(parts: &[Value]) -> Value {
     let mut rendered = String::new();
     for part in parts {
         let piece = match part {
-            // ⚠ NOT trimmed, where a join's parts are. A trailing `/` is exactly
+            // NOT trimmed, where a join's parts are. A trailing `/` is exactly
             // what carries the locus here, so trimming it would discard the only
             // thing this shape can learn.
             Value::Text(text) => text.as_str(),
@@ -2017,7 +2017,7 @@ fn render(set: &[String]) -> String {
 
 /// The directory every candidate is rooted at, when there is one.
 ///
-/// ⚠ **Every candidate, not the first.** A set whose members live in different places
+/// Every candidate, not the first. A set whose members live in different places
 /// has no locus, and picking one would name a directory the program may never have
 /// touched. Relative and absolute are compared as written.
 fn shared_directory(set: &[String]) -> Option<String> {

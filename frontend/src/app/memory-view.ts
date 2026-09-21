@@ -28,7 +28,7 @@ export class MemoryView {
   readonly missing = signal(false);
   readonly loading = signal(true);
   /**
-   * The page did not load. ⚠ **Only a 404 means the memory is not there**, and
+   * The page did not load. Only a 404 means the memory is not there, and
    * the difference is load-bearing here: `missing` renders "hasn't been written
    * yet — a dangling link marks something worth writing", which on a 500 is an
    * invitation to write a memory that already exists.

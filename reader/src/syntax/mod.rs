@@ -37,7 +37,7 @@
 //! **The last two are a separate crate because they spawn a process**, and this
 //! one states that it does not; see the workspace `Cargo.toml`.
 //!
-//! ⚠ **No gate can see a construct absorbed into a literal**, which is why
+//! No gate can see a construct absorbed into a literal, which is why
 //! [`parse()`] refuses rather than absorbs. The gates check what the tree says; only
 //! the parser can be wrong about what is in it.
 

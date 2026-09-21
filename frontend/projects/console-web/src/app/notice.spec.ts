@@ -23,7 +23,7 @@ describe('notice', () => {
   });
 
   it('names the runner rather than the stream, when both are down', () => {
-    // ⚠ A stream that has stopped is what a runner that is not answering LOOKS
+    // A stream that has stopped is what a runner that is not answering LOOKS
     // like. Saying "not live" there describes the symptom and leaves out the one
     // sentence that tells the reader what to try.
     expect(notice({ acting: '', runner: RUNNER, stream: STREAM })).toEqual(RUNNER);

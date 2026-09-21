@@ -12,7 +12,7 @@
 //! transcript and stops there. Only `-n` at spawn writes the registry the other
 //! sessions read, which makes the resume the one moment this can be repaired.
 //!
-//! ⚠ **Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`.** That is
+//! Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`. That is
 //! process-wide; see the note at the top of `cold.rs`.
 
 use std::path::PathBuf;
@@ -105,7 +105,7 @@ async fn a_resumed_conversation_is_spawned_under_the_name_it_already_has() {
     let root = scratch();
     let dir = std::env::temp_dir();
     let id = "a-conversation-somebody-named";
-    // ⚠ **Unique per run, because the name is READ OFF THE PROCESS TABLE.**
+    // Unique per run, because the name is READ OFF THE PROCESS TABLE.
     // `past::in_use` holds a conversation busy when any running `claude` carries
     // its id or its name as an argument — which is the guard working, not a fault.
     // This was first written as a fixed, readable name that happened to be one a

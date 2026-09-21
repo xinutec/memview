@@ -5,13 +5,13 @@
 // Anything that shows captured output adds `class="ansi"` and gets the same
 // reading of the same codes.
 //
-// ⚠ **Global on purpose, and it has to be.** A component stylesheet is scoped by
+// Global on purpose, and it has to be. A component stylesheet is scoped by
 // an attribute the compiler adds to elements in ITS template — and these spans
 // are built by a pipe at runtime, so they carry no such attribute and a scoped
 // rule never matches them. Written into `session-view.scss` first, where it also
 // pushed that sheet past its 10 kB budget: two signals saying the same thing.
 //
-// ⚠ **Two palettes, because one is unreadable on the other ground.** The
+// Two palettes, because one is unreadable on the other ground. The
 // ordinary eight are picked for a light background and the bright eight for a
 // dark one; swapped, yellow on white and blue on black both disappear.
 // `light-dark()` takes the pair and the `color-scheme` on `html` chooses, so
@@ -19,7 +19,7 @@
 //
 // Chosen against the surface rather than lifted from a stock terminal theme:
 // these sit inside a Material card, not an 80x24.
-// ⚠ **Why sixteen hardcoded pairs, against the rule that forbids them.** The
+// Why sixteen hardcoded pairs, against the rule that forbids them. The
 // ANSI palette is defined by the terminal, not by this theme: there is no
 // `--mat-sys-` token for "colour 1", and mapping sixteen named colours onto one
 // Material ramp would make red and magenta the same grey. The harm the rule
@@ -94,7 +94,7 @@
     font-weight: 700;
   }
 
-  // ⚠ **Dim is most of a build log** — `vitest` and `cargo` write their framing
+  // Dim is most of a build log — `vitest` and `cargo` write their framing
   // in it — so this is a real reduction rather than a near-invisible one: too
   // faint and the line it frames loses its structure.
   .ansi-d {

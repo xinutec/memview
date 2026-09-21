@@ -3,7 +3,7 @@
 //!
 //!     cargo run --release -p reader --bin concept-report -- <corpus.jsonl> [--show <n>] [--sample SUBSTRING]
 //!
-//! ⚠ **Keyed on the variant PLUS the command, never on the variant alone.** A
+//! Keyed on the variant PLUS the command, never on the variant alone. A
 //! census keyed on the `Op` variant would rediscover `reading::naming` and read
 //! as success (memview#1364, caught before it was built) — `head -5 f` and
 //! `cat f` are one `Op::Read` and the `-5` is gone. So the queue's key is the
@@ -13,7 +13,7 @@
 //! would rank a shape that does not exist — the same direction every count in
 //! this reader errs.
 //!
-//! ⚠ **Two counts per bucket, and the RANK uses rows.** The reader unrolls
+//! Two counts per bucket, and the RANK uses rows. The reader unrolls
 //! loops, so a step count weights a shape by how many iterations ran — measured
 //! on the first run: `break` was 112,816 steps out of at most 4,238 rows that
 //! mention it, all iteration inflation. A vocabulary is mined from what authors
@@ -22,7 +22,7 @@
 //! call. The step count stays beside it because it is the execution mass, and
 //! the balance is stated in steps.
 //!
-//! ⚠ **The ranking is half the instrument; the diff is the other half.** The
+//! The ranking is half the instrument; the diff is the other half. The
 //! automation roadmap is the null hypothesis, never the seed
 //! (`docs/concept-model.md`, Decided): read this queue beside the roadmap's
 //! target list, and the *disagreement* is the finding — a roadmap item the

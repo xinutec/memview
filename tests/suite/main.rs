@@ -5,7 +5,7 @@
 //! costs far more than running the tests inside it does. Declared here, the whole
 //! crate's tests are one binary to assess rather than one per file.
 //!
-//! ⚠ **These run as threads of one process.** A test that sets an environment
+//! These run as threads of one process. A test that sets an environment
 //! variable, changes the working directory, or reasons about the process table
 //! by count rather than by pid contaminates its neighbours. Such a test keeps a
 //! `tests/*.rs` of its own, and with it its own process.

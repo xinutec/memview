@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 /**
  * This device's own storage: one IndexedDB object store, keyed by string.
  *
- * ⚠ **Every read and write can fail, and none of them may throw at the caller.**
+ * Every read and write can fail, and none of them may throw at the caller.
  * IndexedDB is refused outright in some private-browsing modes, and the things
  * kept here — an unsent draft, a picture, the last page of a transcript — are all
  * conveniences. Losing them costs a reader the offline copy; taking the app down

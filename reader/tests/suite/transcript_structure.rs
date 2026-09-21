@@ -119,7 +119,7 @@ fn a_uuid_that_is_not_a_uuid_is_damage() {
 
 #[test]
 fn an_absent_parent_field_is_not_the_same_as_a_null_one() {
-    // ⚠ Conflating these two is not hypothetical. Doing it once reported 81,062
+    // Conflating these two is not hypothetical. Doing it once reported 81,062
     // roots where there are 3,260, and 349,636 broken links where there were
     // three -- the whole first survey of the corpus was wrong from this alone.
     let mut lines = healthy();

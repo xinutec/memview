@@ -1,6 +1,6 @@
 //! Tree to text, reading nothing but the tree.
 //!
-//! ⚠ **The printer may not look at the source.** Condition (2) of the round-trip law
+//! The printer may not look at the source. Condition (2) of the round-trip law
 //! — that the generated form is a fixpoint — follows from condition (1) only when `G`
 //! is a pure function of the tree, and the usual way to break it is a printer that
 //! reaches back for the original spelling of a token. There is no `&str` of source in
@@ -11,7 +11,7 @@
 //! layout or quoting print identically, which is what makes the printed form usable
 //! as an equivalence test.
 //!
-//! ⚠ **Two things break the line, and neither is a layout choice.**
+//! Two things break the line, and neither is a layout choice.
 //!
 //! - A heredoc inside `$( )` opens inside a word, and its body has to follow the line
 //!   the `<<` was written on — which is a line inside the substitution.
@@ -36,8 +36,8 @@ pub fn print(script: &Script) -> String {
         match item {
             Item::Comment(comment) => lines.push(format!("#{}", comment.text)),
             Item::List(list) => {
-                // ⚠ **A heredoc body goes after the line, not after its
-                // operator.** The printer collects them for the whole list —
+                // A heredoc body goes after the line, not after its
+                // operator. The printer collects them for the whole list —
                 // `cat <<A | cat <<B` opens two on one line — and emits them in
                 // the order the openers were written, which is the order bash
                 // reads them back in.
@@ -70,7 +70,7 @@ fn print_and_or(list: &AndOr, bodies: &mut Vec<String>) -> String {
     out
 }
 
-/// ⚠ **`time` before `!`, whichever order they were written in.** That is the
+/// `time` before `!`, whichever order they were written in. That is the
 /// order bash's own printer emits, and matching it is what lets the second gate
 /// compare trees rather than argue about spelling.
 fn print_pipeline(pipeline: &Pipeline, bodies: &mut Vec<String>) -> String {
@@ -98,7 +98,7 @@ fn print_pipeline(pipeline: &Pipeline, bodies: &mut Vec<String>) -> String {
 /// and `!` are grammar, and therefore the only place a word spelling one has to
 /// be quoted to stay a value.
 fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> String {
-    // ⚠ Words first, then redirections — bash's own order. `> out cat f` comes
+    // Words first, then redirections — bash's own order. `> out cat f` comes
     // back from `declare -f` as `cat f > out`, so putting them anywhere else
     // would be a spelling bash does not use and the tree does not record.
     let mut parts: Vec<String> = match &command.kind {
@@ -108,7 +108,7 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::If(conditional) => vec![print_if(conditional, bodies)],
         CommandKind::Case(case) => vec![print_case(case, bodies)],
         CommandKind::Test(expr) => vec![format!("[[ {} ]]", print_test(expr, 0))],
-        // ⚠ A subshell needs no terminator before its `)`, and a brace group
+        // A subshell needs no terminator before its `)`, and a brace group
         // REQUIRES one before its `}` — `{ a }` is a syntax error where `( a )`
         // is not. Measured; `follow` supplies the right separator, including
         // none at all after a `&`.
@@ -138,7 +138,7 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
                 "done",
             )]
         }
-        // ⚠ **`function f ()` is bash's spelling, not ours.** `declare -f`
+        // `function f ()` is bash's spelling, not ours. `declare -f`
         // prints every definition that way whichever was written, so matching it
         // is what makes `f() { a; }` and `function f { a; }` one tree.
         CommandKind::Function(function) => vec![format!(
@@ -173,8 +173,8 @@ fn print_assignment(assignment: &Assignment) -> String {
 
 /// `for f in a b; do x; y; done` — on ONE line, deliberately.
 ///
-/// ⚠ **A compound cannot be printed across lines while heredoc bodies are
-/// collected per line.** A body has to follow the line its `<<` was written on,
+/// A compound cannot be printed across lines while heredoc bodies are
+/// collected per line. A body has to follow the line its `<<` was written on,
 /// and `bodies` is gathered for the whole and-or; breaking the loop over several
 /// lines would put the body after `done` instead. One line keeps both true, and
 /// bash reads `for f in a; do cat <<EOF; done` followed by the body exactly as
@@ -209,7 +209,7 @@ fn print_while(loop_: &WhileLoop, bodies: &mut Vec<String>) -> String {
 /// `if cond; then body; else body; fi` — on one line, like the loops and for the
 /// same reason: a heredoc body has to follow the line its `<<` was written on.
 ///
-/// ⚠ **There is no `elif` to print.** The tree does not hold one — see
+/// There is no `elif` to print. The tree does not hold one — see
 /// [`Conditional`] — so a chain comes out as the nested `else if …; fi; fi` bash
 /// itself prints, which is what makes the two spellings compare equal.
 fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
@@ -226,7 +226,7 @@ fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
 
 /// `case x in a) b;; *) c;; esac` — on one line, like the loops.
 ///
-/// ⚠ **No separator before a terminator.** `case x in a) b & ;; esac` is legal
+/// No separator before a terminator. `case x in a) b & ;; esac` is legal
 /// where `{ a & ; }` is not — measured — so unlike every other compound here,
 /// this one needs no [`follow`].
 fn print_case(case: &Case, bodies: &mut Vec<String>) -> String {
@@ -254,7 +254,7 @@ fn print_case(case: &Case, bodies: &mut Vec<String>) -> String {
 
 /// One pattern, which is a word read for matching.
 ///
-/// ⚠ **A pattern spelling `esac` has to be quoted.** Bash reads the bare keyword
+/// A pattern spelling `esac` has to be quoted. Bash reads the bare keyword
 /// as the end of the case and calls the `)` after it a syntax error, so a tree
 /// holding the literal `esac` — which `case $x in 'esac') a;; esac` puts there —
 /// would print as a case with no arms at all. The only reserved word this
@@ -270,7 +270,7 @@ fn print_pattern(pattern: &Word) -> String {
 /// An arithmetic expression, parenthesised wherever the tree says something the
 /// bare spelling would not.
 ///
-/// ⚠ **Parens come from PRECEDENCE, not from the source.** The tree does not
+/// Parens come from PRECEDENCE, not from the source. The tree does not
 /// record where they were written, so the printer puts them back exactly where
 /// dropping them would change the answer: `(1+2)*3` needs them and `1+2*3` does
 /// not. Getting this wrong is invisible to the second gate — bash prints
@@ -313,7 +313,7 @@ fn print_arith_at(value: &Arith, least: u8) -> String {
         }
         Arith::Binary { op, left, right } => {
             let precedence = binary_precedence(*op);
-            // ⚠ The right side is printed one level tighter, so a tree that
+            // The right side is printed one level tighter, so a tree that
             // re-associates — `a - (b - c)` — keeps the parens that say so.
             (
                 format!(
@@ -355,12 +355,12 @@ fn print_arith_at(value: &Arith, least: u8) -> String {
                 .join(", "),
             0,
         ),
-        // ⚠ **No separator, and `u8::MAX` so no parens either.** Both would
+        // No separator, and `u8::MAX` so no parens either. Both would
         // change the program rather than reformat it: `1 $c` is an error where
         // `1$c` is twelve, and `(1$c) * 3` is 9 where `1$c * 3` is 7. This is
         // the one node whose spelling is its meaning.
         //
-        // ⚠ **And the parts run into each other by construction**, so a
+        // And the parts run into each other by construction, so a
         // parameter here needs the same braces `${n}_v4` does — `${c}1` printed
         // bare is `$c1`, which names a different variable. The rule is the
         // word's, given the text that will actually follow rather than a
@@ -413,7 +413,7 @@ fn binary_precedence(op: BinaryOp) -> u8 {
 
 /// A command list with the terminator a closing `}` needs after it.
 ///
-/// ⚠ **`{ a }` is a syntax error and `( a )` is not** — measured. A brace group
+/// `{ a }` is a syntax error and `( a )` is not — measured. A brace group
 /// is a reserved word, so its last command has to be ended before the `}` can be
 /// read as one. The exception is the same as everywhere else: a `&` has already
 /// ended the list, and `{ a & ; }` is refused in turn.
@@ -430,8 +430,8 @@ fn terminated(list: &str) -> String {
 /// Does this printed list span lines — so that nothing may be appended to its last
 /// one?
 ///
-/// ⚠ **The one thing a closing keyword has to ask, and TWO different things make the
-/// answer yes.** A comment: `# note; done` is all comment and the loop never closes.
+/// The one thing a closing keyword has to ask, and TWO different things make the
+/// answer yes. A comment: `# note; done` is all comment and the loop never closes.
 /// And a heredoc body, whose terminator must hold the delimiter and nothing else —
 /// `PY; done` is body text, the heredoc runs away, and the `done` is gone. The second
 /// was found by the round-trip law on one corpus command, and gate 3 could not see
@@ -445,7 +445,7 @@ fn spans_lines(list: &str) -> bool {
 
 /// Put a keyword after a command list, with the separator the list has earned.
 ///
-/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** Bash
+/// A `&` already terminates its list, so no `;` may follow it. Bash
 /// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
 /// and the same is true of every `do … done`. Shared rather than repeated,
 /// because it was written out three times and got the loops wrong.
@@ -462,12 +462,12 @@ fn follow(list: &str, keyword: &str) -> String {
 
 /// A command list on one line.
 ///
-/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** `b & ; c`
+/// A `&` already terminates its list, so no `;` may follow it. `b & ; c`
 /// is a syntax error where `b & c` is not, which is why the separator is chosen
 /// from what came before rather than fixed.
 fn print_body(items: &[Item], bodies: &mut Vec<String>) -> String {
-    // ⚠ **A comment runs to the end of ITS line, so a list holding one cannot be
-    // written on a single line at all.** That is the whole reason a comment in a
+    // A comment runs to the end of ITS line, so a list holding one cannot be
+    // written on a single line at all. That is the whole reason a comment in a
     // body was refused for so long: not that the tree could not hold it, but
     // that the printer had nowhere to put it. The answer is the one a heredoc
     // inside `$( )` got — take the lines the construct needs.
@@ -491,7 +491,7 @@ fn print_body(items: &[Item], bodies: &mut Vec<String>) -> String {
 
 /// The same list, one item per line.
 ///
-/// ⚠ **Each line collects its OWN heredoc bodies**, rather than handing them to
+/// Each line collects its OWN heredoc bodies, rather than handing them to
 /// the caller — a body has to follow the line its `<<` was written on, and once
 /// a list is several lines the caller's line is the wrong one.
 fn print_body_across_lines(items: &[Item]) -> String {
@@ -509,7 +509,7 @@ fn print_body_across_lines(items: &[Item]) -> String {
     lines.join("\n")
 }
 
-/// ⚠ Assignments, then words — bash's own order, and it says so structurally:
+/// Assignments, then words — bash's own order, and it says so structurally:
 /// `FOO=bar > out cmd` comes back from `declare -f` as `FOO=bar cmd > out`.
 fn print_simple(simple: &Simple, head: bool) -> Vec<String> {
     let mut parts: Vec<String> = simple.assignments.iter().map(print_assignment).collect();
@@ -543,7 +543,7 @@ fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {
         RedirectOp::BothWord => ">&",
         RedirectOp::Here => "<<",
         RedirectOp::HereDash => "<<-",
-        // ⚠ A space after it, which is bash's own spelling: `cat <<<$x` comes
+        // A space after it, which is bash's own spelling: `cat <<<$x` comes
         // back from `declare -f` as `cat <<< $x`. The `File` arm below supplies
         // it, as it does for every other word target.
         RedirectOp::HereString => "<<<",
@@ -562,8 +562,8 @@ fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {
 
 /// The delimiter, spelled so it reads back with the same `quoted` bit.
 ///
-/// ⚠ **Single quotes whenever it was quoted at all, which is bash's own
-/// spelling.** `declare -f` prints `<<"EOF"`, `<<\EOF` and `<<E"O"F` all as
+/// Single quotes whenever it was quoted at all, which is bash's own
+/// spelling. `declare -f` prints `<<"EOF"`, `<<\EOF` and `<<E"O"F` all as
 /// `<<'EOF'`, so a printer that chose differently would be the only thing in the
 /// comparison saying those four texts are not one tree.
 ///
@@ -580,13 +580,13 @@ fn print_delimiter(here: &Heredoc) -> String {
 /// One word. `first` is whether it opens the pipeline's head command, the only
 /// position where the shell reads a word as grammar rather than as a value.
 pub fn print_word(word: &Word, first: bool) -> String {
-    // ⚠ **A word that would read back as grammar is quoted whole.** `time` at
+    // A word that would read back as grammar is quoted whole. `time` at
     // the head of a command is a keyword and `FOO=bar` is a binding, so printing
     // either bare turns a value the tree holds into something the parser would
     // refuse — and a refusal on `t₂` is a round-trip failure. Quoting is what
     // says "this really is the name of a program", which is exactly what the
     // shell means by it.
-    // ⚠ `time` is checked by name because it is NOT in `RESERVED` — it is
+    // `time` is checked by name because it is NOT in `RESERVED` — it is
     // grammar only here, at a pipeline's head, and a plain program name after a
     // `|`. Printing this tree's `time` bare would turn a command into a keyword.
     if first
@@ -598,13 +598,13 @@ pub fn print_word(word: &Word, first: bool) -> String {
     if word.segments.is_empty() {
         return "''".to_string();
     }
-    // ⚠ **A quote may not touch a tilde prefix.** `~'/x'` is the literal `~/x`
+    // A quote may not touch a tilde prefix. `~'/x'` is the literal `~/x`
     // to bash, not a home directory, so quoting the segment after a tilde says
     // something the tree does not. Found by the round-trip law on 319 commands
     // — `cat ~/.config/…/Local\ State`, where the space forced a quote right
     // where the prefix ends.
-    // ⚠ **A bracket expression is a property of the WHOLE word, so the decision
-    // to quote cannot be made one segment at a time.** `"[rc=$?]"` holds the
+    // A bracket expression is a property of the WHOLE word, so the decision
+    // to quote cannot be made one segment at a time. `"[rc=$?]"` holds the
     // literal `[rc=`, which needs no quoting by itself, and the literal `]`,
     // which needs none either — printed bare they compose into `[rc="$?"]`, and
     // that reads back as a bracket expression rather than as this word. Found by
@@ -619,7 +619,7 @@ pub fn print_word(word: &Word, first: bool) -> String {
             (SegmentKind::Literal(text), false) if text.contains('[') && closed_later[index] => {
                 out.push_str(&quote(text));
             }
-            // ⚠ A parameter is the one segment whose spelling depends on what
+            // A parameter is the one segment whose spelling depends on what
             // FOLLOWS it: `$x` beside the literal `y` has to be written `${x}y`
             // or the name reads as `xy`.
             (SegmentKind::Parameter(parameter), _) => {
@@ -694,7 +694,7 @@ fn closing_brackets_after(word: &Word) -> Vec<bool> {
 
 /// `$x`, `${x}`, `"$x"` — the least spelling that reads back as this node.
 fn print_parameter(parameter: &Parameter, after: Option<&str>) -> String {
-    // ⚠ A subscript or an operator forces the braces, whatever follows: `$a[0]`
+    // A subscript or an operator forces the braces, whatever follows: `$a[0]`
     // is the value of `a` beside the literal `[0]`, an entirely different word.
     let bare = if parameter.subscript.is_some() || parameter.op.is_some() {
         format!(
@@ -708,7 +708,7 @@ fn print_parameter(parameter: &Parameter, after: Option<&str>) -> String {
     } else {
         format!("${}", parameter.name)
     };
-    // ⚠ The quotes are the node, not decoration: without them the value would
+    // The quotes are the node, not decoration: without them the value would
     // be split into words and globbed, which is a different command.
     if parameter.quoted {
         format!("\"{bare}\"")
@@ -767,7 +767,7 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
                 print_operand(pattern)
             )
         }
-        // ⚠ **A space before a negative offset, or it is a different operator.**
+        // A space before a negative offset, or it is a different operator.
         // `${x:-3}` substitutes a default and `${x: -3}` takes the last three
         // characters, so printing the offset bare would turn one program into
         // another — and bash's own print has the space in it too. The LENGTH
@@ -810,12 +810,12 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
 
 /// A word inside `${…}`, where quoting works differently from a word outside.
 ///
-/// ⚠ **No quoting is added.** The braces already delimit it — `${x:-a b}` is one word
+/// No quoting is added. The braces already delimit it — `${x:-a b}` is one word
 /// to bash with the space bare — and a quote here would be read back as part of the
 /// value. What must still be escaped is the handful of characters that would end the
 /// expansion or change its operator.
 ///
-/// ⚠ **`*` and `?` are on that list because this operand is a PATTERN.** A literal one
+/// `*` and `?` are on that list because this operand is a PATTERN. A literal one
 /// can only have arrived escaped or quoted, and printing it bare reads back as a
 /// glob, which is a different program: `${p%%?*}` cuts at the first character rather
 /// than at a question mark. Caught by the round-trip law on the only `A₂ ≠ A₁` in the
@@ -845,7 +845,7 @@ fn print_operand(word: &Word) -> String {
 /// name: a glob, a tilde and another parameter each print as a character a name
 /// cannot hold, so none of them can run on.
 ///
-/// ⚠ **Arithmetic does not go through here**, because a splice can put a bare
+/// Arithmetic does not go through here, because a splice can put a bare
 /// number or variable after a parameter and neither is a segment at all —
 /// `${c}1` is the case, and it prints its own following text.
 fn literal_after(next: Option<&Segment>) -> Option<&str> {
@@ -913,7 +913,7 @@ fn print_segment(segment: &Segment) -> String {
         SegmentKind::Glob(Glob::Any) => "*".to_string(),
         SegmentKind::Glob(Glob::One) => "?".to_string(),
         SegmentKind::Glob(Glob::Class(class)) => print_class(class),
-        // ⚠ One space between elements, which is bash's own spelling: it
+        // One space between elements, which is bash's own spelling: it
         // normalises `x=(a   b)` to `x=(a b)` and collapses a multi-line one
         // onto a single line. So this is the rare word-internal shape the
         // second gate has an opinion about.
@@ -939,7 +939,7 @@ fn print_segment(segment: &Segment) -> String {
         // Reached only where there is nothing after it to run into; `print_word`
         // handles the general case.
         SegmentKind::Parameter(parameter) => print_parameter(parameter, None),
-        // ⚠ Written bare, always: the braces ARE the construct, and quoting
+        // Written bare, always: the braces ARE the construct, and quoting
         // them would turn several words into one.
         SegmentKind::Brace(Brace::Alternatives(words)) => format!(
             "{{{}}}",
@@ -962,7 +962,7 @@ fn print_segment(segment: &Segment) -> String {
                 text
             }
         }
-        // ⚠ Never quoted: `"<(a)"` is four literal characters to bash, so this
+        // Never quoted: `"<(a)"` is four literal characters to bash, so this
         // segment can only have come from unquoted text and printing it any
         // other way would say something the tree does not.
         SegmentKind::ProcessSubstitution(substitution) => print_parenthesised(
@@ -977,14 +977,14 @@ fn print_segment(segment: &Segment) -> String {
 
 /// `$( … )`, `<( … )`, `>( … )` — a command list inside a word.
 ///
-/// ⚠ **`$((` is arithmetic, so a substitution holding a subshell needs the space bash
-/// needs.** `$( (cd x) && y )` written without it opens an arithmetic expansion
+/// `$((` is arithmetic, so a substitution holding a subshell needs the space bash
+/// needs. `$( (cd x) && y )` written without it opens an arithmetic expansion
 /// instead — for bash as well as for this parser, which is how the round-trip law
 /// caught it the moment grouping made the shape reachable. Written for every opener
 /// rather than only for `$`, because the rule is about what follows the paren and the
 /// cost is one character.
 ///
-/// ⚠ **The one place a word is printed across lines.** A heredoc's body has to follow
+/// The one place a word is printed across lines. A heredoc's body has to follow
 /// the line its `<<` was written on, and that line is in here. This is bash's own
 /// spelling: `declare -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its
 /// own print unchanged, measured in `reader/probes/substitution-heredoc.sh`.
@@ -1007,7 +1007,7 @@ fn print_parenthesised(items: &[Item], opener: &str) -> String {
 
 /// `[abc]`, `[!a-z]`, `[[:digit:]]` — the set, spelled so it reads back as itself.
 ///
-/// ⚠ **`!`, never `^`.** The two negate identically — measured — so they are one tree
+/// `!`, never `^`. The two negate identically — measured — so they are one tree
 /// and the printer has to pick one; `!` is the POSIX spelling and the one the corpus
 /// writes. `t₂ ≠ t₁` where the source said `^`, which the law permits.
 ///
@@ -1036,7 +1036,7 @@ fn print_class(class: &Class) -> String {
 
 /// `[[ … ]]` — the expression, parenthesised where precedence needs it.
 ///
-/// ⚠ **Parens come from PRECEDENCE, not from the source**, exactly as they do in
+/// Parens come from PRECEDENCE, not from the source, exactly as they do in
 /// arithmetic: `||` binds loosest, then `&&`, then `!`. The tree does not record
 /// where they were written, so the printer puts them back only where dropping
 /// them would change the answer — and `[[ ( a ) ]]` therefore comes out as

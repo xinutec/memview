@@ -62,7 +62,7 @@ interface AgentRow {
   /**
    * Uses a command **may** have made, and which are in none of the counts above.
    *
-   * ⚠ **Never added to them, and that is the whole point of the number.** A
+   * Never added to them, and that is the whole point of the number. A
    * command after `&&` runs only if what preceded it worked, and one exit status
    * for a script often cannot say whether it did — so these are files something
    * may never have touched. Summing them into `reads`/`writes` would spend the

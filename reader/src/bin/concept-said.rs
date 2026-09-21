@@ -9,19 +9,19 @@
 //! outside witness: every `Bash` call carries a description its author wrote at
 //! the same moment as the command, and `bash-corpus --said` mines them.
 //!
-//! ⚠ **The description is a CLAIM about the command, never evidence about what
-//! ran.** Nothing here treats it as truth. It is a second, independent reading
+//! The description is a CLAIM about the command, never evidence about what
+//! ran. Nothing here treats it as truth. It is a second, independent reading
 //! of the same text, and the useful output is where it agrees and where it does
 //! not — the same stance `said-report` takes one level down.
 //!
-//! ⚠ **Leading words are used to CHECK a vocabulary, never to MINE one.**
+//! Leading words are used to CHECK a vocabulary, never to MINE one.
 //! `said-report::leading_word` carries the warning that a vocabulary mined from
 //! first words would be a vocabulary of English verbs, which is not what
 //! `docs/concept-model.md` asks for. Checking is the other direction and is
 //! sound: the concepts here were mined from the corpus by census, and this asks
 //! whether the people running the commands called them the same thing.
 //!
-//! ⚠ **Agreement is the NULL EXPECTATION and is not the finding.** A `Page` and
+//! Agreement is the NULL EXPECTATION and is not the finding. A `Page` and
 //! a description of a page are about the same command and both in ordinary
 //! English. What is worth reading is the CONCENTRATION — a concept whose rows
 //! share a handful of verbs names an idiom — and the CROSSOVER, where a
@@ -50,7 +50,7 @@ fn concept_name(concept: &Concept) -> &'static str {
 
 /// The first word of a stated intent, lowercased — the author's own verb.
 ///
-/// ⚠ Deliberately crude, and copied rather than shared: `said-report` owns this
+/// Deliberately crude, and copied rather than shared: `said-report` owns this
 /// question one level down and the two instruments must be able to disagree
 /// about it without one silently changing the other.
 fn leading_word(said: &str) -> String {
@@ -118,7 +118,7 @@ fn main() -> anyhow::Result<()> {
         let cwd = row["cwd"].as_str().filter(|c| !c.is_empty());
         let steps = trace(&script, cwd, &home).steps;
         let concepts: Vec<Concept> = steps.iter().filter_map(|s| concept::lift(s).ok()).collect();
-        // ⚠ **The row must hold exactly one act, not merely one CONCEPT** — and
+        // The row must hold exactly one act, not merely one CONCEPT — and
         // the difference is a defect this instrument shipped with for one run.
         // `git add -A && git status --short` lifts to exactly one concept,
         // because the `git add` refuses; the row was then tallied as a `Status`
@@ -163,8 +163,8 @@ fn main() -> anyhow::Result<()> {
 
     // Which verbs belong to which concept, for the crossover below.
     //
-    // ⚠ **By SHARE, never by count — the first version used the count and said
-    // nothing.** `Page` is 63,864 rows against `Search`'s 7,690, so it holds
+    // By SHARE, never by count — the first version used the count and said
+    // nothing. `Page` is 63,864 rows against `Search`'s 7,690, so it holds
     // more of almost every verb in absolute terms and "owned" them all;
     // `Search`'s own top verb `find` was reported as a crossover into `Page`.
     // That is the instrument measuring which concept is BIGGEST, which is
@@ -199,7 +199,7 @@ fn main() -> anyhow::Result<()> {
         for (verb, n) in top.iter().take(show) {
             println!("      {n:6}  {verb}");
         }
-        // ⚠ **The gate.** A row this lens called X, whose author reached for a
+        // The gate. A row this lens called X, whose author reached for a
         // verb that belongs to Y. Not proof of a mislift — English is loose, and
         // "check" fits almost anything — but it is the only place an outside
         // witness can contradict the lift at all, and it is where to read.

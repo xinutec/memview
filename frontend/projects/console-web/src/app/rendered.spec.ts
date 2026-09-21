@@ -6,7 +6,7 @@ import { Rendered } from './rendered';
 /**
  * What the markdown pipeline actually produces, measured rather than assumed.
  *
- * ⚠ **Two layers, and the sanitiser is the one that surprises.** `marked` is
+ * Two layers, and the sanitiser is the one that surprises. `marked` is
  * given GFM, so it emits everything the syntax promises — and then Angular's
  * sanitiser removes whatever it will not allow into the page, silently. The
  * pair is what a reader sees, so the pair is what these test.
@@ -24,7 +24,7 @@ describe('Rendered', () => {
     render = (text: string) => pipe.transform(text);
   });
 
-  /** What a reader sees, not what the string says. ⚠ The sanitiser returns the
+  /** What a reader sees, not what the string says. The sanitiser returns the
    *  marks as numeric entities — `&#9745;` — so asserting on the HTML would be
    *  asserting on its encoding rather than on whether anything is legible. */
   const shown = (html: string): string => {
@@ -80,7 +80,7 @@ describe('Rendered', () => {
   });
 
   it('sends a bare link to a render through the console, keeping the address readable', () => {
-    // ⚠ **The case this was built for.** The observe session writes the URL of a
+    // The case this was built for. The observe session writes the URL of a
     // preview it just rendered; GFM autolinks it; tapping it on the phone handed
     // the address to the browser, which is not on the LAN it names.
     const html = render('rendered: http://10.0.0.2:8917/data/peek/peekA-350-view_top_down.png\n');
@@ -92,7 +92,7 @@ describe('Rendered', () => {
   });
 
   it('keeps the mark and the rewritten address through the sanitiser', () => {
-    // ⚠ **The half that cannot be assumed.** The pipe sanitises what marked
+    // The half that cannot be assumed. The pipe sanitises what marked
     // emits, and the binding sanitises it again — a `data-` attribute does not
     // survive that, which is why the mark is a class. Asserted on the parsed
     // DOM rather than on the string, because that is what the handler queries.
@@ -114,7 +114,7 @@ describe('Rendered', () => {
   });
 
   it('opens a picture the session named by its place on the disk', () => {
-    // ⚠ **What observe wrote, and what did nothing.** A path resolves against
+    // What observe wrote, and what did nothing. A path resolves against
     // the console's own origin, where it falls through to this app: the tap
     // reloaded the page it was made from.
     const html = render('![Photo: cabinet corner](/Users/example/data/peek/lroom-photo.jpg)\n');

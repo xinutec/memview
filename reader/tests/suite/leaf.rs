@@ -18,7 +18,7 @@
 /// transcripts carry encoded, an error type, serde for the artefact shapes, and
 /// a hash. Every one of them is a pure transformation of bytes already in hand.
 ///
-/// ⚠ **`sha2` is here as a HASH, not as a credential primitive.** It
+/// `sha2` is here as a HASH, not as a credential primitive. It
 /// fingerprints the stretch of a transcript a resumed read has already consumed
 /// (`watermark.rs`), so drift in a file can be detected without re-reading it —
 /// no key, no secret, no verification of anything anybody sent. If a future use

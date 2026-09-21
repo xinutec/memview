@@ -39,7 +39,7 @@ fn the_root_gets_the_app() {
 
 #[test]
 fn a_missing_asset_is_not_found_rather_than_the_app() {
-    // ⚠ The defect this exists for. A font that was briefly missing — the bundle
+    // The defect this exists for. A font that was briefly missing — the bundle
     // is rewritten in place on every build — came back as 200 text/html, and a
     // browser given HTML where it asked for a font shows broken icons and
     // reports nothing anywhere.

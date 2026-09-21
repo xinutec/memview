@@ -9,7 +9,7 @@
 //! it, and whether it worked. A viewer that served the literal history would make
 //! the corpus depend on the transcripts instead of distilling them.
 //!
-//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call.
+//! Everything that happened, not the notable part of it — Pippijn's call.
 //! Reading a file is smaller work than running a build and the timeline does not say
 //! so: a record that quietly dropped the small things would answer "what was this
 //! session doing" with a curated version of it. Weighting belongs to whatever
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 /// How a piece of work turned out.
 ///
-/// ⚠ **`Rejected` is not a kind of failure — it means the command never ran.** Every
+/// `Rejected` is not a kind of failure — it means the command never ran. Every
 /// other state here is about a process that started. A file named by a rejected call
 /// was never opened, and recording it invents work out of an intention.
 ///
@@ -68,8 +68,8 @@ impl Verdict {
     /// [`crate::shell::Reached::Always`] carries most of the corpus, and it is the case
     /// the exit status cannot spoil: `a; b; c` runs all three whatever any returns.
     ///
-    /// ⚠ **`Failed` cannot distinguish "ran and returned non-zero" from "bash refused
-    /// the text", and those are opposite facts.** A runtime failure attempted its reads;
+    /// `Failed` cannot distinguish "ran and returned non-zero" from "bash refused
+    /// the text", and those are opposite facts. A runtime failure attempted its reads;
     /// a *syntax* error started nothing, because bash parses its whole input before
     /// running any of it. That is the shape [`Verdict::Rejected`] is written for, but
     /// `Rejected` means the harness declined, and bash declining arrives here as an
@@ -137,13 +137,13 @@ pub struct Row {
 
 /// One instruction, and everything done under it.
 ///
-/// ⚠ **The boundary is a user's turn, and that is the only one this reads.** Every
+/// The boundary is a user's turn, and that is the only one this reads. Every
 /// other candidate — a gap in time, a change of repository, a change of kind — is
 /// *inferred*, and inference can merge two instructions into one, which is the error
 /// that makes a grouping lie. A recorded boundary can only over-segment, which is
 /// merely less useful.
 ///
-/// ⚠ **It cannot be labelled by what was asked.** No prompt text reaches an artefact
+/// It cannot be labelled by what was asked. No prompt text reaches an artefact
 /// — see this module's head — so an episode is a bracket in time plus whatever its
 /// own rows say.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,7 +202,7 @@ impl Names {
     /// Rebuild a dictionary from a frozen one, so an index already written into a row
     /// still means the same name.
     ///
-    /// ⚠ **Positional, and that is the whole contract.** [`Names::into_vec`] emits names
+    /// Positional, and that is the whole contract. [`Names::into_vec`] emits names
     /// in index order, so re-interning them in that order reproduces every index — which
     /// is what lets a resumed fold append rows beside ones it did not build. Change
     /// either side and every `a`, `p`, `k` and `h` in the carried rows silently means a
@@ -244,7 +244,7 @@ pub struct Log {
     pub episodes: Vec<Episode>,
     /// The prompt seen but not yet acted on, and the episode it becomes.
     ///
-    /// ⚠ **Materialised by the first row under it, not by the prompt itself.**
+    /// Materialised by the first row under it, not by the prompt itself.
     /// A turn that asked a question and got an answer did no work this records,
     /// and an episode holding nothing would be a bracket around a blank.
     prompt: Option<String>,
@@ -254,7 +254,7 @@ pub struct Log {
 impl Log {
     /// Continue the fold a previous run froze, instead of starting from nothing.
     ///
-    /// ⚠ **Everything here carries except `pending`.** A row waiting on a result that
+    /// Everything here carries except `pending`. A row waiting on a result that
     /// had not arrived when the artefact was written stays [`Verdict::Unknown`] forever:
     /// its answer lands in the tail, where nothing is left to match it to. Against a
     /// real watermark that is a handful of calls across the whole corpus, and carrying
@@ -289,7 +289,7 @@ impl Log {
     /// Re-enter a transcript mid-instruction, carrying the episode a previous read left
     /// open.
     ///
-    /// ⚠ **This is the loss a byte offset alone cannot avoid.** An episode is bracketed
+    /// This is the loss a byte offset alone cannot avoid. An episode is bracketed
     /// by a user's turn, so a cut taken mid-instruction leaves every row until the
     /// *next* prompt with no episode above it. That strands far more tail calls than the
     /// unresolved results above, and unlike those it is cheap to keep, because the state
@@ -297,7 +297,7 @@ impl Log {
     /// carries it.
     pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
         self.prompt = prompt;
-        // ⚠ **An episode this log does not hold cannot be continued.** The index comes from
+        // An episode this log does not hold cannot be continued. The index comes from
         // a watermark, and a caller may legitimately not have carried the timeline. Left
         // unchecked, the next `push` indexed an empty vector and PANICKED.
         //
@@ -370,7 +370,7 @@ impl Log {
     /// As [`Log::finish`], and also the map from each episode's OLD index to its
     /// canonical one.
     ///
-    /// ⚠ **A caller holding episode indices of its own MUST remap them.** The resume
+    /// A caller holding episode indices of its own MUST remap them. The resume
     /// watermarks record `open_episode()` during the scan, against the pre-canonical
     /// numbering; saved unremapped they would name a different instruction on the next
     /// run, silently (memview#1240).
@@ -378,7 +378,7 @@ impl Log {
         mut self,
         generated: &str,
     ) -> (Doing, std::collections::BTreeMap<u32, u32>) {
-        // ⚠ **A TOTAL order, not just the minute.** `sort_by_key(|row| row.t)` is stable,
+        // A TOTAL order, not just the minute. `sort_by_key(|row| row.t)` is stable,
         // so rows sharing a minute kept their INSERTION order — the order transcripts
         // happened to be read in, which differs between a whole scan and a resumed one.
         // Every field the row carries in its own right takes part; `e` cannot, because it
@@ -386,7 +386,7 @@ impl Log {
         self.rows.sort_by(|x, y| {
             (x.t, x.a, x.p, x.k, x.n, x.h, x.v).cmp(&(y.t, y.a, y.p, y.k, y.n, y.h, y.v))
         });
-        // ⚠ **Episode identity was its POSITION in this vector**, assigned as
+        // Episode identity was its POSITION in this vector, assigned as
         // `episodes.len()` at creation, so it depended on when the scan reached it — which
         // is exactly what reading only the changed transcripts alters (memview#1240).
         //
@@ -466,7 +466,7 @@ impl Doing {
 /// (eval):cd:1: no such file or directory: src
 /// ```
 ///
-/// ⚠ This read bash's form only, on the stated grounds that no measured call used
+/// This read bash's form only, on the stated grounds that no measured call used
 /// zsh's. That was wrong by a lot: zsh-worded refusals are nearly as common, so a
 /// large fraction of the corpus's refusals were invisible. `SHELL` says what the
 /// session's own shell is, not what the `nix develop -c`, `nix-shell --run` and
@@ -495,7 +495,7 @@ pub fn refused_dirs(text: &str) -> Vec<String> {
 
 /// Every wording the two readers below accept, as bytes to scan for.
 ///
-/// ⚠ **A caller that prescans MUST use this, and nothing narrower.** `agents::
+/// A caller that prescans MUST use this, and nothing narrower. `agents::
 /// refusals` had its own one-needle gate before parsing a line, and that silently
 /// decided what [`refused_dirs`] would ever be asked about: zsh's wording never
 /// reached it, and neither did bash's own `Not a directory`. Widening the parser

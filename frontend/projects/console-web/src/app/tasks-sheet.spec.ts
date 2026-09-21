@@ -98,7 +98,7 @@ describe('above', () => {
 
 describe('shownTasks and rank', () => {
   it('leaves the service’s order alone', () => {
-    // ⚠ The service sorts, in `repo::list`, and P3 sinks BELOW everything
+    // The service sorts, in `repo::list`, and P3 sinks BELOW everything
     // unranked — so the rows arrive with the low ranks last and that is
     // correct. A sort here would be a second rule to keep true, and it would
     // disagree with the first one the day either changed.
@@ -154,7 +154,7 @@ describe('dueLabel', () => {
   });
 
   it('takes overdue from the service rather than working it out', () => {
-    // ⚠ **The whole reason `overdue` is on the wire.** The service answers from
+    // The whole reason `overdue` is on the wire. The service answers from
     // the database's clock so the CLI, the tasks app and the digest cannot
     // disagree about what day it is — a phone in another timezone deciding for
     // itself would be a fourth answer. Here: a date long past that the service
@@ -176,7 +176,7 @@ describe('waitingOn', () => {
   });
 
   it('goes quiet once the blocker closes, though the link is still there', () => {
-    // ⚠ **`blocked` is not `blocked_on.length > 0`.** The service keeps the link
+    // `blocked` is not `blocked_on.length > 0`. The service keeps the link
     // after a blocker closes, as a record of how the work went, and stops
     // counting it — so a row that went on saying "waiting on" would be wrong
     // about the one thing it exists to say. This client cannot tell: it does not

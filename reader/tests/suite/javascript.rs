@@ -64,7 +64,7 @@ fn a_loop_variable_is_not_a_constant_even_when_it_shadows_one() {
 
 #[test]
 fn a_template_with_a_substitution_names_no_file() {
-    // ⚠ Reading `${dir}/x.ts` as `/x.ts` would invent an absolute path.
+    // Reading `${dir}/x.ts` as `/x.ts` would invent an absolute path.
     assert!(uses("fs.readFileSync(`${dir}/x.ts`)").is_empty());
     // One with nothing substituted is an ordinary string.
     assert_eq!(
@@ -75,7 +75,7 @@ fn a_template_with_a_substitution_names_no_file() {
 
 #[test]
 fn a_bare_module_specifier_is_a_package_and_not_a_file() {
-    // ⚠ `@angular/compiler` has a slash in it, so every "looks like a path"
+    // `@angular/compiler` has a slash in it, so every "looks like a path"
     // test ever written lets it through. Node's rule is the one that decides.
     assert!(uses(r#"require("fs")"#).is_empty());
     assert!(uses(r#"require("node:fs")"#).is_empty());
@@ -140,7 +140,7 @@ fn a_regex_literal_is_not_a_division_and_does_not_eat_the_program() {
 
 #[test]
 fn a_program_cut_short_ran_none_of_itself() {
-    // ⚠ A heredoc that lost its terminator leaves a program no runtime accepts,
+    // A heredoc that lost its terminator leaves a program no runtime accepts,
     // and reading its paths would record work that never happened.
     let program = read(r#"fs.writeFileSync("out.txt", "half"#);
     assert!(program.did_not_run.is_some());
@@ -149,7 +149,7 @@ fn a_program_cut_short_ran_none_of_itself() {
 
 #[test]
 fn a_shell_command_is_kept_as_a_script_and_a_spawn_as_an_argv() {
-    // ⚠ The distinction node's own manual draws: `execSync` goes through
+    // The distinction node's own manual draws: `execSync` goes through
     // `/bin/sh`, `spawnSync` does not. Joining a spawn's words into a script
     // would invent quoting nobody wrote.
     assert_eq!(
@@ -169,7 +169,7 @@ fn a_shell_command_is_kept_as_a_script_and_a_spawn_as_an_argv() {
 
 #[test]
 fn one_unknown_word_makes_the_whole_argv_unusable() {
-    // ⚠ A hole in the middle of an argv turns the next flag into a filename:
+    // A hole in the middle of an argv turns the next flag into a filename:
     // `["-i", f]` with `f` computed would read as a file called `-i`.
     let program = read(r#"spawnSync("ffmpeg", ["-i", f, "out.wav"])"#);
     assert!(program.ran.is_empty());

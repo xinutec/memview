@@ -4,8 +4,8 @@
 //! (command, stated intent) pairs, mined so a lifted concept has something that
 //! is not this code to be checked against.
 //!
-//! ⚠ **The boundary these tests exist to hold is that a description is a CLAIM,
-//! not evidence.** It is prose by the same author at the same moment, and the
+//! The boundary these tests exist to hold is that a description is a CLAIM,
+//! not evidence. It is prose by the same author at the same moment, and the
 //! reader must never consult it to decide what a command did. Nothing here
 //! asserts a description is true; they assert it is carried faithfully and kept
 //! where a static reader will not trip over it.
@@ -41,7 +41,7 @@ fn the_stated_intent_is_carried_beside_the_command() {
     assert_eq!(got.description.as_deref(), Some("Run the reader tests"));
 }
 
-/// ⚠ **Absence is a fact, not a blank.** The report's first figure is the share
+/// Absence is a fact, not a blank. The report's first figure is the share
 /// of calls that said anything at all — most of them, but not all — and it
 /// needs the missing ones to stay distinguishable from empty
 /// ones rather than defaulted to a string. Read that share off a run: a
@@ -59,7 +59,7 @@ fn an_empty_description_is_not_the_same_as_an_absent_one() {
     assert_eq!(only(&line("ls", Some(""))).description.as_deref(), Some(""));
 }
 
-/// ⚠ **The command survives a description this cannot read.** A malformed or
+/// The command survives a description this cannot read. A malformed or
 /// non-string `description` must cost the intent and nothing else — dropping the
 /// call would take a command out of the corpus over prose that has no bearing on
 /// what ran, which is the boundary this whole file is about.

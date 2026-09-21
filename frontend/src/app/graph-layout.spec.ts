@@ -497,7 +497,7 @@ describe('frameFor', () => {
   };
 
   /**
-   * ⚠ **The bounding SPHERE wastes the narrower dimension** (memview#1306c).
+   * The bounding SPHERE wastes the narrower dimension (memview#1306c).
    * One radius against `min(width, height)` fills whichever way the blob is
    * widest and leaves the other short — on the cold view at phone width, about
    * a third of the canvas empty above and below.
@@ -867,12 +867,12 @@ describe('affinities', () => {
   });
 
   it('does not push a linked pair back out to the affinity rest', () => {
-    // ⚠ The measured failure of memview#1307: 51.5% of the pulling pairs are
+    // The measured failure of memview#1307: 51.5% of the pulling pairs are
     // ALSO linked, a link holds its pair at REST_LENGTH — inside the longer
     // AFFINITY_REST — and a two-sided spring there pushed the most co-used
     // pairs APART. The spring is one-sided now: co-use is evidence a far pair
     // belongs nearer, never that a near pair belongs further.
-    // ⚠ The pair must settle INSIDE the affinity rest, or the spec cannot
+    // The pair must settle INSIDE the affinity rest, or the spec cannot
     // meet the regime it is about. In this four-node fixture the repulsion
     // holds even a linked same-group pair at ~44, OUTSIDE the rest of 40 —
     // where the old two-sided spring also pulled, and the first two versions
@@ -916,7 +916,7 @@ describe('regionLabels', () => {
   });
 
   it('leaves no label a prefix of another, which is the whole point', () => {
-    // ⚠ **Not set-distinctness.** `Rules` and `Rules — code & verify` are
+    // Not set-distinctness. `Rules` and `Rules — code & verify` are
     // already distinct STRINGS, so a uniqueness check passes on the unshortened
     // names and proves nothing — measured by ablation. What the eye cannot do at
     // label size is split two names that begin the same way.
@@ -983,7 +983,7 @@ describe('groupGraph', () => {
   });
 
   it('counts a link inside a group as internal, never as a connection out', () => {
-    // ⚠ Density is what separates a real region from a bag of things that share
+    // Density is what separates a real region from a bag of things that share
     // a heading; folding these into the cross-group count loses that AND invents
     // a link.
     const g = groupGraph(NAMES, [{ source: 'a1', target: 'a2' }], of);
@@ -992,7 +992,7 @@ describe('groupGraph', () => {
   });
 
   it('names what the grouping placed nowhere instead of bucketing it', () => {
-    // ⚠ Measured: this is 389 of 734 on the real corpus, so it is the
+    // Measured: this is 389 of 734 on the real corpus, so it is the
     // majority case and not an edge case.
     const g = groupGraph(NAMES, [], of);
     expect(g.ungrouped).toEqual(['loose']);
@@ -1044,7 +1044,7 @@ describe('hybridGroups', () => {
   const authored = (name: string) => (name === 'filed' ? 'Rules — code & verify' : null);
 
   it('keeps an authored section exactly as written', () => {
-    // ⚠ Verbatim, em dash and ampersand included: this is Pippijn's own heading
+    // Verbatim, em dash and ampersand included: this is Pippijn's own heading
     // and the overview must not restyle it into something he did not write.
     const of = hybridGroups(NAMES, EDGES, authored);
     expect(of.get('filed')).toBe('Rules — code & verify');
@@ -1062,7 +1062,7 @@ describe('hybridGroups', () => {
   });
 
   it('gives every memory a home, including one with no section and no cluster', () => {
-    // ⚠ The failure the authored-only shape was rejected for: 389 of 734 drawn
+    // The failure the authored-only shape was rejected for: 389 of 734 drawn
     // nowhere. Nothing may fall out of the overview silently.
     const of = hybridGroups(NAMES, EDGES, authored);
     expect(of.size).toBe(NAMES.length);
@@ -1091,7 +1091,7 @@ describe('groupGraph core', () => {
   const of = (name: string) => (name === 'other' ? 'B' : 'A');
 
   it('names the most-connected member as the core', () => {
-    // ⚠ The core is the REAL memory an overview dot stands on, so it has to be
+    // The core is the REAL memory an overview dot stands on, so it has to be
     // the one a reader recognises — not whichever member was listed first.
     const g = groupGraph(
       NAMES,

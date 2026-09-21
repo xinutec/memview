@@ -3,7 +3,7 @@
 /**
  * One change from a client: an update to merge into whatever is held.
  *
- * ⚠ **No assumed state, and nothing to refuse.** An update carries its own
+ * No assumed state, and nothing to refuse. An update carries its own
  * causal context, so the runner never has to be told what the client thought was
  * here — which is exactly the question the old protocol asked and got wrong.
  */

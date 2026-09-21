@@ -13,7 +13,7 @@ describe('fitted', () => {
   });
 
   it('leaves a small picture alone rather than blowing it up', () => {
-    // ⚠ Enlarging costs four times the bytes for exactly the same picture — the
+    // Enlarging costs four times the bytes for exactly the same picture — the
     // detail to read is not there to be recovered.
     expect(fitted(400, 300)).toEqual({ width: 400, height: 300 });
   });
@@ -44,27 +44,27 @@ describe('pictorial', () => {
   });
 
   it('reads the path and not the whole address', () => {
-    // ⚠ A search for a picture is not a picture. The extension has to be where
+    // A search for a picture is not a picture. The extension has to be where
     // the file name is, or every query mentioning one opens an empty viewer.
     expect(pictorial('https://example.invalid/search?q=cat.png')).toBe(false);
     expect(pictorial('http://h/a.png?again=2')).toBe(true);
   });
 
   it('recognises a render named by where it is on the disk', () => {
-    // ⚠ **The shape observe actually wrote**, and the one that did nothing: a
+    // The shape observe actually wrote, and the one that did nothing: a
     // session has the file it just rendered, and only has a URL for it if it
     // also happens to be running a server.
     expect(pictorial('/Users/example/Code/observe/data/peek/lroom-at20s-render.png')).toBe(true);
   });
 
   it('leaves alone what the console could not fetch anyway', () => {
-    // ⚠ **This asserted `file:` was left alone, and the reason it gave was
-    // true**: the console refused it too, so rewriting the link would have made
+    // This asserted `file:` was left alone, and the reason it gave was
+    // true: the console refused it too, so rewriting the link would have made
     // a tap fail where it used to work. Both ends have been corrected together
     // (memview#1373) — `images::fetch` now reads a `file:` URL as the path it
     // names, so the app may rewrite it and the console will serve it.
     expect(pictorial('not a url at all')).toBe(false);
-    // ⚠ The console's own routes are not places on a disk. Rewriting one would
+    // The console's own routes are not places on a disk. Rewriting one would
     // send the console to fetch itself.
     expect(pictorial('/api/sessions/s1/images/2026-08-05.png')).toBe(false);
   });
@@ -86,8 +86,8 @@ describe('fetchable', () => {
   });
 
   /**
-   * ⚠ **This asserted `file:///etc/passwd` was refused, and read as a guard it
-   * never was.** The hostile example made the refusal look like protection —
+   * This asserted `file:///etc/passwd` was refused, and read as a guard it
+   * never was. The hostile example made the refusal look like protection —
    * but `/etc/passwd` written bare has always been fetchable, one test up, so
    * the scheme kept nothing out. What actually stops that file reaching anybody
    * is the sniff at the far end: it is not a PNG, JPEG, GIF or WebP, so the
@@ -132,7 +132,7 @@ describe('fetchedAt and pointedAt', () => {
   });
 
   it('encodes what would otherwise end the parameter', () => {
-    // ⚠ `&` and `#` are the two that truncate silently: without encoding, the
+    // `&` and `#` are the two that truncate silently: without encoding, the
     // console receives half an address and answers 404 about a file that exists.
     expect(fetchedAt('http://h/a.png?x=1&y=2')).toBe(
       '/api/picture?url=http%3A%2F%2Fh%2Fa.png%3Fx%3D1%26y%3D2',

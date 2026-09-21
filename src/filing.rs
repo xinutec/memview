@@ -2,7 +2,7 @@
 
 /// Is this refusal the DUPLICATE check?
 ///
-/// ⚠ **Keyed on the flag the service names, never on its prose.** The sentinel was
+/// Keyed on the flag the service names, never on its prose. The sentinel was
 /// the literal `already filed`, which the service does not say — so the retry it
 /// guarded never fired once, and a whole agent's corpus errors went unrouted.
 /// A flag name is an interface; the sentence around it is not.

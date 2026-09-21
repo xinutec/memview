@@ -30,7 +30,7 @@ fn refuses_every_spelling_that_leaves_the_site() {
         // Protocol-relative: the classic.
         "//attacker.example",
         "//attacker.example/path",
-        // ⚠ The URL Standard treats `\` as `/` for http(s), so a browser reads
+        // The URL Standard treats `\` as `/` for http(s), so a browser reads
         // this as `//attacker.example` and navigates off-site. It starts with a
         // slash and not with `//`, which is exactly why a `!starts_with("//")`
         // test passed it through.
@@ -62,7 +62,7 @@ fn an_absent_or_empty_target_is_the_root() {
 /// Which pending sign-in a callback answers, when the identity provider may or
 /// may not hand back the `state` it was given.
 ///
-/// ⚠ This is the security-relevant half of the sign-in and it is a pure
+/// This is the security-relevant half of the sign-in and it is a pure
 /// function precisely so it can be pinned here: the live flow needs Nextcloud,
 /// which no test has, and a decision nobody can exercise is a decision nobody
 /// checks.
@@ -80,14 +80,14 @@ mod which_signin {
         assert_eq!(state_to_consume("abc", ""), Ok("abc"));
     }
 
-    /// ⚠ **The live case.** Nextcloud is handed 48 hex characters and returns
+    /// The live case. Nextcloud is handed 48 hex characters and returns
     /// `state=`, so without this the flow cannot complete at all.
     #[test]
     fn the_cookie_carries_the_signin_when_the_provider_drops_it() {
         assert_eq!(state_to_consume("", "abc"), Ok("abc"));
     }
 
-    /// ⚠ **Refused, not resolved.** A cookie proves this browser began SOME
+    /// Refused, not resolved. A cookie proves this browser began SOME
     /// flow; when the URL names a different one, nothing here can say which is
     /// meant, and picking either would be a guess about an authentication.
     #[test]
@@ -102,7 +102,7 @@ mod which_signin {
         assert!(said.contains("did not start here"), "{said:?}");
     }
 
-    /// ⚠ Every refusal must be something a person can act on, because it is
+    /// Every refusal must be something a person can act on, because it is
     /// rendered as the whole page they are looking at.
     #[test]
     fn every_refusal_is_a_sentence_not_a_code() {

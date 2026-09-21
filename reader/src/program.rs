@@ -21,8 +21,8 @@ pub struct Use {
 
 /// A command a carried program handed to the system.
 ///
-/// ⚠ **`subprocess.run(["ffmpeg", "-i", f])` and `spawnSync(p, args)` reach `exec()`
-/// with no shell**, so joining their words and parsing the result as shell would
+/// `subprocess.run(["ffmpeg", "-i", f])` and `spawnSync(p, args)` reach `exec()`
+/// with no shell, so joining their words and parsing the result as shell would
 /// invent quoting nobody wrote. `os.system(s)` and `execSync(s)` do go through one,
 /// and their text really is a script.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +57,7 @@ pub struct Program {
     /// Operations whose path is one of a **known finite set** — a name the program
     /// bound to several literals — by the set, written `{a,b}`.
     ///
-    /// ⚠ **One of them ran, not all of them.** A use per candidate would claim a file
+    /// One of them ran, not all of them. A use per candidate would claim a file
     /// was changed that never was. The same object as
     /// [`crate::shell_files::Extract::bounded`]: a language without a choice. Still not
     /// named, and `subjects_not_named` counts these.
@@ -65,7 +65,7 @@ pub struct Program {
     /// Those among [`Program::bounded`] whose candidates share a directory, by that
     /// directory — the locus is certain even though the leaf is not.
     ///
-    /// ⚠ **An annotation, not a second account.** Every entry is ALSO in
+    /// An annotation, not a second account. Every entry is ALSO in
     /// [`Program::bounded`], so `subjects_not_named` counts `bounded` alone; adding
     /// this would count one operation twice.
     pub located: BTreeMap<String, usize>,
@@ -80,7 +80,7 @@ pub struct Program {
     /// Set when the text is not Python any interpreter would accept, so the program
     /// **raised a `SyntaxError` and ran none of itself**.
     ///
-    /// ⚠ **`uses` is empty whenever this is set, and that is the point.** A permissive
+    /// `uses` is empty whenever this is set, and that is the point. A permissive
     /// grammar reads a broken program as happily as a working one and hands back the
     /// paths it mentions, which are then recorded as work that happened.
     pub did_not_run: Option<&'static str>,
@@ -161,7 +161,7 @@ pub struct Tally {
 
 /// Why a use this reader *did* resolve still did not become a path.
 ///
-/// ⚠ **Not an unknown of the kind [`Program::unresolved`] holds.** The program
+/// Not an unknown of the kind [`Program::unresolved`] holds. The program
 /// named a file plainly; what stopped it is a rule of the layer above. Kept apart
 /// because a rule that turns away thousands is worth revisiting and an unknowable
 /// value is not.

@@ -19,7 +19,7 @@
 //!   what that file held then is not in the transcript;
 //! - **missed** — neither, and the interpreter word is right there in the argv.
 //!
-//! ⚠ **A module run is not a miss.** `python3 -m json.tool` carries no program
+//! A module run is not a miss. `python3 -m json.tool` carries no program
 //! and names no file; it is Python invoked to do something we can see from the
 //! argv alone, and counting it as unread would invent a gap.
 //!
@@ -42,8 +42,8 @@ use reader::shell_ops::Op;
 
 /// Whether a word names a Python interpreter, by its basename.
 ///
-/// ⚠ **Deliberately looser than [`shell_ops::is_python`], and it must stay
-/// that way.** This is the instrument; the table is what it measures. If the
+/// Deliberately looser than [`shell_ops::is_python`], and it must stay
+/// that way. This is the instrument; the table is what it measures. If the
 /// probe asked the table's own question it could never find a spelling the
 /// table has not been taught, which is the one thing it exists to find. So it
 /// matches `python313` too, and the outcome column is where that word is shown
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                 // read and calling it unread would invent a gap.
                 _ if flag("-m") => "a module run",
                 _ if flag("-V") || flag("--version") => "a version check",
-                // ⚠ **`python -` reads its program from stdin**, and where that
+                // `python -` reads its program from stdin, and where that
                 // stdin is a pipe rather than a heredoc the program is not in
                 // the command text at all. Nothing can be read here, and the
                 // distinction from a miss is the whole point: one is a gap in

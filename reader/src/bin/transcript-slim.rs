@@ -6,7 +6,7 @@
 //! arrive carrying nothing), so this is a one-off clearing of what was
 //! already written, not a recurring sweep.
 //!
-//! ⚠ **Deleting the lines is not an option and was measured, not assumed.** A
+//! Deleting the lines is not an option and was measured, not assumed. A
 //! reminder is an `attachment` node with its own `uuid` AND `parentUuid`: it is
 //! a NODE IN THE TREE, and 5,679 of them are named as the parent of another
 //! line. Removing them severs the chain the conversation is threaded on, and
@@ -213,7 +213,7 @@ fn slim(line: &[u8]) -> Result<Option<Vec<u8>>> {
 
 /// Put the rewritten file in place without losing a concurrent append.
 ///
-/// ⚠ **The whole problem, and why a plain rename is wrong.** Emptying payloads
+/// The whole problem, and why a plain rename is wrong. Emptying payloads
 /// SHRINKS the file, so it cannot be patched in place the way a 36-byte
 /// re-parent can. The session is live and never ends — it goes quiet and comes
 /// back — and Claude Code appends by open/append/close, holding no descriptor.

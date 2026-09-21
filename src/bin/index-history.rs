@@ -3,7 +3,7 @@
 //!     cargo run --release --bin index-history            # what it would write
 //!     cargo run --release --bin index-history -- --apply
 //!
-//! ⚠ **`index-history.json` was called perishable and it is not.** Its own `why`
+//! `index-history.json` was called perishable and it is not. Its own `why`
 //! field said *"Claude Code prunes its own old transcripts, so this baseline is
 //! perishable"*; memview#1240 measured that nothing holding a conversation has
 //! been deleted, and #1247 restored one byte-identical from a month-old snapshot.
@@ -11,7 +11,7 @@
 //! not a property of the data. With this, it is a cache that can be VERIFIED
 //! rather than a record that has to be trusted.
 //!
-//! ⚠ **Reports by default, and `--apply` is not routine.** #884's pre-period
+//! Reports by default, and `--apply` is not routine. #884's pre-period
 //! rests on the `2026-08-10` and `2026-08-14` snapshots and is frozen to a
 //! harvest on 2026-09-11; `demotion-study` reads exactly those two. Overwriting
 //! them from a re-run is how a pre-registered experiment quietly becomes a
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
                         if part["name"].as_str() == Some("Read")
                             && is_the_index(part["input"]["file_path"].as_str().unwrap_or("")) =>
                     {
-                        // ⚠ **A PARTIAL read is not a membership.** `Read` takes
+                        // A PARTIAL read is not a membership. `Read` takes
                         // `offset`/`limit`, and sessions use them constantly —
                         // `limit: 1` appears 40 times in this corpus. Counted as
                         // a day's index, a three-line read says the index held
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
         rebuilt.len()
     );
 
-    // ⚠ The comparison is the point of the tool, not a courtesy. A rebuild that
+    // The comparison is the point of the tool, not a courtesy. A rebuild that
     // silently replaced the artefact would answer "can this be recomputed?" with
     // a file rather than with evidence.
     let held: serde_json::Value = match std::fs::read_to_string(&at) {
@@ -111,8 +111,8 @@ fn main() -> Result<()> {
     };
     let old = held["snapshots"].as_object().cloned().unwrap_or_default();
 
-    // ⚠ **The days the artefact already holds are reported IN FULL, and the new
-    // ones only counted.** They are the ones #884 rests on, and a `take(n)` over
+    // The days the artefact already holds are reported IN FULL, and the new
+    // ones only counted. They are the ones #884 rests on, and a `take(n)` over
     // one merged list buried every one of them behind 40 newly-recovered days on
     // the first run — a report that hid exactly what it was written to show.
     let mut agree = 0usize;
@@ -165,7 +165,7 @@ fn main() -> Result<()> {
     out["what"] = serde_json::json!(
         "MEMORY.md membership over time, recovered from Read results in the transcripts."
     );
-    // ⚠ The old `why` asserted the transcripts were being pruned. Rebuilding the
+    // The old `why` asserted the transcripts were being pruned. Rebuilding the
     // file while leaving that in place would carry the refuted premise forward
     // in the one shape a source grep never reaches — a data file.
     out["why"] = serde_json::json!(

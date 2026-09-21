@@ -165,7 +165,7 @@ fn an_unexpanded_variable_is_refused() {
 
 #[test]
 fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
-    // ⚠ **The gap this closes (#92).** A refused word left no trace at all, so a
+    // The gap this closes (#92). A refused word left no trace at all, so a
     // command that used a file nobody can name was recorded exactly like a
     // command that used none — and the second is a claim, not an absence. 592
     // distinct such subjects stood in the corpus, led by `$f`, `$p` and `$d`
@@ -177,18 +177,18 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // never looks like a path at all, while `$d/report.txt` looks like one and
     // then resolves to nothing.
     //
-    // ⚠ The glob case has moved: a variable a glob loop bound is now
+    // The glob case has moved: a variable a glob loop bound is now
     // BOUNDED rather than merely unnamed, and lives in `Extract::bounded` — see
     // `a_glob_bounds_what_its_loop_variable_can_be`. It is still not a named
     // file, and `subjects_not_named` still counts it.
     assert_eq!(unnamed("for f in $(ls); do wc -l \"$f\"; done"), ["$f"]);
     assert_eq!(unnamed("cat \"$OUT/report.txt\""), ["$OUT/report.txt"]);
-    // ⚠ **A backtick is an unmade expansion as much as a `$` is**, and testing
+    // A backtick is an unmade expansion as much as a `$` is, and testing
     // for `$` alone missed it — measured on the day the counter shipped, `cat
     // `which claude`` recorded no read and no admission of one. The older syntax
     // is rarer but it is not gone.
     //
-    // ⚠ It is *shown* as `$( )` since the chain read through the tree
+    // It is *shown* as `$( )` since the chain read through the tree
     // (`43ae9fe`), because the two spellings are one node there and the printer
     // picks one. What is admitted is the same admission; only the way it is
     // written down changed, and one spelling for one thing is the better answer
@@ -222,7 +222,7 @@ fn bounded(script: &str) -> Vec<String> {
 
 #[test]
 fn a_glob_bounds_what_its_loop_variable_can_be() {
-    // ⚠ **A glob is not a shrug.** The directory it was answered against is gone,
+    // A glob is not a shrug. The directory it was answered against is gone,
     // so no file can be produced — but `some subset of src/*.ts` and `some file`
     // are different facts, and recording both as "not named" threw the first one
     // away. What the text says is `⟦*.log⟧ = some S ⊆ L(*.log) ∩ Files(dir, t)`:
@@ -241,7 +241,7 @@ fn a_glob_bounds_what_its_loop_variable_can_be() {
         ["/home/example/Code/health/src/*/Cargo.toml"]
     );
 
-    // ⚠ **A transduction does not.** `${f%%:*}` is a rational function of the
+    // A transduction does not. `${f%%:*}` is a rational function of the
     // variable, and honouring it needs the automaton this deliberately does not
     // build — so it stays opaque rather than being claimed as bounded.
     assert_eq!(
@@ -256,7 +256,7 @@ fn a_glob_bounds_what_its_loop_variable_can_be() {
     assert!(bounded("for f in $(ls); do wc -l \"$f\"; done").is_empty());
     assert_eq!(unnamed("for f in $(ls); do wc -l \"$f\"; done"), ["$f"]);
 
-    // ⚠ A use inside a substitution sits one scope deeper than the loop that
+    // A use inside a substitution sits one scope deeper than the loop that
     // bound the name, so the pattern has to be looked up through every enclosing
     // scope and not just this one. Worth 124 of the corpus's 269 bounded
     // subjects — it read as working on the simple case while missing a third of
@@ -280,7 +280,7 @@ fn a_glob_bounds_what_its_loop_variable_can_be() {
 
 #[test]
 fn a_python_program_that_named_no_file_is_counted_with_the_shells_own() {
-    // ⚠ **Two readers kept two accounts and only one was added up.** Python's
+    // Two readers kept two accounts and only one was added up. Python's
     // undetermined subjects outnumber the shell's in the corpus — 4,189 against
     // 3,007 — so a rate stated from `unnamed` alone read as though it covered
     // everything the reader does. `subjects_not_named` is the only thing that
@@ -333,7 +333,7 @@ fn home_is_the_one_expansion_with_a_knowable_value() {
 
 #[test]
 fn a_seq_the_text_counts_out_is_run_like_any_other_list() {
-    // ⚠ **The largest class the reader still folded (#821)** — 1,029 loops,
+    // The largest class the reader still folded (#821) — 1,029 loops,
     // against 735 over a glob. `$(seq …)` carries a `$` and so failed the
     // determinacy test with every other substitution, but nothing about it is
     // unknown: it is arithmetic on numbers already in the text.
@@ -354,7 +354,7 @@ fn a_seq_the_text_counts_out_is_run_like_any_other_list() {
         uses("for i in $(seq 1 3 9); do touch p$i.txt; done").len(),
         3
     );
-    // ⚠ Counting down works and counting nowhere is an answer, not a failure:
+    // Counting down works and counting nowhere is an answer, not a failure:
     // `seq 3 1` prints nothing, so the body ran zero times — which is a fact, and
     // the reader should record no files rather than declining to read the loop.
     assert_eq!(
@@ -497,7 +497,7 @@ fn a_glob_is_recorded_as_written() {
 
 #[test]
 fn an_unknown_command_contributes_nothing_and_is_counted() {
-    // ⚠ The example was `ffmpeg`, then `dhall-to-json`, then `verified_cli`, and
+    // The example was `ffmpeg`, then `dhall-to-json`, then `verified_cli`, and
     // each was taught within a day of standing here. The property under test
     // belongs to whatever is still unread; the command naming it is a
     // placeholder by construction, and this test failing means the worklist
@@ -591,7 +591,7 @@ fn a_local_shell_inside_a_command_is_read_too() {
 
 #[test]
 fn the_test_runners_read_the_specs_they_are_given() {
-    // ⚠ **The top of the unread list, and no grammar was needed for any of it.**
+    // The top of the unread list, and no grammar was needed for any of it.
     // `vitest`, `playwright` and `tsx` sat unread behind the assumption that
     // JavaScript meant a parser. Their operands are spec files, which is a
     // table row.
@@ -622,8 +622,8 @@ fn the_test_runners_read_the_specs_they_are_given() {
 
 #[test]
 fn a_name_bound_to_a_literal_is_the_path_it_holds() {
-    // ⚠ **The largest unread name in the corpus, and its value is one line
-    // above its use.** `$ADB` appears in many commands and over half of them
+    // The largest unread name in the corpus, and its value is one line
+    // above its use. `$ADB` appears in many commands and over half of them
     // assign it in the same command text, usually to a literal nix-store path.
     // It was written off as unresolvable; it never was, the reader simply had
     // nowhere to keep a binding.
@@ -679,7 +679,7 @@ fn a_partly_known_value_names_no_file() {
 
 #[test]
 fn a_partly_known_value_still_names_the_command() {
-    // ⚠ **The unknown part of a value must not hide the known part.** 354 of
+    // The unknown part of a value must not hide the known part. 354 of
     // the corpus's assignments hold a `$` they cannot expand, and refusing them
     // whole threw away the one thing that was written down plainly: the name of
     // the tool being run. `$ADB` was the largest unread command in the corpus
@@ -708,7 +708,7 @@ fn a_value_that_must_be_run_binds_nothing() {
     // for a tool called `$(which adb)`. 13 of 1,023 `$ADB` uses, so the cost of
     // refusing is 13 commands and the cost of guessing is a corrupt index.
     //
-    // ⚠ **That refusal stands; where the refused call is COUNTED has moved.**
+    // That refusal stands; where the refused call is COUNTED has moved.
     // `$ADB` is not a name the table could ever hold, so it is filed with the
     // other unnameable calls rather than on the worklist — memview#1158, and
     // the same argument #1124 made for a script's own functions.
@@ -750,7 +750,7 @@ fn a_remote_shell_is_not_descended_into() {
 
 #[test]
 fn a_loop_over_a_literal_list_runs_once_per_value() {
-    // ⚠ **The largest vanished subject in the corpus.** 6,474 shell `for` loops,
+    // The largest vanished subject in the corpus. 6,474 shell `for` loops,
     // 4,524 of them over a literal word list — fully determined by the text and
     // read as nothing at all, because the loop variable expanded to nothing.
     // `$f` alone was refused 1,416 times, `$r` 338, `$d` 308.
@@ -808,7 +808,7 @@ fn a_loop_inside_a_loop_is_unrolled_by_both() {
 
 #[test]
 fn a_cd_to_nowhere_knowable_leaves_no_directory_behind() {
-    // ⚠ **The dangerous direction.** A `cd` whose destination cannot be read
+    // The dangerous direction. A `cd` whose destination cannot be read
     // was filed as an unknown command, which left the *previous* directory in
     // force — so every relative path after it resolved against a directory the
     // script had already left. That is this table's one unacceptable failure:
@@ -847,7 +847,7 @@ fn only_a_shells_inline_flag_is_shell() {
         uses("python3 -c 'import os; os.remove(\"src/a.py\")'"),
         [("/home/example/Code/health/src/a.py".to_string(), true)]
     );
-    // ⚠ **This asserted `is_empty()` once**, when `node -e` was ranked as a
+    // This asserted `is_empty()` once, when `node -e` was ranked as a
     // query tool on a count of its writes alone. Its READS are the larger half
     // by far, and a projection is mostly about reads — so the decision moved
     // when the denominator did.
@@ -871,7 +871,7 @@ fn a_command_run_from_inside_a_carried_program_is_followed_home() {
         uses("node -e 'require(\"child_process\").execSync(\"cat src/a.ts\")'"),
         [("/home/example/Code/health/src/a.ts".to_string(), false)]
     );
-    // ⚠ The `cd` inside stays inside, exactly as it does for `bash -c`.
+    // The `cd` inside stays inside, exactly as it does for `bash -c`.
     assert_eq!(
         uses("python3 -c 'import os; os.system(\"cd frontend && cat a.ts\")'"),
         [("/home/example/Code/health/frontend/a.ts".to_string(), false)]
@@ -1049,7 +1049,7 @@ fn conditions(script: &str) -> Vec<(String, bool, reader::shell::Reached)> {
 
 #[test]
 fn only_the_last_turn_of_a_loop_ends_in_the_reported_status() {
-    // ⚠ **A loop reports one status: its last iteration's.** So an `&&` in the
+    // A loop reports one status: its last iteration's. So an `&&` in the
     // body is confirmable for that turn alone and unconfirmable for every
     // earlier one — and that is visible only once the body has been run out into
     // one copy per value, which happens after the parser has had its say.
@@ -1097,7 +1097,7 @@ fn reached(script: &str) -> Vec<(String, reader::shell::Reached)> {
 fn a_loop_body_that_may_never_have_run_is_not_certain() {
     use reader::shell::Reached::{Always, Sometimes};
 
-    // ⚠ **`while` tests before the first iteration**, so an empty input runs the
+    // `while` tests before the first iteration, so an empty input runs the
     // body no times — and recording it as certainly run is the same over-claim
     // as claiming both arms of an `if`. 4,544 of the corpus's calls carry a
     // `while` or an `until`.
@@ -1110,7 +1110,7 @@ fn a_loop_body_that_may_never_have_run_is_not_certain() {
         ]
     );
 
-    // ⚠ **But a glob loop DID run its body**, and demoting every folded loop
+    // But a glob loop DID run its body, and demoting every folded loop
     // would trade one over-claim for a bigger under-claim. With `nullglob` off —
     // the default, and what these calls ran under — a pattern matching nothing
     // expands to *itself*, so the body runs once with the pattern as the value.
@@ -1132,7 +1132,7 @@ fn a_loop_body_that_may_never_have_run_is_not_certain() {
         ]
     );
 
-    // ⚠ A determinate loop INSIDE an uncertain one is still run out — the values
+    // A determinate loop INSIDE an uncertain one is still run out — the values
     // are in the text — but every iteration inherits the doubt. Getting this
     // wrong is why `closing_done` had to stop using `unwrap_command`, which
     // strips `while` and so never counted one: a `while` loop's `done` closed
@@ -1184,7 +1184,7 @@ fn tracing_changes_nothing_about_what_was_found() {
 
 #[test]
 fn every_use_belongs_to_exactly_one_step() {
-    // ⚠ **The defect this guards is double-counting at two depths.** A wrapper
+    // The defect this guards is double-counting at two depths. A wrapper
     // absorbs the files of the script it opens; if its own step claimed them
     // too, the view would show one `cp` as two writes — the bug being that the
     // totals would still be right, so nothing else would ever catch it.
@@ -1200,7 +1200,7 @@ fn a_wrapper_stands_in_front_of_what_it_opens() {
     // Outwards-in, the order the shell opens them — so indenting by `depth`
     // draws the nesting without the reader having to sort anything.
     //
-    // ⚠ **`nix develop -c bash -c '…'` is ONE step, not two.** `-c` on `nix`
+    // `nix develop -c bash -c '…'` is ONE step, not two. `-c` on `nix`
     // carries an argv rather than a script, so the wrapper is unwrapped and the
     // command that gets classified is the `bash -c` inside it — which is where
     // the one and only parse of a nested script happens. Two visible wrappers,
@@ -1260,7 +1260,7 @@ fn a_step_carries_the_words_the_shell_would_have_run() {
     // gone by the time a path is resolved, and a reader looking at `$f` cannot
     // see why the file came out as it did.
     //
-    // ⚠ **The keyword that introduced a command is not part of it.** `do`/`then`
+    // The keyword that introduced a command is not part of it. `do`/`then`
     // are ordinary words to the grammar by design — a keyword rule would have to
     // decide whether `echo done` ends a loop — so they arrive on the front of
     // the body's words and are taken off here, where a step is the one thing
@@ -1290,7 +1290,7 @@ fn a_step_carries_the_words_the_shell_would_have_run() {
     assert_eq!(traced.steps[1].argv, ["cat", "b.txt"]);
     assert_eq!(traced.steps.len(), 2, "`fi` is not a command");
 
-    // ⚠ A wrapper is the opposite answer to the same question: `sudo` ran, and
+    // A wrapper is the opposite answer to the same question: `sudo` ran, and
     // hiding it would misdescribe how the file was changed.
     let cmds = parse("sudo rm -rf /tmp/x").unwrap();
     let traced = trace(&cmds, Some(CWD), HOME);
@@ -1349,8 +1349,8 @@ fn a_remote_commands_files_never_reach_the_local_ones() {
 
 #[test]
 fn a_download_saved_by_flag_is_a_write() {
-    // ⚠ **27% of the corpus's curl/wget calls, writing files credited to
-    // nobody.** `curl URL > file` was always counted, because a redirect is
+    // 27% of the corpus's curl/wget calls, writing files credited to
+    // nobody. `curl URL > file` was always counted, because a redirect is
     // collected whatever the command is; `curl -o file URL` was not — the same
     // shape as the `sed -e` defect, where an operand given by a flag leaves
     // nothing in the operand position to notice.
@@ -1378,7 +1378,7 @@ fn a_download_that_names_no_local_file_still_names_none() {
 
 #[test]
 fn curls_capital_o_names_a_file_only_wget_can_resolve() {
-    // ⚠ **The same letter, opposite meanings.** wget's `-O` takes the name;
+    // The same letter, opposite meanings. wget's `-O` takes the name;
     // curl's takes none and derives it from the URL's last segment — which this
     // reader cannot resolve without the URL, and must therefore refuse rather
     // than guess. Guessing here would invent a path, which is the one failure
@@ -1472,7 +1472,7 @@ fn a_refusal_from_one_command_does_not_silence_another() {
 
 #[test]
 fn a_cd_into_the_directory_the_line_is_already_in_moves_nothing() {
-    // ⚠ **The transcript's `cwd` means two different things** — some
+    // The transcript's `cwd` means two different things — some
     // single-call lines record the directory their command STARTED in and some
     // the one it ENDED in, in the same transcript at the same CLI version
     // (memview #449). On a line of
@@ -1520,7 +1520,7 @@ fn a_cd_into_a_directory_of_the_same_name_deeper_down_still_moves() {
 
 #[test]
 fn an_installed_program_run_by_its_path_is_not_a_file_that_was_read() {
-    // ⚠ **The reader's one forbidden error, in miniature.** `/bin/sleep 5` used
+    // The reader's one forbidden error, in miniature. `/bin/sleep 5` used
     // no file at all, and recording the binary put it 135th busiest in the
     // corpus — a path nobody read, in an index whose whole purpose is the files
     // an agent worked on. Same for the interpreter of `python -c`, and for adb,
@@ -1535,8 +1535,8 @@ fn an_installed_program_run_by_its_path_is_not_a_file_that_was_read() {
 
 #[test]
 fn a_script_in_the_work_is_still_recorded_when_it_is_run() {
-    // ⚠ **The half that must NOT move, and the reason the test is the path
-    // rather than the verb.** #799 proposed "the basename resolves in the verb
+    // The half that must NOT move, and the reason the test is the path
+    // rather than the verb. #799 proposed "the basename resolves in the verb
     // table, so it is a program" — and `gradlew` IS in that table, beside `mvn`,
     // `pip` and `ng`. Measured by ablation over 73,907 Bash calls: that rule
     // deleted 2,110 reads of `./gradlew` across the fleet's Android repos to
@@ -1557,7 +1557,7 @@ fn a_script_in_the_work_is_still_recorded_when_it_is_run() {
 
 /// A call to a function the SAME TEXT defines is not an unread command.
 ///
-/// ⚠ **The worklist is what this protects.** `unhandled` means *the table has
+/// The worklist is what this protects. `unhandled` means *the table has
 /// no entry for that name*, and the list built from it says what to teach next.
 /// A local helper can never be taught — `probe` is a different function in every
 /// script that declares one — so counting it there is work that cannot be done.
@@ -1573,7 +1573,7 @@ fn a_function_this_text_defines_is_not_an_unread_command() {
     );
 }
 
-/// ⚠ **The boundary, and it is not a name list.** `check` is a real program in
+/// The boundary, and it is not a name list. `check` is a real program in
 /// `~/Code/check` AND a local helper: measured 112 of its 114 unread calls are
 /// declared in their own text, and 2 are not. So the question has to be asked of
 /// each command text, never of the name.
@@ -1582,8 +1582,8 @@ fn the_same_name_undefined_here_is_still_unread() {
     assert_eq!(unread("check --all"), ["check"]);
 }
 
-/// ⚠ **The body's file work is recorded at the DEFINITION, and this must not
-/// change that.** `project.rs` walks a function body under `Reached::Sometimes`
+/// The body's file work is recorded at the DEFINITION, and this must not
+/// change that. `project.rs` walks a function body under `Reached::Sometimes`
 /// precisely because the call site names no files — so if the call stops being
 /// counted as unread, the write must still be there, or this fix would hide one.
 #[test]
@@ -1607,7 +1607,7 @@ fn located(script: &str) -> Vec<String> {
 
 #[test]
 fn a_literal_directory_ahead_of_the_variable_is_a_locus() {
-    // ⚠ **`some file` and `some file under Verified/Geo` are different facts**,
+    // `some file` and `some file under Verified/Geo` are different facts,
     // and the reader had both and reported the weaker one. The directory is
     // written out; only the leaf is unknown (memview#1080).
     assert_eq!(
@@ -1635,7 +1635,7 @@ fn an_absolute_directory_is_kept_as_written() {
 
 #[test]
 fn a_bare_root_is_not_a_locus() {
-    // ⚠ `/$p/x` says only that the answer is somewhere on the filesystem. A
+    // `/$p/x` says only that the answer is somewhere on the filesystem. A
     // locus that excludes nothing is not a locus, and claiming it would inflate
     // the rate with the emptiest possible fact.
     assert_eq!(unnamed("cat /$p/x"), ["/$p/x"]);
@@ -1667,7 +1667,7 @@ fn arithmetic_is_not_a_located_path() {
 
 #[test]
 fn a_located_subject_is_still_not_named() {
-    // ⚠ Located is a better answer than opaque; it is not an answer. It stays in
+    // Located is a better answer than opaque; it is not an answer. It stays in
     // the not-named count for the same reason `bounded` does.
     let before = extracted("cat $f").subjects_not_named();
     let after = extracted("cat Verified/Geo/$f").subjects_not_named();
@@ -1676,7 +1676,7 @@ fn a_located_subject_is_still_not_named() {
 
 #[test]
 fn a_remote_path_gets_no_local_locus() {
-    // ⚠ `amun:~/Photos/$f` names a directory on ANOTHER machine. A locus taken
+    // `amun:~/Photos/$f` names a directory on ANOTHER machine. A locus taken
     // from it would be a directory on this one — a fabricated path, which is the
     // expensive direction and the one failure mode this table has.
     // It is the single `locus known` the census still reports after #1080, so it
@@ -1687,7 +1687,7 @@ fn a_remote_path_gets_no_local_locus() {
 
 #[test]
 fn a_find_over_a_literal_directory_is_located() {
-    // ⚠ **`$(find . -name '*.ts')` walks a directory this text names.** 144 uses
+    // `$(find . -name '*.ts')` walks a directory this text names. 144 uses
     // over the corpus, and the reader reported them as naming nothing at all.
     assert_eq!(
         located("wc -l $(find . -name '*.ts')"),
@@ -1722,7 +1722,7 @@ fn git_ls_files_is_rooted_at_the_directory_it_ran_in() {
 
 #[test]
 fn git_diff_is_not_rooted_at_the_cwd_and_must_not_be_claimed() {
-    // ⚠ **`git diff --name-only` prints paths relative to the REPO ROOT**, not
+    // `git diff --name-only` prints paths relative to the REPO ROOT, not
     // to the directory it ran in, so the cwd is the wrong locus for it and the
     // repo root is not something this reader knows. `ls-files` and `diff` look
     // alike and are not, which is why they are not one rule.
@@ -1732,8 +1732,8 @@ fn git_diff_is_not_rooted_at_the_cwd_and_must_not_be_claimed() {
 
 #[test]
 fn stripping_a_suffix_the_pattern_ends_with_keeps_the_bound() {
-    // ⚠ **`for d in */; do … "${d%/}/gate.json"` is 27 of the corpus's 30
-    // derived-from-a-bound-name subjects.** The pattern ends in the very text
+    // `for d in */; do … "${d%/}/gate.json"` is 27 of the corpus's 30
+    // derived-from-a-bound-name subjects. The pattern ends in the very text
     // the expansion strips, so the truncation is syntactic — no automaton, and
     // the result is a whole pattern rather than a bare locus.
     assert_eq!(
@@ -1773,7 +1773,7 @@ fn double_percent_is_the_same_when_the_suffix_is_literal() {
 
 #[test]
 fn a_suffix_the_pattern_does_not_end_with_is_refused() {
-    // ⚠ Nothing says a `*.log` ends in `.txt`, so stripping one is not a
+    // Nothing says a `*.log` ends in `.txt`, so stripping one is not a
     // truncation of this language — it is a guess about strings not in it.
     assert_eq!(
         unnamed("for f in *.log; do wc -l \"${f%.txt}\"; done"),
@@ -1783,7 +1783,7 @@ fn a_suffix_the_pattern_does_not_end_with_is_refused() {
 
 #[test]
 fn a_suffix_holding_a_glob_is_still_a_transduction_and_still_refused() {
-    // ⚠ **This is the guard the whole rule rests on.** `${f%*}` strips the
+    // This is the guard the whole rule rests on. `${f%*}` strips the
     // SHORTEST match of `*`, which is the empty string — so a pattern ending in
     // `*` would be truncated to something the shell never produces. Only a
     // literal suffix removes exactly the text it names.
@@ -1800,7 +1800,7 @@ fn a_suffix_holding_a_glob_is_still_a_transduction_and_still_refused() {
 
 /// A command named by a variable nobody bound is not a command to teach.
 ///
-/// ⚠ **The worklist is what this protects, the same as a local function.**
+/// The worklist is what this protects, the same as a local function.
 /// `$BIN` is a different program in every script that sets it, so there is no
 /// entry anybody could write — and `unhandled` means precisely *the table has
 /// no entry for that name*. More calls again have the same cause with the
@@ -1816,8 +1816,8 @@ fn a_command_named_by_a_variable_is_not_an_unread_command() {
     }
 }
 
-/// ⚠ **A variable this text DOES bind is a different case, and it is a
-/// teachable name.** `A="frobnicate -s host"; $A run` resolves and splits, so
+/// A variable this text DOES bind is a different case, and it is a
+/// teachable name. `A="frobnicate -s host"; $A run` resolves and splits, so
 /// what reaches the worklist is `frobnicate` — a command somebody could write
 /// an entry for. Filing it beside `$BIN` would have hidden a knowable name
 /// inside the account for unknowable ones.
@@ -1834,7 +1834,7 @@ fn a_variable_the_script_binds_is_not_filed_as_unnameable() {
     );
 }
 
-/// ⚠ **What the call passes still goes unread, and the count must say so.**
+/// What the call passes still goes unread, and the count must say so.
 /// Dropping these calls entirely would claim there was nothing to follow.
 #[test]
 fn a_variable_named_command_is_counted_rather_than_dropped() {
@@ -1848,7 +1848,7 @@ fn a_variable_named_command_is_counted_rather_than_dropped() {
     );
 }
 
-/// ⚠ **A nested script's variable-named calls must survive the merge.**
+/// A nested script's variable-named calls must survive the merge.
 /// `Extract::merge` carries each account out of an inner shell by hand, and one
 /// left out is a silent loss: the calls are counted inside and dropped on the
 /// way out, so `commands()` shrinks and every rate over it moves for no reason.
@@ -1862,7 +1862,7 @@ fn a_nested_scripts_variable_named_calls_are_not_lost() {
 
 /// A variable holding a command and its flags is several words, not one name.
 ///
-/// ⚠ **The shell splits an unquoted expansion and this reader did not**, so
+/// The shell splits an unquoted expansion and this reader did not, so
 /// `A="adb -s host"; $A logcat` reached the table as a command literally called
 /// `adb -s host` — 503 calls over 8 spellings on the unread worklist, none of
 /// them a command anybody could teach. memview#1158.
@@ -1871,7 +1871,7 @@ fn a_variable_holding_a_command_splits_into_its_words() {
     assert_eq!(unread("A=\"frobnicate -s host\"; $A run"), ["frobnicate"]);
 }
 
-/// ⚠ **Quoted, it does NOT split, and bash agrees.** `"$A" run` looks for a
+/// Quoted, it does NOT split, and bash agrees. `"$A" run` looks for a
 /// program whose whole name is `frobnicate -s host` and fails — so splitting it
 /// would credit the fleet with a command that never ran, which is the one error
 /// this reader is built not to make.
@@ -1893,8 +1893,8 @@ fn the_words_a_split_produces_are_read_as_arguments() {
     );
 }
 
-/// ⚠ **A variable holding a whole `ssh` invocation is a remote command, not a
-/// local file named after it.** Without splitting, `$SSH cat /etc/hostname`
+/// A variable holding a whole `ssh` invocation is a remote command, not a
+/// local file named after it. Without splitting, `$SSH cat /etc/hostname`
 /// expands to one word, and a word that is not a flag and not absolute gets
 /// resolved against the working directory — so `<cwd>/ssh -o … root@host`
 /// enters the corpus as a file this Mac read. It is the single biggest thing
@@ -1916,7 +1916,7 @@ fn a_variable_holding_an_ssh_command_is_not_a_local_file() {
     assert_eq!(found.remote[0].path, "/etc/hostname");
 }
 
-/// ⚠ **Several files in one variable are several files, and each is countable.**
+/// Several files in one variable are several files, and each is countable.
 /// The other half of what splitting corrected: `FILES="a.py b.py"` glued its
 /// members into one 26-word "path" that matched nothing, so every real file in
 /// it went uncounted. 59 of the reads splitting added land on paths that already
@@ -1936,7 +1936,7 @@ fn several_files_in_one_variable_are_counted_separately() {
     );
 }
 
-/// ⚠ **Only what an expansion PRODUCED may word-split.** The corpus word that
+/// Only what an expansion PRODUCED may word-split. The corpus word that
 /// forced this is an `awk` program built from single-quoted literals with two
 /// expansions spliced in:
 ///
@@ -1966,7 +1966,7 @@ fn quoted_whitespace_beside_an_expansion_does_not_split_the_word() {
     );
 }
 
-/// ⚠ **A substitution's text is not its output, so none of it splits.**
+/// A substitution's text is not its output, so none of it splits.
 /// `du -sk $(cat list.txt)` runs on whatever the file holds, which this reader
 /// cannot know. Splitting the source text made `list.txt)` — closing paren and
 /// all — into a path that was never used (#1195).
@@ -1984,14 +1984,14 @@ fn an_unevaluated_substitution_is_not_cut_into_paths() {
 
 // --- why a word was refused (memview#1450, and the split #1447 needs) --------
 
-/// ⚠ **`$A` and `$TMPDIR` are not the same unknown, and until now the census
-/// could not say so.** One is assigned by the script it appears in, so no
+/// `$A` and `$TMPDIR` are not the same unknown, and until now the census
+/// could not say so. One is assigned by the script it appears in, so no
 /// environment lookup at ask time reaches it; the other is named by no scope
 /// here, and is the ONLY reason a lookup could ever answer. That distinction is
 /// the ceiling on dynamic resolution, and #1447 says the answerable side was an
 /// upper bound precisely because it could not be drawn.
 ///
-/// ⚠ **The bound one carries NO VALUE, and that is not incidental** — see
+/// The bound one carries NO VALUE, and that is not incidental — see
 /// [`a_valued_binding_never_reaches_the_refusal_at_all`]. A binding the reader
 /// trusts is substituted long before this point, so every name that arrives
 /// here is either distrusted or absent, and those are the two rows.
@@ -2003,7 +2003,7 @@ fn a_name_the_script_binds_is_told_apart_from_one_it_never_mentions() {
     assert_eq!(found.refused_why.get(&Refused::NeverBound), Some(&1));
 }
 
-/// ⚠ **A binding with a value is EXPANDED and never refused**, so it cannot
+/// A binding with a value is EXPANDED and never refused, so it cannot
 /// appear in this census at all — which is what the two rows above actually
 /// mean. `A=x; wc -l "$A/log.txt"` reads `x/log.txt` and resolves; it is not an
 /// unnamed subject.
@@ -2019,7 +2019,7 @@ fn a_valued_binding_never_reaches_the_refusal_at_all() {
     assert!(found.unnamed.is_empty(), "{:?}", found.unnamed);
 }
 
-/// ⚠ **A binding with NO VALUE is still a binding.** `visible()` removes such a
+/// A binding with NO VALUE is still a binding. `visible()` removes such a
 /// name — right for expansion, since a distrusted binding must shadow an outer
 /// valued one — and reusing it here would file the commonest script variable in
 /// the corpus as "never bound" and flatter the ceiling. `bound_names` is a
@@ -2033,7 +2033,7 @@ fn a_binding_the_reader_distrusts_still_counts_as_bound() {
     assert_eq!(found.refused_why.get(&Refused::NeverBound), None);
 }
 
-/// ⚠ **ANY name, not all of them.** One name the script binds settles the word:
+/// ANY name, not all of them. One name the script binds settles the word:
 /// it cannot be answered by a lookup even if every other part of it could be.
 #[test]
 fn one_bound_name_settles_a_word_with_several() {
@@ -2042,7 +2042,7 @@ fn one_bound_name_settles_a_word_with_several() {
     assert_eq!(found.refused_why.get(&Refused::BoundInScript), Some(&1));
 }
 
-/// ⚠ **THE INVARIANT.** Two maps over one population that can disagree are two
+/// THE INVARIANT. Two maps over one population that can disagree are two
 /// accounts of it. Every refusal has exactly one reason, so the reason map must
 /// sum to the refusals beside it — including through the merge of a nested
 /// script, where a count left behind would be invisible and low.
@@ -2064,8 +2064,8 @@ fn every_refusal_has_exactly_one_reason() {
     );
 }
 
-/// ⚠ **`scope` marks SUBSHELLS and nothing else — a loop body is invisible to
-/// it** (memview#1364).
+/// `scope` marks SUBSHELLS and nothing else — a loop body is invisible to
+/// it (memview#1364).
 ///
 /// The multi-step concept seeds (`Poll`, `Glance`, `Probe`) rested on a written
 /// hypothesis: *"`Step.scope` is the chain of subshells a node sits in, so a
@@ -2112,7 +2112,7 @@ fn scope_cannot_tell_a_loop_body_from_a_top_level_command() {
     // Unrolled iterations: header plus one step per iteration, all bare.
     assert_eq!(scopes("for f in a.ts b.ts; do wc -l $f; done"), bare(3));
 
-    // ⚠ The ONE construct that does move it, so the test says what `scope` is
+    // The ONE construct that does move it, so the test says what `scope` is
     // FOR rather than only what it is not.
     assert_eq!(scopes("( cd /tmp && ls x )"), vec![vec![1], vec![1]]);
 }

@@ -40,7 +40,7 @@ fn an_appended_file_is_resumable_and_says_how_much_is_new() {
     assert!(drift(&p, &mark).resumable());
 }
 
-/// ⚠ **A wrong resume is silent** — it mines from an offset that means something
+/// A wrong resume is silent — it mines from an offset that means something
 /// else and reports no error. So every case that is not provably an append must
 /// refuse to resume, and re-reading whole is always correct.
 #[test]
@@ -66,7 +66,7 @@ fn a_truncated_file_refuses_to_resume() {
     assert!(!drift(&p, &mark).resumable());
 }
 
-/// ⚠ A file replaced with different content of the SAME length and then grown
+/// A file replaced with different content of the SAME length and then grown
 /// still refuses: the fingerprint is taken at the recorded offset, so growth
 /// cannot mask a rewrite behind it.
 #[test]
@@ -90,7 +90,7 @@ fn a_file_that_is_gone_is_unknown_rather_than_resumable() {
     assert!(!drift(&p, &mark).resumable());
 }
 
-/// ⚠ **A record written before the fold state existed must still parse.**
+/// A record written before the fold state existed must still parse.
 /// `transcript-drift.json` is gitignored and rebuildable, but its reader
 /// deliberately fails loudly on a file it cannot understand — so a field added
 /// without a default would turn every existing corpus into "delete it and start
@@ -140,7 +140,7 @@ fn the_fold_state_is_written_beside_the_offset_not_under_it() {
 
 // ── What a run may do, given what it read last time (#1240) ──────────────────
 //
-// ⚠ Every test here is about failing CLOSED. A wrong resume produces no error:
+// Every test here is about failing CLOSED. A wrong resume produces no error:
 // it mines from an offset that means something else, and the artefact becomes
 // quietly untrue. So anything not provably an append must return `Full`.
 
@@ -183,7 +183,7 @@ fn a_file_nothing_touched_is_read_at_all() {
     }
 }
 
-/// ⚠ **ONE unresumable file discards EVERYTHING.** The artefacts carry no
+/// ONE unresumable file discards EVERYTHING. The artefacts carry no
 /// per-transcript provenance, so a re-read cannot have its old contribution
 /// subtracted — it would be counted from the carried artefact and again from the
 /// file. Partial recovery is not available, however tempting.
@@ -240,7 +240,7 @@ fn a_new_transcript_is_read_whole_without_discarding_the_rest() {
     }
 }
 
-/// ⚠ **A vanished transcript is carried, never a reason to re-mine.** Its rows
+/// A vanished transcript is carried, never a reason to re-mine. Its rows
 /// are history; `carry_forward` already treats memory-days this way on purpose.
 /// Forcing a full run on one would mean a full run most days — 343 transcripts
 /// disappeared in 22 days, nearly all `/private/tmp` scratch — which is the

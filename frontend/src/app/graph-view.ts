@@ -247,7 +247,7 @@ export class GraphView {
    * The corpus collapsed to one dot per region — the cold view's whole picture,
    * and null once a walk starts (the focused view is already good).
    *
-   * ⚠ **Each dot IS a memory** — the region's most-connected member — so clicking
+   * Each dot IS a memory — the region's most-connected member — so clicking
    * one walks into that region. A synthesised group node would have no
    * description, teaser or role and would break on the first click.
    */
@@ -364,7 +364,7 @@ export class GraphView {
    * When the co-use mine last ran, in the reader's own locale, or null when the
    * graph carries no mined data at all.
    *
-   * ⚠ **Shown because the alternative is silence, not because it changes.** The
+   * Shown because the alternative is silence, not because it changes. The
    * nodes and links are read live; `usage` and `affinities` are as old as the
    * last nightly mine, and a graph missing a day's work looked exactly like one
    * missing nothing. Serving a frozen artefact is the right trade for a page —
@@ -919,12 +919,12 @@ export class GraphView {
    * connection to.
    */
   private rebuildLayout(): void {
-    // ⚠ `visible()`, not `data()`: while cold this lays out the ~29 REGION dots,
+    // `visible()`, not `data()`: while cold this lays out the ~29 REGION dots,
     // and a layout built from the full corpus would settle 734 nodes nobody is
     // drawing (memview#1306).
     const graph = this.visible();
     if (!graph) return;
-    // ⚠ A region dot belongs to NO group — it IS one. Anchoring the 29 of them to
+    // A region dot belongs to NO group — it IS one. Anchoring the 29 of them to
     // the corpus's ~20 derived clusters pulled them toward territory that has
     // nothing to do with the regions on screen, which is what clumped them into a
     // central band (#1306).

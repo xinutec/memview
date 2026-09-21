@@ -1,6 +1,6 @@
 //! Where a transcript's bytes go (#1199).
 //!
-//! ⚠ **Every test here is really the same test: the buckets PARTITION.** The
+//! Every test here is really the same test: the buckets PARTITION. The
 //! ticket this serves exists because `claude_disk.py` charts three lines that do
 //! not sum to the total beside them, so a report whose categories overlap or
 //! leak would reproduce the defect it was built to fix — and would do it while
@@ -36,7 +36,7 @@ fn every_byte_lands_in_exactly_one_bucket() {
     assert_eq!(out.total(), bytes_on_disk(&lines));
 }
 
-/// ⚠ **A damaged line is still bytes on disk.** Skipping it would keep the
+/// A damaged line is still bytes on disk. Skipping it would keep the
 /// report looking tidy while the total quietly stopped matching the file — the
 /// exact failure mode this design exists to avoid.
 #[test]
@@ -85,7 +85,7 @@ fn a_result_is_attributed_to_the_tool_that_produced_it() {
     assert!(result > 0, "{:?}", out.by);
 }
 
-/// ⚠ A result whose call is in a stretch we have not read is `?`, NOT charged to
+/// A result whose call is in a stretch we have not read is `?`, NOT charged to
 /// whichever tool ran last. Guessing would put real bytes under a real name and
 /// be indistinguishable from a measurement.
 #[test]
@@ -154,8 +154,8 @@ fn every_top_level_entry_is_weighed_and_a_directory_is_its_contents() {
     assert_eq!(by("sub").files, 2);
 }
 
-/// ⚠ **`~/.claude` is itself a symlink to an external volume and entries under it
-/// point elsewhere.** Following one would count another disk's bytes into this
+/// `~/.claude` is itself a symlink to an external volume and entries under it
+/// point elsewhere. Following one would count another disk's bytes into this
 /// total, and a cycle would never terminate. A link is its own size, which is
 /// what the filesystem charges for it.
 #[test]
@@ -196,7 +196,7 @@ fn concentration_of_fewer_files_than_asked_for_leaves_no_remainder() {
 
 // ── The artefact, whose labels become permanent fleetwatch trend keys (#1200) ─
 
-/// ⚠ **A label that appears once creates a series that exists for ever.**
+/// A label that appears once creates a series that exists for ever.
 /// fleetwatch keys a trend on `(source, collector, section, label)`, so emitting
 /// the raw `Kind` would mint a permanent line the first time anybody ran a new
 /// tool — and a corpus with a hundred tool names would grow a hundred lines

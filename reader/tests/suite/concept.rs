@@ -48,8 +48,8 @@ fn only(script: &str) -> Concept {
 /// file use with its direction, and every account of a subject it could not
 /// name.
 ///
-/// ⚠ **The L3 effect reading, deliberately NOT the `Op` variant — recast when
-/// `Page` arrived.** `head -5 f` is `Op::Read` and
+/// The L3 effect reading, deliberately NOT the `Op` variant — recast when
+/// `Page` arrived. `head -5 f` is `Op::Read` and
 /// `sed -n '1,5p' f` is `Op::Transform` that prints: the level below
 /// classifies two spellings of one act differently, so holding the lowered
 /// form to variant equality would forbid exactly the unification this layer
@@ -72,8 +72,8 @@ fn read_as(script: &str) -> Vec<Reading> {
         .collect()
 }
 
-/// ⚠ **Acceptance test 1, and the reason `Rewrite` is the first lens rather
-/// than `Page`.** Two languages, one act: the concept is what they have in
+/// Acceptance test 1, and the reason `Rewrite` is the first lens rather
+/// than `Page`. Two languages, one act: the concept is what they have in
 /// common, and the spelling is what normalises away.
 #[test]
 fn two_languages_spelling_one_act_lift_to_the_same_concept() {
@@ -92,7 +92,7 @@ fn two_languages_spelling_one_act_lift_to_the_same_concept() {
     );
 }
 
-/// ⚠ **Acceptance test 2 — the equality recurrence detection stands on.** Two
+/// Acceptance test 2 — the equality recurrence detection stands on. Two
 /// occurrences that differ only in what nobody could name are the *same* work
 /// seen twice; if they compared unequal, a shape that recurs across a hundred
 /// episodes would look like a hundred distinct things and nothing would ever be
@@ -111,7 +111,7 @@ fn two_occurrences_differing_only_in_their_holes_are_equal() {
     );
     assert_eq!(one, two);
 
-    // ⚠ And a hole is NOT equal to a name, or the equality would be a way of
+    // And a hole is NOT equal to a name, or the equality would be a way of
     // saying nothing: every rewrite in the corpus would match every other.
     let named = only("sed -i 's/a/b/' src/geo/velocity.ts");
     assert_ne!(one, named);
@@ -169,8 +169,8 @@ fn the_lowered_text_parses() {
     assert!(parse(&text).is_ok(), "did not parse: {text}");
 }
 
-/// ⚠ **Acceptance test 1, for the second lens — and its price is gate 2's
-/// recast.** `head -5 f` and `sed -n '1,5p' f` are one act in two spellings,
+/// Acceptance test 1, for the second lens — and its price is gate 2's
+/// recast. `head -5 f` and `sed -n '1,5p' f` are one act in two spellings,
 /// and unlike `Rewrite`'s pair they do NOT meet at one `Op`: the reader below
 /// calls one a read and the other a transform that prints. The concept is
 /// where they meet — which is what the layer is for — so gate 2's judge is
@@ -227,7 +227,7 @@ fn a_page_with_no_count_is_the_default_ten() {
     assert_eq!(range, Range::First(10));
 }
 
-/// ⚠ **What looks like a page and is not, refused by name.** `tail -f` waits;
+/// What looks like a page and is not, refused by name. `tail -f` waits;
 /// `sed '1,5p'` without `-n` prints the WHOLE file and lines 1-5 again;
 /// `head -c` counts bytes; `tail -n +2` drops a prefix; `$`-addresses are not
 /// digit ranges; `cat -n` numbers its output; `xargs head -5` pages files the
@@ -253,7 +253,7 @@ fn what_looks_like_a_page_and_is_not_does_not_lift() {
     }
 }
 
-/// ⚠ **A redirect is a subject the argv never spells**, in either direction:
+/// A redirect is a subject the argv never spells, in either direction:
 /// `head -5 < f` reads a file no operand names, and `head -5 f > out` writes
 /// one. A lowered form built from the concept would silently do less, so both
 /// are refused — gate 2 is the reason, applied before the fact.
@@ -267,7 +267,7 @@ fn a_page_fed_or_captured_by_redirection_does_not_lift() {
     }
 }
 
-/// ⚠ **`sed` without `-i` prints and changes nothing**, so it is a different act
+/// `sed` without `-i` prints and changes nothing, so it is a different act
 /// and must not lift. Reading both as `Rewrite` would lower to a command that
 /// edits a file the original left alone — the direction that invents work.
 ///
@@ -275,7 +275,7 @@ fn a_page_fed_or_captured_by_redirection_does_not_lift() {
 /// on: the printing `sed` was looked at and turned down, where `wc` is simply
 /// a shape no lens covers.
 ///
-/// ⚠ **`cat` used to be this test's no-lens example and is now a `Page`** — it
+/// `cat` used to be this test's no-lens example and is now a `Page` — it
 /// shows the whole file. The read that still refuses is one that MEASURES
 /// rather than shows: `wc -l` counts lines, so no `Page` range describes it.
 #[test]
@@ -294,7 +294,7 @@ fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
     );
 }
 
-/// ⚠ **A program in another file is a hole, not an empty substitution.**
+/// A program in another file is a hole, not an empty substitution.
 /// `sed -i -f fix.sed x` rewrites by something real that is not in this text,
 /// and the lowered form has to say so rather than claim the substitution was
 /// nothing.
@@ -308,7 +308,7 @@ fn a_substitution_this_text_does_not_carry_is_a_hole() {
     assert!(lower(&concept).contains('?'), "{}", lower(&concept));
 }
 
-/// ⚠ **A remote rewrite is not a local one**, and a concept that lowered to a
+/// A remote rewrite is not a local one, and a concept that lowered to a
 /// bare `sed -i` would claim work on this machine. The step knows the host; the
 /// lift refuses rather than filing it here.
 #[test]
@@ -322,7 +322,7 @@ fn a_rewrite_on_another_machine_does_not_lift_as_a_local_one() {
     assert!(steps.iter().any(|step| lift(step) == Err(Why::Remote)));
 }
 
-/// ⚠ **A described subject is REFUSED, and refusing is the finding.**
+/// A described subject is REFUSED, and refusing is the finding.
 /// `Bounded` is the reader's middle — an unknown member of a known language —
 /// and no single command spells it: lowering `/home/…/*.ts` and lifting it back
 /// gives [`Subject::Named`], because a pattern in an operand position IS a
@@ -353,7 +353,7 @@ fn a_subject_this_cannot_lower_is_refused_rather_than_flattened() {
             .any(|step| lift(step) == Err(Why::Described))
     );
 
-    // ⚠ And the reader still HAS the language — nothing was lost below, only
+    // And the reader still HAS the language — nothing was lost below, only
     // left unlifted. A later `Rewrite` that can lower a loop takes it up again.
     assert!(
         loop_steps.iter().any(|step| !step.bounded.is_empty()),
@@ -361,7 +361,7 @@ fn a_subject_this_cannot_lower_is_refused_rather_than_flattened() {
     );
 }
 
-/// ⚠ **A hole must lower to something this reader reads BACK as a hole**, or
+/// A hole must lower to something this reader reads BACK as a hole, or
 /// the law cannot hold for the commonest unresolvable shape in the corpus.
 /// Measured: `?` carries no `/` and no extension, so the path guard refuses it
 /// and the subject vanishes — the lowered form would claim a rewrite of nothing.
@@ -381,7 +381,7 @@ fn a_hole_survives_being_lowered_and_read_again() {
 // hole must read as a hole. Neither is checked by the round-trip law, because
 // the law never looks at this function.
 
-/// ⚠ **The property that matters most on an approval screen.** A hole lowers to
+/// The property that matters most on an approval screen. A hole lowers to
 /// `"$UNNAMED"` because the reader must read it back as an admission — and on a
 /// card that spelling looks like a variable somebody could go and check. It has
 /// to say, in words, that the command touches a file whose name is not in it.
@@ -398,7 +398,7 @@ fn a_hole_reads_as_a_hole_on_the_card_and_never_as_a_path() {
     );
 }
 
-/// ⚠ **Every subject, never a count.** "2 files" would let the card claim a
+/// Every subject, never a count. "2 files" would let the card claim a
 /// concept while hiding which files, which is the one thing an approval is for.
 #[test]
 fn the_phrase_names_every_subject_the_concept_carries() {
@@ -412,7 +412,7 @@ fn the_phrase_names_every_subject_the_concept_carries() {
 /// The whole point of the layer, said on the card: one act, two spellings, one
 /// sentence. If these ever diverge the card is reporting spelling again.
 ///
-/// ⚠ **And the path is the RESOLVED one, not the word that was typed.** This
+/// And the path is the RESOLVED one, not the word that was typed. This
 /// test first expected `notes.md`, the reader answered
 /// `/home/example/Code/health/notes.md`, and the reader was right.
 /// [`Step::argv`] is "the words as the shell would have run them" for exactly
@@ -437,7 +437,7 @@ fn a_stream_page_says_it_was_given_its_input() {
     );
 }
 
-/// ⚠ **Acceptance test 1, for the third lens.** `egrep` IS `grep -E`, so two
+/// Acceptance test 1, for the third lens. `egrep` IS `grep -E`, so two
 /// spellings of one act must lift equal and the dialect must survive as a field
 /// rather than as the program's name.
 #[test]
@@ -459,7 +459,7 @@ fn two_spellings_of_one_search_lift_to_the_same_concept() {
     );
 }
 
-/// ⚠ **And a dialect is MEANING, so the two must NOT compare equal.** `a|b` is
+/// And a dialect is MEANING, so the two must NOT compare equal. `a|b` is
 /// three literal characters to basic grep and an alternation to `-E` — measured
 /// in bash, both. A lens that dropped the dialect would make these one concept
 /// and lower it to a command matching different lines.
@@ -513,8 +513,8 @@ fn a_lowered_search_reads_as_the_same_work_and_parses() {
     );
 }
 
-/// ⚠ **What scans like a search and answers a different question, refused BY
-/// NAME so the census can size each one.** These are not gaps — every one is a
+/// What scans like a search and answers a different question, refused BY
+/// NAME so the census can size each one. These are not gaps — every one is a
 /// design question with a row count behind it, and flattening any of them would
 /// have the concept claim lines the command never printed.
 #[test]
@@ -531,7 +531,7 @@ fn a_search_with_another_product_refuses_by_name() {
         ("grep -rn --include=*.ts foo src", Why::Filtered),
         ("grep -e foo src/a.ts", Why::PatternInFlag),
         ("rg -n foo src/a.ts", Why::NoLens),
-        // ⚠ The level below drops a bare word rather than guess what it is,
+        // The level below drops a bare word rather than guess what it is,
         // so the subjects come back empty — the same shape a pipe produces.
         ("grep -rn foo src", Why::UnreadSubject),
         ("grep -n foo notes", Why::UnreadSubject),
@@ -547,7 +547,7 @@ fn a_search_with_another_product_refuses_by_name() {
     }
 }
 
-/// ⚠ **A redirect is a subject the argv never spells**, and the guard `Page`
+/// A redirect is a subject the argv never spells, and the guard `Page`
 /// carries had to be shared rather than repeated — a search writing its hits to
 /// a file would otherwise lower to one that prints them instead.
 #[test]
@@ -584,7 +584,7 @@ fn a_search_describes_what_it_looks_for_and_where() {
     );
 }
 
-/// ⚠ **The same trap the `Search` lens found, asked of `Page`.** A bare word is
+/// The same trap the `Search` lens found, asked of `Page`. A bare word is
 /// dropped by the level below rather than guessed at, so `cat notes` would come
 /// back with no subjects — which is the shape `… | cat` produces, and would have
 /// the card say "what it is given" about a file the text named.
@@ -624,7 +624,7 @@ fn every_listing_shape_survives_the_round_trip() {
     }
 }
 
-/// ⚠ **The listing boundary, refused BY NAME so the census sizes each.**
+/// The listing boundary, refused BY NAME so the census sizes each.
 ///
 /// `ls -l` hands back mode, size and time — the same locus, a different product,
 /// which is the call `grep -c` gets. `ls -d` NAMES the directory instead of
@@ -632,7 +632,7 @@ fn every_listing_shape_survives_the_round_trip() {
 /// real locus the text never wrote, and inventing it is the fabrication this
 /// layer refuses everywhere.
 ///
-/// ⚠ **`find` is refused WHOLE, and the census is the argument.** Its operands
+/// `find` is refused WHOLE, and the census is the argument. Its operands
 /// are a predicate expression — `-o`, `-not` and `-prune` are all well used —
 /// so keeping only the `-name` value would claim a
 /// NARROWER walk than the command made. That is a false lower bound.
@@ -658,8 +658,8 @@ fn what_looks_like_a_listing_and_is_not_refuses_by_name() {
     }
 }
 
-/// ⚠ **The three readers under `Op::Read` must not claim each other's
-/// commands.** They are asked in order — page, listing, measure — and each
+/// The three readers under `Op::Read` must not claim each other's
+/// commands. They are asked in order — page, listing, measure — and each
 /// declining is what hands the step on. Only a [`Why::NoLens`] falls through:
 /// a named refusal (`find`, `ls -l`) is an answer, not a hand-off.
 #[test]
@@ -669,7 +669,7 @@ fn a_page_a_listing_and_a_measure_do_not_claim_each_others_commands() {
     assert!(matches!(only("wc -l src/a.ts"), Concept::Measure { .. }));
 }
 
-/// ⚠ **Acceptance test for the ninth lens.** The locus `cat` shows, read for
+/// Acceptance test for the ninth lens. The locus `cat` shows, read for
 /// one number — and the FLAG is the product: `-l` and `-c` are different
 /// questions with different answers, so the quantity is carried, canonically
 /// spelled on the way back down, and said in words on the card.
@@ -730,7 +730,7 @@ fn a_stream_measure_says_it_was_given_its_input() {
     assert_eq!(describe(&concept), "Count the lines of what it is given");
 }
 
-/// ⚠ **What measures and answers a different question stays in the queue.**
+/// What measures and answers a different question stays in the queue.
 /// Bare `wc` is a TABLE (the POSIX triple), `-lc` likewise, `-L` a length;
 /// `du` and `stat` are numbers about the FILE rather than its contents. None
 /// made the census, so each queues for it rather than earning a name.
@@ -787,7 +787,7 @@ fn a_listing_describes_the_locus_and_its_reach() {
     );
 }
 
-/// ⚠ **Acceptance test 1 for the fifth lens: `--oneline` is DECORATION.**
+/// Acceptance test 1 for the fifth lens: `--oneline` is DECORATION.
 /// 94% of `git log` rows carry it (measured over 23,160 steps), and
 /// it changes how a commit prints, never which commits appear — so it
 /// normalises away exactly as `grep -n` does.
@@ -809,7 +809,7 @@ fn a_git_log_decoration_flag_is_not_part_of_the_concept() {
     );
 }
 
-/// ⚠ **The three spellings of a count are one count**, and the absence of one is
+/// The three spellings of a count are one count, and the absence of one is
 /// NOT a count. git's own default is unbounded, so inventing a number here would
 /// be the fabrication the layer refuses — unlike `head`, whose ten is POSIX and
 /// documented.
@@ -848,7 +848,7 @@ fn every_history_shape_survives_the_round_trip() {
     }
 }
 
-/// ⚠ **`git -C dir log` names a LOCATION, not a subject.** A repository is
+/// `git -C dir log` names a LOCATION, not a subject. A repository is
 /// context the way a working directory is, so the concept carries no repo field
 /// and two logs of the same shape in different repos are the same concept —
 /// which is what recurrence detection needs.
@@ -860,8 +860,8 @@ fn a_repository_is_context_and_not_a_subject() {
     );
 }
 
-/// ⚠ **What selects different COMMITS, or hands back a different PRODUCT,
-/// refuses by name.** Each is sized by the census and each would otherwise have
+/// What selects different COMMITS, or hands back a different PRODUCT,
+/// refuses by name. Each is sized by the census and each would otherwise have
 /// the concept name commits the command never showed.
 #[test]
 fn a_git_log_that_selects_or_formats_differently_refuses_by_name() {
@@ -891,7 +891,7 @@ fn a_git_log_that_selects_or_formats_differently_refuses_by_name() {
     }
 }
 
-/// ⚠ **Every git subcommand is its OWN act and none may answer for another.**
+/// Every git subcommand is its OWN act and none may answer for another.
 /// `status`, `commit` and `add` have concepts of their own now; `push`, `diff`
 /// and `show` stay in the queue where the census ranks them. Claiming any of
 /// them as a `History` would be the flattening the vocabulary exists to avoid.
@@ -955,12 +955,12 @@ fn every_git_working_tree_shape_survives_the_round_trip() {
     }
 }
 
-/// ⚠ **A message from a FILE is a hole, not an empty message.** `git commit -F -`
+/// A message from a FILE is a hole, not an empty message. `git commit -F -`
 /// reads stdin; the message is real and is not in this text, exactly as
 /// `sed -i -f fix.sed` has a substitution that is not. 2,972 of 10,758 commit
 /// steps take this route, so it is the ordinary case and not an edge.
 ///
-/// ⚠ And a hole must not lower to `-m ''`, which would invent an EMPTY message —
+/// And a hole must not lower to `-m ''`, which would invent an EMPTY message —
 /// a different commit. It lowers to `-F -`, which reads back as the same hole.
 #[test]
 fn a_commit_message_that_is_not_in_the_text_is_a_hole() {
@@ -981,8 +981,8 @@ fn a_commit_message_that_is_not_in_the_text_is_a_hole() {
     assert_eq!(lower(&held), "git commit -F -");
 }
 
-/// ⚠ **What stages differently, commits differently, or reports a different SET
-/// refuses by name.** `-n`/`--dry-run` stages NOTHING, `-p` is interactive,
+/// What stages differently, commits differently, or reports a different SET
+/// refuses by name. `-n`/`--dry-run` stages NOTHING, `-p` is interactive,
 /// `commit -a` stages and commits in one act, `status --cached` reports only
 /// what is staged. Each would have a lowered concept do something the command
 /// did not.
@@ -1010,7 +1010,7 @@ fn a_git_working_tree_command_that_does_something_else_refuses_by_name() {
     }
 }
 
-/// ⚠ **A commit with no `-m` and no `-F` does not lift at all.** The message was
+/// A commit with no `-m` and no `-F` does not lift at all. The message was
 /// typed into an editor, and nothing in the text or the transcript records what
 /// it said — so the concept would have to invent the one field that matters.
 #[test]
@@ -1048,7 +1048,7 @@ fn the_git_working_tree_cards_say_what_approval_needs() {
     );
 }
 
-/// ⚠ **`--` ends the FLAGS, not the count** — memview#1525. Two readers wrote
+/// `--` ends the FLAGS, not the count — memview#1525. Two readers wrote
 /// `break` where the other three set a flag, so every operand after a separator
 /// vanished: the count came out short of `subjects.len()` and the row refused
 /// [`Why::UnreadSubject`], which is a miscount wearing the name of a real
@@ -1068,7 +1068,7 @@ fn every_reader_counts_the_operands_after_a_separator() {
         only("ls src/geo"),
         "a listing's locus after `--` is the same locus"
     );
-    // ⚠ NOT compared against `git status src/a.ts` — that shape refuses on
+    // NOT compared against `git status src/a.ts` — that shape refuses on
     // purpose, because nothing DECLARED the word a path (see `status`). The
     // separator is what makes it a subject here, so the concept is the assertion.
     assert_eq!(
@@ -1085,7 +1085,7 @@ fn every_reader_counts_the_operands_after_a_separator() {
     ));
 }
 
-/// ⚠ **A path is a path however it is SPELLED** — that is what the author
+/// A path is a path however it is SPELLED — that is what the author
 /// declared by writing `--`. A `-`-leading operand after the separator must not
 /// be read back as a flag.
 #[test]

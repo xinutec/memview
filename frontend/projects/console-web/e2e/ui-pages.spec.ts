@@ -40,7 +40,7 @@ const THUMB = 48;
  * Let every transform that is still moving finish, before anything measures a
  * box.
  *
- * ⚠ **A box measured mid-animation is not the box the layout claims.** Material
+ * A box measured mid-animation is not the box the layout claims. Material
  * opens its overlays by scaling them: `_mat-menu-enter` runs a panel from
  * `scale(0.8)` to `scale(1)` over 120ms, and `getBoundingClientRect` maps
  * through that, so every 48px menu item inside is genuinely 38px early in the
@@ -49,13 +49,13 @@ const THUMB = 48;
  * an open menu every time without this wait and passes every time with it
  * (memview #735).
  *
- * ⚠ **This is not "wait for the overlay to be ready".** Nothing running means it
+ * This is not "wait for the overlay to be ready". Nothing running means it
  * returns at once, and an overlay whose contents are still on their way has
  * nothing running yet — so a check that measures those contents must wait for
  * them to EXIST first and use this only to stop them moving. See [[openParse]],
  * where using it alone read `.raw` as `null` on a page about to be correct.
  *
- * ⚠ **Finite animations only, and this is not a detail.** A busy session keeps
+ * Finite animations only, and this is not a detail. A busy session keeps
  * `mat-progress-bar` cycling forever, so waiting for `getAnimations()` to drain
  * would never return on the page these checks are mostly pointed at. Bounded as
  * well, because an animation that is never going to finish should fail the
@@ -99,7 +99,7 @@ async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
       // Not rendered at all — a disabled control in a collapsed branch.
       if (box.width === 0 && box.height === 0) continue;
       if (box.height >= least && box.width >= least) continue;
-      // ⚠ **Reported to the hundredth, deliberately.** Rounding these to whole
+      // Reported to the hundredth, deliberately. Rounding these to whole
       // pixels cost two days of #735: a row that missed by 0.004px was reported
       // as `height: 48`, so the number in the failure said the row was the size
       // the assertion had just refused. Whatever is left of that flake, its
@@ -129,7 +129,7 @@ async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
  * Every icon that is a control on its own, and whether it sits in the middle of
  * it.
  *
- * ⚠ **The one failure class every other check here is blind to.** A glyph 3px
+ * The one failure class every other check here is blind to. A glyph 3px
  * high in its own circle is not clipped, does not overflow, does not overlap
  * anything and is the right size to press — it is simply wrong, and the only
  * evidence is the arithmetic between two boxes. It happened the moment the
@@ -186,7 +186,7 @@ async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
 /**
  * Every clock in the margin, and whether it sits on the line it dates.
  *
- * ⚠ **The same blind spot `expectIconsCentred` covers, one row down.** A time
+ * The same blind spot `expectIconsCentred` covers, one row down. A time
  * 6px below its own line is not clipped, does not overlap, does not overflow and
  * is perfectly legible — it just reads as a number floating near a row rather
  * than a label on it, and the only evidence is arithmetic between two boxes.
@@ -230,7 +230,7 @@ async function expectClocksOnTheirLine(page: Page, slack = 2): Promise<void> {
       range.selectNodeContents(first);
       const line = range.getClientRects()[0];
       if (!line) continue;
-      // ⚠ **Tops, not centres.** The clock is body-small beside rows that are
+      // Tops, not centres. The clock is body-small beside rows that are
       // body-medium, and two line boxes of different heights cannot share a
       // centre — a centre check would have to carry a tolerance wide enough to
       // hide the defect it exists for. Where a line starts is exact at any size.
@@ -256,7 +256,7 @@ const RUNNING: Summary = {
   started: 1785600000,
   alive: true,
   model: 'claude-opus-5[1m]',
-  // ⚠ **Without this the header's mode icon does not exist in the harness.**
+  // Without this the header's mode icon does not exist in the harness.
   // Both the card and the session header draw it only for a session whose
   // mode the runner has read (`@if (modeIcon(); as icon)`), so a fixture
   // with none put every control check — thumb targets, icon centring,
@@ -331,7 +331,7 @@ const STATE: Overview = {
 /**
  * The same roster, long enough that the list cannot fit on a phone.
  *
- * ⚠ **The two-session fixture above is a screen and a half short of the defect.**
+ * The two-session fixture above is a screen and a half short of the defect.
  * The console drives a dozen sessions at once — that is what it is for — and
  * every existing check passed a list that was quietly painting over the build
  * stamp, because no fixture had ever made the page taller than the viewport.
@@ -374,7 +374,7 @@ const TRANSCRIPT = [
     input: { command: 'nix develop -c home-manager switch --flake .#pippijn' },
     at: LATE,
   },
-  // ⚠ **Carries an `at`, and that is the regression case for memview#725.** A
+  // Carries an `at`, and that is the regression case for memview#725. A
   // real `Joined` always does — the runner pushes it through `push()`, which
   // stamps `now()` — so a note row without one tests a shape production never
   // sends. With one, this row is drawn with a clock in the margin, which is what
@@ -413,7 +413,7 @@ const TRANSCRIPT = [
     kind: 'tool_result',
     id: 'toolu_02',
     ok: false,
-    // ⚠ **In colour, because that is how it arrives.** `cargo`, `vitest` and
+    // In colour, because that is how it arrives. `cargo`, `vitest` and
     // `eslint` all write SGR, and with nothing reading it the ESC byte is
     // invisible while the codes are not — the phone showed `[2m…[32m22 passed`.
     // The fixture carries the escapes so the harness renders what a real result
@@ -508,7 +508,7 @@ const QUESTION_TRANSCRIPT = [
 /**
  * Open the folded run of tool calls, so the calls themselves are on the page.
  *
- * ⚠ **A run of two or more calls is folded by default** — see `blocks()` in
+ * A run of two or more calls is folded by default — see `blocks()` in
  * transcript.ts — so a check about what a tool row looks like has to open it
  * first. That the fixture folds at all is the subject of its own test below.
  */
@@ -519,11 +519,11 @@ async function openTools(page: Page): Promise<void> {
 /**
  * The corpus survey, at the widths that stress a 412px strip.
  *
- * ⚠ **The longest real shape label is here on purpose.** "run a program on
+ * The longest real shape label is here on purpose. "run a program on
  * another machine (no shell)" is 42 characters of prose beside a right-aligned
  * seven-digit count, which is the one row that can collide.
  *
- * ⚠ **Every field the page draws, not only the ones it asserts.** This carried
+ * Every field the page draws, not only the ones it asserts. This carried
  * four while it fed a five-bar strip; the page reads a dozen more, and Angular's
  * `| number` renders `undefined` as EMPTY rather than failing — so the Files
  * figures, the work queue and the stamp were all blank while every assertion
@@ -582,7 +582,7 @@ async function mockRunner(page: Page): Promise<void> {
 /**
  * Nothing pinned may sit on top of anything else pinned.
  *
- * ⚠ **Not covered by the text-overlap check**, which is why this exists as its
+ * Not covered by the text-overlap check, which is why this exists as its
  * own assertion. That one compares text nodes, and the composer's biggest
  * surface is an empty `textarea` with no text in it at all — so a footer
  * rendering straight through the text box was invisible to it, while being the
@@ -633,7 +633,7 @@ async function expectComposerFillsTheWidth(page: Page): Promise<void> {
   // The composer reaches both edges; the text box takes what is left after the
   // two controls beside it.
   expect(width!.composer).toBe(width!.page);
-  // ⚠ **Three fifths, and it was seven tenths.** The row carried one button —
+  // Three fifths, and it was seven tenths. The row carried one button —
   // send — until the image picker joined it, and each is held to the 48px thumb
   // floor: 412px of screen less 32 of padding, 96 of buttons and 16 of gaps
   // leaves 268. Lowered deliberately rather than quietly, and no further: the
@@ -645,7 +645,7 @@ async function expectComposerFillsTheWidth(page: Page): Promise<void> {
 /**
  * The send button sits on the same line as the box it sends.
  *
- * ⚠ Not a cosmetic assertion. A `mat-form-field` reserves a line of hint/error
+ * Not a cosmetic assertion. A `mat-form-field` reserves a line of hint/error
  * space below its input by default — `.mat-mdc-form-field-bottom-align::before`
  * in Material's own CSS — so a row aligned to `flex-end` aligns its other
  * controls to the bottom of a box whose last line is invisible. The button then
@@ -673,7 +673,7 @@ async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
 /**
  * Words that look like one line sit on one line.
  *
- * ⚠ **The failure class none of the others can see.** Text a few pixels off its
+ * The failure class none of the others can see. Text a few pixels off its
  * neighbours is not clipped, not overlapping, not overflowing and not small — it
  * is simply wrong, and the only symptom is a row that reads as ragged. Both
  * defects this has caught were found by eye on the phone, not by a check.
@@ -761,12 +761,12 @@ async function expectOneLine(page: Page, rowSel: string, tol = 1): Promise<void>
  * Nothing in the page paints over `selector` — the stamp at the foot of the
  * shell, or the button pinned above it.
  *
- * ⚠ **Two claims, one implementation.** A second copy of the clipping walk below
+ * Two claims, one implementation. A second copy of the clipping walk below
  * is a second answer to keep in step, and the two targets differ in nothing but
  * which box is the target: `.add` is skipped when it IS the target, and a caller
  * scrolls first when the overlap only happens at the foot of a list.
  *
- * ⚠ **A different failure from `expectNoPinnedOverlap`**, which compares the
+ * A different failure from `expectNoPinnedOverlap`, which compares the
  * pinned regions with each other and never looks at the content. The shell is a
  * `100dvh` column of toolbar, page and stamp, and `.page` is deliberately
  * shrinkable — `min-height: 0` is what lets a flex item be shorter than what is
@@ -779,7 +779,7 @@ async function expectNothingPaintsOver(page: Page, selector: string): Promise<vo
     const target = document.querySelector(selector)?.getBoundingClientRect();
     if (!target) return [`no ${selector} on this page`];
 
-    // ⚠ **What is painted, not what is laid out.** A card scrolled halfway out
+    // What is painted, not what is laid out. A card scrolled halfway out
     // of a scrolling region still reports its whole box from
     // `getBoundingClientRect` — the clipping is done by the ancestor, and it is
     // the difference between the defect and the fix: the same card, at the same
@@ -788,7 +788,7 @@ async function expectNothingPaintsOver(page: Page, selector: string): Promise<vo
     // ancestor that actually clips.
     const painted = (node: Element): DOMRect => {
       let box = node.getBoundingClientRect();
-      // ⚠ **A fixed element is not clipped by its ancestors' overflow** — it is
+      // A fixed element is not clipped by its ancestors' overflow — it is
       // positioned against the viewport, and climbing past it cropped the one
       // control on this page that can actually reach the stamp. Cropped to
       // `.page`, which stops above the stamp by construction, so the check
@@ -813,7 +813,7 @@ async function expectNothingPaintsOver(page: Page, selector: string): Promise<vo
     const bad: string[] = [];
     // The cards, not every node: a box that overlaps is reported once, by the
     // thing somebody can see, rather than once per span inside it.
-    // ⚠ `.add` is here because it is the one thing on this page positioned
+    // `.add` is here because it is the one thing on this page positioned
     // against the viewport rather than laid out in the column — which is exactly
     // the way to end up on top of the stamp, and the only way this check can be
     // wrong by omission. `.start` used to be the form at the top of the page and
@@ -840,7 +840,7 @@ async function expectNothingPaintsOver(page: Page, selector: string): Promise<vo
 /**
  * Hand the test the stream, so it decides when a message arrives.
  *
- * ⚠ **The mocked SSE body cannot answer this question.** `route.fulfill` serves
+ * The mocked SSE body cannot answer this question. `route.fulfill` serves
  * a complete response and closes, so every event in the fixture has landed
  * before the first paint — which is exactly the case that cannot show whether
  * the view *keeps* following. Following is about what happens to a page that is
@@ -869,7 +869,7 @@ async function handControlOfTheStream(page: Page): Promise<void> {
     (window as unknown as { __say: unknown }).__say = (event: unknown, seq: number) => {
       const stream = (window as unknown as { __stream?: Held }).__stream;
       if (!stream?.onmessage) return false;
-      // ⚠ **The boundary first, exactly as the runner sends it.** Every real
+      // The boundary first, exactly as the runner sends it. Every real
       // connection carries `caught-up` once its backlog is flushed, and the page
       // treats everything before it as replayed history that may not speak for
       // the present. A mock that skipped it would have the page ignoring its own
@@ -927,7 +927,7 @@ async function distanceFromTheEnd(page: Page): Promise<number> {
  * A finger on the transcript: down, dragged `by` CSS pixels, then whatever
  * `during` does, then up.
  *
- * ⚠ **Trusted touch events through CDP, not `dispatchEvent`.** A synthetic
+ * Trusted touch events through CDP, not `dispatchEvent`. A synthetic
  * `TouchEvent` built in the page reaches our listeners and moves nothing —
  * untrusted events never reach the compositor — so the engine would be asked
  * about a hold during which the view never actually moved, which is the one
@@ -949,7 +949,7 @@ async function thumb(page: Page, by: number, during?: () => Promise<void>): Prom
     type: 'touchStart',
     touchPoints: [{ ...finger, x, y }],
   });
-  // ⚠ **Paced like a hand, not dispatched in a burst.** Sent back to back, the
+  // Paced like a hand, not dispatched in a burst. Sent back to back, the
   // moves read as a flick: the compositor takes the gesture, the page stops
   // receiving the touch stream after about five moves, and `touchend` never
   // arrives at all — leaving the transcript held for ever, which looks exactly
@@ -962,7 +962,7 @@ async function thumb(page: Page, by: number, during?: () => Promise<void>): Prom
     });
     await page.waitForTimeout(16);
   }
-  // ⚠ **Still before it lifts, or this is a flick and not a thumb.** Releasing
+  // Still before it lifts, or this is a flick and not a thumb. Releasing
   // mid-motion leaves a fling that keeps scrolling after the finger has gone, and
   // the engine then unpins for the best of reasons — the reader really is
   // travelling away. Measured: without this the view reads as at the end the
@@ -1026,13 +1026,13 @@ test('starting a session is behind one button, not in the way @ phone width', as
   await add.click();
   const where = page.getByLabel('where');
   await expect(where, 'the form did not open').toBeVisible();
-  // ⚠ **Prefilled with where sessions ACTUALLY run**, not with the first
+  // Prefilled with where sessions ACTUALLY run, not with the first
   // repository alphabetically. The old default was a real directory nothing had
   // ever been started in, which is the kind of wrong that looks deliberate — see
   // [[SessionsView.commonest]]. Here that is the busiest session's own
   // directory, which both mocked sessions share.
   await expect(where).toHaveValue(RUNNING.dir);
-  // ⚠ **Opening the sheet must not open a list.** The field opens on `~/Code`,
+  // Opening the sheet must not open a list. The field opens on `~/Code`,
   // a prefix of every repository, and the native `<datalist>` this replaced
   // matched the whole value — so pressing + painted all 24 over the phone.
   const offered = page.locator('.suggestions button');
@@ -1068,8 +1068,8 @@ test('session list — a dozen sessions do not reach the build stamp @ phone wid
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 
-  // ⚠ **And the last card has to clear the button, which only shows at the
-  // bottom.** `.add` is `fixed`, so a list with nothing under it scrolls its last
+  // And the last card has to clear the button, which only shows at the
+  // bottom. `.add` is `fixed`, so a list with nothing under it scrolls its last
   // card straight underneath — measured at 56×56, with the button's own touch
   // target answering `elementFromPoint` there, so the tap went to it as well.
   // The same shape as the composer covering the last entry's buttons, which
@@ -1091,7 +1091,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await openTools(page);
   await page.getByText('verified_cli').first().waitFor();
 
-  // ⚠ **The codes, not the colour.** A great deal of what the fleet runs writes
+  // The codes, not the colour. A great deal of what the fleet runs writes
   // SGR — `cargo`, `vitest`, `eslint` — and with nothing reading it the ESC byte
   // is invisible while the rest is not, so the row read
   // `[1;31merror[0m: unknown flag`. Asserted on the escape sequence rather than
@@ -1111,7 +1111,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
 /**
  * Landmarks as the runner sends them, and shaped like the hard cases.
  *
- * ⚠ **The long one is not padding.** A first line is often a pasted path or a
+ * The long one is not padding. A first line is often a pasted path or a
  * command with no spaces in it, which is exactly what breaks a single-line row:
  * `overflow-wrap: anywhere` collapses the column to its longest word
  * (DL-CSS-ANYWHERE) and a missing `min-width: 0` pushes the icon off the screen.
@@ -1120,7 +1120,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
 /**
  * A landmark's moment, as a wall-clock time on a day counted back from today.
  *
- * ⚠ **Anchored to the run's own clock, and it has to be.** `byDay` names a day
+ * Anchored to the run's own clock, and it has to be. `byDay` names a day
  * `Today` or `Yesterday` by comparing `toDateString()` against `Date.now()`, so a
  * fixture pinned to absolute dates passes on the day it is written and fails
  * every day after — which is what happened. Local rather than UTC for the same
@@ -1150,7 +1150,7 @@ const LANDMARKS = [
 test('go to — a long conversation is reachable by landmark @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The screen this exists for.** A transcript here runs to hundreds of
+  // The screen this exists for. A transcript here runs to hundreds of
   // megabytes and pages back 400 events at a time, so anything an hour old is a
   // hundred taps away. This sheet is the way back, which makes its rows the one
   // place in the app where a pasted path has to fit on a phone.
@@ -1191,7 +1191,7 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
   // the whole row is the target and it may not be shaved.
   await expectThumbTargets(page);
 
-  // ⚠ **And the state a jump leaves behind, which is the part that can mislead.**
+  // And the state a jump leaves behind, which is the part that can mislead.
   // Detached, the transcript does not grow and the header's "working" is a
   // reading from before — so the banner is the only thing on screen telling the
   // truth about what is being looked at.
@@ -1208,7 +1208,7 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
 /**
  * A real 2×4 PNG, on disk beside this spec.
  *
- * ⚠ **A file rather than bytes in the source, and not for tidiness.** PNG bytes
+ * A file rather than bytes in the source, and not for tidiness. PNG bytes
  * written by hand do not decode, and the failure is quiet in exactly the wrong
  * way: `setInputFiles` succeeds, the change event fires, and `createImageBitmap`
  * refuses with "the source image could not be decoded" — which the page reports
@@ -1230,7 +1230,7 @@ function tinyPng(): string {
 test('a picture waits to be sent with what is said about it @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The phone is where the screen being talked about is.** A layout that
+  // The phone is where the screen being talked about is. A layout that
   // settles wrongly, a chart that reads oddly, a thing on a desk — all of it was
   // describable and not showable until this. The picture is scaled in the page
   // (see `picture.ts`) and sent as an `image` block on the session's stdin, which
@@ -1255,7 +1255,7 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
   await expect(chosen.locator('.about')).toContainText('2×4');
   expect(sent, 'nothing left the phone on choosing').toBeUndefined();
 
-  // ⚠ The composer holds a thumbnail, a size, a discard button, the box and
+  // The composer holds a thumbnail, a size, a discard button, the box and
   // send — the fullest this row ever gets, and the phone is 412px wide.
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
@@ -1275,7 +1275,7 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
 test('a command waiting for the turn says so, and can be taken back @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Measured against CLI 2.1.221/226.** A slash command written
+  // Measured against CLI 2.1.221/226. A slash command written
   // to a working session is not run: the CLI parks it as a `queued_command` with
   // `commandMode: "prompt"` and hands it to the MODEL as words. `/rename` sent
   // from the phone got "Noted the rename (CLI-side, nothing for me to do)" and
@@ -1331,7 +1331,7 @@ test('what is being written survives leaving the conversation @ phone width', as
   await page.locator('[aria-label="all sessions"]').click();
   await expect(page.locator('.composer')).toHaveCount(0);
 
-  // ⚠ Through the OTHER conversation on the way back, because a draft that was
+  // Through the OTHER conversation on the way back, because a draft that was
   // global rather than per session would pass the simple there-and-back and
   // still put one conversation's words into another.
   await page.goto(`/s/${second}`);
@@ -1343,7 +1343,7 @@ test('what is being written survives leaving the conversation @ phone width', as
   await expect(page.locator('.composer textarea')).toHaveValue('half a thought about this');
   await expect(page.locator('.chosen .thumb')).toBeVisible();
   await expect(page.locator('.chosen .about')).toContainText('2×4');
-  // ⚠ **Visible is not drawn.** A held picture's preview is an object URL, which
+  // Visible is not drawn. A held picture's preview is an object URL, which
   // belongs to the document that made it and is dead in the next one — a revived
   // draft carrying one would show a broken image that still passes every
   // assertion above. `naturalWidth` is the browser saying it decoded the bytes.
@@ -1357,7 +1357,7 @@ test('what is being written survives leaving the conversation @ phone width', as
 test('a picture that was sent is on the screen, not a path to it @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The half of the feature that was missing.** A sent picture reached the
+  // The half of the feature that was missing. A sent picture reached the
   // model and left the person who took it with a sentence about a file path —
   // the one party to the conversation who could not see it. The runner reads the
   // image block back out of the transcript, keeps the note out of the words, and
@@ -1410,7 +1410,7 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
 test('a finger on the transcript stops it being pulled to the end @ phone width', async ({
   page,
 }) => {
-  // ⚠ **Reported from the phone.** A session writing its answer pulled the view
+  // Reported from the phone. A session writing its answer pulled the view
   // to the end on every delta, including while the reader had a thumb on the
   // glass reading the sentence as it arrived — they had not scrolled, so they
   // were still pinned, and being pinned is exactly what moved the view.
@@ -1451,7 +1451,7 @@ test('a finger on the transcript stops it being pulled to the end @ phone width'
   await list.dispatchEvent('touchstart');
   await page.setViewportSize({ width: 412, height: 420 });
 
-  // ⚠ **Wait for the resize to have been acted on, then assert.** The claim here
+  // Wait for the resize to have been acted on, then assert. The claim here
   // is that something did NOT happen, and there is no event for that — so the
   // window has to be given its chance first. `expect.poll(...).toBe(before)`
   // alone is worse than useless: `before` is the current value, so it passes on
@@ -1491,7 +1491,7 @@ test('a picture can be put down again without being sent @ phone width', async (
 /**
  * A run of calls with a permission question standing on the newest one.
  *
- * ⚠ **The shape the defect lived in** (memview#86): the CLI announces the call
+ * The shape the defect lived in (memview#86): the CLI announces the call
  * and then asks about it, carrying the same `tool_use` id on both. Two calls
  * before it, so the fold has something to fold — the card used to sit between
  * them and break every run.
@@ -1523,7 +1523,7 @@ const DECIDING = [
 test('a call waiting to be allowed is one widget, not two @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Reported from the phone, diagnosed by driving a real session.**
+  // Reported from the phone, diagnosed by driving a real session.
   // The CLI emits `tool toolu_…` and then `ask …` about the same call, and the
   // console drew both: a tool row AND a permission card for one Write. The card
   // also sat between the calls either side of it, so a sequence of decided calls
@@ -1576,7 +1576,7 @@ async function mockQuestion(page: Page): Promise<() => Record<string, unknown> |
 test('a question offers what was asked, not allow and refuse @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The defect this was built for.** The console showed a question as a
+  // The defect this was built for. The console showed a question as a
   // permission for months: the options arrived in the ask and were never
   // rendered, so the only answer it could give was an approval with no answer in
   // it — which the CLI reports as "the user did not answer the questions".
@@ -1647,7 +1647,7 @@ test('an answered question says what was chosen @ phone width', async ({ page },
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.chose').waitFor();
 
-  // ⚠ **Not yet 'answered', and that is the fix.** The verdict used to be drawn
+  // Not yet 'answered', and that is the fix. The verdict used to be drawn
   // straight from the write reaching the pipe, so a session that had stopped
   // reading showed a green *answered* while still blocked on the same question
   // (memview #122). Nothing has come back from the session in this stream, so
@@ -1686,7 +1686,7 @@ test('a typed reply is recorded as one, not as a choice @ phone width', async ({
 });
 
 test('a note rides with the choice it qualifies @ phone width', async ({ page }, testInfo) => {
-  // ⚠ **The difference from the reply field.** Words override the choices; a
+  // The difference from the reply field. Words override the choices; a
   // note qualifies one, so both must arrive — and the options must stay live
   // while one is being written.
   const sent = await mockQuestion(page);
@@ -1736,7 +1736,7 @@ test('a note alone is enough to send @ phone width', async ({ page }) => {
 });
 
 test('words instead of a choice take the card over @ phone width', async ({ page }, testInfo) => {
-  // ⚠ **The trap this shape exists to close.** The CLI's result builder tests
+  // The trap this shape exists to close. The CLI's result builder tests
   // `response` before `answers` and reports only what it finds, so words sent
   // alongside a set of taps would throw the taps away and say nothing about it.
   // Typing therefore disables the options rather than sitting beside them.
@@ -1840,7 +1840,7 @@ const LONG_ANSWER = Array.from(
 test('opening a session from the list lands at the newest message @ phone width', async ({
   page,
 }) => {
-  // ⚠ **The path somebody actually takes**, and a different one from the tests
+  // The path somebody actually takes, and a different one from the tests
   // below: they drive a stream into a page that is already open, where this
   // navigates to a component that does not exist yet and is handed a whole
   // transcript at once. A resumed conversation is replayed from its last 400
@@ -1880,7 +1880,7 @@ test('opening a session from the list lands at the newest message @ phone width'
 });
 
 test('scrolling to the top fetches what came before it @ phone width', async ({ page }) => {
-  // ⚠ **No control to press.** The seed is a page, not the conversation, and
+  // No control to press. The seed is a page, not the conversation, and
   // reading back through a morning used to be a dozen taps on `earlier
   // messages`. Reaching the top IS the request now, so what this measures is
   // that a reader who scrolls up gets more — and keeps getting it, which is the
@@ -1936,12 +1936,12 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   // Nothing is asked for while the reader is at the newest message.
   expect(asked, 'fetched without being anywhere near the top').toBe(0);
 
-  // ⚠ **One page per arrival at the top, not the whole file.** Landing a page
+  // One page per arrival at the top, not the whole file. Landing a page
   // and holding the reader's place puts the mark back out of view, which is the
   // point: "starting small" would mean nothing if reaching the top once
   // unspooled a 1.4 GB transcript. So each fetch here is a fresh journey to the
   // top, which is what a reader travelling backwards through a morning does.
-  // ⚠ **`if (box)` made a missing container look like a successful scroll**, and
+  // `if (box)` made a missing container look like a successful scroll, and
   // the failure then surfaced 5s later as `asked` never reaching 1 — the poll
   // below, not the line that did nothing. Diagnosed from the nightly's preserved
   // screenshot (#1545's artifact keeping): the viewport was
@@ -1985,7 +1985,7 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
 test('an answer does not pay for the newlines between its blocks @ phone width', async ({
   page,
 }) => {
-  // ⚠ **The container preserves whitespace and the content is markup.** `.entry`
+  // The container preserves whitespace and the content is markup. `.entry`
   // sets `pre-wrap` so a message keeps the line breaks somebody typed; `marked`
   // puts a newline between every block it emits, and each one rendered as a real
   // line break on top of that block's own margin. Measured before the fix:
@@ -2043,7 +2043,7 @@ test('an answer does not pay for the newlines between its blocks @ phone width',
 });
 
 test('a table keeps the alignment its author wrote @ phone width', async ({ page }) => {
-  // ⚠ **Only a rendered page can answer this.** `marked` emits `align="right"`
+  // Only a rendered page can answer this. `marked` emits `align="right"`
   // and Angular's sanitiser keeps the attribute — both testable in jsdom, and
   // both were already true when every right-aligned column came out left. A
   // presentational attribute loses to any CSS rule, and a blanket
@@ -2060,7 +2060,7 @@ test('a table keeps the alignment its author wrote @ phone width', async ({ page
 
   const cells = await page.evaluate(() =>
     [...document.querySelectorAll('.body table td')].map((cell) =>
-      // ⚠ Chromium reports alignment that came from the `align` ATTRIBUTE as
+      // Chromium reports alignment that came from the `align` ATTRIBUTE as
       // `-webkit-left` / `-webkit-center` / `-webkit-right`, and alignment from
       // a stylesheet as plain `left`. The prefix is not noise to normalise away
       // and forget — it is the evidence that the table's own instruction
@@ -2129,7 +2129,7 @@ test('the transcript does not yank a reader who has scrolled back @ phone width'
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
 
-  // ⚠ **With the wheel, not by writing `scrollTop`.** Setting the position from
+  // With the wheel, not by writing `scrollTop`. Setting the position from
   // a script is exactly what the browser itself does when it anchors, and the
   // page now declines to read that as a decision — see [[SessionView.handled]].
   // A test that moved the view the way no reader can would have gone on passing
@@ -2151,7 +2151,7 @@ test('the transcript does not yank a reader who has scrolled back @ phone width'
 test('the transcript keeps following through a thumb resting on it @ phone width', async ({
   page,
 }) => {
-  // ⚠ **The gap memview#116 lived in for three wrong theories.** Every following
+  // The gap memview#116 lived in for three wrong theories. Every following
   // check above moves the view with a wheel or not at all, and the defect was on
   // the path where a FINGER is on the glass: the engine decided per scroll event
   // while held, so eighteen pixels of thumb drift — measured on the phone while
@@ -2165,8 +2165,8 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
   expect(await distanceFromTheEnd(page), 'not at the end to begin with').toBeLessThan(4);
 
-  // ⚠ **Watch how far the view actually travels, rather than trusting the
-  // gesture.** Chromium eats an unknown amount of the finger's movement as
+  // Watch how far the view actually travels, rather than trusting the
+  // gesture. Chromium eats an unknown amount of the finger's movement as
   // gesture slop, so a request to drag 30px can move the view by 30 or by
   // nothing — and "by nothing" would leave this test passing without ever having
   // exercised a hold. The synthesized gesture is atomic, so the furthest point
@@ -2183,7 +2183,7 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   await thumb(page, 45);
 
   const moved = before - (await furthest());
-  // ⚠ **The band is the test.** Only a movement ABOVE `SLACK` (16) and BELOW
+  // The band is the test. Only a movement ABOVE `SLACK` (16) and BELOW
   // `SLOP` (40) can tell the fix from its absence: under 16 the old engine would
   // not have unpinned either, so the check passes without exercising anything.
   // Measured while writing this — the first version asked for 30px, Chromium ate
@@ -2192,7 +2192,7 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   expect(moved, 'under SLACK — the old engine would have forgiven this too').toBeGreaterThan(16);
   expect(moved, 'over SLOP — that is a scroll back, which is the test below').toBeLessThan(40);
 
-  // ⚠ **`SLACK`, not the 4px the wheel checks use.** A real touch gesture leaves
+  // `SLACK`, not the 4px the wheel checks use. A real touch gesture leaves
   // a few pixels of momentum behind it where a wheel stops dead — measured at 5.
   // What matters is that the view is still inside what the engine itself counts
   // as the end, so the next thing the session writes is followed; that is the
@@ -2205,7 +2205,7 @@ test('the transcript keeps following through a thumb resting on it @ phone width
 test('the transcript picks a reader up again when they scroll back to the end @ phone width', async ({
   page,
 }) => {
-  // ⚠ **Reported from the phone**: reaching the very end by hand and sitting
+  // Reported from the phone: reaching the very end by hand and sitting
   // there, with the session still writing, left the page not following — a gap of
   // a pixel and still declining to write, then widening as the conversation grew
   // under a reader who had not moved. Once away, every move is
@@ -2224,7 +2224,7 @@ test('the transcript picks a reader up again when they scroll back to the end @ 
   // Back down, far enough that the box clamps at its own end rather than needing
   // the gesture to land on a pixel — and NO FURTHER.
   //
-  // ⚠ **This asked for a flat 600px and that is what made the test flaky.** What
+  // This asked for a flat 600px and that is what made the test flaky. What
   // a drag asks for beyond the end is banked by desktop Chromium and paid out
   // the moment something makes the box taller, as a decaying series of scroll
   // events. The first of them is 20px against `SLACK = 16`, so if it lands
@@ -2237,7 +2237,7 @@ test('the transcript picks a reader up again when they scroll back to the end @ 
   //      600px      315px        26         ~170px
   //     1200px      915px        30         ~371px
   //
-  // ⚠ **The console is not at fault and must not be changed for this.** Driven
+  // The console is not at fault and must not be changed for this. Driven
   // on the Pixel 9 through real Android touch — a 700ms drag and a 90ms fling,
   // both asking for well past the end — the phone's WebView banks nothing:
   // growing the transcript by 2500px afterwards produced ZERO scroll events,
@@ -2277,7 +2277,7 @@ test('the transcript stops following when the finger really scrolled back @ phon
 });
 
 test('the transcript follows an answer arriving in deltas @ phone width', async ({ page }) => {
-  // ⚠ **The shape a real answer has**, and the one the two tests above do not
+  // The shape a real answer has, and the one the two tests above do not
   // cover: forty small `text` events, none of them waiting for the view to
   // catch up. `follow()` reads a height inside a `requestAnimationFrame` and
   // sets `scrollTop`, and that set fires a scroll event which is what decides
@@ -2408,7 +2408,7 @@ test('session list — awake first, and what is off says so @ phone width', asyn
 });
 
 test('session list — the time is when it last did something @ phone width', async ({ page }) => {
-  // ⚠ **The two dates a session has, and the card must show the second.**
+  // The two dates a session has, and the card must show the second.
   // `started` is when the console picked the process up — carried across an
   // in-place upgrade, reset by a restart. `touched` is when the transcript was
   // last written, which is when the conversation last moved. The console's own
@@ -2464,7 +2464,7 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   expect(facts[1], 'a bare count with no denominator has to name its unit').toContain(
     '340k tokens',
   );
-  // ⚠ **And the history is not here.** It was, and a fourth fact wrapped the row
+  // And the history is not here. It was, and a fourth fact wrapped the row
   // onto a second line — so the size moved to the details sheet, which is where
   // a fact you look up belongs rather than one you scan a list by.
   expect(facts.join(' '), 'the size is back on the card').not.toContain('MB');
@@ -2478,7 +2478,7 @@ test('session list — how full each conversation is @ phone width', async ({ pa
 test('session list — work still running says so, silence otherwise @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The one thing a card can be doing while it reads as idle.** A
+  // The one thing a card can be doing while it reads as idle. A
   // backgrounded call outlives the turn that started it, so a session sitting at
   // `idle` may still have a build going. Counted by the runner, because the page
   // that knew this before was the session's own — the screen you had to already
@@ -2512,7 +2512,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
 
-  // ⚠ **In the head, beside the status word it qualifies** — not down in the
+  // In the head, beside the status word it qualifies — not down in the
   // facts row with the dates and counts, where it read as one more piece of
   // history rather than as the thing still happening.
   await expect(
@@ -2521,7 +2521,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await expect(
     page.locator('.session', { hasText: 'long-enough-to-crowd' }).locator('.head'),
   ).toContainText('idle');
-  // ⚠ Nothing at all for a session with none — `0 background tasks` would be a
+  // Nothing at all for a session with none — `0 background tasks` would be a
   // claim, and the harness cannot see a command backgrounded inside a shell.
   await expect(page.locator('.session', { hasText: 'quiet' })).not.toContainText('background');
   await expect(page.locator('.tasks')).toHaveCount(1);
@@ -2536,7 +2536,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
 test('session list — what each conversation still owes @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The list a session keeps for itself, on the page that lists sessions.**
+  // The list a session keeps for itself, on the page that lists sessions.
   // These numbers were behind the ⋮ of the session already on screen, which is
   // the one conversation whose state you can already see. The question worth
   // asking is the other one — which of a dozen has work left — and it needs the
@@ -2559,7 +2559,7 @@ test('session list — what each conversation still owes @ phone width', async (
             // A conversation nothing is running, which still has the list it kept
             // — and which migrated without deleting what it left behind.
             'bbbb0000-0000-4000-8000-000000000001': { open: 2, total: 9, stray: 5 },
-            // ⚠ **Nothing in the service and eleven in the store it replaced.**
+            // Nothing in the service and eleven in the store it replaced.
             // The case the sweep of holders cannot produce on its own: work
             // being filed where nothing reads it. No fraction, just the fault.
             'aaaa0000-0000-4000-8000-000000000004': { open: 0, total: 0, stray: 11 },
@@ -2580,7 +2580,7 @@ test('session list — what each conversation still owes @ phone width', async (
   await expect(page.locator('.session', { hasText: 'owing' }).locator('.list')).toContainText(
     '3/17',
   );
-  // ⚠ **A conversation that is not running says it too.** The list is on disk
+  // A conversation that is not running says it too. The list is on disk
   // beside the transcript and outlives the process, so a session finished
   // yesterday can still be the one holding three unfinished things — and that is
   // exactly the row somebody scanning this page is looking for.
@@ -2592,20 +2592,20 @@ test('session list — what each conversation still owes @ phone width', async (
   await expect(page.locator('.session', { hasText: 'all-done' }).locator('.list')).toContainText(
     '0/4',
   );
-  // ⚠ And nothing at all where there is no list — `0/0` would claim one that had
+  // And nothing at all where there is no list — `0/0` would claim one that had
   // been emptied, and most conversations never open one.
   await expect(page.locator('.session', { hasText: 'no-list' }).locator('.list')).toHaveCount(0);
 
-  // ⚠ **What a conversation left in the store the service replaced.** Every file
+  // What a conversation left in the store the service replaced. Every file
   // there is re-sent to it 1.75 times per message with its whole body, so this
   // is a fault to clear rather than a quantity to know — in parentheses, beside
   // the fraction, and not part of it.
-  // ⚠ Read as two elements, because the space between them is a margin and not
+  // Read as two elements, because the space between them is a margin and not
   // a character: Angular drops whitespace-only nodes, so the text is `2/9(5)`.
   const older = page.locator('.session', { hasText: 'older' });
   await expect(older.locator('.fraction')).toHaveText('2/9');
   await expect(older.locator('.stray')).toHaveText('(5)');
-  // ⚠ **And with no fraction at all when the service has never heard of it** —
+  // And with no fraction at all when the service has never heard of it —
   // work being filed where nothing reads it, which is the case a sweep of the
   // service's own holders cannot produce.
   const astray = page.locator('.session', { hasText: 'astray' });
@@ -2615,13 +2615,13 @@ test('session list — what each conversation still owes @ phone width', async (
   // appears when there is something to do about it.
   await expect(page.locator('.session', { hasText: 'owing' }).locator('.stray')).toHaveCount(0);
 
-  // ⚠ **What is on no card, because it belongs to no conversation.** The pile is
+  // What is on no card, because it belongs to no conversation. The pile is
   // the one queue nobody is working, and every other thing on this page is drawn
   // per session — so without this line it is invisible here by construction.
   await expect(page.locator('.elsewhere')).toContainText('Pippijn 1/12');
   await expect(page.locator('.elsewhere')).toContainText('nobody 23/26');
 
-  // ⚠ **The assertion this feature earned, twice.** The chip shipped as an
+  // The assertion this feature earned, twice. The chip shipped as an
   // inline-flex box, which reports its icon's baseline rather than its digits',
   // so the count rode 3.8px above everything beside it; and the row it joined
   // was aligned on baselines, which put the status pill 2px below the name. Two
@@ -2636,7 +2636,7 @@ test('session list — what each conversation still owes @ phone width', async (
 test('session list — what each conversation is about, marked as a guess @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The only inference on the page.** Everything else on a card is read off
+  // The only inference on the page. Everything else on a card is read off
   // a file or a process; this sentence is Haiku's reading of the transcript, so
   // it carries a mark saying who wrote it and when. A guess about a conversation
   // nobody has opened is precisely the one somebody would act on unchecked.
@@ -2684,7 +2684,7 @@ test('session list — what each conversation is about, marked as a guess @ phon
 test('session list — the opening instruction stands in for a missing name @ phone width', async ({
   page,
 }) => {
-  // ⚠ **It is a fallback, not a fact about the session.** What the console keeps
+  // It is a fallback, not a fact about the session. What the console keeps
   // is the first prompt it heard, for ever — and a conversation's job drifts, so
   // on anything long-running it describes work finished days ago. On a resumed
   // one it is not even that: the view starts at the seed, so what it kept was
@@ -2725,7 +2725,7 @@ test('session list — the opening instruction stands in for a missing name @ ph
 test('the list says working, and how many messages are still queued @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Two wrong signals that compounded.** A session running tools showed
+  // Two wrong signals that compounded. A session running tools showed
   // `idle`, because `busy` is announced only when it CHANGES (#112) — and a
   // message written to it was invisible from here (#111). A message sent to a
   // session the page calls idle should land at once, so its not landing read as
@@ -2751,8 +2751,8 @@ test('session list — a blocked session says so first @ phone width', async ({ 
 });
 
 test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {
-  // ⚠ **The one thing that moves the end of the transcript without the
-  // transcript changing.** The composer is `flex: 0 0 auto` above it, so every
+  // The one thing that moves the end of the transcript without the
+  // transcript changing. The composer is `flex: 0 0 auto` above it, so every
   // line typed takes a line off the scrolling region — the reader has not
   // moved, no event has arrived, and the message being answered slides out of
   // sight. `session-view.ts` follows on `visualViewport` resize, which is the
@@ -2856,7 +2856,7 @@ test('what the account has spent is above the list @ phone width', async ({ page
   const bar = await page.locator('.usage .level').first().boundingBox();
   expect(bar!.width, 'the bar was squeezed out by the text around it').toBeGreaterThan(80);
 
-  // ⚠ **A label that wraps is neither clipped nor overflowing**, so every
+  // A label that wraps is neither clipped nor overflowing, so every
   // assertion above passes while "5 hours" sits on two lines. Measured on the
   // text itself rather than its box: a `Range` over a text node reports one
   // client rect per line it occupies, which is the only direct evidence of a
@@ -2879,7 +2879,7 @@ test('what the account has spent is above the list @ phone width', async ({ page
 });
 
 test('a window that has already reset shows no figure @ phone width', async ({ page }) => {
-  // ⚠ **The normal case, not an edge one.** The number comes from Claude Code's
+  // The normal case, not an edge one. The number comes from Claude Code's
   // status line, which belongs to a terminal — so a console driven from a phone
   // is routinely looking at a reading taken hours and one window ago. 28% then
   // describes a five-hour window that no longer exists.
@@ -2901,7 +2901,7 @@ test('a window that has already reset shows no figure @ phone width', async ({ p
 /**
  * A session's list, in the service's own words.
  *
- * ⚠ **`done` / `open` / `doing`, not `completed` / `pending` / `in_progress`.**
+ * `done` / `open` / `doing`, not `completed` / `pending` / `in_progress`.
  * The second set is the built-in task tool's vocabulary, which this read from
  * disk until the lists moved to the service. This fixture kept saying
  * `completed` afterwards, so the sheet — which hides `status === 'done'` — put
@@ -2912,7 +2912,7 @@ test('a window that has already reset shows no figure @ phone width', async ({ p
  * field, so nothing here may invent one. See `console/src/tasks.rs`.
  */
 const TASKS = [
-  // ⚠ **In the service's order, ranks and all** — `repo::list` is the only sort
+  // In the service's order, ranks and all — `repo::list` is the only sort
   // there is, and the rows arrive already in it. So the ranked ones are placed
   // here where the service would put them: P0 above everything unranked, P3
   // BELOW it, because an unranked task sorts exactly where P2 does and "when
@@ -2951,7 +2951,7 @@ const TASKS = [
     subject: 'port the matcher gate',
     status: 'doing',
     detailed: true,
-    // ⚠ **A deadline that is NOT overdue, beside one that is.** The pair is the
+    // A deadline that is NOT overdue, beside one that is. The pair is the
     // point: a date that has not been missed is a fact about the task, not a
     // problem with it, and the render has to keep the two apart. `overdue` is
     // absent here rather than false, which is how the service sends it.
@@ -2980,7 +2980,7 @@ const TASKS = [
     detailed: false,
     blocked_on: ['92'],
   },
-  // ⚠ **The fourth state, and the one the sheet used to get wrong.** `dropped`
+  // The fourth state, and the one the sheet used to get wrong. `dropped`
   // is closed without ever being done, and this sheet filtered on
   // `status !== 'done'` — so a dropped task stood among the open ones wearing
   // the icon for a status the console has never heard of. Five of them were live
@@ -3001,7 +3001,7 @@ const NAMED = {
     {
       ...RUNNING,
       name: 'health',
-      // ⚠ **Deliberately NOT `health`.** The two names diverge the moment a
+      // Deliberately NOT `health`. The two names diverge the moment a
       // conversation is renamed, because only a spawn writes the one its peers
       // use — so the interesting render is the one carrying the note, and a
       // fixture where they agreed would draw a row this suite never sees.
@@ -3045,14 +3045,14 @@ test('the toolbar says which session this is, beside what can be done to it @ ph
   // The path is what the name replaced, and the session's own header no longer
   // prints it: it is in the sheet behind the name.
   //
-  // ⚠ Scoped to the header rather than to the page. A transcript is FULL of
+  // Scoped to the header rather than to the page. A transcript is FULL of
   // paths — every `Read` argument is one — so asserting the path is nowhere on
   // screen fails against a page doing exactly what it should.
   await expect(page.locator('.head')).not.toContainText('/home/example/Code');
 });
 
 test('the bar is a session bar before the runner has answered @ phone width', async ({ page }) => {
-  // ⚠ **A cold launch lands inside a conversation** — the wrapper reopens on the
+  // A cold launch lands inside a conversation — the wrapper reopens on the
   // page it remembers — and the toolbar used to decide which screen it was on by
   // whether `/api/state` had come back yet. For that one round trip it drew the
   // LIST's bar, so opening the app flashed `console` and a terminal glyph and
@@ -3090,7 +3090,7 @@ test('a session with no name yet says where it runs, and which one it is @ phone
   // The state every session starts in: the runner has not read a name out of the
   // transcript, and the bar still has to say which conversation this is.
   //
-  // ⚠ **The folder is not enough on its own any more.** Every session is started
+  // The folder is not enough on its own any more. Every session is started
   // in `~/Code`, the parent of every repository, so the folder answers the same
   // for all of them — the short id is what tells two new sessions apart, and it
   // is also what claims a task list.
@@ -3105,8 +3105,8 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
   // replaced it is nothing about a session: everything the ⋮ menu offers acts on
   // one, and on the list there is no session on screen.
   //
-  // ⚠ **Narrowed TWICE now, and each time for the same reason: the assertion
-  // was stronger than the sentence above it.** First it said the bar held no
+  // Narrowed TWICE now, and each time for the same reason: the assertion
+  // was stronger than the sentence above it. First it said the bar held no
   // button at all, which stopped being true when keeping the screen on was
   // offered here. Then it said the bar held no MENU, which stopped being true
   // when a screen arrived that is about the whole corpus rather than any
@@ -3131,7 +3131,7 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
 /**
  * Give the page a wake lock that always works, before anything runs.
  *
- * ⚠ **Stubbed rather than used.** Headless Chromium has no display to keep on
+ * Stubbed rather than used. Headless Chromium has no display to keep on
  * and refuses the real request, which the app correctly treats as a refusal and
  * puts the button back — so a test of the wiring would fail on the one thing it
  * is not testing. What Android actually does with a lock is a phone's answer,
@@ -3185,7 +3185,7 @@ test('a browser that cannot keep the screen on is not offered it @ phone width',
   // need not be — and a disabled button says "not now" where the truth is
   // "never here".
   await page.addInitScript(() => {
-    // ⚠ **Off the PROTOTYPE, not off the instance.** `wakeLock` is an accessor on
+    // Off the PROTOTYPE, not off the instance. `wakeLock` is an accessor on
     // `Navigator.prototype`, so `delete navigator.wakeLock` removes an own
     // property that was never there and silently succeeds — the first version of
     // this test did exactly that and asserted against a browser that still had
@@ -3208,8 +3208,8 @@ test('the toolbar starts in the same place on both screens @ phone width', async
   // Entering a session and leaving one swaps the leading glyph — the terminal
   // mark for a back arrow — and the eye tracks a mark that stays put.
   //
-  // ⚠ **They do not line up by default, and the reason is invisible in the
-  // markup.** An icon button carries 8px of padding inside its own box and a
+  // They do not line up by default, and the reason is invisible in the
+  // markup. An icon button carries 8px of padding inside its own box and a
   // bare `mat-icon` carries none, so the arrow begins 8px further in than the
   // mark it replaces. Nothing overflows, nothing is clipped, and no check that
   // measures one screen at a time can see it: the fault is a difference BETWEEN
@@ -3234,11 +3234,11 @@ test('the toolbar starts in the same place on both screens @ phone width', async
 test('a name too long for the bar gives way rather than pushing @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **A name is arbitrary text from a transcript**, and the toolbar is a fixed
+  // A name is arbitrary text from a transcript, and the toolbar is a fixed
   // row holding two other things that must stay reachable. Being cut off is the
   // intended outcome; the failures are the ways it declines to be.
   //
-  // ⚠ **The first version of this test passed against the defect.** It asserted
+  // The first version of this test passed against the defect. It asserted
   // no horizontal overflow and no undersized control, and both were true while
   // the label spilled 69px out of its own button and painted over the `console`
   // link: an inline span cannot be ellipsised, so `overflow: hidden` on it did
@@ -3246,7 +3246,7 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
   // screen, so nothing failed. Hence the assertions below are about the LABEL
   // and where it lands, not about the page.
   //
-  // ⚠ **And the second version passed against it too, for the opposite reason.**
+  // And the second version passed against it too, for the opposite reason.
   // The name is a block heading now rather than an inline label, and a block's
   // rect is its BOX — it does not grow with text that spills out of it, the way
   // the old span's did. So every box measurement below stays true while the
@@ -3318,7 +3318,7 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
 test('what the session may do without asking is on the header @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The check this suite could not make, because the fixture had no mode.**
+  // The check this suite could not make, because the fixture had no mode.
   // Both the card and the session header draw the glyph only for a session whose
   // mode the runner has read, so with `RUNNING` carrying none it was
   // absent from every render the harness measured — and `expectThumbTargets`,
@@ -3340,10 +3340,10 @@ test('what the session may do without asking is on the header @ phone width', as
   // this row — the label is one tap away in the menu that also teaches it.
   await expect(mode).toHaveAttribute('aria-label', /edits/i);
 
-  // ⚠ **In the row, not overhanging it.** The regression was exactly this: a
+  // In the row, not overhanging it. The regression was exactly this: a
   // glyph whose box grew past the line it sits on, pushing the header's height
   // and shoving the model name right.
-  // ⚠ **Against the text beside it, NOT against its own row.** The first
+  // Against the text beside it, NOT against its own row. The first
   // version of this compared the glyph to `.facts` and passed while the defect
   // was reintroduced on purpose — the row grows to fit whatever is in it, so
   // that comparison can never fail. Measured both ways at 412px:
@@ -3404,7 +3404,7 @@ test('the session is still named after scrolling to the end @ phone width', asyn
 test('the details sheet holds what the page has no room for @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The first overlay this suite has ever measured.** The console has had a
+  // The first overlay this suite has ever measured. The console has had a
   // menu in the toolbar since it was written and no check has ever opened it: an
   // overlay renders outside the component tree, so nothing on the page below is
   // evidence about it. A sheet of paths and identifiers is exactly the content
@@ -3436,7 +3436,7 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   // gap between the two is the fact neither one states.
   expect(said).toContain('62 MB');
   expect(said).toContain('640k / 1M');
-  // ⚠ **Whole, and attributed.** The card clamps this sentence to two lines, so
+  // Whole, and attributed. The card clamps this sentence to two lines, so
   // being cut there is a reason to open the sheet — finding it cut here as well
   // would be the panel failing at its one job. And it is the only line in it a
   // model wrote, which the sheet has room to say in words.
@@ -3458,14 +3458,14 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
 test('the task sheet opens on what is left rather than what is done @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The list is mostly finished work, by an order of magnitude.** One live
+  // The list is mostly finished work, by an order of magnitude. One live
   // session here keeps 355 tasks: 307 done, 38 open, 10 underway. Opening on all
   // of them puts three hundred completed rows above the eight that matter, so
   // the default is what is left — and the toggle is there because the finished
   // ones are a written record worth reading, not because the list is a total.
   await mockRunner(page);
   await page.route('**/api/sessions/*/tasks', (r) => r.fulfill({ json: TASKS }));
-  // ⚠ **Markdown, with a code block in it.** These are written up as reports —
+  // Markdown, with a code block in it. These are written up as reports —
   // headings, bold, fenced commands — and the transcript's own renderer went 618px
   // past the right edge the first time a fixture had code in it. This sheet gets
   // the same rules, so it gets the same fixture.
@@ -3513,13 +3513,13 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // With the numbers the session itself uses, in the same order — a session
   // writes `#101 done` in its own prose, so the row has to be findable by it.
   //
-  // ⚠ **And in the service's order within a status, not one of ours.** #7 is
+  // And in the service's order within a status, not one of ours. #7 is
   // ranked above the unranked #100 and #99 is ranked below it, and that is how
   // they arrive — nothing here re-sorts on the rank, or there would be two
   // orderings to keep true and they would disagree the first time either moved.
   await expect(sheet.locator('.num')).toHaveText(['101', '7', '100', '99', '412', '413']);
 
-  // ⚠ **A deadline is drawn, and it does NOT reorder anything.** #412 is overdue
+  // A deadline is drawn, and it does NOT reorder anything. #412 is overdue
   // and sits where the service put it — last — because a deadline is evidence
   // for a rank rather than a competing answer to what-next. The service has a
   // test that fails if anyone makes it sort; this is the same rule on the phone.
@@ -3533,14 +3533,14 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // about the task, not a problem with it.
   await expect(sheet.locator('.when:not(.late)')).toHaveAttribute('aria-label', 'due 2026-09-01');
 
-  // ⚠ **One block mark, not two.** #413 still carries `blocked_on` and the
+  // One block mark, not two. #413 still carries `blocked_on` and the
   // service says it is no longer blocked — the link is kept after a blocker
   // closes, as a record of how the work went. A row deciding for itself from the
   // ids would say the opposite, and this client has no way to know better.
   await expect(sheet.locator('.held')).toHaveCount(1);
   await expect(sheet.locator('.held')).toHaveAttribute('aria-label', 'waiting on #92, #93');
 
-  // ⚠ **The rank is drawn, and only where there is one.** Two chips on four
+  // The rank is drawn, and only where there is one. Two chips on four
   // rows: the other two are unranked, which is what almost every task is, and a
   // placeholder on those would be the mark most of this list wore.
   await expect(sheet.locator('.rank')).toHaveText(['P0', 'P3']);
@@ -3565,7 +3565,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // And the toggle brings back what is closed, saying how much it is. Both kinds
   // of closed: "1 done" would have offered to reveal one row and revealed two.
   await sheet.getByRole('radio', { name: /All \(2 closed\)/ }).click();
-  // ⚠ **Eight — the six open ones and the two that were closed.** This asked for
+  // Eight — the six open ones and the two that were closed. This asked for
   // six, which is the count BEFORE the click, and passed for two months because
   // `toHaveCount` polls: the first poll landed before change detection had
   // appended the closed rows, matched the stale DOM and returned. Under load the
@@ -3636,7 +3636,7 @@ test('back closes the start sheet rather than the app @ phone width', async ({ p
 });
 
 test('a sheet put away by hand leaves no step behind @ phone width', async ({ page }) => {
-  // ⚠ **The other half of giving an overlay a history entry**, and the half that
+  // The other half of giving an overlay a history entry, and the half that
   // is easy to leave out: a sheet closed the ordinary way — a tap on the
   // backdrop — has to take its entry with it. Otherwise the step outlives the
   // panel it stood for, and the next back press is spent on nothing at all. A
@@ -3657,7 +3657,7 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
   // `.last()` is the sheet's own — the menu that opened it leaves its backdrop in
   // the DOM behind this one while it fades.
   //
-  // ⚠ Aimed at the top of the screen rather than clicked at its centre. The
+  // Aimed at the top of the screen rather than clicked at its centre. The
   // backdrop covers the viewport, so its centre is *under the sheet* once the
   // sheet is tall enough — and it grew when the history and the fullness moved
   // into it. Playwright then waits ninety seconds for a point the sheet is
@@ -3674,7 +3674,7 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
 });
 
 test('leaving a session leaves its name behind @ phone width', async ({ page }) => {
-  // ⚠ **The toolbar kept the session you had just left.** `ngOnDestroy` clears
+  // The toolbar kept the session you had just left. `ngOnDestroy` clears
   // the open conversation, and the five-second poll's request does not stop when
   // the page does — so a response already in flight lands after the clear and
   // puts it back. The list then shows a name and a ⋮ for a session nobody is in,
@@ -3706,7 +3706,7 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
     page.locator('.bar .name'),
     'the list is titled with the session just left',
   ).toHaveCount(0);
-  // ⚠ **Narrowed TWICE, each time because the assertion outran its own reason.**
+  // Narrowed TWICE, each time because the assertion outran its own reason.
   // First from "no buttons at all", when the screen-awake control arrived. Then
   // from "no menu at all", when the list gained one that goes to a screen about
   // the whole corpus. What this test is about is a session no longer on screen
@@ -3720,7 +3720,7 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
 });
 
 test('a run of tool calls is folded into one row @ phone width', async ({ page }) => {
-  // ⚠ **Machinery is what a reader scrolls past.** A tool call is 115px at phone
+  // Machinery is what a reader scrolls past. A tool call is 115px at phone
   // width and a turn can hold a dozen, so a conversation with any work in it is
   // mostly rows nobody came for, between the two sentences they did.
   await mockRunner(page);
@@ -3744,11 +3744,11 @@ test('a run of tool calls is folded into one row @ phone width', async ({ page }
 });
 
 test('a tool call on its own says which tool it was @ phone width', async ({ page }) => {
-  // ⚠ **A path with no verb attached says nothing that matters.** `Read` and
+  // A path with no verb attached says nothing that matters. `Read` and
   // `Write` on the same file are opposite events, and the argument alone cannot
   // tell them apart — nor can it say a file was deleted rather than looked at.
   //
-  // ⚠ **This is a REGRESSION test, and the shape of it is the point.** The name
+  // This is a REGRESSION test, and the shape of it is the point. The name
   // was dropped from the standalone row in 65607c7, when the argument grew a
   // parse button and the row became two branches; the FOLDED run kept its copy,
   // so every existing assertion about tool rows still passed while a lone call
@@ -3774,13 +3774,13 @@ test('a tool call on its own says which tool it was @ phone width', async ({ pag
 });
 
 test('a running thing says how long it has been running @ phone width', async ({ page }) => {
-  // ⚠ **"running" is the same word at four seconds and at forty minutes**, and
+  // "running" is the same word at four seconds and at forty minutes, and
   // only one of those is worth interrupting. The bar above the composer had the
   // same problem: it says something is happening and could not say for how long,
   // which is the difference between waiting and wondering whether it is stuck.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  // ⚠ **Working and blocked are not the same session.** The shared fixture holds
+  // Working and blocked are not the same session. The shared fixture holds
   // a standing question, and the strip is deliberately absent while one is on
   // screen — a session waiting on a permission is not one whose output is
   // arriving. See `SessionView.arriving`. This test is about the other case, so
@@ -3807,7 +3807,7 @@ test('a running thing says how long it has been running @ phone width', async ({
     ++seq,
   );
 
-  // ⚠ **The strip is the bar and the clock, and no word.** The status the CLI
+  // The strip is the bar and the clock, and no word. The status the CLI
   // reports — `requesting` — is already in the header at the top of the page,
   // and this sat four inches below it saying the same thing again.
   await expect(page.locator('.doing .lasted')).toHaveText(/2m \d\ds/);
@@ -3824,7 +3824,7 @@ test('a running thing says how long it has been running @ phone width', async ({
 test('a run stays folded while it works, and says it is working @ phone width', async ({
   page,
 }) => {
-  // ⚠ **Two versions of opening it automatically were tried and cut.** Reading
+  // Two versions of opening it automatically were tried and cut. Reading
   // `running > 0` live flickers — a session making one call at a time turns a
   // pair into a run and opens it, the result empties the run and folds it, the
   // next call opens it again, reported from the phone as "it keeps flipping open
@@ -3833,7 +3833,7 @@ test('a run stays folded while it works, and says it is working @ phone width', 
   // depended on whether you had been watching.
   //
   // What the automatic open was for, the summary row does on its face.
-  // ⚠ Before `goto`: it installs its stub through `addInitScript`, which only
+  // Before `goto`: it installs its stub through `addInitScript`, which only
   // affects pages loaded after it.
   await handControlOfTheStream(page);
   await mockRunner(page);
@@ -3856,7 +3856,7 @@ test('a run stays folded while it works, and says it is working @ phone width', 
   await run.click();
   await expect(page.getByText('cargo test --all-features')).toBeVisible();
 
-  // ⚠ **And the result that lands next does not close it again.** This is the
+  // And the result that lands next does not close it again. This is the
   // flicker, from the other side: a run opened by hand has to stay open when
   // the condition that used to drive it changes under the reader.
   await say(page, { kind: 'tool_result', id: 'run_b', ok: true, detail: 'ok' }, ++seq);
@@ -3865,7 +3865,7 @@ test('a run stays folded while it works, and says it is working @ phone width', 
 });
 
 test('one event does not rebuild the rows already on screen @ phone width', async ({ page }) => {
-  // ⚠ **The defect this exists for, and it was invisible.** `blocks()` wraps each
+  // The defect this exists for, and it was invisible. `blocks()` wraps each
   // entry in a fresh object on every recompute, so `track block` tracked the
   // wrapper — and every event rebuilt every row, re-rendering the markdown of
   // every message on screen. That is precisely what the comment above that loop
@@ -3904,7 +3904,7 @@ test('one event does not rebuild the rows already on screen @ phone width', asyn
 });
 
 test('scrolling up by a line stops it following @ phone width', async ({ page }) => {
-  // ⚠ **Reported twice from the phone, and the second report named the number:**
+  // Reported twice from the phone, and the second report named the number:
   // "I need to scroll up quite a lot, then it won't do that". Following used to
   // re-decide after every change whether the reader still counted as being at
   // the end, and needed 300px of slack to survive the browser's own adjustments
@@ -3965,7 +3965,7 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
 /**
  * The runner's real answer for the transcript fixture's own failed command.
  *
- * ⚠ **Read from a golden the RUST test writes, never copied.** This was a
+ * Read from a golden the RUST test writes, never copied. This was a
  * hand-written object with a comment claiming `the_shape_the_phone_is_drawn_from`
  * pinned it — a convention, not a mechanism. It failed exactly as you would
  * expect: the chip labels changed, the Rust test was updated, this copy was not,
@@ -3991,7 +3991,7 @@ async function mockParse(page: Page, answer: unknown = PARSED): Promise<void> {
 /**
  * The sheet, and the scope every layout check on it is given.
  *
- * ⚠ **An overlay legitimately covers the page it is over.** Unscoped, the
+ * An overlay legitimately covers the page it is over. Unscoped, the
  * overlap check compares this sheet's text against the transcript still rendered
  * behind it and reports seventeen collisions that are the whole point of a
  * bottom sheet. Same reasoning, and the same argument, as the details sheet.
@@ -4001,7 +4001,7 @@ const SHEET = '.session-sheet';
 /**
  * Open the parse of the fixture's failed shell command, with the sheet settled.
  *
- * ⚠ **Waits for the animation, not for the element.** A Material bottom sheet
+ * Waits for the animation, not for the element. A Material bottom sheet
  * slides up, so a locator is visible — and measurable, and wrong — while it is
  * still 300px below where it will come to rest. That is not flakiness to retry
  * around: it is a box that has not finished moving, and the fix is to wait for
@@ -4012,7 +4012,7 @@ async function openParse(page: Page): Promise<void> {
   await page.getByRole('button', { name: /verified_cli/ }).click();
   const sheet = page.locator(SHEET);
   await sheet.waitFor();
-  // ⚠ **Wait for the ANSWER, not for the sheet and not for `.raw`.** The sheet
+  // Wait for the ANSWER, not for the sheet and not for `.raw`. The sheet
   // is attached first and holds a progress bar until `/api/sessions/*/parse`
   // replies; `.raw` is drawn from the command it was opened with and is there
   // the whole time. So waiting on either leaves `settleTransforms` nothing to
@@ -4024,7 +4024,7 @@ async function openParse(page: Page): Promise<void> {
   // failed. Waiting on `.step` instead hung that middle case for 30s — a parse
   // with no steps is exactly what it is about.
   await page.locator(`${SHEET} .summary, ${SHEET} .unread, ${SHEET} .trouble`).first().waitFor();
-  // ⚠ **`settleTransforms`, and the two earlier waits here were both wrong.**
+  // `settleTransforms`, and the two earlier waits here were both wrong.
   //
   // The first asked `sheet.getAnimations()` and got nothing, and the note left
   // behind said the slide was invisible to `getAnimations` — it is not. The
@@ -4043,7 +4043,7 @@ async function openParse(page: Page): Promise<void> {
 }
 
 test('a shell command opens as written and as read @ phone width', async ({ page }, testInfo) => {
-  // ⚠ **The two halves have to be comparable without scrolling between them.**
+  // The two halves have to be comparable without scrolling between them.
   // That is the whole reason they are stacked rather than switched between, and
   // it is a claim about a rendered page that no amount of reading the source can
   // settle: the raw text is unbreakable path-shaped strings and the parse below
@@ -4062,7 +4062,7 @@ test('a shell command opens as written and as read @ phone width', async ({ page
   await expect(page.locator('.step')).toHaveCount(3);
   await expect(page.locator('.step .kind').nth(2)).toHaveText('write');
 
-  // ⚠ **The claim the sheet is for.** The call failed, so the write after the
+  // The claim the sheet is for. The call failed, so the write after the
   // `&&` may never have happened — and the summary says how many such uses there
   // are without hiding any of them.
   await expect(page.locator('.summary')).toContainText('2 unproven');
@@ -4101,7 +4101,7 @@ test('a command that will not parse says so rather than looking empty @ phone wi
   // 0.4% of the corpus's calls land here. An empty sheet would read as a command
   // that did nothing, which is the opposite of what it means.
   await mockRunner(page);
-  // ⚠ **The longest label there is, because it renders inside a `<code>`** and
+  // The longest label there is, because it renders inside a `<code>` and
   // that does not wrap by default. Invented phrases here ('a case arm') tested
   // a width nothing produces; this is `Reason::label`'s widest real answer.
   await mockParse(page, {
@@ -4119,8 +4119,8 @@ test('a command that will not parse says so rather than looking empty @ phone wi
 test('another machine is named on the step and on every path @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **A path that looks local and is not is the mistake the whole separation
-  // exists to prevent** — so it is said twice, and a reader scrolling fast sees
+  // A path that looks local and is not is the mistake the whole separation
+  // exists to prevent — so it is said twice, and a reader scrolling fast sees
   // it either way.
   await mockRunner(page);
   await mockParse(page, {
@@ -4169,7 +4169,7 @@ test('another machine is named on the step and on every path @ phone width', asy
 test('a session that has stopped reading names it, with the cure @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The row this replaces said the ordinary thing.** A deaf session's
+  // The row this replaces said the ordinary thing. A deaf session's
   // messages carry the same *waiting to be read* marker as a busy session's, so
   // both episodes of it cost a diagnosis by hand. This is the banner
   // that says which it is — see `session::Session::deaf`.
@@ -4236,7 +4236,7 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
 });
 
 test('a working session can be renamed from the menu @ phone width', async ({ page }, testInfo) => {
-  // ⚠ **`/rename` cannot do this.** A slash command sent to a busy session is
+  // `/rename` cannot do this. A slash command sent to a busy session is
   // parked and released as a prompt, so the model reads the words and the name
   // never changes. This route is a control request, which
   // the CLI answers mid-turn.
@@ -4302,13 +4302,13 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
 
   const name = page.getByLabel('name', { exact: true });
   await expect(name, 'the sheet did not open').toBeVisible();
-  // ⚠ **The suggestion is beside the field, not in it.** A name is stickier than
+  // The suggestion is beside the field, not in it. A name is stickier than
   // a summary, and a guess sitting in the box is one Enter away from being the
   // conversation's name without anybody having agreed to it.
   await expect(name, 'the suggestion was put in the box').toHaveValue('');
   const offer = page.getByRole('button', { name: /use the suggested name/ });
   await expect(offer, 'nothing was offered').toBeVisible();
-  // ⚠ **The action has to survive the extra row.** This sheet sits on the bottom
+  // The action has to survive the extra row. This sheet sits on the bottom
   // of a phone and the offer goes above the button that does the renaming, so a
   // row added here is a row of somewhere else — and the thing pushed off the
   // end would be the one control the sheet exists for.
@@ -4348,7 +4348,7 @@ test('the rename sheet offers nothing when no model has named the conversation @
 });
 
 test('a refused mode change says so and puts the mode back @ phone width', async ({ page }) => {
-  // ⚠ **The defect this covers is a claim, not a crash.** The console asked for
+  // The defect this covers is a claim, not a crash. The console asked for
   // `bypassPermissions`, the header read Bypass Permissions, and the CLI stayed
   // in `auto` and went on asking for approval — a session shown as unrestricted
   // while it was anything but, which is the wrong direction to be wrong in
@@ -4384,14 +4384,14 @@ test('a refused mode change says so and puts the mode back @ phone width', async
 test('a session opened with no answer from the Mac reads from the kept copy @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The console is not an offline app and this does not make it one** — it
+  // The console is not an offline app and this does not make it one — it
   // has no service worker on purpose, because it sits behind a client-certificate
   // gate. What this covers is narrower and is the half of memview #90 that was
   // wanted: a phone whose tunnel has dropped can still READ the session it was
   // looking at. Sending is untouched; a send that cannot reach the Mac keeps its
   // draft in the composer as it always did.
   const id = RUNNING.id;
-  // ⚠ **The copy is MADE by reading, not seeded into storage.** A fixture
+  // The copy is MADE by reading, not seeded into storage. A fixture
   // written straight into the store pins where the store happens to be today —
   // this walks the path a phone walks: read the conversation once with the
   // tunnel up, then come back to it with the tunnel down.
@@ -4399,7 +4399,7 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   await page.goto(`/s/${id}`);
   const line = page.getByText('home-manager switch').first();
   await expect(line, 'the conversation was never read in the first place').toBeVisible();
-  // ⚠ **The copy is written asynchronously and this has to outlast that.** The
+  // The copy is written asynchronously and this has to outlast that. The
   // database opens on the first write, so the copy lands a moment after the
   // conversation appears — a person reading one is there far longer than a test,
   // and navigating immediately races a write that nothing real races. A duration
@@ -4414,7 +4414,7 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   await page.goto(`/s/${id}`);
 
   await expect(line, 'the kept copy was not read').toBeVisible();
-  // ⚠ **And it says what it is.** A transcript that has stopped growing looks
+  // And it says what it is. A transcript that has stopped growing looks
   // exactly like a quiet one, so a copy drawn as though it were the conversation
   // would be the same defect #96 was about, one screen along.
   const banner = page.locator('.adrift');
@@ -4442,7 +4442,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
     .click();
   await expect(page.locator('.session-menu .current')).toHaveText('Accept edits');
   await expect(page.getByRole('menuitem', { name: /Asks permission/ })).toBeVisible();
-  // ⚠ **Rename must not wear the `acceptEdits` pencil**, which is the row
+  // Rename must not wear the `acceptEdits` pencil, which is the row
   // directly below it — the same glyph a thumb apart, meaning two unrelated
   // things. Reported from the phone.
   const icon = (name: RegExp) =>
@@ -4452,7 +4452,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   const sheet = page.locator('mat-bottom-sheet-container');
   await sheet.waitFor();
   await expect(sheet.locator('.mode')).toHaveCount(6);
-  // ⚠ Waiting on the last row being IN the viewport is what says the sheet has
+  // Waiting on the last row being IN the viewport is what says the sheet has
   // finished arriving. Not because the slide is invisible to `getAnimations` —
   // it is not, see [[openParse]] — but because this row has to be reachable, not
   // merely still: a sheet that has come to rest with its last mode below the
@@ -4466,7 +4466,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
 test('session strip — a background call is named, not counted @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The count was the whole report, and it sent Pippijn to `ps`.** A phone
+  // The count was the whole report, and it sent Pippijn to `ps`. A phone
   // saying *1 background task running* cannot say WHICH, and one task with a
   // name is actionable where a number is only a reason to ask (memview #740).
   //
@@ -4506,7 +4506,7 @@ test('session strip — a background call is named, not counted @ phone width', 
   await expect(strip.first()).toContainText('Monitor');
   await expect(strip.first()).toContainText('HDD→SSD migration');
   await expect(strip.nth(1)).toContainText('Bash');
-  // ⚠ And the old wording is GONE when names are available — both would be the
+  // And the old wording is GONE when names are available — both would be the
   // same fact said twice, and the number is the half that could not be acted on.
   // Asserted as the ABSENCE OF THE FALLBACK ROW rather than as text `.update`
   // does not contain: `.update` resolves to two elements here, and a text
@@ -4521,7 +4521,7 @@ test('session strip — a background call is named, not counted @ phone width', 
 test('a session that has ended dates its background work @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The count is FROZEN once the process is gone, and it was drawn live.**
+  // The count is FROZEN once the process is gone, and it was drawn live.
   // `Running::Ended` comes from a task-notification, which only the `claude`
   // process writes — so after it exits nothing can decrement the number, and
   // the card read `ended · 2 background tasks` for ever (memview #879).
@@ -4556,7 +4556,7 @@ test('a session that has ended dates its background work @ phone width', async (
   await expect(row).toContainText('ended');
   await expect(row).toContainText('2 background tasks when it ended');
 
-  // ⚠ **And the live session beside it is UNCHANGED** — the past tense is keyed
+  // And the live session beside it is UNCHANGED — the past tense is keyed
   // to `alive`, so a bug that dated everything would still satisfy the row
   // above. The first fixture session is alive and carries no background work,
   // which is also the assertion that `0 background tasks` is still never said.
@@ -4576,8 +4576,8 @@ test('a session that has ended dates its background work @ phone width', async (
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 
-  // ⚠ **The nameless fallback is a SECOND sentence and was the one that read
-  // worst** — `2 background tasks running` with no names, on a session that had
+  // The nameless fallback is a SECOND sentence and was the one that read
+  // worst — `2 background tasks running` with no names, on a session that had
   // stopped. Reached by a runner too old to send `running`, which is exactly
   // the console this bug outlived.
   await page.route('**/api/state', (r) =>
@@ -4586,7 +4586,7 @@ test('a session that has ended dates its background work @ phone width', async (
     }),
   );
   await page.reload();
-  // ⚠ **The positive assertion FIRST, and the `toHaveCount(0)` only after it.**
+  // The positive assertion FIRST, and the `toHaveCount(0)` only after it.
   // A page mid-reload has no `.update.running` either, so that count passes on
   // its first poll against a DOM that has not rendered yet and asserts nothing
   // — the same race that made two of these tests measure themselves (#735).
@@ -4607,7 +4607,7 @@ test('reader — the survey is a screen you go to, not a strip in the way @ phon
   await mockRunner(page);
   await page.goto('/');
 
-  // ⚠ **Absent from the list, and that is the assertion.** It was a strip above
+  // Absent from the list, and that is the assertion. It was a strip above
   // the sessions; the list answers *what should I do now* and this answers
   // *what has been done, ever*, which is a question you go looking for.
   await expect(page.locator('app-reading-view')).toHaveCount(0);
@@ -4619,13 +4619,13 @@ test('reader — the survey is a screen you go to, not a strip in the way @ phon
   await page.getByText('99.2%').waitFor();
   await page.getByText('4.6%').waitFor();
 
-  // ⚠ **Every shape, not the head of them.** The strip showed five, which was
+  // Every shape, not the head of them. The strip showed five, which was
   // right on the way past and wrong on a page somebody navigated to — the tail
   // is where `not understood` lives, and it qualifies everything above it.
   await page.getByText('run a program on another machine (no shell)').waitFor();
   await page.getByText('not understood').waitFor();
 
-  // ⚠ **One number from each section**, because a missing field renders as
+  // One number from each section, because a missing field renders as
   // nothing and asserting only on prose passes over a blank page.
   await page.getByText('411,965').waitFor();
   await page.getByText('37,747').waitFor();
@@ -4633,13 +4633,13 @@ test('reader — the survey is a screen you go to, not a strip in the way @ phon
   await page.getByText('k3s').waitFor();
   await page.getByText('294,504', { exact: false }).waitFor();
 
-  // ⚠ **The section that can never be worked, and a number from it.** It was
+  // The section that can never be worked, and a number from it. It was
   // the biggest name on the queue above until it was split out, and drawing it
   // without a figure would leave the split invisible — `| number` renders an
   // absent field as empty rather than as an error, which is how the first
   // version of this page shipped half-blank with every assertion green.
   await page.getByText('2,475', { exact: false }).waitFor();
-  // ⚠ **The ROW, not the word.** `probe` is named in the prose above the list
+  // The ROW, not the word. `probe` is named in the prose above the list
   // as well, so a bare text locator resolves to two elements and fails strict
   // mode — which is the locator being right, not the page being wrong.
   await page.getByRole('listitem').filter({ hasText: '418probe' }).waitFor();
@@ -4676,7 +4676,7 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   const week = page.locator('.window', { hasText: 'Week' }).locator('.level');
   await week.waitFor();
 
-  // ⚠ **Six ticks, not seven.** They are the boundaries INSIDE a seven-day
+  // Six ticks, not seven. They are the boundaries INSIDE a seven-day
   // window; the bar's own two ends already mark the outer ones, and a seventh
   // drawn at 100% would sit under the edge and read as a rendering fault.
   await expect(week.locator('.day')).toHaveCount(6);
@@ -4690,7 +4690,7 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   expect(Number.parseFloat(at)).toBeGreaterThan(66);
   expect(Number.parseFloat(at)).toBeLessThan(70);
 
-  // ⚠ **The five-hour row gets no day ticks**, and asserting that is the point:
+  // The five-hour row gets no day ticks, and asserting that is the point:
   // a window with no unit a person tracks would gain noise, not information.
   const short = page.locator('.window', { hasText: '5 hours' }).locator('.level');
   await expect(short.locator('.day')).toHaveCount(0);
@@ -4703,7 +4703,7 @@ test('usage — the week bar marks the days and where the clock is @ phone width
 test('a link to a render opens over the conversation, and back puts it away @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The link was never dead — it went to the wrong place.** GFM autolinks a
+  // The link was never dead — it went to the wrong place. GFM autolinks a
   // bare URL, and the shell hands any host it does not know to the phone's
   // browser: the addresses a session writes name the Mac's LAN, which the phone
   // is not on. So the tap left the console and arrived nowhere. What is checked
@@ -4739,8 +4739,8 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   // than trusted from the source: the sanitiser is between the two.
   expect(await link.getAttribute('href')).toContain('/api/picture?url=');
 
-  // ⚠ **By keyboard, which is also the claim `session-view.ts` makes to justify
-  // handling this on the host.** The a11y rules that fire on a `(click)` in the
+  // By keyboard, which is also the claim `session-view.ts` makes to justify
+  // handling this on the host. The a11y rules that fire on a `(click)` in the
   // template are asking whether this can be reached without a pointer: focusing
   // the anchor and pressing Enter dispatches the same event the tap does, and
   // that is what the handler is waiting for.
@@ -4760,8 +4760,8 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   // one.
   expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
 
-  // ⚠ **The gesture Pippijn asked for, and the one that was broken before
-  // `Dismiss` existed**: back used to close the sheet AND leave the conversation
+  // The gesture Pippijn asked for, and the one that was broken before
+  // `Dismiss` existed: back used to close the sheet AND leave the conversation
   // behind it, because a sheet takes no part in history. See `dismiss.ts`.
   await page.goBack();
   await expect(page.locator('app-picture-sheet')).toHaveCount(0);
@@ -4774,7 +4774,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
 test("a render whose server is gone says so, in the console's words @ phone width", async ({
   page,
 }, testInfo) => {
-  // ⚠ **The ordinary failure, not the exotic one.** These links outlive the
+  // The ordinary failure, not the exotic one. These links outlive the
   // servers that answer them: a session renders, serves the file from a shell it
   // is still holding, and stops. What the console says about that has to tell
   // "re-render it" apart from "start the server again", and an `<img>` that
@@ -4813,7 +4813,7 @@ test("a render whose server is gone says so, in the console's words @ phone widt
 test('a picture the session named by its place on the disk opens too @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The shape a session writes when it is not also running a server**, which
+  // The shape a session writes when it is not also running a server, which
   // is most of the time: it has the file it just rendered. observe wrote
   // `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)` and the
   // tap did nothing useful — a path resolves against the console's own origin,
@@ -4878,7 +4878,7 @@ async function opened(page: Page): Promise<void> {
     }),
   );
   await page.route('**/api/picture*', (r) =>
-    // ⚠ **Not `tiny.png`.** At 2×4 it is smaller than the phone even at the
+    // Not `tiny.png`. At 2×4 it is smaller than the phone even at the
     // closest magnification, so there is nowhere to drag it to and the pan
     // assertion reads zero against a view that is behaving perfectly. This one
     // is 800×1000 — see `fixtures/make-render.mjs` for what it is and why.
@@ -4896,7 +4896,7 @@ async function opened(page: Page): Promise<void> {
 test('a picture can be pinched closer and dragged about @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Real touches, through CDP, and not `dispatchEvent`.** A synthesised
+  // Real touches, through CDP, and not `dispatchEvent`. A synthesised
   // pointer has an id the browser does not know, so `setPointerCapture` throws
   // `NotFoundError` and the handler is abandoned before it records the finger —
   // the first cut of this test read scale 1 and looked like a broken pinch. What
@@ -4926,7 +4926,7 @@ test('a picture can be pinched closer and dragged about @ phone width', async ({
 
   await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 
-  // ⚠ **One finger after two.** The pair has to be forgotten when a finger
+  // One finger after two. The pair has to be forgotten when a finger
   // lifts, or the next drag is read as a pinch against a finger that is gone.
   await touch.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
@@ -4942,7 +4942,7 @@ test('a picture can be pinched closer and dragged about @ phone width', async ({
   expect(dragged.x, 'the drag moved it left').toBeLessThan(close.x);
   expect(dragged.scale, 'and did not change how close it is').toBeCloseTo(close.scale, 3);
 
-  // ⚠ **The drag must not also toggle.** A pan ends with a `click` on the
+  // The drag must not also toggle. A pan ends with a `click` on the
   // element it started on, and without the slip guard the picture jumps back to
   // fitted every time it is moved — the gesture undoing itself as it finishes.
   expect(await placed(page)).toMatchObject({ scale: dragged.scale, x: dragged.x });
@@ -4958,7 +4958,7 @@ test('a tap looks closer, and a second tap shows the whole picture @ phone width
   await opened(page);
 
   await page.locator('.frame').click();
-  // ⚠ **Polled, not read once.** The transform is written on the next render,
+  // Polled, not read once. The transform is written on the next render,
   // and an assertion in the same tick as the event reads the previous frame —
   // which is how a working toggle looked broken here for twenty minutes.
   await expect.poll(async () => (await placed(page)).scale).toBeGreaterThan(1);
@@ -4973,7 +4973,7 @@ test('a tap looks closer, and a second tap shows the whole picture @ phone width
 test('the concept leads and the argv follows as evidence @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The WIRE carries a full resolved path; the CARD cuts it to the leaf**
+  // The WIRE carries a full resolved path; the CARD cuts it to the leaf
   // (memview#1454). The comment here used to argue the opposite — that the
   // sentence spelling the whole path was the point of it — and looking at the
   // render refuted that: one path was stated FOUR times on one step, three of
@@ -5028,12 +5028,12 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
   await expect(page.locator('.concept')).toHaveCount(1);
   // The ACT, with the subject named compactly.
   await expect(page.locator('.concept')).toHaveText('Show the first 5 lines of session.rs');
-  // ⚠ **The negative is the assertion.** Containing the short form would still
+  // The negative is the assertion. Containing the short form would still
   // pass if the sentence had the whole path in it, since the leaf is a suffix
   // of the path — so this names what must be ABSENT from the sentence.
   await expect(page.locator('.concept')).not.toContainText('/home/example');
-  // ⚠ **And the path is still ON the card, which is what makes the cut safe
-  // rather than a loss.** It moved to the one row that also says direction and
+  // And the path is still ON the card, which is what makes the cut safe
+  // rather than a loss. It moved to the one row that also says direction and
   // certainty, instead of being repeated in prose above it.
   await expect(page.locator(SHEET)).toContainText(
     '/home/example/Code/health/rust/backend/src/routes/session.rs',
@@ -5046,12 +5046,12 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
 test('a stream that stays dead says so, and says it once @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The only connection state the reader was ever shown was the roster's.**
+  // The only connection state the reader was ever shown was the roster's.
   // That poll covers the Mac being unreachable; it says nothing when the stream
   // alone dies, and then the transcript simply stops, which on screen is a
   // session that is thinking. This is that case.
   //
-  // ⚠ **The clock is driven, not waited out.** The marker is deliberately patient
+  // The clock is driven, not waited out. The marker is deliberately patient
   // — the browser retries on its own about every three seconds — so a real wait
   // would put eight seconds into this suite to watch a timer.
   await page.clock.install();
@@ -5081,7 +5081,7 @@ test('a stream that stays dead says so, and says it once @ phone width', async (
 test('a message sent mid-answer does not cut the answer in half @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The defect, and the visible half of it was the lesser half.** A message
+  // The defect, and the visible half of it was the lesser half. A message
   // sent while the model is typing is shown at once, so the next delta found it
   // at the end of the transcript and started a NEW block. A paragraph break
   // mid-sentence is what you notice; a fenced code block cut across two renders

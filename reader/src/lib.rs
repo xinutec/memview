@@ -23,7 +23,7 @@
 //! knowledge was in the same repository, one module away, and the boundary is
 //! what kept it there.
 //!
-//! ⚠ **So the way through that boundary is a leaf, not an exception.** What
+//! So the way through that boundary is a leaf, not an exception. What
 //! lives here runs nothing, expands nothing, opens no socket, serves no
 //! request and touches no filesystem beyond the bytes it is handed. There is
 //! nothing in it to misconfigure, which is exactly why both privilege levels

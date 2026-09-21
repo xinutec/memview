@@ -120,7 +120,7 @@ describe('Asks', () => {
   });
 
   it('sends words instead of choices, and nothing else with them', () => {
-    // ⚠ The CLI reads `response` BEFORE `answers` and takes only the one it
+    // The CLI reads `response` BEFORE `answers` and takes only the one it
     // finds, so sending both would silently discard the choices. Typing takes
     // the card over; that is the behaviour, not a tidy-up.
     const { asks, sent } = harness();

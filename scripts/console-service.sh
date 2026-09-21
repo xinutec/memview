@@ -24,7 +24,7 @@
 # would be watching bash, SIGUSR2 would land on the wrong process, and a crash of
 # the console would look healthy.
 #
-# ⚠ **The tunnel is taken down by launchd, not by a trap.** `console.sh` traps EXIT
+# The tunnel is taken down by launchd, not by a trap. `console.sh` traps EXIT
 # to kill it, which cannot work here: `exec` destroys the shell that would run the
 # trap. Instead the tunnel is left in this job's process group, and launchd's
 # default (`AbandonProcessGroup` unset, i.e. false) kills what remains of the group
@@ -32,7 +32,7 @@
 # to a console that is not running is a listening port on isis with nothing behind
 # it — and it survives the console being killed in ways a trap would not.
 #
-# ⚠ **Restart with SIGUSR2, NEVER `launchctl kickstart -k`.** kickstart sends
+# Restart with SIGUSR2, NEVER `launchctl kickstart -k`. kickstart sends
 # SIGTERM, which is the console's *stop* path and deliberately takes every session
 # with it. Use `console-upgrade.sh`.
 #

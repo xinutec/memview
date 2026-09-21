@@ -35,7 +35,7 @@ fn a_write_names_the_session_that_made_it() {
     assert_eq!(found["feedback_new.md"].session, "sess-a");
 }
 
-/// ⚠ **A mention is not a write.** The session diagnosing a lint failure names
+/// A mention is not a write. The session diagnosing a lint failure names
 /// every failing memory while doing so; attributing on the name alone would
 /// blame the reader and leave the author untouched.
 #[test]
@@ -82,7 +82,7 @@ fn the_earliest_writer_owns_it_not_the_latest() {
     assert_eq!(found["feedback_new.md"].session, "sess-first");
 }
 
-/// ⚠ The whole reason this class exists: a heredoc write skips the stamping
+/// The whole reason this class exists: a heredoc write skips the stamping
 /// path, so the memory carries no `originSessionId` and the frontmatter cannot
 /// say who wrote it. The transcript still can.
 #[test]
@@ -99,7 +99,7 @@ fn a_single_failure_names_the_memory_and_the_rule_in_the_subject() {
     assert!(line.contains("missing-modified"), "{line}");
 }
 
-/// ⚠ **One open task per agent, refreshed.** The nightly runs daily and an
+/// One open task per agent, refreshed. The nightly runs daily and an
 /// unfixed error persists, so filing on every run turns one stale finding into
 /// thirty tasks — a queue read as noise and then as nothing, which is the
 /// failure this tool exists to fix, reproduced by the fix.
@@ -111,7 +111,7 @@ fn an_existing_open_task_is_found_so_the_next_run_refreshes_it() {
     assert_eq!(open_task_in(&listed), Some(42));
 }
 
-/// ⚠ **Open only.** A closed task carrying the marker is a fixed error;
+/// Open only. A closed task carrying the marker is a fixed error;
 /// refreshing it would reopen a finished conversation instead of raising the
 /// new one.
 #[test]

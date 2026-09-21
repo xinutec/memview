@@ -12,8 +12,8 @@
 #   Dockerfile   a `COPY <m>/Cargo.toml` and a stub in the dep-caching layer
 #   flake.nix    the `fileset` the console package is built from
 #
-# ⚠ **This has now failed twice, and the second time a comment was already there
-# asking for it.** `reader` arrived and the image job stayed red for dozens of
+# This has now failed twice, and the second time a comment was already there
+# asking for it. `reader` arrived and the image job stayed red for dozens of
 # runs while the gate stayed green. `bash-oracle` arrived and broke the flake's
 # console build locally and the image job on push — the Dockerfile's
 # own comment said "this list has to gain a line every time `members` does", and

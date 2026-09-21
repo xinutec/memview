@@ -7,7 +7,7 @@
 //! the layer above it: of the commands that parse, how many does the table in
 //! `shell_files.rs` understand, and which unread commands are the biggest.
 //!
-//! ⚠ **This binary computes nothing.** The survey is [`reader::reading`], and
+//! This binary computes nothing. The survey is [`reader::reading`], and
 //! this is one view of it — the API serving the same numbers to the console is
 //! another. When it was the only consumer it held the accumulation itself, and
 //! the second consumer is exactly the moment that stops being free: two
@@ -46,8 +46,8 @@ fn main() -> anyhow::Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;
-    // ⚠ **The same reader the chain uses, and there is no flag for the other
-    // one.** `shell_files` reads a nested `bash -c` through the tree whichever
+    // The same reader the chain uses, and there is no flag for the other
+    // one. `shell_files` reads a nested `bash -c` through the tree whichever
     // reader opened the outer script, so a second column here would measure a
     // mixture rather than a reader. Both readers are compared a layer earlier,
     // by `--bin projection`, where neither has to be switched to do it.
@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         read.understood()
     );
     println!("  not in the table  {}", read.unhandled);
-    // ⚠ **Beside it, because the difference is what the list below is FOR.**
+    // Beside it, because the difference is what the list below is FOR.
     // "Not in the table" is work; a call to a function the script declares is
     // not, and cannot be made into any. See `--example defined-here`.
     println!(
@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
     // A wrapper whose inner shell will not parse is a hole in exactly the third
     // of the corpus that runs through one, so it is counted rather than shrugged
     // at — the same rule as every other refusal here.
-    // ⚠ **Ranked, not totalled.** A nested script that will not read is a whole
+    // Ranked, not totalled. A nested script that will not read is a whole
     // script's worth of file uses lost, and a bare number names no construct to
     // build — which is how this sat at 405 for a day saying nothing (#1028).
     println!(
@@ -116,11 +116,11 @@ fn main() -> anyhow::Result<()> {
         read.always + read.on_success + read.sometimes - read.certain
     );
     println!("distinct paths      {}", read.distinct.len());
-    // ⚠ **Stated as a rate against the uses, not left as a bare count.** These are
+    // Stated as a rate against the uses, not left as a bare count. These are
     // subjects a command named and this reader could not: without them the line
     // above reads as "every file that was used", which is the overstatement the
     // count exists to end.
-    // ⚠ **One denominator, covering both readers.** Split out because the three
+    // One denominator, covering both readers. Split out because the three
     // are different admissions: a shell word the text does not determine, a
     // Python path the program computed, and a use this layer's own rules turned
     // away. Only the first two are unknowable; the third is a rule that could be
@@ -135,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         read.by_word.values().sum::<usize>(),
         read.by_word.len()
     );
-    // ⚠ Bounded, not named: a subset of a pattern is not a file. Shown apart
+    // Bounded, not named: a subset of a pattern is not a file. Shown apart
     // because the difference between "some subset of `src/*.ts`" and "some file"
     // is the whole of what a constrained unknown buys.
     println!(
@@ -143,7 +143,7 @@ fn main() -> anyhow::Result<()> {
         read.by_pattern.values().sum::<usize>(),
         read.by_pattern.len()
     );
-    // ⚠ Located, not bounded: the directory is written down and the language is
+    // Located, not bounded: the directory is written down and the language is
     // not, so this says less than the line above and more than "some file".
     println!(
         "  shell, located    {}  ({} distinct loci)",

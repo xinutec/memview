@@ -150,7 +150,7 @@
     scrollbar-width: thin;
   }
 
-  // ⚠ **A crumb and its separator are one unbreakable thing.** `ol` is a flex row,
+  // A crumb and its separator are one unbreakable thing. `ol` is a flex row,
   // so an `li` shrinks by default — and it shrank to exactly its button's width,
   // which left the `›` below to wrap onto a second line and made the whole trail
   // 19px taller than a crumb. Measured: `li` 47px against a 28px button. The row

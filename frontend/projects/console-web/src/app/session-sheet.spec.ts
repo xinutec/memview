@@ -79,7 +79,7 @@ describe('factsOf', () => {
 
     expect(first(facts).label, 'it is the question the sheet is opened with').toBe('about');
     expect(first(facts).value).toBe(long);
-    // ⚠ Said in words. Every other line here is read off a file or a process.
+    // Said in words. Every other line here is read off a file or a process.
     expect(first(facts).note).toContain('written by Haiku');
   });
 
@@ -140,7 +140,7 @@ describe('factsOf', () => {
   });
 
   it('says what the tokens would have cost, and calls it that', () => {
-    // ⚠ Not `$4.21` on a card. It is not a bill — the session runs on the
+    // Not `$4.21` on a card. It is not a bill — the session runs on the
     // subscription — and the flag that used to reveal it is account-wide while
     // the card was per-session, so it appeared beside whichever sessions were
     // talking when the API started warning.

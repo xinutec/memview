@@ -160,7 +160,7 @@ fn a_window_nothing_has_reported_falls_back_to_the_dashboard() {
 
 #[test]
 fn a_reset_time_is_seconds_and_is_not_read_as_milliseconds() {
-    // ⚠ The CLI's `resetsAt` is an epoch **second** while everything else here
+    // The CLI's `resetsAt` is an epoch **second** while everything else here
     // is milliseconds. Read as milliseconds it lands in January 1970, every
     // window looks long since turned over, and the console silently shows
     // "reset since" for a figure it heard moments ago.
@@ -244,7 +244,7 @@ const TURNS: i64 = 1_786_068_000;
 
 #[test]
 fn the_higher_reading_of_one_window_is_the_later_one() {
-    // ⚠ **The defect this exists for.** Every session answers `get_usage` from
+    // The defect this exists for. Every session answers `get_usage` from
     // its own process's cached rate-limit headers, so an idle one truthfully
     // reports an hour ago — and reports it *now*. Taking the newest arrival made
     // that stale answer authoritative: measured on the phone as the week's
@@ -277,7 +277,7 @@ fn a_window_that_has_turned_over_beats_the_old_one_outright() {
 
 #[test]
 fn a_window_end_that_wobbles_by_a_second_is_still_the_same_window() {
-    // ⚠ **The defect this exists for (#814).** The console drew a figure half an
+    // The defect this exists for (#814). The console drew a figure half an
     // hour stale while the CLI answered a fresher one for the same window:
     // successive samples showed the reading's age climbing 1:1 with the clock,
     // so nothing was being accepted at all.
@@ -338,7 +338,7 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
 
 #[test]
 fn a_confirmation_of_the_same_figure_still_refreshes_its_age() {
-    // ⚠ **The half of #113 that made a good number look untrustworthy.** With
+    // The half of #113 that made a good number look untrustworthy. With
     // `candidate.utilization > held.utilization` alone, a session reconfirming
     // the figure already held was discarded — and its arrival time with it — so
     // `at` recorded when the number last WENT UP rather than when it was last
@@ -356,7 +356,7 @@ fn a_confirmation_of_the_same_figure_still_refreshes_its_age() {
 
 #[test]
 fn a_fresher_dashboard_beats_a_stale_live_reading_of_the_same_window() {
-    // ⚠ **Measured live.** The console drew an hour-old figure while the
+    // Measured live. The console drew an hour-old figure while the
     // dashboard — minutes old, same window instance — said something higher.
     // `live(…).or_else(|| published…)` reached for the dashboard
     // only when the live figure was ABSENT, and absent is not the same as older,
@@ -365,7 +365,7 @@ fn a_fresher_dashboard_beats_a_stale_live_reading_of_the_same_window() {
     // Same window instance as `published()`, whose stamp is 15:20:39 — and this
     // live reading was captured an hour before that, at 14:20:39. Both are
     // measurements now, so the later CAPTURE wins, and the dashboard's is later.
-    // ⚠ The figures are the tell that this is right: the older live reading is
+    // The figures are the tell that this is right: the older live reading is
     // LOWER (13%), the newer dashboard HIGHER (28%), because utilisation rises
     // through a window — so believing the later capture also happens to believe
     // the larger figure here. The next test breaks that coincidence apart.
@@ -463,7 +463,7 @@ fn a_measured_dashboard_row_is_how_another_machines_reset_arrives() {
 
 #[test]
 fn a_reading_outlives_the_session_that_heard_it() {
-    // ⚠ **The backwards jump, #87.** Two sessions, one holding 93% and one 92%.
+    // The backwards jump, #87. Two sessions, one holding 93% and one 92%.
     // The roster used to rebuild this from its live sessions on every poll, so
     // when the 93% session ended the highest remaining was 92% — and the front
     // page, polling every five seconds, showed 92 → 93 → 92 with nothing about
@@ -524,7 +524,7 @@ mod who_is_asked {
 
     #[test]
     fn an_idle_session_is_asked_before_a_busier_but_more_recent_one() {
-        // ⚠ **The whole of #817.** `busy` spoke most recently and therefore holds
+        // The whole of #817. `busy` spoke most recently and therefore holds
         // the freshest figure — and will not answer until its turn ends, which is
         // how the ages drifted to 109s against a sixty-second beat. `idle` has a
         // cache seconds older and answers now.
@@ -557,7 +557,7 @@ mod who_is_asked {
 
 #[test]
 fn a_measured_reset_within_one_window_is_believed() {
-    // ⚠ **The defect this exists for.** Anthropic reset the week's
+    // The defect this exists for. Anthropic reset the week's
     // meter mid-window: the SAME window instance (same `resets_at`) went from a
     // high figure to a low one. The monotone rule refused it — "same window,
     // lower figure" is what a stale echo looks like too — and the console showed
@@ -570,7 +570,7 @@ fn a_measured_reset_within_one_window_is_believed() {
         fresher(&before, &after),
         "a later measurement of the same window is believed even when it falls"
     );
-    // ⚠ Under A the pre-reset high CAN return, because a higher reading is
+    // Under A the pre-reset high CAN return, because a higher reading is
     // believed as real new usage from any source — the console cannot tell a
     // stale echo of 62% from usage that genuinely climbed back to 62%, and it
     // chose to trust the everyday rise over instantly latching a rare reset.
@@ -600,7 +600,7 @@ fn an_echoed_drop_within_one_window_is_still_refused() {
 
 #[test]
 fn a_fresh_higher_echo_beats_a_stale_measurement() {
-    // ⚠ **The regression this reverses (`03eb36e`), and the reason A exists.**
+    // The regression this reverses (`03eb36e`), and the reason A exists.
     // A `get_usage` reply from the session you are talking to is an
     // echo; the home dashboard is a measurement. That commit let a measurement
     // win over an echo UNCONDITIONALLY, so a fresh, higher live reading could

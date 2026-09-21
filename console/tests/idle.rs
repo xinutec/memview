@@ -13,7 +13,7 @@
 //! fullness of a conversation that had been replaced, beside an exchange count
 //! the boundary had reset to zero. Both drawn exactly as a live figure is.
 //!
-//! ⚠ **Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`.** That is
+//! Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`. That is
 //! process-wide, and a session reads it whenever it recounts, so a sibling test
 //! sharing the process would have its transcripts looked for somewhere else.
 

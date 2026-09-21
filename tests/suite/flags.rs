@@ -18,7 +18,7 @@ fn a_good_value_is_honoured() {
     assert_eq!(value_of(&args, "--half-life", 45_i64).unwrap(), 3);
 }
 
-/// ⚠ A bad value must not read as an absent one: defaulting past it makes the run
+/// A bad value must not read as an absent one: defaulting past it makes the run
 /// indistinguishable from one that passed no flag at all.
 #[test]
 fn an_unparseable_value_is_refused_not_defaulted() {
@@ -36,7 +36,7 @@ fn a_flag_with_nothing_after_it_is_refused() {
     assert!(format!("{err}").contains("needs a value"));
 }
 
-/// ⚠ The next argument being another flag is a MISSING value, not a bad one —
+/// The next argument being another flag is a MISSING value, not a bad one —
 /// otherwise the error names `--lease-days` and sends the reader to the wrong
 /// flag entirely.
 #[test]
@@ -56,7 +56,7 @@ fn neighbouring_value_flags_stay_independent() {
     assert_eq!(value_of(&args, "--lease-days", 14_i64).unwrap(), 30);
 }
 
-/// ⚠ The measured regression: `memory-rank --nonsense` exited 0 with output
+/// The measured regression: `memory-rank --nonsense` exited 0 with output
 /// byte-identical to no arguments, across all nineteen binaries.
 #[test]
 fn an_unknown_flag_is_refused_and_the_known_ones_are_named() {
@@ -80,7 +80,7 @@ fn an_equals_form_is_recognised() {
     assert!(reject_unknown(&args, &["--half-life"]).is_ok());
 }
 
-/// ⚠ `--` ends the flags — everything after is an operand however it is spelled.
+/// `--` ends the flags — everything after is an operand however it is spelled.
 /// memview#1525: a reader consumed `--` and lost the count behind it.
 #[test]
 fn everything_after_a_double_dash_is_an_operand() {

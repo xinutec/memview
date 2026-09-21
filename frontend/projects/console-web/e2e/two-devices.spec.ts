@@ -5,8 +5,8 @@ import { start, CONVERSATIONS, type Runner } from './runner';
 /**
  * Two devices, one runner, a real draft crossing between them.
  *
- * ⚠ **This is the only test in the repo where the Rust runner and a real
- * browser meet.** `console/tests/suite/drafts.rs` merges documents Rust wrote;
+ * This is the only test in the repo where the Rust runner and a real
+ * browser meet. `console/tests/suite/drafts.rs` merges documents Rust wrote;
  * `drafts.spec.ts` drives the client against a `vi.fn()` answering what
  * TypeScript expects. Both pass while the two disagree about the wire — which is
  * how four sync defects reached the phone, each found by hand with two browsers
@@ -35,7 +35,7 @@ async function device(browser: Browser, at: string): Promise<Page> {
   const context = await browser.newContext();
   devices.push(context);
   const page = await context.newPage();
-  // ⚠ **Ready means the REPLICATION is running, not that the document loaded.**
+  // Ready means the REPLICATION is running, not that the document loaded.
   // `goto` resolves on load and the textarea is in the first render, so
   // Playwright's actionability check passes on a box Angular has not finished
   // binding: the `fill` lands in the DOM and no write is ever made. Seen as a
@@ -47,7 +47,7 @@ async function device(browser: Browser, at: string): Promise<Page> {
   return page;
 }
 
-// ⚠ **Closed, or the suite loads itself off its own feet.** Every device is an
+// Closed, or the suite loads itself off its own feet. Every device is an
 // Angular app polling the runner and replicating on an interval; left open they
 // accumulate across tests, and the LAST tests start failing on a runner that is
 // simply too busy to answer. Seen as a timeout that moved between tests from one
@@ -68,7 +68,7 @@ async function type(page: Page, text: string): Promise<void> {
 /**
  * Wait until the RUNNER holds `text` for `talk`.
  *
- * ⚠ **Without this the tests race their own premise.** "type on the Mac, then
+ * Without this the tests race their own premise. "type on the Mac, then
  * open the phone" assumes the Mac has PUSHED, which nothing guarantees — and
  * when it has not, the phone opens, pulls nothing, and waits out an interval it
  * was never given time for. That failed under gate load while passing alone.
@@ -119,7 +119,7 @@ test('a draft written on one device reaches the other', async ({ browser }) => {
 });
 
 test('opening a conversation on a second device does not clear its draft', async ({ browser }) => {
-  // ⚠ **The defect this exists for.** The composer records itself on open with
+  // The defect this exists for. The composer records itself on open with
   // an empty box; the draft then arrives from the other device; and the empty
   // record — no longer a first write, because a document now exists — was
   // written over it. MERELY LOOKING at a conversation on the phone deleted what
@@ -159,7 +159,7 @@ test('a draft cleared on one device clears on the other', async ({ browser }) =>
 });
 
 test('the three above mean something: with sync blocked, nothing arrives', async ({ browser }) => {
-  // ⚠ **The control, and it is why the rest are evidence.** Each test above
+  // The control, and it is why the rest are evidence. Each test above
   // passes just as well if the second device were somehow reading the first's
   // storage, or if the box were being filled by something other than the
   // runner. Here the phone is cut off from `/api/sync/drafts` alone — same
@@ -190,7 +190,7 @@ test('the three above mean something: with sync blocked, nothing arrives', async
 });
 
 test('two devices writing at once keep both, with nobody asked to choose', async ({ browser }) => {
-  // ⚠ **The behaviour this whole design exists for.** Two half-written thoughts
+  // The behaviour this whole design exists for. Two half-written thoughts
   // become one text holding both. What was here before drew a card with four
   // buttons and made a person pick; `console/src/drafts.rs` carries the
   // measurement that ended it — 44 refusals, and in 13 of 15 the two sides were
@@ -216,7 +216,7 @@ test('two devices writing at once keep both, with nobody asked to choose', async
   await phone.waitForTimeout(2_000);
 
   await phone.unroute('**/api/sync/drafts*');
-  // ⚠ **`inputValue`, not `toContainText`.** A textarea's text CONTENT is what
+  // `inputValue`, not `toContainText`. A textarea's text CONTENT is what
   // the markup shipped; what a person typed is its value, and asserting on the
   // former reads empty on every controlled box in this app.
   for (const page of [phone, mac]) {
@@ -227,7 +227,7 @@ test('two devices writing at once keep both, with nobody asked to choose', async
   }
   await expect(phone.getByText('this was also written elsewhere')).toBeHidden();
 
-  // ⚠ **And the two devices agree on ONE text**, character for character. Each
+  // And the two devices agree on ONE text, character for character. Each
   // holding both halves in a different order would be a merge that converged on
   // nothing, which reads as working until somebody presses send.
   const settled = await box(phone).inputValue();
@@ -263,7 +263,7 @@ test('a device that is only watching is never asked about words it did not write
 });
 
 test('a long message typed straight through arrives whole', async ({ browser }) => {
-  // ⚠ **A keystroke must be ONE insert, not a rewrite of the sentence.** If the
+  // A keystroke must be ONE insert, not a rewrite of the sentence. If the
   // client replaced the whole text on every change, two devices would merge as
   // two people retyping at once and the result would be shredded. Sixty
   // keystrokes with a second device watching is what that looks like if it is

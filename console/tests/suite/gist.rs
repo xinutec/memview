@@ -79,7 +79,7 @@ fn both_ends_of_the_conversation_are_read() {
 
 #[test]
 fn the_plumbing_a_transcript_opens_with_is_not_the_instruction() {
-    // ⚠ Measured on a real file: this console's own transcript begins with an
+    // Measured on a real file: this console's own transcript begins with an
     // `/exit` caveat and two command echoes before anything anybody said. Taking
     // the first user line would summarise the plumbing.
     let root = scratch("plumbing");
@@ -165,7 +165,7 @@ fn quotes_are_not_part_of_the_sentence() {
 
 #[test]
 fn the_marks_come_out_because_the_card_prints_the_sentence() {
-    // ⚠ Seen on the front page: the row draws this as text rather than rendering
+    // Seen on the front page: the row draws this as text rather than rendering
     // it, so what a model marked up arrives as punctuation and reads as a typo.
     assert_eq!(
         sentence("Widening `Fact` in Rust to support **configuration-derived** IDs").as_deref(),
@@ -175,7 +175,7 @@ fn the_marks_come_out_because_the_card_prints_the_sentence() {
 
 #[test]
 fn an_underscore_is_part_of_a_name_here_rather_than_an_emphasis() {
-    // ⚠ These sentences are about code. One of them today was about
+    // These sentences are about code. One of them today was about
     // `project_health_verified_core_lean`, and stripping the marks that could be
     // emphasis would have turned it into a word.
     assert_eq!(
@@ -210,7 +210,7 @@ fn one_line_is_a_sentence_with_no_name() {
 
 #[test]
 fn a_second_sentence_is_refused_rather_than_cut_down_to_a_name() {
-    // ⚠ **The failure that matters.** A model that ignores "two or three words"
+    // The failure that matters. A model that ignores "two or three words"
     // returns prose, and trimming it to the cap would produce a plausible
     // half-sentence — offered as a suggestion, that reads as considered and is
     // worse than offering nothing. Refused on either count.
@@ -258,7 +258,7 @@ fn on_disk(store: &Path) -> Vec<String> {
 
 #[test]
 fn a_conversation_that_is_gone_from_disk_loses_its_sentence() {
-    // ⚠ The store only ever grew before this. Nothing on screen showed the
+    // The store only ever grew before this. Nothing on screen showed the
     // difference — a row comes from a walk of the disk and only then looks its
     // sentence up — so a deleted conversation left an entry that nothing could
     // ever read and nothing would ever remove.
@@ -312,7 +312,7 @@ fn a_walk_that_matches_what_is_held_rewrites_nothing() {
 
 #[test]
 fn the_call_takes_its_own_transcript_away_with_it() {
-    // ⚠ **Hidden is not gone, and that is what this is for.** Each of these
+    // Hidden is not gone, and that is what this is for. Each of these
     // calls is a one-shot conversation, so each leaves a transcript under
     // `projects/` — filed by its working directory, which is the temp dir, which
     // `past::conversations` hides. Three days of that was 2,299 files and 57 MB

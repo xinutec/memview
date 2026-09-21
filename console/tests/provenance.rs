@@ -6,7 +6,7 @@
 //! reader is seeded from the FILE (`api::cold`), every event kind that only the
 //! console knows is one the seed must put back deliberately, or lose.
 //!
-//! ⚠ **That distinction lived in prose, and prose is why this file exists.**
+//! That distinction lived in prose, and prose is why this file exists.
 //! The cold seed once shipped with a doc comment listing the console-only events
 //! as "`busy`, `accepted`, `started`". It missed `Ask`. A question is a
 //! control request the CLI makes and no transcript holds one, so for ninety
@@ -52,7 +52,7 @@ enum Care {
     Covered(&'static str),
 }
 
-/// ⚠ **Exhaustive on purpose.** A new variant fails to compile here, which is
+/// Exhaustive on purpose. A new variant fails to compile here, which is
 /// the whole mechanism: the decision cannot be forgotten, only made.
 fn provenance(event: &Event) -> Provenance {
     match event {
@@ -120,7 +120,7 @@ fn recorded_fixtures() -> Vec<(&'static str, &'static str)> {
             "tool_result",
             r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"a.txt"}]}}"#,
         ),
-        // ⚠ **Needs both blocks.** `protocol::from_user` only reads a picture
+        // Needs both blocks. `protocol::from_user` only reads a picture
         // out of a message that carries an `image` AND the note the console
         // writes beside it; the image alone yields nothing, which this fixture
         // asserted wrongly at first and the test caught.
@@ -169,7 +169,7 @@ fn every_kind_a_transcript_can_produce_is_declared_recorded() {
     }
 }
 
-/// ⚠ **The reason has to name a source, and "nothing" has to say so out loud.**
+/// The reason has to name a source, and "nothing" has to say so out loud.
 /// A blank or hand-waving reason is how `Ask` went missing: the thought was had
 /// and never written down.
 #[test]

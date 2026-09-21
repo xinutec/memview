@@ -102,7 +102,7 @@ fn an_ordinary_path_is_left_alone() {
     }
 }
 
-/// ⚠ A plain FILE in the scan root must answer "not a repository", not abort
+/// A plain FILE in the scan root must answer "not a repository", not abort
 /// the scan. `~/Code` holds `.gitignore` and `check` beside the checkouts;
 /// `try_exists` on `<file>/.git` is `NotADirectory`, and when the IO-error
 /// hardening landed, that error propagated and killed the nightly

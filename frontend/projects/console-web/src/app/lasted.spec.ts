@@ -6,7 +6,7 @@ const lasted = (ms: number | undefined): string => new Lasted().transform(ms);
 
 describe('Lasted', () => {
   it('counts whole seconds under a minute', () => {
-    // ⚠ No tenths. This repaints once a second, so a tenth would be wrong for
+    // No tenths. This repaints once a second, so a tenth would be wrong for
     // most of its life — unlike the turn line, which reports a finished
     // measurement and is right to be precise.
     expect(lasted(4_400)).toBe('4s');

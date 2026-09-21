@@ -59,7 +59,7 @@ fn breadth_and_not_age_decides_what_the_lease_becomes() {
     assert_eq!(entry("none", Some(old), 1).tier(TODAY, &at), Tier::Thin);
 }
 
-/// ⚠ The failure the model names: a lease that becomes tenure because nobody
+/// The failure the model names: a lease that becomes tenure because nobody
 /// looked. Age alone must never promote.
 #[test]
 fn sitting_in_the_root_for_a_year_earns_nothing() {
@@ -153,7 +153,7 @@ fn a_trade_admits_and_demotes_in_one_operation() {
     assert_eq!(trade.net(), 0, "one line out paid for one line in");
 }
 
-/// ⚠ With no headroom and nothing to demote, an admission is SHOWN and not
+/// With no headroom and nothing to demote, an admission is SHOWN and not
 /// affordable. Hiding it would report "nothing has earned a slot" when the
 /// truth is "something has and there is no room" — the finding that argues for
 /// a demotion pass. Spending the bytes anyway breaches the ceiling in the diff.
@@ -179,7 +179,7 @@ fn an_unhoused_entry_is_never_offered_for_demotion() {
     assert!(trade.demote.is_empty());
 }
 
-/// ⚠ Homes are found against the index as it stands, so a pair that links only
+/// Homes are found against the index as it stands, so a pair that links only
 /// each other reads as housed until both lines go together.
 #[test]
 fn a_pair_that_houses_only_each_other_is_dropped_from_the_set() {
@@ -200,7 +200,7 @@ fn a_pair_that_houses_only_each_other_is_dropped_from_the_set() {
     assert_eq!(trade.recovered, 0);
 }
 
-/// ⚠ #884's freeze is on the SPLIT, and it runs until the harvest. A frozen
+/// #884's freeze is on the SPLIT, and it runs until the harvest. A frozen
 /// entry still qualifies on the evidence; acting on it perturbs the series.
 #[test]
 fn a_frozen_entry_is_held_apart_rather_than_dropped_or_demoted() {
@@ -219,7 +219,7 @@ fn a_frozen_entry_is_held_apart_rather_than_dropped_or_demoted() {
     assert_eq!(trade.recovered, 0, "held bytes are not recovered bytes");
 }
 
-/// ⚠ #1214: unprovable opens are shown and never scored. A memory whose only
+/// #1214: unprovable opens are shown and never scored. A memory whose only
 /// evidence is a shell read after `&&` must not tier as if it were proven.
 #[test]
 fn unprovable_opens_do_not_buy_tenure() {
@@ -231,7 +231,7 @@ fn unprovable_opens_do_not_buy_tenure() {
     assert_eq!(unproven.tier(TODAY, &at), Tier::Thin);
 }
 
-/// ⚠ **A tripwire's low open count is what SUCCESS looks like** — it fires from
+/// A tripwire's low open count is what SUCCESS looks like — it fires from
 /// the index line and the file is never opened. `Tier::Thin` is breadth-derived,
 /// so a demote filter that reads only the tier selects exactly the entries doing
 /// their job best. `memory-rank` held these back by name prefix; #884 showed the
@@ -252,7 +252,7 @@ fn a_tripwire_is_never_offered_for_demotion() {
     );
 }
 
-/// ⚠ **Unjudged is not "pointer".** #884 has classified some of the corpus, not
+/// Unjudged is not "pointer". #884 has classified some of the corpus, not
 /// all of it. Treating an absent judgement as a demotable pointer is a check
 /// that passes for the wrong reason, and it fails toward deleting the only place
 /// a rule fires.
@@ -291,7 +291,7 @@ fn a_thin_housed_pointer_is_demotable() {
     assert_eq!(trade.recovered, 40);
 }
 
-/// ⚠ **Role before freeze, and the order is the point.** The freeze lifts at
+/// Role before freeze, and the order is the point. The freeze lifts at
 /// the harvest; being a tripwire does not. Reporting the freeze as the reason
 /// would make this read as demotable the day after the harvest — which is the
 /// failure #1234 describes, moved by a fortnight rather than fixed.
@@ -415,7 +415,7 @@ fn a_frozen_claim_stating_pointer_is_held_on_the_line_not_the_freeze() {
     );
 }
 
-/// ⚠ **A thin verdict that DEPENDS on discarded evidence is not a verdict.**
+/// A thin verdict that DEPENDS on discarded evidence is not a verdict.
 /// Unprovable opens — a shell read after `&&`, or inside a script with one exit
 /// status — are collected and never scored (#1214), which is right: counting
 /// them overstates the record. But when counting them would lift a memory out of
@@ -460,7 +460,7 @@ fn unprovable_opens_that_could_not_change_the_tier_do_not_hold_it() {
     );
 }
 
-/// ⚠ **The undercount runs the other way too.** A memory just under the tenure
+/// The undercount runs the other way too. A memory just under the tenure
 /// bar whose unprovable opens would carry it over is excluded from ADMIT in
 /// silence. Counting them would invent a discount factor `docs/memory.md` warns
 /// against; saying nothing hides that the bar was decided by discarded evidence.
@@ -478,8 +478,8 @@ fn admission_near_misses_that_turn_on_unprovable_opens_are_counted_apart() {
 
 // ── What a demotion COSTS: how far the target falls (#822) ──────────────────
 
-/// ⚠ **The outcome `propose` exists to prevent, so the report must not whisper
-/// it.** A dash in a column of arrows reads as "nothing happened"; this is the
+/// The outcome `propose` exists to prevent, so the report must not whisper
+/// it. A dash in a column of arrows reads as "nothing happened"; this is the
 /// one case where nothing happening would mean the memory left the graph.
 #[test]
 fn a_target_nothing_still_reaches_is_named_not_dashed() {

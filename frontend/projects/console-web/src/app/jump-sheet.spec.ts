@@ -17,7 +17,7 @@ const mark = (at: number, when: number | undefined, kind: Mark = 'prompt'): Land
 
 describe('byDay', () => {
   it('puts the newest day first, against the order the transcript has', () => {
-    // ⚠ The file is oldest first and the console draws it that way. This list is
+    // The file is oldest first and the console draws it that way. This list is
     // the other direction on purpose: what somebody wants back is far more often
     // this afternoon's than March's.
     const days = byDay([mark(10, NOW - 2 * DAY), mark(20, NOW - DAY), mark(30, NOW)], NOW);
@@ -42,7 +42,7 @@ describe('byDay', () => {
   });
 
   it('keeps what the transcript never dated, in a group of its own', () => {
-    // ⚠ **Kept rather than dropped.** A line with no stamp is still somewhere to
+    // Kept rather than dropped. A line with no stamp is still somewhere to
     // jump to, and quietly losing it would make the strip incomplete in a way
     // nothing on screen could say. Never guessed a date for — that would file
     // June's conversation under today.

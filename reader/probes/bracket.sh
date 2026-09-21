@@ -31,7 +31,7 @@
 #      the only oracle for it is matching — which is what section 1 does,
 #      against real files.
 #
-# ⚠ And `[` alone is the TEST BUILTIN, whose `]` is a separate word. Reading
+# And `[` alone is the TEST BUILTIN, whose `]` is a separate word. Reading
 # every `[` as a bracket expression would throw the commonest conditional in the
 # corpus away for a construct that is not there.
 set -euo pipefail
@@ -67,7 +67,7 @@ for p in '[ab]' '[a-z]' '[!a]' '[^a]' '[0-9]' '[]a]' '[a-]' '[[:alpha:]]' \
 done
 
 section "2 · is ^ really a negation, or a member?"
-# ⚠ POSIX spells it `!`; whether `^` negates or matches a literal caret decides
+# POSIX spells it `!`; whether `^` negates or matches a literal caret decides
 # whether the two are one tree.
 printf '[^a] against a and ^: '; expand '[^a]'; printf '\n'
 printf '[!a] against a and ^: '; expand '[!a]'; printf '\n'
@@ -90,7 +90,7 @@ for s in 'echo [ab]' 'echo [!a-z]' 'echo [^a-z]' 'echo [[:alpha:]]' \
 done
 
 section "4 · the test builtin, which shares the character"
-# ⚠ `[ -f x ]` is a COMMAND named `[`, and its `]` is a separate word. Reading
+# `[ -f x ]` is a COMMAND named `[`, and its `]` is a separate word. Reading
 # every `[` as a bracket expression would throw the commonest conditional in the
 # corpus away for a construct that is not there.
 printf 'type -t [ → '; type -t '['

@@ -1,6 +1,6 @@
 //! Text to tree, refusing everything it does not model.
 //!
-//! ⚠ **Refusal is the design, not a gap.** A parser that absorbs an unimplemented
+//! Refusal is the design, not a gap. A parser that absorbs an unimplemented
 //! construct into literal text satisfies the round-trip law and contradicts nothing:
 //! it prints the text back and reads the same wrong tree a second time. Bash's
 //! printer does not object either, because it prints words verbatim. So the only
@@ -11,8 +11,8 @@
 //! start and ratchet. `bash-oracle`'s `syntax-report` ranks the refusals so the next
 //! construct is chosen by the corpus rather than by taste.
 //!
-//! ⚠ **A refusal names what cannot be read, and the survey checks that it is the
-//! truth.** Calling a malformed `for` header a `Redirection` was accurate about the
+//! A refusal names what cannot be read, and the survey checks that it is the
+//! truth. Calling a malformed `for` header a `Redirection` was accurate about the
 //! character and wrong about the construct — and since redirections ARE modelled,
 //! the survey looked for one and found nothing. No test would have caught it.
 //!
@@ -30,7 +30,7 @@ use super::ast::{
 
 /// Where a word is being read, which decides what expands inside it.
 ///
-/// ⚠ **Not a style choice — measured.** `FOO=*.txt` binds the literal `*.txt`
+/// Not a style choice — measured. `FOO=*.txt` binds the literal `*.txt`
 /// while `cmd *.txt` names files, and `T=a:~/x` expands a tilde that `cmd a:~/x`
 /// leaves alone. A single word reader would have to be wrong in one of the two
 /// places.
@@ -44,7 +44,7 @@ enum WordKind {
     /// An argument to a declaration builtin — `declare`, `typeset`, `export`,
     /// `readonly`, `local`.
     ///
-    /// ⚠ **The only argument position where `NAME=(a b)` is legal**, and bash
+    /// The only argument position where `NAME=(a b)` is legal, and bash
     /// decides it by the command NAME: `echo x=(a)` is a syntax error while
     /// `declare x=(a)` is not. Measured, both. Otherwise an argument.
     Declaration,
@@ -91,14 +91,14 @@ pub fn is_declaration(name: &str) -> bool {
 
 /// Why a piece of text was not read.
 ///
-/// ⚠ **A closed enum, so the report can rank it.** A free-text reason would make
+/// A closed enum, so the report can rank it. A free-text reason would make
 /// the failure list ungroupable, and the failure list is what picks the next
 /// thing to build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reason {
     /// `$'…'` — ANSI-C quoting.
     ///
-    /// ⚠ **Not an expansion at all.** Bash resolves the escapes at parse time
+    /// Not an expansion at all. Bash resolves the escapes at parse time
     /// and prints `$'\x41'` back as `'A'`, so this is a *spelling of a literal*
     /// and belongs in a `Literal` segment once it is read. Grouped here only
     /// because a `$` opens it.
@@ -117,13 +117,13 @@ pub enum Reason {
     CommandSubstitution,
     /// `` `cmd` `` — the older spelling of `$(cmd)`.
     ///
-    /// ⚠ **A classification, not a refusal.** It reaches the SAME node: the two
+    /// A classification, not a refusal. It reaches the SAME node: the two
     /// mean the same thing, and what differs is spelling, which this tree
     /// normalises away. The escaping differs too — a backtick's interior needs
     /// `` \` ``, `\$` and `\\` resolved before it is a script at all — and that
     /// resolving happens at parse time, exactly as bash does it.
     ///
-    /// ⚠ The second gate is BLIND inside one, where it can see inside `$( )`:
+    /// The second gate is BLIND inside one, where it can see inside `$( )`:
     /// bash normalises `$(a|b)` to `$(a | b)` and prints `` `a|b` `` verbatim.
     /// It still compares the trees, because it is shown the original and parses
     /// its verbatim rendering back through this same reader.
@@ -142,7 +142,7 @@ pub enum Reason {
     Grouping,
     /// `{a,b}`, `{1..9}` — brace EXPANSION, which is not grouping at all.
     ///
-    /// ⚠ **Split off because a refusal must name the construct.** These share a
+    /// Split off because a refusal must name the construct. These share a
     /// character with a brace group and nothing else: this one is word-level,
     /// like a glob — `echo {a,b}.txt` is one word that expands to two — while
     /// `{ a; }` is a command list. Counting them together said "how many
@@ -232,12 +232,12 @@ pub struct Refusal {
 /// quoting anywhere in it. `'time' ./x.sh` runs `/usr/bin/time` while `time ./x.sh`
 /// runs no program at all, and that distinction is invisible to both gates.
 ///
-/// ⚠ **`time` is deliberately absent.** At the head of a pipeline it is grammar and
+/// `time` is deliberately absent. At the head of a pipeline it is grammar and
 /// [`Parser::pipeline`] consumes it before any word is read; anywhere else bash runs
 /// the program of that name. `!` stays, because it is grammar at the head and a
 /// *syntax error* elsewhere.
 ///
-/// ⚠ **Grouped by construct, because a reason is a unit of work.** `if` and `case`
+/// Grouped by construct, because a reason is a unit of work. `if` and `case`
 /// share nothing but being keywords. Counting them together would say how many
 /// commands hold a keyword, which is not a number anybody can build against. The
 /// interior words (`then`, `do`, `esac`) sit with their openers.
@@ -282,7 +282,7 @@ struct Parser<'t> {
     at: usize,
     /// Heredocs opened on the line being read, still waiting for their bodies.
     ///
-    /// ⚠ **A heredoc body cannot be found by scanning ahead for a newline.** The
+    /// A heredoc body cannot be found by scanning ahead for a newline. The
     /// rest of the opener's line may hold a newline that does not end it — inside
     /// a quoted word, or after a backslash — and bash starts the body after the
     /// *logical* line instead. Both are measured in `reader/probes/heredoc.sh`.
@@ -307,7 +307,7 @@ struct Parser<'t> {
 
 /// A heredoc's opener, held until the line it was written on ends.
 ///
-/// ⚠ No `span`: it existed only to place the collision refusal `finish_body`
+/// No `span`: it existed only to place the collision refusal `finish_body`
 /// used to raise, and that refusal cannot arise any more (memview#1564). A field
 /// kept "in case" is one the next reader has to work out the purpose of.
 struct Pending {
@@ -350,7 +350,7 @@ impl<'t> Parser<'t> {
 
     /// A run of items, stopping before any of `until` without consuming it.
     ///
-    /// ⚠ **The one place a command list is read**, so a loop's body is the same
+    /// The one place a command list is read, so a loop's body is the same
     /// grammar as a whole script rather than a second, nearly-identical reader.
     /// The terminators are the keywords that close the construct asking for the
     /// list — `do`, `done` — and they are left in place for the caller to take.
@@ -368,7 +368,7 @@ impl<'t> Parser<'t> {
             }
             match self.peek() {
                 None => break,
-                // ⚠ Inside a `case` arm, `;;`, `;&` and `;;&` END the body. Read
+                // Inside a `case` arm, `;;`, `;&` and `;;&` END the body. Read
                 // as separators they would be eaten as two empty steps, and the
                 // arm would swallow the rest of the case.
                 Some(b';')
@@ -433,7 +433,7 @@ impl<'t> Parser<'t> {
     /// Consume the newline under the cursor, and with it the bodies of every
     /// heredoc opened on the line it ends.
     ///
-    /// ⚠ **The one place a line ending is consumed.** A heredoc body starts here
+    /// The one place a line ending is consumed. A heredoc body starts here
     /// and nowhere else, so routing every newline through this function is what
     /// makes "the body follows the line" true rather than approximately true.
     fn take_newline(&mut self) -> Result<(), Refusal> {
@@ -451,13 +451,13 @@ impl<'t> Parser<'t> {
 
     /// The lines from the cursor up to the one holding the delimiter alone.
     ///
-    /// ⚠ **The end of the input terminates a body, because that is what bash makes of
-    /// it** — with a warning on stderr, and the rest of the text as the body. The corpus
+    /// The end of the input terminates a body, because that is what bash makes of
+    /// it — with a warning on stderr, and the rest of the text as the body. The corpus
     /// is shell history and holds a handful of these; reading them the way they ran is
     /// the whole point. The printer writes the delimiter back, which is a normalisation
     /// the law permits.
     ///
-    /// ⚠ **The terminator is matched against the JOINED line, not the raw one**
+    /// The terminator is matched against the JOINED line, not the raw one
     /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it reads,
     /// so the delimiter is compared against what the continuations make. Matching raw
     /// lines instead produced a WRONG TREE, unrefused, in both directions — measured
@@ -478,7 +478,7 @@ impl<'t> Parser<'t> {
     /// command ran that bash never ran — a false lower bound, the single thing `S ⊆ L`
     /// forbids.
     ///
-    /// ⚠ **A QUOTED delimiter joins NOTHING and still matches raw lines.** The two cases
+    /// A QUOTED delimiter joins NOTHING and still matches raw lines. The two cases
     /// genuinely differ, and treating them alike would break the quoted one to fix the
     /// unquoted one.
     fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
@@ -490,8 +490,8 @@ impl<'t> Parser<'t> {
         let mut logical = String::new();
         loop {
             if self.at >= self.bytes.len() {
-                // ⚠ **A continuation with nothing after it still COMPLETES its
-                // line**, so the terminator test applies to it as well. Measured:
+                // A continuation with nothing after it still COMPLETES its
+                // line, so the terminator test applies to it as well. Measured:
                 // `cat <<EOF⏎EOF\` with no final newline runs clean under bash —
                 // `EOF\` joins with nothing, becomes `EOF`, and terminates the
                 // body. Reaching `finish_body` with it instead was the last way
@@ -513,7 +513,7 @@ impl<'t> Parser<'t> {
             if self.peek() == Some(b'\n') {
                 self.at += 1;
             }
-            // ⚠ `<<-` strips leading TABS, and only tabs. A line indented with
+            // `<<-` strips leading TABS, and only tabs. A line indented with
             // spaces is body text and a terminator preceded by one is not a
             // terminator — both measured, and both the shape a `<<-` in the
             // corpus is most likely to be written wrong in.
@@ -546,7 +546,7 @@ impl<'t> Parser<'t> {
 
     /// Resolve a body once its extent is known, however it ended.
     ///
-    /// ⚠ **No collision check any more, because a collision can no longer arise**
+    /// No collision check any more, because a collision can no longer arise
     /// (memview#1564, closing #1509). This used to refuse a joined body holding a line
     /// equal to the delimiter. Now that `heredoc_body` tests the JOINED line, such a
     /// line is the terminator and never reaches the body.
@@ -609,7 +609,7 @@ impl<'t> Parser<'t> {
             };
             self.at += 2;
             self.skip_blanks_and_newlines()?;
-            // ⚠ Bash accepts a comment here and DELETES it. This tree keeps
+            // Bash accepts a comment here and DELETES it. This tree keeps
             // comments byte-exact, so accepting one would be destructive —
             // refused rather than silently dropped.
             if self.peek() == Some(b'#') {
@@ -653,10 +653,10 @@ impl<'t> Parser<'t> {
         loop {
             self.skip_blanks();
             if self.take_keyword("!") {
-                // ⚠ Toggled, not counted: bash prints `! ! a` back as `a`.
+                // Toggled, not counted: bash prints `! ! a` back as `a`.
                 negated = !negated;
             } else if self.take_keyword("time") {
-                // ⚠ The blanks between `time` and `-p` have to go first.
+                // The blanks between `time` and `-p` have to go first.
                 // Without this the option is never seen and every `time -p`
                 // silently becomes a plain `time` with `-p` as the command.
                 self.skip_blanks();
@@ -673,7 +673,7 @@ impl<'t> Parser<'t> {
         let mut commands = Vec::new();
         loop {
             let command = self.command()?;
-            // ⚠ Words are not what makes a command. `FOO=bar` binds and `> out`
+            // Words are not what makes a command. `FOO=bar` binds and `> out`
             // truncates, each with no word in it, and dropping them would lose a
             // whole statement rather than a detail.
             if !command.is_empty() {
@@ -682,7 +682,7 @@ impl<'t> Parser<'t> {
             self.skip_blanks();
             if self.peek() == Some(b'|') && self.peek_at(1) != Some(b'|') {
                 self.at += 1;
-                // ⚠ **A newline after `|` continues the pipeline.** Bash's
+                // A newline after `|` continues the pipeline. Bash's
                 // grammar is `pipeline '|' newline_list pipeline`, and without
                 // this `a |⏎b` read as TWO pipelines — a silent misparse that
                 // both gates passed, because the printed form was two lines and
@@ -725,7 +725,7 @@ impl<'t> Parser<'t> {
         if self.text.get(self.at..end) != Some(word) {
             return false;
         }
-        // ⚠ The same boundary set [`Parser::at_keyword`] uses, `&` included:
+        // The same boundary set [`Parser::at_keyword`] uses, `&` included:
         // `done&` backgrounds a loop and `fi&` a conditional, both without a
         // space, and a closing keyword that did not end there would be read as
         // the word `done&`.
@@ -743,7 +743,7 @@ impl<'t> Parser<'t> {
         let start = self.at;
         self.skip_blanks();
         if let Some(kind) = self.compound()? {
-            // ⚠ A compound takes its redirections after the closing keyword,
+            // A compound takes its redirections after the closing keyword,
             // and bash prints them there: `while a; do b; done > out`.
             let mut redirects = Vec::new();
             loop {
@@ -767,7 +767,7 @@ impl<'t> Parser<'t> {
         let mut redirects: Vec<Redirect> = Vec::new();
         loop {
             self.skip_blanks();
-            // ⚠ **A prefix, so it is read only while no word has been.** `A=1 cmd
+            // A prefix, so it is read only while no word has been. `A=1 cmd
             // B=2` binds `A` and passes `B=2` as an argument — bash prints that
             // back unchanged — and the test is on the raw bytes because whether
             // the NAME is quoted is what decides it. See [`opens_assignment`].
@@ -794,7 +794,7 @@ impl<'t> Parser<'t> {
                 redirects.push(redirect);
                 continue;
             }
-            // ⚠ **The command's NAME decides how its arguments are read.**
+            // The command's NAME decides how its arguments are read.
             // `declare x=(a)` parses and `echo x=(a)` is a syntax error — bash's
             // own rule, measured — so an array literal in argument position is
             // legal only after one of five builtins.
@@ -814,11 +814,11 @@ impl<'t> Parser<'t> {
 
     /// A loop, if one opens here.
     ///
-    /// ⚠ **The body is read by [`Parser::items`], the same reader a whole script
-    /// uses.** A loop's body is a command list and nothing more, so a second
+    /// The body is read by [`Parser::items`], the same reader a whole script
+    /// uses. A loop's body is a command list and nothing more, so a second
     /// reader for it would be a second place for the grammar to be wrong.
     fn compound(&mut self) -> Result<Option<CommandKind>, Refusal> {
-        // ⚠ `((` is arithmetic, not two subshells — and bash agrees: `((a))`
+        // `((` is arithmetic, not two subshells — and bash agrees: `((a))`
         // evaluates where `( (a) )` would run a command called `a`. Checked
         // first, because the subshell reader would otherwise take the first
         // paren and leave a tree that means something else entirely.
@@ -828,7 +828,7 @@ impl<'t> Parser<'t> {
         if self.peek() == Some(b'(') {
             return Ok(Some(CommandKind::Subshell(self.subshell()?)));
         }
-        // ⚠ `{` is the keyword only where a word could not start: `{ a; }` is a
+        // `{` is the keyword only where a word could not start: `{ a; }` is a
         // group and `{a,b}` is one word. Bash decides on the blank, and so does
         // this — `{a,b}` falls through to the word reader, which names it a
         // brace expansion rather than a group.
@@ -898,7 +898,7 @@ impl<'t> Parser<'t> {
                 if self.at_end_of_command() {
                     break;
                 }
-                // ⚠ A redirection in a `for` header is a syntax error to bash —
+                // A redirection in a `for` header is a syntax error to bash —
                 // `for f in a 2>/dev/null; do x; done` is refused outright — so
                 // what cannot be read here is the LOOP, not a redirection.
                 // Naming it `Redirection` sent the survey looking for a
@@ -919,7 +919,7 @@ impl<'t> Parser<'t> {
             }
             words
         } else {
-            // ⚠ **Desugared, because bash desugars it.** `for f; do …` comes
+            // Desugared, because bash desugars it. `for f; do …` comes
             // back from `declare -f` as `for f in "$@"; do …`, so a tree that
             // recorded the omission would make one command two trees and the
             // second gate would say so.
@@ -965,7 +965,7 @@ impl<'t> Parser<'t> {
 
     /// `( list )` — a command list that runs in a subshell.
     ///
-    /// ⚠ **The closing paren is found the same way a `$( )`'s is**, by the
+    /// The closing paren is found the same way a `$( )`'s is, by the
     /// depth counter every list reader already consults. Sharing it is what
     /// makes `( echo ")" )` work: the quote reader has stepped over the paren
     /// inside the word before the list reader ever sees it.
@@ -1000,11 +1000,11 @@ impl<'t> Parser<'t> {
 
     /// `name() { … }` or `name() ( … )`, if one starts here.
     ///
-    /// ⚠ **Both spellings give the same tree**, because bash gives them the
+    /// Both spellings give the same tree, because bash gives them the
     /// same print: a `( … )` body comes back wrapped in a brace group. See
     /// [`Function`].
     fn function(&mut self) -> Result<Option<Function>, Refusal> {
-        // ⚠ **`function NAME` has to be read, because bash WRITES it.**
+        // `function NAME` has to be read, because bash WRITES it.
         // `declare -f` prints every definition that way whichever spelling was
         // used, so a parser that refused the keyword could not read back its own
         // print — 141 commands failed the round-trip law on exactly that, and
@@ -1081,7 +1081,7 @@ impl<'t> Parser<'t> {
 
     /// The `{ … }` or `( … )` after a definition's name.
     ///
-    /// ⚠ A `( … )` body comes back from `declare -f` wrapped in a brace group,
+    /// A `( … )` body comes back from `declare -f` wrapped in a brace group,
     /// so that is the tree both spellings give — bash's own canonical form, and
     /// the same collapse an `elif` gets.
     fn function_body(&mut self) -> Result<Vec<Item>, Refusal> {
@@ -1099,7 +1099,7 @@ impl<'t> Parser<'t> {
     /// `if cond; then body [elif …] [else body] fi`, with the opening keyword
     /// already taken.
     ///
-    /// ⚠ **An `elif` recurses, and the recursion takes the `fi`.** A whole chain
+    /// An `elif` recurses, and the recursion takes the `fi`. A whole chain
     /// closes with exactly one `fi`, so it belongs to whichever arm ends the
     /// chain — the nested call where there is an `elif`, this one otherwise.
     /// That is the desugaring bash itself performs, and [`Conditional`] says why
@@ -1139,7 +1139,7 @@ impl<'t> Parser<'t> {
 
     /// One of a conditional's lists — a condition or a branch.
     ///
-    /// ⚠ **An empty one is a syntax error, not an empty list.** Bash refuses
+    /// An empty one is a syntax error, not an empty list. Bash refuses
     /// `if; then b; fi` and `if a; then fi` outright, so this is a claim about
     /// the input rather than about what is modelled, and `bash -n` adjudicates
     /// it.
@@ -1153,7 +1153,7 @@ impl<'t> Parser<'t> {
 
     /// `[[ expr ]]`, with `[[` already taken.
     ///
-    /// ⚠ **Its own grammar, and its own precedence** — `&&` binds tighter than
+    /// Its own grammar, and its own precedence — `&&` binds tighter than
     /// `||`, and the printer rebuilds the parens from that rather than recording
     /// where they were, exactly as it does for arithmetic.
     fn test_expression(&mut self) -> Result<TestExpr, Refusal> {
@@ -1189,7 +1189,7 @@ impl<'t> Parser<'t> {
         }
     }
 
-    /// ⚠ **A toggle, because bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.**
+    /// A toggle, because bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
     /// A tree that stacked them would make one command two trees.
     fn test_not(&mut self) -> Result<TestExpr, Refusal> {
         let mut negated = false;
@@ -1225,7 +1225,7 @@ impl<'t> Parser<'t> {
             // `[[ ]]` is a syntax error to bash too.
             return self.refuse(Reason::TestExpression, 1);
         }
-        // ⚠ A unary operator is decided from the RAW text, before the word
+        // A unary operator is decided from the RAW text, before the word
         // reader runs: `-f` is an operator here and an ordinary argument
         // everywhere else, and only its position says which.
         if let Some(op) = self.test_operator().and_then(|text| UnaryTest::of(&text)) {
@@ -1237,7 +1237,7 @@ impl<'t> Parser<'t> {
             let operand = self.word(false, WordKind::Value)?;
             return Ok(TestExpr::Unary { op, operand });
         }
-        // ⚠ **No pathname expansion in here** — `[[ -f *.txt ]]` tests a file
+        // No pathname expansion in here — `[[ -f *.txt ]]` tests a file
         // literally named `*.txt`, measured — so every operand is read as a
         // value. The one exception is below.
         let left = self.word(false, WordKind::Value)?;
@@ -1246,19 +1246,19 @@ impl<'t> Parser<'t> {
             .test_operator()
             .and_then(|text| BinaryTest::of(&text).map(|op| (text, op)))
         else {
-            // ⚠ **A bare word desugars to `-n word`**, which is bash's own
+            // A bare word desugars to `-n word`, which is bash's own
             // rendering: `[[ a && b ]]` comes back as `[[ -n a && -n b ]]`.
             return Ok(TestExpr::Unary {
                 op: UnaryTest::NonEmpty,
                 operand: left,
             });
         };
-        // ⚠ The token's OWN length, not the node's spelling: `=` and `==` are
+        // The token's OWN length, not the node's spelling: `=` and `==` are
         // one operator and two widths.
         self.at += text.len();
         self.skip_blanks_and_newlines()?;
-        // ⚠ **`=~` is refused, and all three gates would have passed a wrong
-        // tree for it.** Its right-hand side is a regular expression where
+        // `=~` is refused, and all three gates would have passed a wrong
+        // tree for it. Its right-hand side is a regular expression where
         // QUOTING IS SEMANTIC — measured: `[[ abc =~ ^a.*c$ ]]` matches and
         // `[[ abc =~ '^a.*c$' ]]` does not, because quoting any part of it makes
         // that part literal. A word in this tree collapses quoting by design, so
@@ -1302,7 +1302,7 @@ impl<'t> Parser<'t> {
 
     /// `case word in [pattern) body ;;]… esac`, with `case` already taken.
     ///
-    /// ⚠ **`esac` right after `in` is a case with NO ARMS**, and legal — bash
+    /// `esac` right after `in` is a case with NO ARMS, and legal — bash
     /// accepts `case $x in esac`. It is also why `esac` cannot be a bare
     /// pattern: bash reads the keyword first and calls the `)` a syntax error.
     /// A *quoted* `esac` is an ordinary pattern, which is why the printer has to
@@ -1337,7 +1337,7 @@ impl<'t> Parser<'t> {
 
     /// `[(] pattern [| pattern]… ) body [;;|;&|;;&]`.
     fn case_arm(&mut self) -> Result<Arm, Refusal> {
-        // ⚠ **A leading `(` is stepped over and NOT recorded.** Bash prints
+        // A leading `(` is stepped over and NOT recorded. Bash prints
         // `(a)` back as `a)`, so a tree holding the paren would make one command
         // two trees and the second gate could never object.
         if self.peek() == Some(b'(') {
@@ -1367,7 +1367,7 @@ impl<'t> Parser<'t> {
         let body = self.items(&["esac"]);
         self.arm_depth -= 1;
         let body = body?;
-        // ⚠ **Three terminators, and they are three different programs** — `;;`
+        // Three terminators, and they are three different programs — `;;`
         // stops, `;&` runs the next arm's body without testing it, `;;&` goes on
         // testing. Measured by running them; see `reader/probes/case.sh`.
         let end = match (self.peek(), self.peek_at(1), self.peek_at(2)) {
@@ -1383,7 +1383,7 @@ impl<'t> Parser<'t> {
                 self.at += 2;
                 ArmEnd::FallThrough
             }
-            // ⚠ The last arm may leave it out, and bash writes `;;` in when it
+            // The last arm may leave it out, and bash writes `;;` in when it
             // prints — so the omission is not recorded and the two spellings are
             // one tree. Anything else here is a case that never closes, which
             // the caller names.
@@ -1398,7 +1398,7 @@ impl<'t> Parser<'t> {
 
     /// `$'…'` — a spelling of a LITERAL, resolved here and stored as one.
     ///
-    /// ⚠ **Not an expansion, and not a quoting style either.** Bash resolves the escapes
+    /// Not an expansion, and not a quoting style either. Bash resolves the escapes
     /// at parse time and prints the result as an ordinary single-quoted string —
     /// `$'\x41'` comes back as `'A'` — so a tree keeping the `$'` spelling would say two
     /// texts differ where bash says they do not. Resolving it here is also what lets the
@@ -1406,7 +1406,7 @@ impl<'t> Parser<'t> {
     /// own resolved output, so a wrong escape is a difference rather than a shared
     /// mistake.
     ///
-    /// ⚠ **`\u` and `\U` are refused rather than decoded.** Measured on bash 5.3.15,
+    /// `\u` and `\U` are refused rather than decoded. Measured on bash 5.3.15,
     /// `$'é'` comes back parsed and re-spelled rather than resolved, and guessing which
     /// of the two a different build would do is not worth the commands it would buy.
     fn ansi_quote(&mut self) -> Result<Segment, Refusal> {
@@ -1457,7 +1457,7 @@ impl<'t> Parser<'t> {
                             text.push(self.escape_digits(8, 3)?);
                         }
                         b'u' | b'U' => return self.refuse(Reason::AnsiQuote, 1),
-                        // ⚠ An escape bash does not know keeps its backslash:
+                        // An escape bash does not know keeps its backslash:
                         // `$'\z'` is the two characters `\z`, measured.
                         _ => {
                             text.push('\\');
@@ -1496,7 +1496,7 @@ impl<'t> Parser<'t> {
         }
         let value = u32::from_str_radix(&self.text[from..self.at], radix)
             .expect("digits of the radix just scanned");
-        // ⚠ **A NUL is refused, because bash cannot carry one in a word.**
+        // A NUL is refused, because bash cannot carry one in a word.
         // `$'\0'` expands to nothing at all — measured — so a tree holding the
         // character would print a byte bash then drops, and the second gate
         // would be right to call the two trees different.
@@ -1511,12 +1511,12 @@ impl<'t> Parser<'t> {
 
     /// `(a b c)`, `([0]=a [1]=b)`, `()` — the elements of an array.
     ///
-    /// ⚠ **The second gate CAN see in here**, unlike the inside of a word: bash
+    /// The second gate CAN see in here, unlike the inside of a word: bash
     /// normalises the whitespace between elements, so `x=(a   b)` comes back as
     /// `x=(a b)` and one written across four lines comes back on one. A
     /// mis-split of the elements is a difference it reports.
     ///
-    /// ⚠ **A newline between elements is a separator**, not a terminator —
+    /// A newline between elements is a separator, not a terminator —
     /// which is how the corpus writes a long one.
     fn array_literal(&mut self) -> Result<Segment, Refusal> {
         let start = self.at;
@@ -1555,7 +1555,7 @@ impl<'t> Parser<'t> {
 
     /// `[k]=` in front of an element, where the text gives one.
     ///
-    /// ⚠ **Told apart from a bracket EXPRESSION by the `=` after the `]`.**
+    /// Told apart from a bracket EXPRESSION by the `=` after the `]`.
     /// `x=([0]=a)` names slot zero and `x=([0]a)` is a glob matching a filename;
     /// both are legal, bash prints both verbatim, and only this lookahead
     /// decides which the tree gets.
@@ -1581,7 +1581,7 @@ impl<'t> Parser<'t> {
 
     /// One pattern: a word, read where `)` and `|` end it.
     ///
-    /// ⚠ **A word, not a string.** Bash prints a pattern back verbatim, so the
+    /// A word, not a string. Bash prints a pattern back verbatim, so the
     /// second gate has no opinion about what is in one — the same blind spot it
     /// has about a word, and the same answer. `'*'` is a literal asterisk and
     /// `*` is a glob, which is a difference in what the arm MATCHES, and only
@@ -1620,7 +1620,7 @@ impl<'t> Parser<'t> {
 
     /// A redirection, if one starts here.
     ///
-    /// ⚠ **The descriptor must touch the operator.** `cat 2>out` redirects fd 2;
+    /// The descriptor must touch the operator. `cat 2>out` redirects fd 2;
     /// `cat 2 > out` passes `2` as an argument and redirects stdout. Only a run
     /// of digits ending exactly at `<` or `>` is a descriptor, and because this
     /// is tried at a word boundary, `file2>out` cannot be read as one either.
@@ -1669,8 +1669,8 @@ impl<'t> Parser<'t> {
                 at += 2;
                 RedirectOp::ReadWrite
             }
-            // ⚠ **Checked before `<<`, or a here-string is read as a heredoc
-            // whose delimiter begins with `<`.** Three characters, and the third
+            // Checked before `<<`, or a here-string is read as a heredoc
+            // whose delimiter begins with `<`. Three characters, and the third
             // is what decides which construct this is.
             (Some(b'<'), Some(b'<')) if self.bytes.get(at + 2) == Some(&b'<') => {
                 at += 3;
@@ -1721,19 +1721,19 @@ impl<'t> Parser<'t> {
         self.at = at;
 
         let target = self.redirect_target(op)?;
-        // ⚠ Always the effective descriptor, never the written one — see
+        // Always the effective descriptor, never the written one — see
         // `Redirect::fd`. `1> f` and `> f` are one redirection, and bash says so
         // by printing the first as the second. Taken from the WRITTEN operator,
         // before the normalisations below change it: `cat <&-` closes fd 0 and
         // bash prints it `cat 0>&-`, so the direction decides the descriptor
         // even where it does not survive into the operator.
         let effective_fd = fd.or(op.default_fd());
-        // ⚠ `>&2` duplicates a descriptor; `>&file` sends BOTH streams to a
+        // `>&2` duplicates a descriptor; `>&file` sends BOTH streams to a
         // file. Same two characters, different construct, and the target is
         // what tells them apart — so the operator is settled after reading it.
         let op = match (op, &target) {
             (RedirectOp::DupOut, RedirectTarget::File(_)) => RedirectOp::BothWord,
-            // ⚠ **Closing has no direction.** Bash prints `3<&-` back as
+            // Closing has no direction. Bash prints `3<&-` back as
             // `3>&-`, and `<&-` as `0>&-` — measured — so a tree that kept the
             // written direction made one operation two trees. Found by the
             // second gate on one command in 129,329, which is the shape of
@@ -1751,7 +1751,7 @@ impl<'t> Parser<'t> {
 
     /// The word after `<<`: what the delimiter says, and whether it was quoted.
     ///
-    /// ⚠ **Every quoted spelling is one node.** `<<'EOF'`, `<<"EOF"`, `<<\EOF`
+    /// Every quoted spelling is one node. `<<'EOF'`, `<<"EOF"`, `<<\EOF`
     /// and `<<E"O"F` all print back from `declare -f` as `<<'EOF'`, so bash keeps
     /// the text and one bit and forgets which spelling produced them. Keeping
     /// more would be a distinction the second gate reads as a difference that
@@ -1789,7 +1789,7 @@ impl<'t> Parser<'t> {
                     };
                     text.push_str(&inner);
                 }
-                // ⚠ Read literally, NOT with [`Parser::double_quoted`]. A
+                // Read literally, NOT with [`Parser::double_quoted`]. A
                 // heredoc delimiter undergoes quote removal and nothing else, so
                 // `<<"E$F"` ends at a line reading `E$F` — the `$` names no
                 // parameter. Sharing the word reader here would put an expansion
@@ -1877,13 +1877,13 @@ impl<'t> Parser<'t> {
         let mut segments: Vec<Segment> = Vec::new();
         let mut quoted_anywhere = false;
 
-        // ⚠ **At the head of EVERY word, not just the first.** `cd ~/Code` has
+        // At the head of EVERY word, not just the first. `cd ~/Code` has
         // its tilde in the second, and scoping this to the command name once let
         // exactly that shape absorb an expansion into literal text.
         if self.peek() == Some(b'~') {
             segments.push(self.tilde()?);
         }
-        // ⚠ In a value only, a tilde after an unquoted `:` expands too — bash
+        // In a value only, a tilde after an unquoted `:` expands too — bash
         // binds `T=a:~/x` to `a:/home/…/x`. Measured, and the reason a value
         // cannot share the argument reader.
         let tilde_follows_colon = kind == WordKind::Value;
@@ -1892,7 +1892,7 @@ impl<'t> Parser<'t> {
             let at = self.at;
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' => break,
-                // ⚠ **A backslash-newline JOINS a word, it does not end one.**
+                // A backslash-newline JOINS a word, it does not end one.
                 // `"a"\⏎"b"` is one argument to bash, and breaking here split a
                 // 337-character perl script into three words. Found by the
                 // second gate: the round-trip law never saw it, because the
@@ -1904,7 +1904,7 @@ impl<'t> Parser<'t> {
                 // `|`, `||` and `&` all end a word; which of them it is, is the
                 // list's business rather than this reader's.
                 b'|' | b'&' => break,
-                // ⚠ **The space decides, and there is no other test.**
+                // The space decides, and there is no other test.
                 // `diff < (a) b` — one blank between them — is a syntax error to
                 // bash rather than a redirection to a subshell, so `<`
                 // immediately followed by `(` is a process substitution
@@ -1912,7 +1912,7 @@ impl<'t> Parser<'t> {
                 b'<' | b'>' if self.peek_at(1) == Some(b'(') => {
                     segments.push(self.process_substitution()?);
                 }
-                // ⚠ **A redirection GLUED to a word ends the word** — bash's own tokenising rule,
+                // A redirection GLUED to a word ends the word — bash's own tokenising rule,
                 // since `>` and `<` are operators and need no whitespace around them.
                 // `pgrep -f "x">/dev/null` is one word and one redirect, and the caller retries
                 // `redirect()` the moment this returns.
@@ -1932,13 +1932,13 @@ impl<'t> Parser<'t> {
                 // or escaped one never reaches here, which is what makes
                 // `'a)b')` a pattern holding a paren.
                 b')' if self.parens > 0 || self.in_pattern || self.in_array => break,
-                // ⚠ **A brace INSIDE a word is expansion, not grouping.**
+                // A brace INSIDE a word is expansion, not grouping.
                 // `echo {a,b}.txt` is one word that expands to two, which is a
                 // glob-level construct and a different build from `{ a; }`.
                 // Naming it `Grouping` counted a word construct inside a
                 // compound-statement build and hid it there.
                 b'{' => segments.push(self.brace_or_literal()?),
-                // ⚠ A `}` with no expansion open is an ordinary character —
+                // A `}` with no expansion open is an ordinary character —
                 // `echo a}b` prints `a}b` — so it joins the word rather than
                 // being refused.
                 b'}' => {
@@ -1948,7 +1948,7 @@ impl<'t> Parser<'t> {
                         span: Span::new(at, self.at),
                     });
                 }
-                // ⚠ **An array literal, in the two places bash allows one** —
+                // An array literal, in the two places bash allows one —
                 // opening an assignment's value, or opening one in argument
                 // position after a declaration builtin. Anywhere else a `(` in
                 // a word is a syntax error to bash too, which is what the
@@ -1960,7 +1960,7 @@ impl<'t> Parser<'t> {
                     segments.push(self.array_literal()?);
                 }
                 b'(' | b')' => return self.refuse(Reason::Grouping, 1),
-                // ⚠ A `$` that opens nothing is an ordinary character, and
+                // A `$` that opens nothing is an ordinary character, and
                 // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
                 // print back unchanged.
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
@@ -1968,7 +1968,7 @@ impl<'t> Parser<'t> {
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
                     Some(Reason::Backtick) => segments.push(self.backtick(false)?),
                     Some(Reason::Arithmetic) => segments.push(self.arith_expansion()?),
-                    // ⚠ A literal, and it makes the WORD quoted: `$'a b'` is one
+                    // A literal, and it makes the WORD quoted: `$'a b'` is one
                     // argument, so the word must not be split or globbed on what
                     // the escapes produced.
                     Some(Reason::AnsiQuote) => {
@@ -1984,7 +1984,7 @@ impl<'t> Parser<'t> {
                         });
                     }
                 },
-                // ⚠ **A glob only where pathname expansion happens**, as `*` and
+                // A glob only where pathname expansion happens, as `*` and
                 // `?` are: `FOO=[ab]` binds those four characters. And a `[`
                 // that closes nothing is ordinary text — `[ -f x ]` is the test
                 // builtin, whose `]` is a separate word.
@@ -2007,7 +2007,7 @@ impl<'t> Parser<'t> {
                         }
                     }
                 }
-                // ⚠ A `*` is a glob only where pathname expansion happens. In
+                // A `*` is a glob only where pathname expansion happens. In
                 // an assignment's value it is an ordinary character — measured,
                 // `FOO=*.txt` binds those five characters — so it falls through
                 // to `bare`, which reads it as literal text.
@@ -2038,7 +2038,7 @@ impl<'t> Parser<'t> {
         }
 
         let mut segments = merge_literals(segments);
-        // ⚠ `FOO=` and `FOO=''` bind the same empty value, so they are one tree
+        // `FOO=` and `FOO=''` bind the same empty value, so they are one tree
         // — and they have to be, or the printer's one spelling of an empty value
         // would fail the round-trip law on whichever it did not choose.
         if kind == WordKind::Value
@@ -2079,7 +2079,7 @@ impl<'t> Parser<'t> {
             }
             self.at += 1;
         }
-        // ⚠ A quote inside the prefix turns the whole thing off — bash reads
+        // A quote inside the prefix turns the whole thing off — bash reads
         // `~"foo"` as the literal `~foo`. Rare, and refused rather than guessed.
         if matches!(self.peek(), Some(b'\'') | Some(b'"')) {
             return self.refuse(Reason::Tilde, 1);
@@ -2134,7 +2134,7 @@ impl<'t> Parser<'t> {
 
     /// A double-quoted run, which may hold more than one segment.
     ///
-    /// ⚠ **Quoting suppresses splitting and globbing, not expansion**, so a `$`
+    /// Quoting suppresses splitting and globbing, not expansion, so a `$`
     /// in here is a parameter exactly as it is outside — and the segment it
     /// makes carries `quoted: true`, which is the whole difference between
     /// `echo $x` and `echo "$x"`.
@@ -2193,7 +2193,7 @@ impl<'t> Parser<'t> {
                     }
                 },
                 b'\\' => {
-                    // ⚠ Inside double quotes a backslash escapes only the four
+                    // Inside double quotes a backslash escapes only the four
                     // characters that mean something there, and is an ordinary
                     // character before anything else: `"\a"` is a backslash and
                     // an `a`, where `\a` unquoted is just an `a`.
@@ -2247,12 +2247,12 @@ impl<'t> Parser<'t> {
 
     /// `` `cmd` `` — the older spelling of `$(cmd)`, and the SAME node.
     ///
-    /// ⚠ **One tree, because the two mean the same thing.** The difference is how the
+    /// One tree, because the two mean the same thing. The difference is how the
     /// interior is spelled, not what it does — and this tree normalises spelling away.
     /// The printer writes `$( )`, which is `t₂ ≠ t₁` and permitted; bash's own print of
     /// the original is verbatim, so the second gate parses that back to this same tree.
     ///
-    /// ⚠ **The interior is not the source text.** Inside a backtick run bash resolves
+    /// The interior is not the source text. Inside a backtick run bash resolves
     /// `` \` ``, `\$` and `\\` before it is a script at all, and leaves every other
     /// backslash alone. So the resolved string is what gets parsed, which is also how a
     /// nested `` \`…\` `` becomes a nested substitution rather than a syntax error.
@@ -2289,7 +2289,7 @@ impl<'t> Parser<'t> {
                 }
             }
         }
-        // ⚠ A whole parse, not a borrowed one: the resolved text is a string
+        // A whole parse, not a borrowed one: the resolved text is a string
         // this parser does not own a cursor into. Its refusal is this
         // substitution's refusal, reported at the span of the run.
         let span = Span::new(start, self.at);
@@ -2309,7 +2309,7 @@ impl<'t> Parser<'t> {
     /// `<(cmd)` or `>(cmd)` — the same recursion, a different thing done with
     /// what it prints.
     ///
-    /// ⚠ **It is a segment, so it glues.** `diff x<(a)` is one word and
+    /// It is a segment, so it glues. `diff x<(a)` is one word and
     /// `x=<(a)` is a binding, both measured — which is why this is reached from
     /// the word reader rather than from the redirection reader, even though a
     /// redirection target is where the corpus mostly writes it.
@@ -2330,7 +2330,7 @@ impl<'t> Parser<'t> {
     /// The command list inside `$( … )` or `<( … )`, from just past the `(` to just
     /// past the `)`, with its own heredoc bodies already paired up.
     ///
-    /// ⚠ **A heredoc in here belongs to this list and nothing else.** Both halves of
+    /// A heredoc in here belongs to this list and nothing else. Both halves of
     /// that matter and both are measured in `reader/probes/substitution-heredoc.sh`:
     ///
     /// - An opener the ENCLOSING line left waiting may not be handed a body from in
@@ -2354,7 +2354,7 @@ impl<'t> Parser<'t> {
         if self.peek() != Some(b')') {
             return self.refuse(Reason::UnterminatedExpansion, 1);
         }
-        // ⚠ **An opener still waiting at the `)` gets an EMPTY body**, because
+        // An opener still waiting at the `)` gets an EMPTY body, because
         // that is what bash makes of it: `$(cat <<X)` warns `command
         // substitution: 1 unterminated here-document`, expands to nothing, and
         // `bash -n` accepts it. Reading on from here instead would take a body
@@ -2387,7 +2387,7 @@ impl<'t> Parser<'t> {
         let name = if self.peek() == Some(b'{') {
             return self.braced_parameter(start, quoted);
         } else if self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
-            // ⚠ **Exactly one digit.** `$10` is `${1}` followed by a `0` — bash
+            // Exactly one digit. `$10` is `${1}` followed by a `0` — bash
             // prints both spellings identically, so this was settled by running
             // it rather than by reading the printer.
             self.at += 1;
@@ -2423,7 +2423,7 @@ impl<'t> Parser<'t> {
 
     /// `${…}` — a name, maybe a subscript, maybe an operator on it.
     ///
-    /// ⚠ **Nothing here may be read as text.** Bash prints every operator form
+    /// Nothing here may be read as text. Bash prints every operator form
     /// back verbatim, so the second gate sees the same characters on both sides
     /// and cannot object to a wrong tree — an operator absorbed into a literal
     /// would satisfy both gates and be silently wrong. Every branch therefore
@@ -2509,7 +2509,7 @@ impl<'t> Parser<'t> {
             return self.refuse(Reason::UnterminatedExpansion, 1);
         }
         self.at += 1;
-        // ⚠ An index that is arithmetic is refused, not stored. `+` inside
+        // An index that is arithmetic is refused, not stored. `+` inside
         // `${a[i+1]}` is an operator, and keeping it as literal text is the one
         // failure neither gate can see. None occur in the corpus.
         if index
@@ -2533,7 +2533,7 @@ impl<'t> Parser<'t> {
 
     /// The operator after a name, if the text gives one.
     fn parameter_op(&mut self) -> Result<Option<ParameterOp>, Refusal> {
-        // ⚠ The colon is a field: `${x-y}` substitutes only for an UNSET `x`,
+        // The colon is a field: `${x-y}` substitutes only for an UNSET `x`,
         // `${x:-y}` also for an empty one. Bash keeps both spellings, so
         // collapsing them would be a wrong tree no gate could report.
         let colon = self.peek() == Some(b':');
@@ -2555,7 +2555,7 @@ impl<'t> Parser<'t> {
                 _ => ParameterOp::Alternate { colon, word },
             }));
         }
-        // ⚠ A `:` opening none of those is a SUBSTRING, and the difference is
+        // A `:` opening none of those is a SUBSTRING, and the difference is
         // one space: `${x:-3}` substitutes a default where `${x: -3}` takes the
         // last three characters. Measured, and it is why the four operators
         // above are tested first.
@@ -2570,7 +2570,7 @@ impl<'t> Parser<'t> {
             };
             return Ok(Some(ParameterOp::Substring { offset, length }));
         }
-        // ⚠ A transformation, whose whole content is one letter. Checked before
+        // A transformation, whose whole content is one letter. Checked before
         // the pattern operators because `@` is none of them.
         if self.peek() == Some(b'@') {
             let Some(transform) = self.peek_at(1).and_then(Transform::of) else {
@@ -2616,7 +2616,7 @@ impl<'t> Parser<'t> {
         if every {
             self.at += 1;
         }
-        // ⚠ `${x/#pat/rep}` anchors at the start, and the `#` is NOT part of the
+        // `${x/#pat/rep}` anchors at the start, and the `#` is NOT part of the
         // pattern. Only meaningful straight after the slash — a `#` later on is
         // an ordinary character in the pattern.
         let anchor = match self.peek() {
@@ -2646,7 +2646,7 @@ impl<'t> Parser<'t> {
 
     /// A word inside `${…}`, up to one of `stop` at brace depth zero.
     ///
-    /// ⚠ **It nests, and it holds spaces.** `${x:-$(date)}` and `${x:-${y}}` are
+    /// It nests, and it holds spaces. `${x:-$(date)}` and `${x:-${y}}` are
     /// both legal, so this cannot stop at the first `}`; `${x:-a b}` is ONE word
     /// to bash, so it cannot stop at a space either. Both measured.
     fn operand(&mut self, stop: &[u8]) -> Result<Word, Refusal> {
@@ -2665,7 +2665,7 @@ impl<'t> Parser<'t> {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
                     Some(Reason::Backtick) => segments.push(self.backtick(false)?),
-                    // ⚠ ANSI-C quoting is legal in EVERY `${…}` operator —
+                    // ANSI-C quoting is legal in EVERY `${…}` operator —
                     // `${n%%$'\n'*}`, `${n:-$'a'}`, `${n/$'a'/b}` all measured —
                     // and a `$(…)` in the same position was already read here,
                     // so refusing this one was a gap rather than a boundary.
@@ -2683,7 +2683,7 @@ impl<'t> Parser<'t> {
                 },
                 b'\'' => segments.push(self.single_quoted()?),
                 b'"' => segments.extend(self.double_quoted()?),
-                // ⚠ Alternatives nest: `{a,{b,c}}` is one expansion holding
+                // Alternatives nest: `{a,{b,c}}` is one expansion holding
                 // another, and the inner one consumes its own `}`.
                 b'{' => segments.push(self.brace_or_literal()?),
                 b'\\' => match self.peek_at(1) {
@@ -2696,7 +2696,7 @@ impl<'t> Parser<'t> {
                     }
                     None => return self.refuse(Reason::DanglingEscape, 1),
                 },
-                // ⚠ A glob here is the PATTERN language, which is the same one
+                // A glob here is the PATTERN language, which is the same one
                 // pathname expansion uses — `${f%%.*}` cuts at the first dot the
                 // way `*.txt` matches. So it is a `Glob`, not literal text.
                 b'*' | b'?' => {
@@ -2795,7 +2795,7 @@ impl<'t> Parser<'t> {
 
     /// An arithmetic expression, up to but not including its terminator.
     ///
-    /// ⚠ **Precedence climbing, not a flat scan.** `1+2*3` is one tree and
+    /// Precedence climbing, not a flat scan. `1+2*3` is one tree and
     /// `(1+2)*3` is another; a reader that kept the text would satisfy the
     /// round-trip law and say nothing true, and bash prints arithmetic verbatim
     /// so the second gate cannot object either. This is the construct where
@@ -2832,7 +2832,7 @@ impl<'t> Parser<'t> {
         let mut left = self.arith_unary(stop)?;
         loop {
             self.skip_arith_blanks();
-            // ⚠ Assignment is right-associative and takes an lvalue, so it is
+            // Assignment is right-associative and takes an lvalue, so it is
             // handled here rather than as another binary operator: `a = b = 1`
             // is `a = (b = 1)`.
             if let Some((op, width)) = self.arith_assign_op() {
@@ -2925,18 +2925,18 @@ impl<'t> Parser<'t> {
 
     /// One operand, or a run of them written with nothing in between.
     ///
-    /// ⚠ **Adjacency, never across a blank.** `$(( ))` splices its interior into text
+    /// Adjacency, never across a blank. `$(( ))` splices its interior into text
     /// before evaluating it, so `1$c` is `12` for `c=2` — but `1 $c` is `1 2`, which is
     /// an error for that same value. Reading them as one node would let the printer drop
     /// the space and quietly write the other program. So this loop does not call
     /// [`Self::skip_arith_blanks`], and `1 $c` stays refused.
     ///
-    /// ⚠ **A run of literals is still refused**, because no value of any variable makes
+    /// A run of literals is still refused, because no value of any variable makes
     /// `$((1 2))` evaluate. The expansion is what makes the splice a question rather
     /// than an error.
     fn arith_operand(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
         let first = self.arith_operand_part(stop)?;
-        // ⚠ Deliberately reading the raw byte rather than skipping blanks: see
+        // Deliberately reading the raw byte rather than skipping blanks: see
         // the note above. A part that cannot begin an operand ends the run, and
         // an operator between two operands is not this — `arith_binary` has it.
         if !self.peek().is_some_and(begins_an_operand) {
@@ -2967,12 +2967,12 @@ impl<'t> Parser<'t> {
                     span: Span::new(self.at, self.at + 1),
                 })
             }
-            // ⚠ An expansion inside arithmetic is still an expansion: `$x` is
+            // An expansion inside arithmetic is still an expansion: `$x` is
             // read by the same reader that reads it anywhere else, so a `$(cmd)`
             // in here recurses into a whole script exactly as it should.
             //
-            // ⚠ **Which is why arithmetic and a backtick belong here too, and
-            // ANSI-C quoting does not.** `$(( 1 + $(( 2 * 3 )) ))` is 7 and
+            // Which is why arithmetic and a backtick belong here too, and
+            // ANSI-C quoting does not. `$(( 1 + $(( 2 * 3 )) ))` is 7 and
             // `$(( ` + "`echo 2`" + ` + 1 ))` is 3, but `$(( $'\x02' ))` is an
             // operand error — bash reads the quote as text and text is not a
             // number. Measured, all three (memview#1370).
@@ -3113,7 +3113,7 @@ impl<'t> Parser<'t> {
     /// `{a,b}` or `{1..9}` — or the literal characters, where neither is what
     /// this is.
     ///
-    /// ⚠ **The fallback is not absorption.** `{a}` holds nothing to expand and
+    /// The fallback is not absorption. `{a}` holds nothing to expand and
     /// bash prints it back as itself, so a literal `{` is the FAITHFUL reading
     /// rather than a construct being swallowed — which is why the decision is
     /// made by [`brace_expansion`] before any character is consumed, and shared
@@ -3176,13 +3176,13 @@ impl<'t> Parser<'t> {
                     }
                 },
                 b'*' | b'?' if kind == WordKind::Argument => break,
-                // ⚠ End the literal so the word reader sees this `~`: in a value
+                // End the literal so the word reader sees this `~`: in a value
                 // a tilde right after a `:` expands, and it is the only place
                 // this reader has to hand a character back.
                 b'~' if kind == WordKind::Value && text.ends_with(':') => break,
                 b' ' | b'\t' | b'\r' | b'\n' | b';' | b'\'' | b'"' | b'|' | b'&' | b'<' | b'>'
                 | b'(' | b')' | b'{' | b'}' | b'$' | b'`' => break,
-                // ⚠ Hand the `[` back to the word reader, which is where a
+                // Hand the `[` back to the word reader, which is where a
                 // bracket expression is built. In a VALUE there is no pathname
                 // expansion, so it stays ordinary text and the run swallows it.
                 b'[' if kind == WordKind::Argument && opens_bracket(self.text, self.at) => break,
@@ -3200,7 +3200,7 @@ impl<'t> Parser<'t> {
                             break;
                         }
                         self.at += 1;
-                        // ⚠ In a value the run ends after every `:`, because a
+                        // In a value the run ends after every `:`, because a
                         // tilde there expands — `PATH=a:~/bin` — and `~` is not
                         // otherwise a character this reader stops at. The pieces
                         // merge back together where it is not one.
@@ -3252,13 +3252,13 @@ fn one_command(kind: CommandKind, span: Span) -> Item {
 /// What is the `[` at `at`: a bracket expression, ordinary text, or something this
 /// reader cannot own?
 ///
-/// ⚠ **Three answers, and the third is why this is not an `Option`.** Falling back to
+/// Three answers, and the third is why this is not an `Option`. Falling back to
 /// literal text where bash would glob is a wrong tree that no gate can see — bash
 /// prints a bracket expression back verbatim, so it agrees with the mistake — so
 /// anything found inside one that is not modelled has to be REFUSED rather than
 /// absorbed. `Literal` is reserved for the case bash itself reads as text.
 ///
-/// ⚠ **Shared with the survey**, as [`brace_expansion`] and [`classify_expansion`]
+/// Shared with the survey, as [`brace_expansion`] and [`classify_expansion`]
 /// are: whether a given `[` opens one has a single answer, and two implementations
 /// of it would drift.
 pub fn bracket_expression(text: &str, at: usize) -> Bracket {
@@ -3271,7 +3271,7 @@ pub fn bracket_expression(text: &str, at: usize) -> Bracket {
     if negated {
         scan += 1;
     }
-    // ⚠ A `]` here is a MEMBER, so the search for the close starts past it —
+    // A `]` here is a MEMBER, so the search for the close starts past it —
     // which is also why `[]` and `[!]` are ordinary text.
     let first_is_close_bracket = bytes.get(scan) == Some(&b']');
     if !closes_before_the_word_ends(bytes, scan + usize::from(first_is_close_bracket)) {
@@ -3296,7 +3296,7 @@ pub fn bracket_expression(text: &str, at: usize) -> Bracket {
                 items.push(ClassItem::Named(text[scan + 2..scan + 2 + end].to_string()));
                 scan += 2 + end + 2;
             }
-            // ⚠ Nothing that expands, escapes or quotes. Each would change what
+            // Nothing that expands, escapes or quotes. Each would change what
             // the set holds, and none is worth guessing at: refused by name.
             b'$' | b'`' | b'\\' | b'\'' | b'"' => return Bracket::Unread,
             _ => {
@@ -3363,7 +3363,7 @@ pub enum Bracket {
 /// `None` where the braces hold nothing to expand: `{a}` and `{}` are ordinary
 /// text to bash, so they are ordinary text here — measured, not assumed.
 ///
-/// ⚠ **Shared with the survey deliberately**, exactly as [`classify_expansion`]
+/// Shared with the survey deliberately, exactly as [`classify_expansion`]
 /// is. Whether a given `{` opens an expansion has one answer; two
 /// implementations of it would drift, and the drift would look like a parser
 /// bug rather than a disagreement.
@@ -3456,7 +3456,7 @@ fn range_parts(interior: &[u8]) -> Option<(String, String, Option<String>)> {
     if !(number(&from) && number(&to)) && !(letter(&from) && letter(&to)) {
         return None;
     }
-    // ⚠ **The step is always a NUMBER, even over letters.** `{a..e..2}` gives
+    // The step is always a NUMBER, even over letters. `{a..e..2}` gives
     // `a c e`, and `{x..y..z}` does not expand at all — measured. A check that
     // let a letter through there would have built a Range node for text bash
     // reads literally: a wrong tree that prints and re-reads as itself, and
@@ -3473,7 +3473,7 @@ fn range_parts(interior: &[u8]) -> Option<(String, String, Option<String>)> {
 /// an ordinary dollar sign, and bash agrees — `echo $`, `echo a$` and `echo $.`
 /// all parse and print back unchanged.
 ///
-/// ⚠ **Shared with the survey deliberately.** The survey is otherwise a separate
+/// Shared with the survey deliberately. The survey is otherwise a separate
 /// scanner, but a disagreement about *which* expansion this is would show up as
 /// survey drift with no way to tell which of the two was wrong. The lexical
 /// question has one answer, so it has one implementation.
@@ -3503,7 +3503,7 @@ pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Op
 
 /// Could this byte begin an arithmetic operand?
 ///
-/// ⚠ **Only used to decide adjacency**, so it is deliberately narrower than the
+/// Only used to decide adjacency, so it is deliberately narrower than the
 /// operand reader: `(` is left out, because a run like `1(2)` is not a splice in
 /// any bash and admitting it would turn a refusal into a wrong tree.
 fn begins_an_operand(byte: u8) -> bool {
@@ -3534,8 +3534,8 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
         _ => from,
     };
     let mut at = from;
-    // ⚠ **A special parameter is a one-character NAME and takes an operator
-    // like any other.** `${@:2}` is a slice of the argument list, which the
+    // A special parameter is a one-character NAME and takes an operator
+    // like any other. `${@:2}` is a slice of the argument list, which the
     // parser reads perfectly well — but this classifier ran the alphanumeric
     // loop over the `@`, found no name, and called the whole thing unmodelled,
     // so the word reader refused before the parser was ever asked.
@@ -3573,7 +3573,7 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
             None => Reason::ParameterOperator,
         },
         Some(b'-' | b'=' | b'?' | b'+' | b'#' | b'%' | b'/' | b'^' | b',') => Reason::Parameter,
-        // ⚠ The text ran out before the brace closed, and that is a claim about
+        // The text ran out before the brace closed, and that is a claim about
         // the INPUT rather than about what is modelled: bash refuses `${x` too.
         // Classifying it as unmodelled would hide it from `bash -n`, which is
         // the check that keeps "we cannot read it" apart from "it is not shell".
@@ -3584,7 +3584,7 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
 
 /// Whether a raw line ends in a continuation — an ODD run of backslashes.
 ///
-/// ⚠ **Parity, not "ends with a backslash".** Each `\` escapes the next, so a
+/// Parity, not "ends with a backslash". Each `\` escapes the next, so a
 /// line ending `\\` is a literal backslash and the newline survives. Measured
 /// against bash: over a heredoc body, `EO\` joins, `EO\\` does not,
 /// and `EO\\\` joins again. This is the same rule [`join_continuations`] applies
@@ -3597,7 +3597,7 @@ fn continues(line: &str) -> bool {
 /// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at
 /// parse time.
 ///
-/// ⚠ **The join is not a text replacement.** A backslash escapes the character
+/// The join is not a text replacement. A backslash escapes the character
 /// after it, so an escaped backslash protects the newline that follows: `a\\⏎b`
 /// stays two lines while `a\⏎b` becomes one. Measured — a naive
 /// `replace("\\\n", "")` gets the first wrong.
@@ -3635,8 +3635,8 @@ fn join_continuations(body: &str) -> String {
 
 /// Hand each heredoc opener the body that was read for it.
 ///
-/// ⚠ **This is a positional match, and it is sound because both sequences are in
-/// the order the text is written.** Bodies are read when a line ends, in the
+/// This is a positional match, and it is sound because both sequences are in
+/// the order the text is written. Bodies are read when a line ends, in the
 /// order their openers appeared on it; the walk below visits redirections in
 /// that same order. Nothing else pairs them — a heredoc's opener and its body
 /// share no delimiter that is unique (`cat <<A <<A` is legal, and its two bodies
@@ -3654,7 +3654,7 @@ fn fill_and_or(list: &mut AndOr, bodies: &mut impl Iterator<Item = Heredoc>) {
 
 fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Heredoc>) {
     for command in &mut pipeline.commands {
-        // ⚠ A compound's interior comes BEFORE its redirections in the text —
+        // A compound's interior comes BEFORE its redirections in the text —
         // `while a; do b; done <<EOF` opens its heredoc after the body — and the
         // pairing is positional, so the walk has to visit them in that order.
         match &mut command.kind {
@@ -3746,8 +3746,8 @@ pub fn is_reserved(text: &str) -> bool {
 
 /// Does an assignment prefix start at `at`?
 ///
-/// ⚠ **Read from the raw bytes, before any quoting is resolved, because that is
-/// where the rule lives.** Bash asks whether the NAME is quoted, not whether the
+/// Read from the raw bytes, before any quoting is resolved, because that is
+/// where the rule lives. Bash asks whether the NAME is quoted, not whether the
 /// word is: `FOO="bar"` and `FOO='bar'` are bindings, while `'FOO=bar'` and
 /// `"FOO"=bar` are commands with an odd name. Measured, all four.
 ///

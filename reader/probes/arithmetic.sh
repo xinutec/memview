@@ -5,7 +5,7 @@
 #
 # Measured against bash 5.3.15. Four findings:
 #
-#   1. ⚠ **VERBATIM, whitespace included.** `$(( 1 + 2 ))` comes back with its
+#   1. VERBATIM, whitespace included. `$(( 1 + 2 ))` comes back with its
 #      spaces. So the second gate has NO opinion about an expression — it
 #      compares two identical texts — and a reader that kept the source between
 #      the parens would satisfy the round-trip law while saying nothing true.
@@ -42,7 +42,7 @@ for s in 'echo $((1+2))' 'echo $(( 1 + 2 ))' 'echo $((a*b))' 'echo $(($x+1))' 'e
 done
 
 section "2 · (( )) is arithmetic, not two subshells"
-# ⚠ The first prints an arithmetic command; the second runs a command called `a`
+# The first prints an arithmetic command; the second runs a command called `a`
 # and would fail with "command not found" if it ran. Different constructs.
 printf -- '%-14s -> %s\n' '((a))'    "$(render '((a))')"
 printf -- '%-14s -> %s\n' '( (a) )'  "$(render '( (a) )')"

@@ -5,7 +5,7 @@
 //! was read is **right**, and a wrong answer given confidently is worse than a
 //! gap admitted. This is the only test that can catch one.
 //!
-//! ⚠ **The one test in this crate that runs a program**, and the crate doc makes
+//! The one test in this crate that runs a program, and the crate doc makes
 //! a point of saying nothing here runs one. That claim is about the library and
 //! the two binaries that link it; this is a dev-time harness, like the
 //! tree-sitter probe beside it, and nothing links it into anything. It executes
@@ -21,8 +21,8 @@
 //! globs expanded against the day's filesystem, variables substituted, loops
 //! iterated, quoting resolved.
 //!
-//! ⚠ **`cd` is a builtin and cannot be shimmed, which is why the directory is
-//! logged rather than the move.** That turns out to be the better measurement:
+//! `cd` is a builtin and cannot be shimmed, which is why the directory is
+//! logged rather than the move. That turns out to be the better measurement:
 //! what matters is not that `cd src` was seen but that the `wc` after it ran in
 //! `src`, and every relative path in the corpus hangs off exactly that. 48,172
 //! `cd` operations rest on this and nothing had ever checked one.
@@ -72,7 +72,7 @@ type Ran = (String, Vec<String>);
 
 /// One command as the reader claims it, with the confidence it claims it at.
 ///
-/// ⚠ **Soundness is a property of the *certain* claims, not of all of them.** A
+/// Soundness is a property of the *certain* claims, not of all of them. A
 /// command the reader records as [`Reached::Sometimes`] is a statement about the
 /// script — "this is in the text, under a condition" — and the shell not running
 /// it refutes nothing. Comparing without the confidence would make both arms of
@@ -104,7 +104,7 @@ fn actually(script: &str, given: &[(&str, &str)]) -> (Scratch, Vec<Ran>) {
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("a scratch directory");
-    // ⚠ Canonical, or the comparison fails on macOS for a reason that has
+    // Canonical, or the comparison fails on macOS for a reason that has
     // nothing to do with the reader: `/var/folders/…` is a symlink to
     // `/private/var/folders/…`, and bash reports the resolved one in `PWD`.
     let root = std::fs::canonicalize(&root).expect("a canonical scratch directory");
@@ -185,8 +185,8 @@ fn predicted(script: &str, root: &Path) -> Vec<Claim> {
     reader::shell_files::trace(&cmds, Some(&root), HOME)
         .steps
         .into_iter()
-        // ⚠ **Compared after `unwrap_command`, and the first run of this test is
-        // why.** A step's `argv` is documented as "the words as the shell would
+        // Compared after `unwrap_command`, and the first run of this test is
+        // why. A step's `argv` is documented as "the words as the shell would
         // have run them", and for a loop body it is `["do", "wc", "-l",
         // "a.log"]` — the keyword is still on the front. Nothing runs `do`. The
         // reader classifies through `unwrap_command`, so that is the form it
@@ -208,7 +208,7 @@ fn predicted(script: &str, root: &Path) -> Vec<Claim> {
 
 /// Whether a predicted command still carries a word the text did not determine.
 ///
-/// ⚠ **The distinction the first run of this file forced.** For a folded loop the
+/// The distinction the first run of this file forced. For a folded loop the
 /// reader records the body once, as written — `wc -l $f` — and that command never
 /// ran in that form: bash ran `wc -l a.log` three times. Read as a claim about an
 /// execution it is false; read as what it is, *the script contains this command
@@ -239,7 +239,7 @@ fn assert_sound(predicted: &[Claim], actually: &[Ran]) -> Aside {
             aside.admitted += 1;
             continue;
         }
-        // ⚠ The same join the report uses, not a rule of this test's own: the
+        // The same join the report uses, not a rule of this test's own: the
         // fixture is asserted to exit 0, and exit 0 at the end of an `&&` chain
         // means every link in it ran. Only `Sometimes` survives that, which is
         // exactly the bucket the report never counts as certain either.
@@ -279,7 +279,7 @@ fn assert_exact(predicted: &[Claim], actually: &[Ran]) {
 
 #[test]
 fn a_directory_moved_by_cd_is_where_the_next_command_runs() {
-    // ⚠ **The assumption everything else rests on, never once checked.** Every
+    // The assumption everything else rests on, never once checked. Every
     // relative path in the corpus is resolved against a directory this reader
     // decided — 48,172 `cd` operations' worth — and a wrong one does not show up
     // as a gap. It shows up as a confident, wrong path.
@@ -318,7 +318,7 @@ fn a_subshells_cd_does_not_escape_it() {
 
 #[test]
 fn a_loop_counted_out_by_seq_runs_the_numbers_the_shell_ran() {
-    // ⚠ **The largest class the reader still folded** — 1,029 loops in the
+    // The largest class the reader still folded — 1,029 loops in the
     // corpus, against 735 over a glob. `$(seq 1 4)` looks undetermined because it
     // carries a `$`, but every value is in the text: it is arithmetic, not a
     // question for the filesystem. bash and the reader should agree exactly, and
@@ -339,7 +339,7 @@ fn seq_with_one_bound_starts_at_one_and_a_step_is_honoured() {
 
 #[test]
 fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
-    // ⚠ **The property that lets the domain get richer.** The text does not
+    // The property that lets the domain get richer. The text does not
     // determine this list — the filesystem of the day did, and it is gone — so
     // the reader is *allowed* to miss the three `wc` calls. It is not allowed to
     // report one that did not happen. Every claim it does make must be here.
@@ -366,7 +366,7 @@ fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
         }
     );
 
-    // ⚠ **`S ⊆ L`, checked against the shell rather than argued for.** The reader
+    // `S ⊆ L`, checked against the shell rather than argued for. The reader
     // says the loop's subject is *some subset of* `<root>/*.log`; bash says which
     // three files it actually was. Every one of them must match the pattern, or
     // the bound is a claim about an execution that did not happen — the one kind
@@ -426,7 +426,7 @@ fn matches(pattern: &str, path: &str) -> bool {
 
 #[test]
 fn only_one_arm_of_an_if_ran_and_the_reader_claims_neither_as_certain() {
-    // ⚠ **The fabrication this harness was built to catch, and it caught it.**
+    // The fabrication this harness was built to catch, and it caught it.
     // Before memview#832 both arms came back [`Reached::Always`] — the label that
     // means "this definitely happened" — for two commands of which bash runs
     // exactly one. `assert_sound` fails on that: it would find `cat absent.txt`

@@ -14,7 +14,7 @@ fn effect<'a>(call: &'a str, did: Did, minute: i64) -> Effect<'a> {
         agent: "alpha",
         minute,
         did,
-        // ⚠ One path and one command deliberately: two of either would also vary
+        // One path and one command deliberately: two of either would also vary
         // the DICTIONARIES, which intern in arrival order and are a separate
         // question. What is under test is row order alone.
         path: Some("memview/src/lib.rs"),
@@ -25,8 +25,8 @@ fn effect<'a>(call: &'a str, did: Did, minute: i64) -> Effect<'a> {
     }
 }
 
-/// ⚠ **`sort_by_key(|row| row.t)` is STABLE, so rows sharing a minute kept the
-/// order they were pushed in** — which is the order transcripts happened to be
+/// `sort_by_key(|row| row.t)` is STABLE, so rows sharing a minute kept the
+/// order they were pushed in — which is the order transcripts happened to be
 /// read, and differs between a whole scan and a resumed one.
 ///
 /// Measured on the real corpus: this artefact was the last of the

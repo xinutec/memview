@@ -48,8 +48,8 @@ fn a_redirect_is_an_edit_however_the_command_is_named() {
     assert_eq!(doing("cat a.ts"), ["inspect"]);
 }
 
-/// ⚠ **Discarding output is not editing, and it was 82% of every recorded
-/// edit.** `2>/dev/null` is a write redirect whose target is a device, and
+/// Discarding output is not editing, and it was 82% of every recorded
+/// edit. `2>/dev/null` is a write redirect whose target is a device, and
 /// reading it as a change filed `ls -la x 2>/dev/null` on the timeline as an
 /// edit. [`shell_ops::resolve`] has always refused `/dev/*`, so the file layer
 /// recorded nothing while this layer called it work — two dimensions
@@ -63,17 +63,17 @@ fn a_redirect_is_an_edit_however_the_command_is_named() {
 fn discarding_output_down_a_device_is_not_an_edit() {
     assert_eq!(doing("cat src/main.rs 2>/dev/null"), ["inspect"]);
     assert_eq!(doing("grep -r needle src 2>/dev/null"), ["search"]);
-    // ⚠ `ls` is navigation by this vocabulary's own decision, so the fix takes
+    // `ls` is navigation by this vocabulary's own decision, so the fix takes
     // it off the timeline entirely rather than renaming it — which is right,
     // and is why the corpus diff shows `navigate` rising with the rest.
     assert_eq!(doing("ls -la src 2>/dev/null"), ["navigate"]);
-    // ⚠ **A real write beside a discarded stream is still a write.** The rule
+    // A real write beside a discarded stream is still a write. The rule
     // asks whether ANY redirect names a file, so a command doing both is an
     // edit — which is what stops this fix trading one wrong answer for another.
     assert_eq!(doing("gen --all > notes/out.md 2>/dev/null"), ["edit"]);
 }
 
-/// ⚠ **An unresolvable target is still a write**, and that is deliberately not
+/// An unresolvable target is still a write, and that is deliberately not
 /// the device rule. Something was written even where its name cannot be known,
 /// which is the same call [`Op::Remove`] makes for `rm -rf "$BUILD"` below.
 #[test]

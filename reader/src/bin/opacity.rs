@@ -7,7 +7,7 @@
 //! three answer *how much do we read*; this one answers **where what is left
 //! actually is**, which is the question that decides what to build next.
 //!
-//! ⚠ **Two kinds of opacity, and only the first has ever had a number.** A
+//! Two kinds of opacity, and only the first has ever had a number. A
 //! command not in the table is counted already — 13,448 of them, `$ADB` and
 //! `tsx` and `vitest` at the top. But a command we *do* understand still hands
 //! us text nobody reads: the script `sed` is given, the pattern `grep` is looking
@@ -20,7 +20,7 @@
 //! said `tsx`/`vitest`/`playwright` are 4,201 calls of plain file operands while
 //! `node -e` is 724 calls with 23 writes. Rank first, then build.
 //!
-//! ⚠ **Asked again from the other side, and it came out the same.**
+//! Asked again from the other side, and it came out the same.
 //! Once the sniff stopped calling TypeScript "Python", TypeScript became the
 //! biggest carried language by bytes — 698 bodies, 953 kB — which reads like a
 //! reason to build one. `--dump` hands the bodies out and the tally settles it:
@@ -29,11 +29,11 @@
 //! large because it embeds a TypeScript AST walk, not because it does much, so
 //! **size ranked this wrongly and the operations ranked it right**. memview#1034.
 //!
-//! ⚠ **The language of a heredoc body is SNIFFED, and a sniff is a guess.** It
+//! The language of a heredoc body is SNIFFED, and a sniff is a guess. It
 //! is reported as "looks like" for that reason. The point is the ranking — is
 //! there a kilobyte of SQL here or a megabyte — not the label on any one body.
 //!
-//! ⚠ **And the ranking was wrong for as long as the guess had no tests.** The
+//! And the ranking was wrong for as long as the guess had no tests. The
 //! Python bucket once stood at 1,154 bodies and 2.0 MB; **731 of them were not
 //! Python.** One line opening `import ` decided the language, and
 //! TypeScript, Kotlin, Swift and Lean all open a line that way — as does an
@@ -44,7 +44,7 @@
 //! each one, which is what makes the next such error findable rather than
 //! plausible.
 //!
-//! ⚠ **The 4.4 MB of "prose" is mostly not a gap.** `cat`, `git` and `task`
+//! The 4.4 MB of "prose" is mostly not a gap. `cat`, `git` and `task`
 //! opened 5,209 of those bodies — a heredoc redirected into a file, a commit
 //! message, a task body. The first is a write to a path already known and the
 //! other two are not programs at all, so the megabytes there rank far below
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
         .position(|a| a == "--why")
         .and_then(|i| args.get(i + 1))
         .map(|label| label.to_lowercase());
-    // ⚠ **A bucket's size never says whether reading it is worth it.** That
+    // A bucket's size never says whether reading it is worth it. That
     // takes looking at what the bodies *do*, and no reader exists for the
     // language in question — which is the very thing being decided. So the
     // bodies go out NUL-separated for whatever can answer, the same bargain
@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         let found = shell_files::extract_knowing(&parsed, cwd, &home, &refused);
-        // ⚠ **Only the bodies nobody read.** The first run of this counted every
+        // Only the bodies nobody read. The first run of this counted every
         // heredoc, so 6.1 MB of Python that `python.rs` reads in full was filed
         // under opacity — and a census that counts work already done ranks the
         // next reader wrongly. A body handed to a reader is not dark.
@@ -190,8 +190,8 @@ fn main() -> anyhow::Result<()> {
                 {
                     print!("{body}\0");
                 }
-                // ⚠ **And by the command that opened it, which is the question
-                // that actually decides anything.** A body fed to an interpreter
+                // And by the command that opened it, which is the question
+                // that actually decides anything. A body fed to an interpreter
                 // is a program we cannot read; a body redirected into a file is
                 // that file's new contents, and the *effect* — a write, to a path
                 // we already know — is captured whether or not anyone reads the
@@ -205,7 +205,7 @@ fn main() -> anyhow::Result<()> {
         for (name, n) in found.unhandled {
             *unread.entry(name).or_default() += n;
         }
-        // ⚠ `ops` already contains what the nested and remote shells did — they
+        // `ops` already contains what the nested and remote shells did — they
         // are absorbed into the list rather than left as one opaque word — so
         // this counts the payloads inside a `nix develop -c` too.
         for op in &found.ops {
@@ -242,7 +242,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // ⚠ `--why` answers a different question and prints instead of, not beside,
+    // `--why` answers a different question and prints instead of, not beside,
     // the census: the point is to read what a bucket actually holds, and a
     // thousand bodies below a summary is not something anybody reads.
     if dump.is_some() {
@@ -281,7 +281,7 @@ fn main() -> anyhow::Result<()> {
             weighed.calls,
             bytes(weighed.bytes)
         );
-        // ⚠ **The samples are the point for the bucket that has no name.** A
+        // The samples are the point for the bucket that has no name. A
         // count of 3,589 unrecognised bodies is not a worklist; the first line of
         // a dozen of them is. Printed for every bucket rather than only that one,
         // because a sniff is a guess and the way to check a guess is to read what
@@ -306,8 +306,8 @@ fn main() -> anyhow::Result<()> {
 
 /// Why a word cannot become a value, or `None` if it can.
 ///
-/// ⚠ **These are the bottom of the lattice, and the whole point of counting them
-/// is that some are permanent and some are not.** A bare `$ADB` can never be
+/// These are the bottom of the lattice, and the whole point of counting them
+/// is that some are permanent and some are not. A bare `$ADB` can never be
 /// resolved — there is no value to expand it to, and inventing one would name a
 /// file nobody touched. A literal loop variable is a different matter entirely:
 /// 3,078 of the corpus's 10,398 `for` loops iterate a word list that is right

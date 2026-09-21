@@ -509,7 +509,7 @@ fn dropping_one_index_line_leaves_it_reachable_through_its_neighbour() {
 
 #[test]
 fn two_memories_that_house_each_other_are_stranded_when_both_lines_go() {
-    // ⚠ THE defect this exists for (#869). Asked one at a time, each of these is
+    // THE defect this exists for (#869). Asked one at a time, each of these is
     // housed by the other and looks safe to demote; asked together, nothing
     // reaches either. `memory-rank` summed 25 candidates as if independent and
     // offered exactly such a pair — the stranding recorded in
@@ -534,7 +534,7 @@ fn a_memory_with_its_own_index_line_survives_its_only_inbound_link_being_demoted
     assert!(reached.contains("feedback_gamma"), "{reached:?}");
 }
 
-/// ⚠ **The viewer's "updated" is the memory's own stamp, not the file's mtime.**
+/// The viewer's "updated" is the memory's own stamp, not the file's mtime.
 /// mtime records a touch: measured over the whole corpus, most files disagree
 /// with their own stamp, by a median of days and a worst case of weeks (#1219).
 /// `memory-lint` enforces the stamp; the viewer had no
@@ -594,7 +594,7 @@ fn a_memory_the_index_links_is_one_hop_away() {
     assert_eq!(depths.get("feedback_gamma"), Some(&1));
 }
 
-/// ⚠ **The question a trade actually asks.** Dropping a line does not delete the
+/// The question a trade actually asks. Dropping a line does not delete the
 /// memory — it moves it further away, and how much further is the cost of the
 /// demotion. One hop is cheap; unreachable is a stranding, and those are
 /// different findings that reachability alone reports as the same boolean.
@@ -611,7 +611,7 @@ fn demoting_a_line_says_how_far_its_target_falls_rather_than_whether_it_survives
     assert_eq!(both.get("reference_beta"), None);
 }
 
-/// ⚠ **Breadth-first, and the walk this replaced was not.** `reachable_without`
+/// Breadth-first, and the walk this replaced was not. `reachable_without`
 /// used `Vec::pop` — a stack — correct for "what is reachable", wrong for "how
 /// far", because a depth-first walk records whichever path it wandered down
 /// first rather than the shortest.

@@ -2,12 +2,12 @@
 //!
 //!     git diff --cached --name-only | cargo run --release --bin staged-check -- <repo>
 //!
-//! ⚠ **Paths on stdin, and no git here.** A pre-commit hook exports `GIT_DIR` to
+//! Paths on stdin, and no git here. A pre-commit hook exports `GIT_DIR` to
 //! everything it spawns, so a checker that ran `git` would ask the committing
 //! repository about paths it was already handed — see
 //! `reference_a_git_hook_exports_its_repo_to_every_child`.
 //!
-//! ⚠ **Exits 0 whatever it finds.** Two sessions legitimately edit one file and a
+//! Exits 0 whatever it finds. Two sessions legitimately edit one file and a
 //! refusal would wedge a shared repo. Naming it is the entire fix.
 
 use std::io::Read;
@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
-    // ⚠ The ABSOLUTE repository path: the artefact keys paths that way.
+    // The ABSOLUTE repository path: the artefact keys paths that way.
     let repo = std::env::args().nth(1).unwrap_or_else(|| {
         std::env::current_dir()
             .map(|d| d.display().to_string())
@@ -36,12 +36,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // ⚠ **Refreshed, not read off disk.** The night-stale artefact caught 1 of
+    // Refreshed, not read off disk. The night-stale artefact caught 1 of
     // the 6 files in the incident that prompted this: a collision happens in a
     // window of HOURS and the mine ran at 00:36 (memview#1258).
     let (last, roster) = memview::fresh::last_writer(&memview::fresh::Where::from_env())?;
 
-    // ⚠ **Who this session IS, from the roster — not from the directory name.**
+    // Who this session IS, from the roster — not from the directory name.
     // The first version took the repository's basename, which is only ever
     // right where the agent and the repo share a name (`memview` in `memview`).
     // In `xinutec-infra` it made every file this session had written read as
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
             .and_then(|s| roster.name_of_session(&s).map(str::to_string))
     }) {
         Some(me) => me,
-        // ⚠ **Skip loudly rather than guess.** With no name, every path is
+        // Skip loudly rather than guess. With no name, every path is
         // "somebody else's" and the check would flag the whole index — which
         // reads as broken and gets muted, taking the real warnings with it.
         None => {
@@ -65,12 +65,12 @@ fn main() -> Result<()> {
             return Ok(());
         }
     };
-    // ⚠ **The record's spelling of this repo, which may not be the caller's.**
+    // The record's spelling of this repo, which may not be the caller's.
     // `git rev-parse --show-toplevel` resolves symlinks, and `~/Code` points at
     // an external volume here — so a hook that hands over its own cwd names a
     // path the record barely knows and the check silently examines nothing.
     //
-    // ⚠ **Corrected HERE rather than in every hook.** The alternative was ~20
+    // Corrected HERE rather than in every hook. The alternative was ~20
     // lines of path derivation copied into each repo's hook, which is the same
     // claim in two places waiting to disagree. The tool knows the record; the
     // hook should only have to name its own directory.
@@ -87,7 +87,7 @@ fn main() -> Result<()> {
                 // wrong; the caller simply had the resolved spelling.
                 shape.better
             } else {
-                // ⚠ A DIFFERENT directory — so this is a misconfiguration, not
+                // A DIFFERENT directory — so this is a misconfiguration, not
                 // a spelling. Saying nothing here would report all-clear from
                 // no evidence, which is the failure this check exists for.
                 eprintln!(
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
     for f in &foreign {
         eprintln!("    {:<50} last written by {}", f.path, f.who);
     }
-    // ⚠ **Say that it is proceeding, or two imperatives read as a refusal**
+    // Say that it is proceeding, or two imperatives read as a refusal
     // (memview#1578). The lines above are advice, not a verdict, and this tool
     // exits 0 whatever it finds — but nothing said so, and a session read the
     // pair as a block, launched a SECOND commit, and collided with the first

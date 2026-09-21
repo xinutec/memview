@@ -13,7 +13,7 @@
 //! what keeps that true: a printer that reached for the source buffer or a span
 //! would satisfy (1) and fail here.
 //!
-//! ⚠ **A refusal is not a failure of the law.** `t₁` that this parser does not
+//! A refusal is not a failure of the law. `t₁` that this parser does not
 //! read is counted apart and ranked by reason — it is the work queue. What the
 //! law is for is the text that *was* read, where a wrong tree would otherwise
 //! look exactly like a right one.

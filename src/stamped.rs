@@ -1,12 +1,12 @@
 //! A memory whose content changed while its `modified:` stamp did not.
 //!
-//! ⚠ **`memory-lint`'s `missing-modified` cannot see this.** That rule asks whether a
+//! `memory-lint`'s `missing-modified` cannot see this. That rule asks whether a
 //! stamp EXISTS; this asks whether it MOVED. A memory edited by `sed`, a python
 //! script or any tool that is not Edit/Write keeps a stamp describing a version that
 //! no longer exists — and the stamp is what recall's age banner reads, so the memory
 //! then claims to be fresher than its content.
 //!
-//! ⚠ **A DIFF, not the filesystem and not git.** mtime is a property of the
+//! A DIFF, not the filesystem and not git. mtime is a property of the
 //! filesystem rather than of the corpus and misfires on any synced or restored copy.
 //! And git is ruled out inside a hook, which exports `GIT_DIR` to every child, so a
 //! binary running `git -C <other repo>` writes into the COMMITTING repo instead.
@@ -36,15 +36,15 @@ impl Missing {
 
 /// What a memory's frontmatter does not say about its own provenance.
 ///
-/// ⚠ **Frontmatter only**: a `modified:` in the body is prose and not a stamp.
+/// Frontmatter only: a `modified:` in the body is prose and not a stamp.
 ///
-/// ⚠ **BOTH fields, because asking only about the stamp made `memory-stamp` blind to
-/// the field it exists to recover** (memview#1499). Every memory carried a
+/// BOTH fields, because asking only about the stamp made `memory-stamp` blind to
+/// the field it exists to recover (memview#1499). Every memory carried a
 /// `modified:` while a handful carried no `originSessionId`, so every one of those
 /// gaps had a stamp, none was returned, and the tool reported "every memory carries
 /// a stamp" over them.
 ///
-/// ⚠ **In the library rather than the bin, so a test can reach it.** That defect
+/// In the library rather than the bin, so a test can reach it. That defect
 /// survived as long as it did because it lived in a `bin`.
 pub fn missing(raw: &str) -> Missing {
     let front = raw.split("\n---").next().unwrap_or_default();
@@ -77,7 +77,7 @@ pub struct Stale {
 /// DELETED is not reported either — every line of it is a removal, the
 /// `modified:` line included, so its stamp counts as moved.
 ///
-/// ⚠ **A file with no `modified:` at all is SKIPPED, not reported**
+/// A file with no `modified:` at all is SKIPPED, not reported
 /// (memview#1319). `MEMORY.md` is the index, not a memory: it has no
 /// frontmatter by design, so it has no stamp to advance and never will. The
 /// index rule is "to add a line, take one out in the same edit", so nearly
@@ -87,7 +87,7 @@ pub struct Stale {
 /// TRULY on a memory a python rewrite had skipped. Identical output, so the
 /// false one is what made the true one easy to wave through.
 ///
-/// ⚠ **The predicate is "no stamp to move", NOT the name `MEMORY.md`.** A name
+/// The predicate is "no stamp to move", NOT the name `MEMORY.md`. A name
 /// test misses the next index and breaks silently the day the file is renamed
 /// (`feedback_a_name_outlives_its_thing`). Absence of a stamp is the same
 /// predicate the corpus already uses to decide what IS a memory, and it makes
@@ -95,8 +95,8 @@ pub struct Stale {
 /// Whether a memory SHOULD have a stamp stays `memory-lint`'s `missing-modified`
 /// — the division this module's own header draws.
 ///
-/// `body` resolves a diff path to that file's text. ⚠ **It returns `Option`,
-/// and `None` is reported rather than skipped**: "could not read it" and "it is
+/// `body` resolves a diff path to that file's text. It returns `Option`,
+/// and `None` is reported rather than skipped: "could not read it" and "it is
 /// not a memory" are the same silence, and treating an unreadable file as
 /// exempt is how this rule would go quiet everywhere at once if it were ever
 /// run from the wrong directory.
@@ -140,7 +140,7 @@ pub fn unstamped(diff: &str, body: impl Fn(&str) -> Option<String>) -> Stale {
             added = true;
             continue;
         }
-        // ⚠ The `+++`/`---` file headers begin with the same characters as
+        // The `+++`/`---` file headers begin with the same characters as
         // content lines and must not be read as changes; `+++ b/x` would
         // otherwise make every file in the diff look edited.
         if line.starts_with("+++") || line.starts_with("---") || line.starts_with("@@") {

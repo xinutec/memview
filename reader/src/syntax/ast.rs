@@ -9,7 +9,7 @@ use std::fmt;
 
 /// A byte range in the text a node was read from.
 ///
-/// ⚠ **Two spans always compare equal, whatever they hold.** Equality on the tree
+/// Two spans always compare equal, whatever they hold. Equality on the tree
 /// has to ignore position, and doing it here rather than in each node's
 /// `PartialEq` means a node type added later cannot forget: `#[derive(PartialEq)]`
 /// on anything containing a `Span` is automatically position-blind.
@@ -55,7 +55,7 @@ pub struct Script {
     pub span: Span,
 }
 
-/// ⚠ **A comment is an item, not trivia.** It is retained byte-exact so the
+/// A comment is an item, not trivia. It is retained byte-exact so the
 /// printer can put it back, and so a later pass can read what it says — a comment
 /// naming a file or a machine is evidence about the command beside it.
 ///
@@ -70,7 +70,7 @@ pub enum Item {
 /// `pipeline [(&& | ||) pipeline …] [&]` — bash calls it an and-or list, and it
 /// is the unit `;`, a newline and `&` separate.
 ///
-/// ⚠ **`&` belongs to the LIST, not to its last pipeline.** `a && b &`
+/// `&` belongs to the LIST, not to its last pipeline. `a && b &`
 /// backgrounds the whole list, which `declare -f` prints back as `a && b &`.
 /// Hanging the flag on `b` would say something different and wrong.
 ///
@@ -108,7 +108,7 @@ impl AndOr {
 
 /// `[time [-p]] [!] cmd [| cmd …]`.
 ///
-/// ⚠ **`time` and `!` are fields here, not `argv[0]`.** They are grammar, and
+/// `time` and `!` are fields here, not `argv[0]`. They are grammar, and
 /// scope is what forces it: `time a | b` times the whole pipeline while a
 /// wrapper command like `nohup a | b` applies to `a` alone. A reader that puts
 /// `time` at `argv[0]` cannot express the difference, which is the misparse the
@@ -123,7 +123,7 @@ pub struct Pipeline {
     /// Written before or after `!`; bash accepts either and prints this first,
     /// so the tree holds two flags rather than an order.
     pub time: Option<Timed>,
-    /// ⚠ A toggle, not a count: bash prints `! ! a` back as `a`.
+    /// A toggle, not a count: bash prints `! ! a` back as `a`.
     pub negated: bool,
     pub commands: Vec<Command>,
     pub span: Span,
@@ -164,8 +164,8 @@ pub struct Comment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     pub kind: CommandKind,
-    /// ⚠ **In their own list, because their position among the words means
-    /// nothing.** `> out cat f` and `cat f > out` are the same command, and
+    /// In their own list, because their position among the words means
+    /// nothing. `> out cat f` and `cat f > out` are the same command, and
     /// `declare -f` proves it: bash prints the first back as the second. Order
     /// *within* this list does matter — `cat > out 2>&1` and `cat 2>&1 > out`
     /// send stderr to different places, and bash preserves both as written.
@@ -210,18 +210,18 @@ pub enum CommandKind {
 
 /// `[[ … ]]` — a conditional expression.
 ///
-/// ⚠ **Not the `[` builtin.** `[ -f x ]` is a COMMAND whose `]` is an argument;
+/// Not the `[` builtin. `[ -f x ]` is a COMMAND whose `]` is an argument;
 /// this is grammar, with its own operators, its own precedence, and no word
 /// splitting or pathname expansion inside it — measured: `[[ -f *.txt ]]` tests a
 /// file literally named `*.txt`. The one place a pattern still expands is the
 /// right-hand side of `==` and `!=`, and quoting it turns that off.
 ///
-/// ⚠ **The second gate CAN see in here**, unlike inside a word: bash normalises
+/// The second gate CAN see in here, unlike inside a word: bash normalises
 /// the whitespace and DESUGARS a bare word to `-n word`, so `[[ a && b ]]` comes
 /// back as `[[ -n a && -n b ]]`. The tree performs the same desugaring, because
 /// recording the omission would make one command two trees.
 ///
-/// ⚠ **Parentheses are not a node.** They carry no meaning beyond grouping, so
+/// Parentheses are not a node. They carry no meaning beyond grouping, so
 /// the printer rebuilds them from precedence rather than recording where they
 /// were — exactly as it does for arithmetic — and `[[ ( a ) ]]` and `[[ a ]]`
 /// are one tree.
@@ -238,7 +238,7 @@ pub enum TestExpr {
         left: Word,
         right: Word,
     },
-    /// ⚠ A toggle, not a stack: bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
+    /// A toggle, not a stack: bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
     Not(Box<TestExpr>),
     And(Box<TestExpr>, Box<TestExpr>),
     Or(Box<TestExpr>, Box<TestExpr>),
@@ -270,7 +270,7 @@ pub enum BinaryTest {
     /// `=~`, whose right-hand side is a regular expression rather than a
     /// pattern.
     ///
-    /// ⚠ **Read only to be refused.** Quoting is SEMANTIC in there — `[[ abc =~
+    /// Read only to be refused. Quoting is SEMANTIC in there — `[[ abc =~
     /// ^a.*c$ ]]` matches and `[[ abc =~ '^a.*c$' ]]` does not — and a [`Word`]
     /// collapses quoting by design, so this node cannot carry a right-hand side
     /// that means what the text meant. Named rather than guessed at; all three
@@ -376,7 +376,7 @@ impl BinaryTest {
         }
     }
 
-    /// ⚠ Does the right-hand side GLOB? Only for `==` and `!=`, where it is a
+    /// Does the right-hand side GLOB? Only for `==` and `!=`, where it is a
     /// pattern — measured. A `=~` right-hand side is a regular expression, where
     /// `.*` is a quantifier and reading it as a glob would be a wrong tree.
     pub fn right_is_a_pattern(self) -> bool {
@@ -386,7 +386,7 @@ impl BinaryTest {
 
 /// `case word in pattern) body ;; esac` — one arm at most, chosen by a pattern.
 ///
-/// ⚠ **The first construct whose interior is not a command list.** An arm is a
+/// The first construct whose interior is not a command list. An arm is a
 /// list of *patterns*, and a pattern is a word read for matching rather than for
 /// naming — so it is a [`Word`], with the same quoting collapse, and `'*'` is a
 /// literal asterisk where `*` is a [`Glob`]. Bash prints a pattern back verbatim
@@ -396,18 +396,18 @@ impl BinaryTest {
 pub struct Case {
     /// The subject, which is an ordinary word — `case "$x" in`, `case $(f) in`.
     pub word: Word,
-    /// ⚠ **May be empty.** `case $x in esac` is legal and matches nothing.
+    /// May be empty. `case $x in esac` is legal and matches nothing.
     pub arms: Vec<Arm>,
 }
 
 /// One arm: the patterns that select it, what it runs, and how it ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arm {
-    /// ⚠ **At least one, and a leading `(` is NOT recorded.** Bash prints `(a)`
+    /// At least one, and a leading `(` is NOT recorded. Bash prints `(a)`
     /// back as `a)`, so keeping the paren would be a distinction bash collapsed
     /// and the second gate could never object to.
     pub patterns: Vec<Word>,
-    /// ⚠ **May be empty**, which the corpus writes for "match this and do
+    /// May be empty, which the corpus writes for "match this and do
     /// nothing". Bash renders it as a blank line and reads it back the same.
     pub body: Vec<Item>,
     pub end: ArmEnd,
@@ -415,14 +415,14 @@ pub struct Arm {
 
 /// What the shell does after an arm's body — three different programs.
 ///
-/// ⚠ **Recorded because they are not the same command.** Measured by running
+/// Recorded because they are not the same command. Measured by running
 /// them: on the subject `ab` against arms `a*` then `*b`, `;;` prints one thing
 /// and the other two print both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArmEnd {
     /// `;;` — the case is done.
     ///
-    /// ⚠ Also what a missing terminator on the last arm becomes: bash supplies
+    /// Also what a missing terminator on the last arm becomes: bash supplies
     /// it, so `case $x in a) esac` and `case $x in a) ;; esac` are one tree.
     Stop,
     /// `;&` — run the next arm's body without testing its pattern.
@@ -433,7 +433,7 @@ pub enum ArmEnd {
 
 /// `name() { body }` — a definition, which runs none of its body.
 ///
-/// ⚠ **The spelling is not recorded, because bash does not keep it.**
+/// The spelling is not recorded, because bash does not keep it.
 /// `declare -f` prints `f() { a; }` back as `function f () { a; }`, and a
 /// `( … )` body comes back wrapped in a brace group — so `f() ( a )` and
 /// `f() { ( a ); }` are one tree, which is bash's own canonical form. Recording
@@ -450,7 +450,7 @@ pub struct Function {
 pub struct Simple {
     /// `FOO=bar` and friends, in the order written, before the command name.
     ///
-    /// ⚠ **A prefix, so only before the first word.** `A=1 cmd B=2` binds `A`
+    /// A prefix, so only before the first word. `A=1 cmd B=2` binds `A`
     /// and passes `B=2` as an argument, and bash prints exactly that back.
     /// A command with assignments and no words is a plain binding: `FOO=bar`.
     pub assignments: Vec<Assignment>,
@@ -461,7 +461,7 @@ pub struct Simple {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForLoop {
     pub name: String,
-    /// ⚠ **Always explicit, because bash makes it so.** `for f; do …` is printed
+    /// Always explicit, because bash makes it so. `for f; do …` is printed
     /// back by `declare -f` as `for f in "$@"; do …`, so the tree holds that
     /// same quoted `$@` rather than an absent list. Recording the omission would
     /// make one command two trees and the second gate would say so.
@@ -483,7 +483,7 @@ pub struct WhileLoop {
 
 /// `if cond; then body [else body] fi`.
 ///
-/// ⚠ **There is no `elif` here, because bash does not keep one.**
+/// There is no `elif` here, because bash does not keep one.
 /// `if a; then b; elif c; then d; fi` comes back from `declare -f` as
 /// `if a; then b; else if c; then d; fi; fi` — an `elif` is sugar for an `else`
 /// holding one nested conditional, and bash unfolds it at parse time. A tree
@@ -524,7 +524,7 @@ pub struct Assignment {
     pub name: String,
     /// `+=`, which appends rather than replaces.
     pub append: bool,
-    /// ⚠ **A value is not an ordinary word, and the difference is semantic.**
+    /// A value is not an ordinary word, and the difference is semantic.
     /// Measured: `FOO=*.txt` assigns the four characters `*.txt` — a scalar
     /// assignment does no pathname expansion and no word splitting — while the
     /// same text as an argument names files. So this word is read with globbing
@@ -542,7 +542,7 @@ pub struct Redirect {
     /// The descriptor being redirected — **always the effective one**, whether
     /// the text spelled it out or not.
     ///
-    /// ⚠ **Found by the second gate, on one command in 81,623.** Bash prints
+    /// Found by the second gate, on one command in 81,623. Bash prints
     /// `1>/dev/null` back as `>/dev/null` and `>&2` as `1>&2`: it drops an
     /// explicit default on one operator and supplies it on another. Recording
     /// what was *written* therefore made `1> f` and `> f` two trees for one
@@ -586,14 +586,14 @@ pub enum RedirectOp {
     /// `<<<` — a here-STRING, whose operand is a word on this line rather than
     /// a body on the following ones.
     ///
-    /// ⚠ **Not a heredoc with a shorter body.** It carries no delimiter, no
+    /// Not a heredoc with a shorter body. It carries no delimiter, no
     /// quoting bit and nothing deferred to the next line — the operand is an
     /// ordinary word that expands, which is why it is a [`RedirectTarget::File`]
     /// like any other and shares none of the heredoc machinery.
     HereString,
     /// `<<-`, which strips leading tabs from the body and the terminator.
     ///
-    /// ⚠ **Kept as an operator although the body is already stripped.** Bash
+    /// Kept as an operator although the body is already stripped. Bash
     /// strips at parse time and prints the `-` back with an unindented body, so
     /// dropping the flag would print a text bash reads the same way but writes
     /// differently. The stripping itself is not re-derivable from the body.
@@ -635,7 +635,7 @@ pub enum RedirectTarget {
 
 /// `<<DELIM` and the lines up to the one holding `DELIM` alone.
 ///
-/// ⚠ **The body is not a [`Word`].** A word is a value the shell splits, globs
+/// The body is not a [`Word`]. A word is a value the shell splits, globs
 /// and quotes; a heredoc body is a run of lines handed to a descriptor whole. It
 /// is held as a `String` because nothing in it is a segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -643,7 +643,7 @@ pub struct Heredoc {
     /// The delimiter with its quoting removed: `<<'EOF'`, `<<"EOF"`, `<<\EOF`
     /// and `<<E"O"F` all give `EOF`.
     pub delimiter: String,
-    /// ⚠ **Was the delimiter quoted at all?** Bash prints every quoted spelling
+    /// Was the delimiter quoted at all? Bash prints every quoted spelling
     /// back as `<<'EOF'`, so it keeps this one bit and forgets the rest — and it
     /// is a bit about the *body*, not about the delimiter: quoting suppresses
     /// expansion inside the body, so `<<'PY'` and `<<PY` are different nodes
@@ -651,7 +651,7 @@ pub struct Heredoc {
     pub quoted: bool,
     /// The body, ending in a newline unless it is empty.
     ///
-    /// ⚠ **Not verbatim when `quoted` is false.** Bash joins a backslash-newline
+    /// Not verbatim when `quoted` is false. Bash joins a backslash-newline
     /// inside an unquoted body at parse time — `a\⏎b` is stored as `ab` — and
     /// leaves it alone inside a quoted one. So the same lines mean two different
     /// strings depending on the delimiter, which is the second reason `quoted`
@@ -679,7 +679,7 @@ pub struct Segment {
     pub span: Span,
 }
 
-/// ⚠ **This enum is the refusal boundary.** A construct with no variant here is
+/// This enum is the refusal boundary. A construct with no variant here is
 /// a parse error, never a `Literal` holding its source text. Absorbing it would
 /// satisfy the round-trip law and be wrong, and no gate downstream can see it —
 /// see `docs/execution-model.md`, "The law cannot see a systematic misparse".
@@ -709,7 +709,7 @@ pub enum SegmentKind {
 
 /// Shell arithmetic: a real expression, not a span of text.
 ///
-/// ⚠ **Held as a tree because the alternative is absorption.** Keeping the
+/// Held as a tree because the alternative is absorption. Keeping the
 /// source between the parens would satisfy the round-trip law — it prints back
 /// and re-reads identically — and bash prints arithmetic VERBATIM, whitespace
 /// included, so the second gate has no opinion either. An unparsed string here
@@ -727,7 +727,7 @@ pub enum Arith {
     Variable(String),
     /// `16#ff`, `10#$m` — digits in an explicit base.
     ///
-    /// ⚠ **The base is a wrapper, not part of the number.** `10#08` is eight
+    /// The base is a wrapper, not part of the number. `10#08` is eight
     /// where `08` alone is an invalid octal, which is exactly why the corpus
     /// writes `$((10#$m % 10))` for a zero-padded minute. The digits may
     /// themselves be an expansion, because the base prefix is applied after the
@@ -770,17 +770,17 @@ pub enum Arith {
     Sequence(Vec<Arith>),
     /// `1$c`, `0x$cmd`, `${c}1` — adjacent parts with NO operator between them.
     ///
-    /// ⚠ **This is a claim about TEXT, not about a value.** `$(( ))` expands its
+    /// This is a claim about TEXT, not about a value. `$(( ))` expands its
     /// interior and evaluates the resulting string, so with `c=2` the text
     /// `1$c` becomes `12` and with `c=+2` it becomes `1+2` — one splice, two
     /// different trees, neither of them knowable here. The parts are kept in
     /// the order written and nothing is claimed about what they compute.
     ///
-    /// ⚠ **At least one part is an expansion**, which is what separates this
+    /// At least one part is an expansion, which is what separates this
     /// from a static error. Nothing a variable can hold rescues `$((1 2))`, and
     /// the parser goes on refusing it.
     ///
-    /// ⚠ **Adjacency is load-bearing and the printer must never break it.** A
+    /// Adjacency is load-bearing and the printer must never break it. A
     /// space between the parts is not the same program — `1 $c` is an error for
     /// `c=2` where `1$c` is twelve — and neither is a paren around them:
     /// `$((1$c * 3))` is `1+2*3` = 7 for `c=+2`, where `$(((1$c) * 3))` is 9.
@@ -873,12 +873,12 @@ pub struct ForArith {
 /// Brace expansion: the one word-level construct that changes how MANY words
 /// there are.
 ///
-/// ⚠ **Not grouping, though it shares the character.** `{ a; }` is a command
+/// Not grouping, though it shares the character. `{ a; }` is a command
 /// list; `a{b,c}d` is a single word that expands to `abd acd`. It sits beside
 /// [`Glob`] rather than beside a compound statement — both name a set the text
 /// does not enumerate.
 ///
-/// ⚠ **A brace with nothing to expand is ordinary text.** `{a}` and `{}` come
+/// A brace with nothing to expand is ordinary text. `{a}` and `{}` come
 /// out of bash as themselves — measured in `reader/probes/brace.sh` — so reading
 /// them as literal characters is what bash does, not an absorption of something
 /// unmodelled. The test is whether a top-level comma or a range is in there.
@@ -900,12 +900,12 @@ pub enum Brace {
 
 /// `$(cmd)` and `` `cmd` ``, whose value is what the commands inside it print.
 ///
-/// ⚠ **The interior is a script, and the second gate checks it.** Bash
+/// The interior is a script, and the second gate checks it. Bash
 /// normalises what is inside — `$(a|b)` comes back as `$(a | b)` and
 /// `$(ls |& cat)` as `$(ls 2>&1 | cat)` — so unlike a word, this is a real parse
 /// on both sides of the comparison and a misparse in here would be caught.
 ///
-/// ⚠ **A backtick is the same node**, because the two mean the same thing and
+/// A backtick is the same node, because the two mean the same thing and
 /// what differs is spelling. The printer writes `$( )` for both, which the law
 /// permits. What bash does differ about is the RENDERING — it prints a
 /// backtick's interior verbatim where it normalises this one — so the gate is
@@ -914,14 +914,14 @@ pub enum Brace {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Substitution {
     pub items: Vec<Item>,
-    /// ⚠ Semantic, exactly as it is on a [`Parameter`]: an unquoted
+    /// Semantic, exactly as it is on a [`Parameter`]: an unquoted
     /// substitution is split into words and globbed, a quoted one is one word.
     pub quoted: bool,
 }
 
 /// One element of an array literal.
 ///
-/// ⚠ **A pair, because an element may name its own slot.** `x=([0]=a)` and
+/// A pair, because an element may name its own slot. `x=([0]=a)` and
 /// `declare -A M=([k]=v)` both come back from `declare -f` verbatim, and the
 /// corpus holds both — so an element is not a bare word and reading one as a
 /// word would put a bracket EXPRESSION where an index belongs.
@@ -934,13 +934,13 @@ pub struct ArrayElement {
 
 /// `<(cmd)` or `>(cmd)`, whose value is a path the shell invents.
 ///
-/// ⚠ **A word segment, not a command.** It glues: `diff x<(a)` is ONE word — the
+/// A word segment, not a command. It glues: `diff x<(a)` is ONE word — the
 /// invented path concatenated onto `x` — and `x=<(a)` is an assignment whose
 /// value is one. Both measured. So it sits beside a parameter in a word, and the
 /// same node is reachable from a redirection's target, which is where the corpus
 /// mostly writes it: `while read -r l; do …; done < <(ls)`.
 ///
-/// ⚠ **The interior is normalised by bash, so the second gate checks it**, just
+/// The interior is normalised by bash, so the second gate checks it, just
 /// as it does a `$( )`: `<(a|b)` comes back as `<(a | b)`. Measured in
 /// `reader/probes/process-substitution.sh`.
 ///
@@ -967,7 +967,7 @@ pub enum Direction {
 
 /// A parameter, named and nothing more.
 ///
-/// ⚠ **The braces are not recorded.** `$x` and `${x}` name the same value, so
+/// The braces are not recorded. `$x` and `${x}` name the same value, so
 /// they are one node and the printer puts braces back only where the following
 /// character would otherwise extend the name — `${x}y`. Bash keeps the two
 /// spellings in its own output, but both sides of the second gate see the same
@@ -977,27 +977,27 @@ pub enum Direction {
 pub struct Parameter {
     /// `x`, `1`, `@`, `?` — without the `$` and without any braces.
     ///
-    /// ⚠ An unbraced positional takes exactly ONE digit: `$10` is `${1}` then a
+    /// An unbraced positional takes exactly ONE digit: `$10` is `${1}` then a
     /// `0`, and only `${10}` names the tenth. Measured, since bash's printer
     /// spells both the same.
     pub name: String,
     /// `${a[0]}`, `${a[@]}` — which element, where the parameter is an array.
     ///
-    /// ⚠ **A field rather than part of the name**, because it selects: `${a[0]}`
+    /// A field rather than part of the name, because it selects: `${a[0]}`
     /// and `${a[1]}` name the same parameter and different values, and a reader
     /// asking "which variable is this" must not have to unpick a string. The
     /// commonest by far is `${PIPESTATUS[0]}`.
     pub subscript: Option<Subscript>,
     /// `${x:-y}`, `${x%%.*}`, `${#x}` — what is done to the value.
     ///
-    /// ⚠ **Neither gate can check what is in here.** Bash prints every operator
+    /// Neither gate can check what is in here. Bash prints every operator
     /// form back verbatim — measured in `reader/probes/parameter-op.sh` — so the
     /// second gate compares two identical texts and has no opinion, exactly as
     /// it has none about the inside of a word. That leaves the round-trip law
     /// and construction, which is why an operator this enum cannot spell is a
     /// refusal rather than literal text.
     pub op: Option<ParameterOp>,
-    /// ⚠ **Semantic, unlike a literal's quoting.** An unquoted expansion is
+    /// Semantic, unlike a literal's quoting. An unquoted expansion is
     /// split into words and then globbed; a quoted one is a single word whatever
     /// it holds. `echo $x` and `echo "$x"` are different programs, so this is a
     /// field on the tree rather than a decision the printer gets to make — the
@@ -1017,7 +1017,7 @@ pub enum Subscript {
     Joined,
     /// `[0]`, `[i]`, `[$n]` — an index.
     ///
-    /// ⚠ **Held as a word, not a number.** The corpus writes `${a[$g]}` as well
+    /// Held as a word, not a number. The corpus writes `${a[$g]}` as well
     /// as `${a[0]}`, so the index expands. An index that is *arithmetic*
     /// (`${a[i+1]}`) is refused rather than stored: `+` there is an operator,
     /// and keeping it as literal text would be the absorption this tree exists
@@ -1027,7 +1027,7 @@ pub enum Subscript {
 
 /// What a `${…}` does to the value it names.
 ///
-/// ⚠ **The `:` is a field, not a spelling.** `${x-y}` substitutes only when `x`
+/// The `:` is a field, not a spelling. `${x-y}` substitutes only when `x`
 /// is *unset*; `${x:-y}` also substitutes when it is set and empty. Bash prints
 /// both back as written, so nothing downstream would catch the two being
 /// collapsed — measured, and the reason every branch below carries the flag.
@@ -1050,12 +1050,12 @@ pub enum ParameterOp {
     Replace(Replace),
     /// `${x:1:3}`, `${x: -3}` — a slice of the value.
     ///
-    /// ⚠ **Both operands are ARITHMETIC, not text.** `${x:n+1:2}` evaluates the
+    /// Both operands are ARITHMETIC, not text. `${x:n+1:2}` evaluates the
     /// `n+1`, so holding the source between the colons would be the failure no
     /// gate can see: bash prints the whole expansion back verbatim and would
     /// agree with a literal reading of it.
     ///
-    /// ⚠ **The space in `${x: -3}` is semantic.** Without it `${x:-3}` is the
+    /// The space in `${x: -3}` is semantic. Without it `${x:-3}` is the
     /// [`ParameterOp::Default`] operator, which is a different program — so the
     /// printer puts the space back wherever the offset is negative.
     Substring {
@@ -1076,7 +1076,7 @@ pub enum ParameterOp {
 
 /// The letter after `@` in `${x@Q}` — bash's parameter transformations.
 ///
-/// ⚠ **A closed set of ten, and they are ten different programs.** Measured on
+/// A closed set of ten, and they are ten different programs. Measured on
 /// `a b`: `@U` gives `A B`, `@u` gives `A b`, `@L` gives `a b`, `@Q` gives
 /// `'a b'`. Bash prints every one of them back verbatim, so the second gate has
 /// no opinion and only construction keeps them apart. An eleventh letter is a
@@ -1188,18 +1188,18 @@ pub enum Glob {
 
 /// The set a bracket expression names.
 ///
-/// ⚠ **Bash prints one back verbatim, so no gate can see this wrong.** `[a-z]`
+/// Bash prints one back verbatim, so no gate can see this wrong. `[a-z]`
 /// read as five literal characters prints and re-reads as itself, and bash
 /// agrees with the mistake because it echoes the text either way. The only
 /// oracle for it is matching, which `reader/probes/bracket.sh` does against real
 /// files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Class {
-    /// ⚠ **`[^a]` and `[!a]` are ONE tree.** Measured: both match everything but
+    /// `[^a]` and `[!a]` are ONE tree. Measured: both match everything but
     /// `a`, the caret included, so the caret negates rather than joining the
     /// set and recording which was written would make one set two trees.
     pub negated: bool,
-    /// ⚠ **In order, because a `]` is only a member in FIRST position** — later
+    /// In order, because a `]` is only a member in FIRST position — later
     /// it closes the expression, so the order is not free to normalise.
     pub items: Vec<ClassItem>,
 }
@@ -1211,7 +1211,7 @@ pub enum ClassItem {
     /// `a-z` — every character between the two, in the collating order the
     /// shell was run under, which is not knowable here.
     ///
-    /// ⚠ A `-` at either END of the set is a [`ClassItem::Char`], not half a
+    /// A `-` at either END of the set is a [`ClassItem::Char`], not half a
     /// range: `[a-]` matches `a` and `-`. Measured.
     Range { from: char, to: char },
     /// `[:alpha:]` — a POSIX character class, named rather than enumerated.

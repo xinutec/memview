@@ -12,8 +12,8 @@
 //! reader loses those because its grammar never had them; this one loses them on
 //! purpose, at one place, with a name.
 //!
-//! ⚠ **It does not invent the words the old grammar left behind — with one
-//! exception, and the exception is the rule.** `done`, `fi`, `esac` and `do`
+//! It does not invent the words the old grammar left behind — with one
+//! exception, and the exception is the rule. `done`, `fi`, `esac` and `do`
 //! reach [`crate::shell_ops`] as ordinary commands today, and three tables
 //! downstream exist to take them back out again. They are not emitted here: a
 //! tree has the structure those tables are reconstructing, and none of those
@@ -26,7 +26,7 @@
 //! the closers are not. `shell_files::ran` draws the same line for the same
 //! reason. The `projection` report subtracts the rest before counting.
 //!
-//! ⚠ **A nested script must be read by the reader that read its parent.**
+//! A nested script must be read by the reader that read its parent.
 //! [`crate::shell`] hides a heredoc body inside its own delimiter so a re-parse
 //! can still find it, and only that reader decodes the marker — so a flat outer
 //! parse feeding a tree inner one loses every `bash -c 'python3 - <<PY … PY'`,
@@ -58,7 +58,7 @@ pub(crate) const MAX_UNROLL: usize = 256;
 
 /// `$(seq …)` with every bound written out, run out into the numbers it prints.
 ///
-/// ⚠ **This is the reader running a program in its head**, which is a different
+/// This is the reader running a program in its head, which is a different
 /// act from substituting a value it was told, and the list of programs it will do
 /// that for is deliberately closed. `seq` is on it because it is 46% of every
 /// loop the reader could not run out and because its answer depends on nothing
@@ -116,7 +116,7 @@ pub fn project(script: &Script) -> Vec<Simple> {
 
 /// What a script ran, and how much of it exists only because a loop was run out.
 ///
-/// ⚠ **The count has to come from the walk.** By the time anything downstream
+/// The count has to come from the walk. By the time anything downstream
 /// sees a flat list the loop is gone, so "how many of these commands are
 /// evaluation rather than text" cannot be recovered — and a report that answers
 /// nought where the truth is a fifth of the list is worse than one that does not
@@ -127,13 +127,13 @@ pub struct Ran {
     pub unrolled: usize,
     /// Every function name this script DECLARES.
     ///
-    /// ⚠ **A property of the script, which is why it is not on a command.**
+    /// A property of the script, which is why it is not on a command.
     /// Whether `probe` is a program nobody has taught this reader or a helper
     /// declared three lines up is not decidable from the call — the same word,
     /// the same argv — so `shell_ops::classify` correctly cannot answer it and
     /// does not try. The answer lives here, where the whole text is.
     ///
-    /// ⚠ **And it is not a name list.** `check` is a real program in `~/Code`
+    /// And it is not a name list. `check` is a real program in `~/Code`
     /// AND a local helper: 112 of its 114 unread calls are declared in their own
     /// text and 2 are not (see `--example defined-here`). Asked of the
     /// name it would be wrong twice; asked of the text it is right both times.
@@ -143,8 +143,8 @@ pub struct Ran {
 /// Every simple command the script *ran*: as [`project`], with the loops the
 /// text already determines run out into their iterations.
 ///
-/// ⚠ **This is where the reader stops looking commands up and starts evaluating
-/// them**, and it is the same step [`crate::shell_files`] takes on the flat list
+/// This is where the reader stops looking commands up and starts evaluating
+/// them, and it is the same step [`crate::shell_files`] takes on the flat list
 /// — moved here because the tree has the loop, where that one had to find the
 /// `done` by counting keywords. A `for` over a literal word list says exactly
 /// what happened, and reading it as a header plus a body full of `$f` throws
@@ -158,8 +158,8 @@ pub fn run_out(script: &Script) -> Ran {
 
 /// **The chain's reader**: what one script ran, off the tree.
 ///
-/// ⚠ **This is the entry point the artefacts are built from, and it is
-/// deliberately not [`crate::shell::parse`].** That one stays, because a
+/// This is the entry point the artefacts are built from, and it is
+/// deliberately not [`crate::shell::parse`]. That one stays, because a
 /// comparison needs two answers and `--bin projection` is what keeps this one
 /// honest — the moment the flat grammar becomes a call to this, nothing checks
 /// either of them again.
@@ -183,7 +183,7 @@ fn walk(script: &Script, unroll: bool) -> Ran {
     };
     walk.items(&script.items, &[], Reached::Always);
     let mut out = walk.out;
-    // ⚠ **After the unrolling and not before.** A loop reports only its LAST
+    // After the unrolling and not before. A loop reports only its LAST
     // iteration's status, so every earlier iteration's `&&` is unconfirmable —
     // which is only visible once the body exists as one copy per value.
     crate::shell::forget_discarded_status(&mut out);
@@ -206,7 +206,7 @@ struct Walk {
     /// What each loop variable holds on the iteration being walked. Empty
     /// except inside a loop [`run_out`] is running out.
     ///
-    /// ⚠ **A map rather than one binding, because loops nest** — and the inner
+    /// A map rather than one binding, because loops nest — and the inner
     /// one is walked once per outer value, so both are standing at the same
     /// time. Restored on the way out rather than cleared: `for f` inside
     /// `for f` shadows and then gives the name back.
@@ -214,7 +214,7 @@ struct Walk {
     /// Commands that exist *because* a loop was run out: everything past the
     /// first iteration's worth.
     ///
-    /// ⚠ **Saturating, because a loop the text determines can run ZERO times.**
+    /// Saturating, because a loop the text determines can run ZERO times.
     /// `$(seq 3 1)` prints nothing, so its body is emitted no times at all and
     /// the walk comes back shorter than the text — which is not a negative
     /// contribution, it is none.
@@ -242,7 +242,7 @@ impl Walk {
         }
     }
 
-    /// ⚠ **`time` and `!` are dropped, and dropping them is the projection.**
+    /// `time` and `!` are dropped, and dropping them is the projection.
     /// They are fields on the pipeline here and `argv[0]` over there, which is
     /// the misparse `ast::Pipeline` documents: `time a | b` times the pipeline
     /// where `nohup a | b` wraps one command. The flat chain cannot express the
@@ -295,16 +295,16 @@ impl Walk {
                 for word in &simple.words {
                     self.expansions(word, scope, reached);
                     flat.argv.push(self.word(word));
-                    // ⚠ **The one thing this projection loses that a later
-                    // stage still needs.** `argv` drops the quotes, so `$x` and
+                    // The one thing this projection loses that a later
+                    // stage still needs. `argv` drops the quotes, so `$x` and
                     // `"$x"` arrive identical — and the shell splits the first
                     // into words and not the second. Recorded here because this
                     // is the last place that knows.
                     flat.split.push(Self::splits(word));
                 }
             }
-            // ⚠ **`[[ … ]]` is grammar, and it is projected back to the words it
-            // was written as** rather than to nothing. Not because the words are
+            // `[[ … ]]` is grammar, and it is projected back to the words it
+            // was written as rather than to nothing. Not because the words are
             // wanted — `[[` is a `NoFiles` verb downstream — but because a
             // command that vanishes is a command the comparison cannot line up,
             // and because the operands hold expansions that really do run.
@@ -331,7 +331,7 @@ impl Walk {
                     self.items(otherwise, scope, branch);
                 }
             }
-            // ⚠ **A loop body is certain only if the loop certainly ran it**,
+            // A loop body is certain only if the loop certainly ran it,
             // and the rule is bash's: a `while` or `until` tests before the
             // first iteration, so empty input runs the body no times; a `for`
             // over words that are all written out runs once per word — including
@@ -339,14 +339,14 @@ impl Walk {
             // expands to itself and the body runs once with the pattern as the
             // value. A `for` over a `$(…)` or a variable can have an empty list.
             //
-            // ⚠ **`select` is uncertain whatever it ranges over**: it reads from
+            // `select` is uncertain whatever it ranges over: it reads from
             // the terminal, and end-of-file runs the body no times at all.
             CommandKind::For(loop_) => {
                 for word in &loop_.words {
                     self.expansions(word, scope, reached);
                 }
-                // ⚠ **A loop HEAD is emitted where a `done` is not, and the
-                // difference is what each carries.** `done` is not a command and
+                // A loop HEAD is emitted where a `done` is not, and the
+                // difference is what each carries. `done` is not a command and
                 // holds nothing; `for f in */` is not a command either, but it
                 // holds the one thing the body cannot — the list the variable
                 // ranged over. For a glob that is the only place the pattern
@@ -364,8 +364,8 @@ impl Walk {
                 // empty argv so the push at the end of this function skips it.
                 flat.redirects.clear();
                 flat.heredocs.clear();
-                // ⚠ **Asked before the unrolling and not after, so both entry
-                // points answer the same.** A list the text determines says the
+                // Asked before the unrolling and not after, so both entry
+                // points answer the same. A list the text determines says the
                 // body ran, whether or not this walk is the one running it out —
                 // `for i in $(seq 1 3)` holds an expansion and is still certain,
                 // because nothing outside the text decides what it prints.
@@ -374,7 +374,7 @@ impl Walk {
                     || (!loop_.select && !loop_.words.iter().any(has_expansion));
                 let body = self.iterated(certain, reached);
                 match values.filter(|_| self.unroll) {
-                    // ⚠ **An empty list is an answer, not a failure.** `seq 3 1`
+                    // An empty list is an answer, not a failure. `seq 3 1`
                     // prints nothing, so the body ran no times and none of it is
                     // emitted — which is why this arm is taken on a `Some` that
                     // is empty rather than treated as "could not tell".
@@ -399,7 +399,7 @@ impl Walk {
                 let body = self.iterated(false, reached);
                 self.items(&loop_.body, scope, body);
             }
-            // ⚠ **The subject is not an arm.** `case $(readlink -f "$p") in`
+            // The subject is not an arm. `case $(readlink -f "$p") in`
             // really does run `readlink`, whichever way the match goes. The arms
             // are alternatives, so at most one of them ran; the patterns are
             // globs and name no command.
@@ -409,7 +409,7 @@ impl Walk {
                     self.items(&arm.body, scope, reached.and(Reached::Sometimes));
                 }
             }
-            // ⚠ **Defining a function runs none of it**, and the body is kept
+            // Defining a function runs none of it, and the body is kept
             // anyway because a call site names no files at all. So it lands in
             // "runs sometimes and the text cannot say when".
             CommandKind::Function(function) => {
@@ -452,7 +452,7 @@ impl Walk {
 
     /// Every command a word runs before the word is a word, at any depth.
     ///
-    /// ⚠ **The depth is the point**, and it is the one place the flat reader was
+    /// The depth is the point, and it is the one place the flat reader was
     /// silently wrong for 8,300 commands: a `$( … )` inside double quotes was one
     /// opaque token, so its commands were never attributed to anybody. Here a
     /// quoted substitution is the same node as an unquoted one, so there is no
@@ -585,7 +585,7 @@ impl Walk {
     /// What a loop body's condition becomes, given whether the loop certainly
     /// ran it at least once.
     ///
-    /// ⚠ **A statement about RUNNING, so [`project`] does not make it.** That
+    /// A statement about RUNNING, so [`project`] does not make it. That
     /// entry point says what the text holds, one command per command written,
     /// and a body that may run zero times is a fact about execution rather than
     /// about the text — the flat chain draws the line in exactly the same place,
@@ -668,7 +668,7 @@ impl Walk {
         // `for f in "$@"`, which holds an expansion and never reaches here — so
         // the only empty answer comes from `seq`, above, and is a real one.
         let values = values?;
-        // ⚠ Two caps, because they bound different things: this one is on the
+        // Two caps, because they bound different things: this one is on the
         // commands produced, and [`crate::shell_files::counted`]'s is on the
         // list itself, so `seq 1 100000000` is never built at all.
         let body = count(&loop_.body);
@@ -678,7 +678,7 @@ impl Walk {
     /// Whether the shell would split this word into several once its
     /// expansions are substituted.
     ///
-    /// ⚠ **Any unquoted expansion is enough, wherever it sits in the word.**
+    /// Any unquoted expansion is enough, wherever it sits in the word.
     /// `-x$flags` splits as readily as `$flags` does. A quoted one never
     /// splits, whatever it holds, which is the whole of the difference between
     /// `$@` and `"$@"`.
@@ -692,7 +692,7 @@ impl Walk {
 
     /// A word as `argv` holds it, with whatever a loop has bound standing in.
     ///
-    /// ⚠ **Substitution happens on the TREE, not on the printed string.** The
+    /// Substitution happens on the TREE, not on the printed string. The
     /// flat chain expanded `$f` by rewriting text, which meant knowing every
     /// spelling of a parameter and getting `${f}` right by hand. Here the two
     /// spellings are one node, so replacing it is exact and `${f}x` needs no
@@ -752,7 +752,7 @@ impl Walk {
 
 /// Whether a word holds anything only running something could answer.
 ///
-/// ⚠ **A glob is not one of them.** With `nullglob` off a pattern matching
+/// A glob is not one of them. With `nullglob` off a pattern matching
 /// nothing expands to itself, so `for f in *.log` runs its body at least once
 /// whatever the directory held — which is why a glob loop is certain where a
 /// `$(…)` one is not.

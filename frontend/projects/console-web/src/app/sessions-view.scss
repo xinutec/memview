@@ -173,7 +173,7 @@
   overflow: hidden;
 }
 
-// ⚠ Deliberately quiet. It marks the sentence as written rather than read, and
+// Deliberately quiet. It marks the sentence as written rather than read, and
 // a mark that competes with the words it qualifies is a decoration.
 .wrote {
   // Matching the text it sits in, since it is punctuation more than an icon.
@@ -262,7 +262,7 @@
     margin-inline-end: 0.15rem;
   }
 
-  // ⚠ **Its own class rather than the cards' `.list`.** That one carries
+  // Its own class rather than the cards' `.list`. That one carries
   // `flex: 0 0 auto` for the row it sits in, and this line is not a flex
   // container — dead declarations that happen to look right today.
   .held {
@@ -299,7 +299,7 @@ $add-bottom: 2.5rem;
 // otherwise, so the block it looks like was never there either.
 :host {
   display: block;
-  // ⚠ **Room for the last card to clear the button below.** `.add` is `fixed`, so
+  // Room for the last card to clear the button below. `.add` is `fixed`, so
   // it covers whatever the list scrolls under it — measured at 56×56 of the last
   // card, with `elementFromPoint` at that corner returning the button's own touch
   // target, so it took the tap as well as the view. The same shape as the

@@ -334,7 +334,7 @@ fn a_below_chance_pair_is_dropped_at_the_mine() {
     // Three sessions where alpha and beta meet inside one turn…
     let mut sessions = met_in_three();
     // …and six more where both are PRESENT but never meet: each meets gamma in
-    // its own turn instead. ⚠ Presence has to be staged through a meeting,
+    // its own turn instead. Presence has to be staged through a meeting,
     // because a single-name turn never reaches a basket (`b.len() >= 2` in
     // scan_session) — the first version of this test put alpha and beta in
     // solo turns and their presence simply vanished, leaving pab = 1. With

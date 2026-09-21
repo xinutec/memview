@@ -17,7 +17,7 @@
 #      already ended the list.
 #   2. THE DEFINITION SPELLING IS NOT KEPT. `f() { a; }` comes back as
 #      `function f () { a; }`, so bash has one canonical form and the tree holds
-#      no spelling. ⚠ The parser must therefore READ `function NAME`, or it
+#      no spelling. The parser must therefore READ `function NAME`, or it
 #      cannot read back its own print: 141 commands failed the round-trip law on
 #      exactly that.
 #   3. A `( … )` FUNCTION BODY IS WRAPPED IN A BRACE GROUP. `f() ( a )` prints as
@@ -67,7 +67,7 @@ for s in 'exec 3<&-' 'exec 3>&-' 'exec 3<&- 3>&-' 'cat <&-' 'cat >&-' 'exec {v}<
 done
 
 section "5 · \$( ) holding a subshell needs the space bash needs"
-# ⚠ `$((` opens an ARITHMETIC expansion, so a substitution whose body starts
+# `$((` opens an ARITHMETIC expansion, so a substitution whose body starts
 # with a subshell must be written `$( ( … ) )`. The printer emitted `$((` for 9
 # commands, and the round-trip law caught it.
 for s in 'echo $( (cd /tmp) && echo ok )' 'echo $((1+2))'; do show "$s"; done

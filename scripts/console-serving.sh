@@ -12,7 +12,7 @@
 # told. `build:console` no longer publishes; `publish:console` does. This is the
 # other half: a way to ask.
 #
-# ⚠ **It asks the console over HTTP, not the directory.** `STATIC_DIR` is read
+# It asks the console over HTTP, not the directory. `STATIC_DIR` is read
 # from the environment at startup and `SIGUSR2` re-execs that same environment,
 # so a console can go on serving a path nobody would think to look at — it has
 # happened, for three upgrades in a row (docs/agent-console.md, "ng build deletes

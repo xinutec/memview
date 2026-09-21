@@ -7,8 +7,8 @@
 # WHY A WATCHER AND NOT A TEST. memview#892 was found twice by hand, hours apart,
 # and never reproduced deliberately.
 #
-# ⚠ **What was measured about freezing is NARROWER than "the freeze theory is
-# dead", which is how it first got written down.** `am freeze --sticky` with the
+# What was measured about freezing is NARROWER than "the freeze theory is
+# dead", which is how it first got written down. `am freeze --sticky` with the
 # app in FRONT leaves KEEP_SCREEN_ON standing — so
 # freezing does not strip the window flag, because the flag lives in
 # WindowManager and outlives the process being stopped. It says nothing about the
@@ -26,7 +26,7 @@
 # says it is holding the screen and no window on the device is. This records that
 # over hours, so #892 closes on evidence instead of on nobody having noticed.
 #
-# ⚠ **`dumpsys` alone cannot tell a fault from you turning the button off.** A
+# `dumpsys` alone cannot tell a fault from you turning the button off. A
 # missing lock is only wrong if the button is still lit, and that lives in the
 # page. So the cheap check runs every minute and the expensive one — CDP into the
 # WebView, read `aria-pressed` — runs ONLY when the cheap one looks wrong. A
@@ -50,7 +50,7 @@ say() { printf '%s %s\n' "$(date '+%F %T')" "$1" | tee -a "$LOG"; }
 # Whether the console is the resumed activity AND the display is on. A lock means
 # nothing while the screen is off, and nothing while another app is in front.
 #
-# ⚠ **`mWakefulness` is NOT the display, and reading it here made the gate lie.**
+# `mWakefulness` is NOT the display, and reading it here made the gate lie.
 # It is the power state machine: it says `Awake` for a device that is up with its
 # screen off, which has been seen directly — the phone dark and locked while this
 # reported `Awake`. That is fatal rather than merely noisy,
@@ -64,7 +64,7 @@ watching() {
   [ "$top" -gt 0 ] && [ "$on" -gt 0 ]
 }
 
-# ⚠ **Only THIS app's window counts.** A plain `grep -c KEEP_SCREEN_ON` counts the
+# Only THIS app's window counts. A plain `grep -c KEEP_SCREEN_ON` counts the
 # whole device, and the fleet is a dozen WebView wrappers with the same button:
 # `org.xinutec.heatcam` has been seen holding one at the same moment as the
 # console. Any other app holding one would read as the console holding one, so
@@ -87,7 +87,7 @@ held() {
 # It is the ground truth that proved `navigator.wakeLock` works in this WebView
 # at all (memory `reference_android_webview_cdp`), and it needs no block-pairing,
 # so it cannot be defeated by another app the way a device-wide `grep -c` is. It
-# agrees with `held` in the healthy state — ⚠ which per this repo's own hard-won
+# agrees with `held` in the healthy state — which per this repo's own hard-won
 # rule is NOT evidence that they agree in the fault state. So both are read, and a disagreement is reported as its own event
 # rather than silently resolved: two instruments that part company are a finding
 # about the instruments, and believing either one alone is how the last three
@@ -120,7 +120,7 @@ SPLITS=0
 SAMPLES=0
 DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
 
-# ⚠ **Silence has to be distinguishable from death.** A watcher that only speaks
+# Silence has to be distinguishable from death. A watcher that only speaks
 # on a fault reads exactly the same whether it is healthy, wedged, or was killed
 # an hour ago — and a run that sampled nothing looks like a run that found
 # nothing. Both mistakes were made in one night getting here. So it says how much

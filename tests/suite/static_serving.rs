@@ -5,7 +5,7 @@
 //! renders broken icons and reports nothing at all, so the failure is silent on
 //! both sides, and the wrong answer being a `200` is what makes it invisible.
 //!
-//! ⚠ **This app is not the console.** `console/src/api.rs` has carried `spa()`
+//! This app is not the console. `console/src/api.rs` has carried `spa()`
 //! since it hit the same defect; that is a different binary, and the fix never
 //! reached the one serving `memview.xinutec.org`. The task that recorded
 //! "memview was fixed the same way" was right about the console and wrong about

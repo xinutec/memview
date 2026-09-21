@@ -5,7 +5,7 @@
 //! exactly like one that had not, and their silence proved nothing. This is the
 //! counterpart that exists to say no.
 //!
-//! ⚠ **Leniency was never the standard, it was a habit.** `couse` walks
+//! Leniency was never the standard, it was a habit. `couse` walks
 //! `parentUuid` chains to inherit `promptId` down a tree, so a broken link
 //! silently truncates a walk and changes a published number with nothing
 //! reported. The one real reason to tolerate anything is the append race, and
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     }
 
     let mut damaged = 0usize;
-    // ⚠ Whose damage fails this run. See [`fatal_damage`].
+    // Whose damage fails this run. See [`fatal_damage`].
     let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
     let mut mine = 0usize;
     let mut vanished = 0usize;
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
     if damaged > 0 {
-        // ⚠ Two unlike reasons for the same pass, and outside a session the old
+        // Two unlike reasons for the same pass, and outside a session the old
         // single wording named a session that does not exist. Whoever reads a
         // nightly log has to be able to tell that the count gates nothing.
         let why = match session {

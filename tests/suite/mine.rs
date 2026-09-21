@@ -1,6 +1,6 @@
 //! The resume state a mine starts from, exercised through the public API.
 //!
-//! ⚠ **The two `load` cases are the point.** An absent file and a damaged one
+//! The two `load` cases are the point. An absent file and a damaged one
 //! must not give the same answer: a damaged one read as "nothing to resume" would
 //! resume from empty folds while the watermarks said the corpus had been read,
 //! and the artefact would lose everything the carried state held — silently.
@@ -21,7 +21,7 @@ fn a_missing_file_is_a_first_run() {
     assert_eq!(got, None);
 }
 
-/// ⚠ **A damaged resume file must NOT abort the run.** Every byte here is
+/// A damaged resume file must NOT abort the run. Every byte here is
 /// reproduced by one full mine, and `plan()` treats absent state as "read
 /// everything whole" — so the cost of losing it is a slow run, not a wrong one.
 ///
@@ -60,7 +60,7 @@ fn what_is_saved_is_what_is_loaded() {
     assert_eq!(back, carried);
 }
 
-/// ⚠ The reason `resolved` is carried at all. A session is named in the HEAD of
+/// The reason `resolved` is carried at all. A session is named in the HEAD of
 /// its transcript; a resumed run reads only the tail, so without this surviving
 /// the round trip every long-lived agent comes back as a bare uuid.
 #[test]
@@ -111,7 +111,7 @@ fn append(path: &std::path::Path, lines: &[&str]) {
 
 /// A `Read` of `path` at `stamp`, in the shape the miner parses.
 ///
-/// ⚠ **The `id` is required and its absence is silent.** A timeline row is only
+/// The `id` is required and its absence is silent. A timeline row is only
 /// pushed when `call_id` finds one BEFORE the tool's name on the line; without
 /// it the call still counts towards the roster's reads, so a fixture missing it
 /// looks like it works and produces an empty timeline. That cost one wrong test
@@ -123,12 +123,12 @@ fn read_call(path: &str, stamp: &str) -> String {
     )
 }
 
-/// ⚠ **The whole point of the exercise, and the only thing that makes a resumed
+/// The whole point of the exercise, and the only thing that makes a resumed
 /// mine safe to run nightly: reading only the tail must give the answer reading
-/// everything gives.** A resume that is wrong reads no error — it mines from an
+/// everything gives. A resume that is wrong reads no error — it mines from an
 /// offset that means something else and the artefact simply becomes untrue.
 ///
-/// ⚠ **The head and the tail each carry a REAL tool call, and that matters.** An
+/// The head and the tail each carry a REAL tool call, and that matters. An
 /// earlier version of this test used transcripts with no calls in them, so
 /// `reads` was an empty map on both sides and the comparison passed by being
 /// vacuous — `feedback_a_degenerate_example_cannot_show_a_convention`. With a
@@ -189,7 +189,7 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
     )
     .expect("whole");
 
-    // ⚠ Guard against a VACUOUS comparison: two empty rosters are equal, and a
+    // Guard against a VACUOUS comparison: two empty rosters are equal, and a
     // parity test that passes because neither pass saw anything proves nothing.
     assert!(!whole.agents.is_empty(), "fixture produced no agents");
     assert_eq!(
@@ -208,7 +208,7 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
         assert_eq!(a.name, b.name, "agent names diverged");
         assert_eq!(a.reads, b.reads, "{}: reads diverged", a.name);
         assert_eq!(a.writes, b.writes, "{}: writes diverged", a.name);
-        // ⚠ Counted per TRANSCRIPT, not per read. Without the guard in
+        // Counted per TRANSCRIPT, not per read. Without the guard in
         // `scan_resumed`, resuming into a grown file reports one session as two
         // — the defect the full-corpus parity run found.
         assert_eq!(
@@ -225,7 +225,7 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
     }
 }
 
-/// ⚠ **A transcript nothing touched must be carried, not forgotten.** Dropping
+/// A transcript nothing touched must be carried, not forgotten. Dropping
 /// its watermark would make the NEXT run believe the file was new and read it
 /// whole — the saving quietly undoing itself, one file at a time, with no
 /// symptom but a slow mine.
@@ -288,14 +288,14 @@ fn an_untouched_transcript_keeps_its_watermark() {
 
 /// A git repo under `root` with one commit, returning its short sha.
 ///
-/// ⚠ Every inherited git variable is removed: these tests run under `cargo
+/// Every inherited git variable is removed: these tests run under `cargo
 /// test`, `cargo test` runs under the gate, and the gate runs from a pre-commit
 /// hook that exports `GIT_DIR` and `GIT_INDEX_FILE` to everything it spawns —
 /// so `git -C <tempdir> add` would write into MEMVIEW'S index.
 fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     let repo = root.join(name);
     std::fs::create_dir_all(&repo).expect("mkdir");
-    // ⚠ **Strip EVERY GIT_* variable, not a list.** Inside the gate this
+    // Strip EVERY GIT_* variable, not a list. Inside the gate this
     // fixture runs under memview's pre-commit hook, which exports GIT_DIR,
     // GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY and more to every child; an
     // enumerated subset that missed one let `git init` bind the new repo to
@@ -312,7 +312,7 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
             }
         }
         let out = c.output().expect("git");
-        // ⚠ `.output()` succeeds when git RUNS, not when git WORKS. A failing
+        // `.output()` succeeds when git RUNS, not when git WORKS. A failing
         // step must name itself, or it reads as "0 commits attributed" — a
         // claim about the miner.
         assert!(
@@ -408,8 +408,8 @@ fn an_all_digit_mention_attributes_nothing_which_is_what_1596_was() {
     assert_eq!(counted, 0, "an all-digit mention was attributed after all");
 }
 
-/// ⚠ **Commit attribution is RECOMPUTED from the whole git history each run, not
-/// accumulated** — so a carried roster must have its counts cleared first.
+/// Commit attribution is RECOMPUTED from the whole git history each run, not
+/// accumulated — so a carried roster must have its counts cleared first.
 ///
 /// Without the reset a resumed mine reports exactly DOUBLE. Found by the first
 /// full-corpus parity run and by no fixture: the other fixtures carry no git
@@ -450,7 +450,7 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
     };
 
     let (first, carried) = run(None);
-    // ⚠ **Two failures look identical to a sum** (memview#1596): an EMPTY agent
+    // Two failures look identical to a sum (memview#1596): an EMPTY agent
     // list is 0, and so is an agent found but missing its commit. The second reads
     // as "the miner drops commits", which is the serious claim, so ask the
     // narrower question first.
@@ -481,8 +481,8 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
     );
 }
 
-/// ⚠ **The carried episode has to survive into the log, and for a long time it
-/// did not.** The driver called `Log::reopen` just before `scan_transcript`,
+/// The carried episode has to survive into the log, and for a long time it
+/// did not. The driver called `Log::reopen` just before `scan_transcript`,
 /// which opens the log itself on its first statement and cleared it — so the
 /// carry was applied and thrown away one line later, silently.
 ///

@@ -53,7 +53,7 @@ fn the_view_names_what_the_miner_names() {
 
 #[test]
 fn a_failed_call_leaves_its_conditional_half_unproven() {
-    // ⚠ **The reason this view exists.** Both halves parse, both classify, both
+    // The reason this view exists. Both halves parse, both classify, both
     // name the right file — and only one of them certainly happened. Nothing in
     // the command text says which; nothing in the exit status says which; it
     // takes both.
@@ -120,7 +120,7 @@ fn a_nested_shell_opens_into_its_own_commands() {
     // is to show that the wrapper is not the thing that touched the file.
     let steps = asked("nix develop -c bash -c 'cp a.ts b.ts'", Some(true)).steps;
     let shape: Vec<(usize, &str)> = steps.iter().map(|step| (step.depth, step.kind)).collect();
-    // ⚠ The CHIP, not the style key: `opens a shell` is what the phone shows,
+    // The CHIP, not the style key: `opens a shell` is what the phone shows,
     // and `shell` is what its colour selects on.
     assert_eq!(shape, [(0, "opens a shell"), (1, "copy")]);
     assert!(steps[0].uses.is_empty(), "the wrapper touched nothing");
@@ -149,8 +149,8 @@ fn a_command_that_will_not_parse_says_so() {
     // Returning an empty step list for them would show an unreadable command as
     // a command that did nothing.
     //
-    // ⚠ **This was `case $x in a) echo hi;; esac` until memview#901 taught the
-    // grammar to read one**, and the test then failed against correct code. An
+    // This was `case $x in a) echo hi;; esac` until memview#901 taught the
+    // grammar to read one, and the test then failed against correct code. An
     // unclosed quote is the durable example: it is not a gap waiting to be
     // filled but text that cannot be read by anything, so nothing will ever
     // close it.
@@ -163,11 +163,11 @@ fn a_command_that_will_not_parse_says_so() {
 fn an_unread_command_is_named_rather_than_left_blank() {
     // On one command, "what is not in the table" is usually the whole answer to
     // "why did this attribute nothing".
-    // ⚠ The example moves as the table grows — `dhall-to-json` stood here, then
+    // The example moves as the table grows — `dhall-to-json` stood here, then
     // `verified_cli`, each taught within a day. What is under test is the
     // naming, not the command.
     //
-    // ⚠ **THREE tests hold this placeholder and they are in three crates**:
+    // THREE tests hold this placeholder and they are in three crates:
     // here, `reader/tests/suite/shell_ops.rs` and `reader/tests/suite/shell_files.rs`.
     // Teaching a command turns all three red, and `cargo test -p reader` shows
     // only two of them — this one costs a whole gate run to find. Change them
@@ -220,8 +220,8 @@ fn what_a_script_runs_is_not_said_twice() {
 
 #[test]
 fn the_shape_the_phone_is_drawn_from() {
-    // ⚠ **The phone check reads the file this test writes, so a copy cannot
-    // drift.** It used to be a hand-written answer in `ui-pages.spec.ts` with a
+    // The phone check reads the file this test writes, so a copy cannot
+    // drift. It used to be a hand-written answer in `ui-pages.spec.ts` with a
     // comment claiming this test pinned it — a convention, not a mechanism, and
     // it failed exactly as you would expect: the labels changed, this test was
     // updated, its TypeScript copy was not, and the layout check went on drawing
@@ -269,7 +269,7 @@ fn the_shape_the_phone_is_drawn_from() {
         [
             // The devshell wrapper is unwrapped to `lake build`, which touches
             // no file — so there is nothing to be uncertain about.
-            // ⚠ **"no files", never "nothing".** The bare word was on screen and
+            // "no files", never "nothing". The bare word was on screen and
             // was false: it means the command touched no files, and beside
             // `ping` or `task list` it read as "this command did nothing".
             ("no files", Reach::Always, true),
@@ -279,8 +279,8 @@ fn the_shape_the_phone_is_drawn_from() {
     );
 }
 
-/// ⚠ **The card's headline, checked at the console boundary and not only in
-/// the reader.** `describe` is tested where it is written; this asserts the
+/// The card's headline, checked at the console boundary and not only in
+/// the reader. `describe` is tested where it is written; this asserts the
 /// WIRING — that a command a lens covers actually arrives on the line the sheet
 /// renders. A field that is correct in `reader` and never filled here would
 /// pass every test in that crate and show nothing to a person.
@@ -294,7 +294,7 @@ fn a_command_a_lens_covers_arrives_with_its_concept() {
     );
 }
 
-/// ⚠ **Absent is the honest miss, and it has to stay absent.** A command no
+/// Absent is the honest miss, and it has to stay absent. A command no
 /// lens covers keeps its chip and its `says` and offers no sentence — the
 /// no-absorption rule, enforced at the one place a person would see it broken.
 /// Bare `wc` reaches `Op::Read` and is deliberately unlensed: the POSIX

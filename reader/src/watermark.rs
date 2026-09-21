@@ -1,20 +1,20 @@
 //! How much of a transcript has already been read, and whether it is still the same
 //! file underneath.
 //!
-//! ⚠ **A whole-corpus fold cannot be made cheap by parsing faster.** Measured:
+//! A whole-corpus fold cannot be made cheap by parsing faster. Measured:
 //! removing the mine's entire shell-parsing arm leaves most of its runtime standing.
 //! Nothing per-operation reaches seconds — only reading less does, and the corpus is
 //! shaped for it: the ten largest transcripts hold 90% of the bytes and they only
 //! grow at the tail (memview#1240).
 //!
-//! ⚠ **Resuming is only sound because the CLI APPENDS.** It writes earlier stretches
+//! Resuming is only sound because the CLI APPENDS. It writes earlier stretches
 //! of a conversation back into the same file, which reads like history being
 //! rewritten — but the copies are appended, tens of megabytes apart, and the prefix
 //! does not move. This module exists to keep checking that rather than trusting it: a
 //! resume that is wrong reads no error, it silently mines a file from the wrong
 //! offset.
 //!
-//! ⚠ **And the miner does not dedup by message uuid**, so a resumed scan sees exactly
+//! And the miner does not dedup by message uuid, so a resumed scan sees exactly
 //! the lines a full scan sees, in the same order. Parity needs no carried set of ids.
 
 use std::collections::BTreeMap;
@@ -30,7 +30,7 @@ pub struct Watermark {
     pub read_to: u64,
     /// A fingerprint of the bytes just before `read_to`.
     ///
-    /// ⚠ **A window, not the whole prefix.** Hashing everything already read
+    /// A window, not the whole prefix. Hashing everything already read
     /// costs exactly what resuming is meant to save. This catches the file being
     /// truncated, replaced, or rewritten near the boundary — which is what a
     /// wrong offset looks like — and is explicitly not proof that a byte a
@@ -45,7 +45,7 @@ pub const WINDOW: u64 = 64 * 1024;
 /// One transcript's resume record: where the read stopped, **and the fold state
 /// the next read has to start from**.
 ///
-/// ⚠ **The offset alone is not enough, and the shortfall is measurable.** An
+/// The offset alone is not enough, and the shortfall is measurable. An
 /// episode is bracketed by a user's turn, so a cut taken while an instruction is
 /// still being carried out orphans every row until the next prompt. Measured
 /// against a real watermark: **66 of 2,815 tail calls** would
@@ -54,7 +54,7 @@ pub const WINDOW: u64 = 64 * 1024;
 /// expensive to fix, which is why one is carried here and the other is not
 /// (`crate::doing::Log::resume`).
 ///
-/// ⚠ **The fold fields default**, so a `transcript-drift.json` written before
+/// The fold fields default, so a `transcript-drift.json` written before
 /// they existed still parses as offsets with no episode open — which is exactly
 /// what a run that never carried one had.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,7 +145,7 @@ pub fn drift(path: &Path, mark: &Watermark) -> Drift {
     if now < mark.read_to {
         return Drift::Shrank;
     }
-    // ⚠ The window is taken at the RECORDED offset, not at the current end —
+    // The window is taken at the RECORDED offset, not at the current end —
     // the question is whether the bytes already consumed still say what they
     // said, and hashing the new end would answer a different question and
     // always disagree.
@@ -169,8 +169,8 @@ pub fn drift(path: &Path, mark: &Watermark) -> Drift {
 pub enum Plan {
     /// Read every transcript whole and DISCARD the carried artefacts.
     ///
-    /// ⚠ **All-or-nothing, and that is forced by the artefacts rather than
-    /// chosen.** Their rows carry no per-transcript provenance, so one file that
+    /// All-or-nothing, and that is forced by the artefacts rather than
+    /// chosen. Their rows carry no per-transcript provenance, so one file that
     /// cannot be resumed cannot have its old contribution subtracted — it would
     /// be counted once from the carried artefact and again from the re-read. A
     /// full re-mine is the only sound answer, and it is cheap because it is
@@ -185,7 +185,7 @@ pub enum Plan {
         whole: Vec<String>,
         /// Transcripts the last run saw and that are gone now.
         ///
-        /// ⚠ **Carried, not a reason to re-mine.** A vanished transcript's rows
+        /// Carried, not a reason to re-mine. A vanished transcript's rows
         /// are history and stay; `carry_forward` already treats memory-days this
         /// way deliberately. Forcing a full re-mine on one would mean a full
         /// re-mine most days — 343 transcripts disappeared in 22 days, nearly
@@ -199,7 +199,7 @@ pub enum Plan {
 ///
 /// `marks` is what the last run recorded; `present` is what is on disk now.
 ///
-/// ⚠ **Fails CLOSED.** Anything not provably an append — a rewritten prefix, a
+/// Fails CLOSED. Anything not provably an append — a rewritten prefix, a
 /// file shorter than it was, a file that cannot be read — returns [`Plan::Full`]
 /// with the reason, because a wrong resume produces no error at all: it mines
 /// from an offset that means something else and the artefact simply becomes

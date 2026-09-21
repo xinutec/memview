@@ -52,13 +52,13 @@ pub enum Reached {
     /// text cannot say when — the bucket that must never be counted as certain, whatever
     /// the call's exit status turned out to be.
     ///
-    /// ⚠ **The `||` half of this is knowable and is thrown away on purpose. Measured,
-    /// memview#101, and the answer was no.** A non-zero exit on `a || b` proves `b` ran:
+    /// The `||` half of this is knowable and is thrown away on purpose. Measured,
+    /// memview#101, and the answer was no. A non-zero exit on `a || b` proves `b` ran:
     /// had `a` succeeded the chain would have exited 0. Only a failing call can confirm
     /// one, few calls fail, and fewer still contain a `||` — the reachable gain is a
     /// fraction of a percent of the bucket.
     ///
-    /// ⚠ **When it is worth doing, it will not need a fourth domain point.** One rule
+    /// When it is worth doing, it will not need a fourth domain point. One rule
     /// covers it — *a non-zero exit proves the last `||` alternative of the final
     /// segment ran* — which confirms every link of `a || b || c` and the `c` of
     /// `a && b || c`, with no change to [`Reached::and`]. What it cannot confirm is `b`,
@@ -111,12 +111,12 @@ pub struct Simple {
     /// Whether the shell would WORD-SPLIT each argv word's expansions, by position.
     /// Empty from the flat grammar, which never had the distinction.
     ///
-    /// ⚠ **`$x` and `"$x"` project to the same string and are different programs.**
+    /// `$x` and `"$x"` project to the same string and are different programs.
     /// `argv` holds a word with its quotes removed and its expansions left alone, so a
     /// variable holding `adb -s host` becomes one command name three words long. The
     /// tree knows: `Parameter::quoted` is a field on it for exactly this reason.
     ///
-    /// ⚠ **Read it with `get(i)`, never by index.** A missing entry means "do not
+    /// Read it with `get(i)`, never by index. A missing entry means "do not
     /// split" — the answer that claims less.
     pub split: Vec<bool>,
     /// The bodies of the heredocs this command opened, in order.
@@ -175,8 +175,8 @@ fn hide_heredocs(script: &str) -> String {
         let mut residues = Vec::new();
         let mut cut = 0;
         for opener in &openers {
-            // ⚠ **No terminator, no heredoc — and `cut` is left alone, so the
-            // text stays exactly as written.** `<<` is two characters, not an
+            // No terminator, no heredoc — and `cut` is left alone, so the
+            // text stays exactly as written. `<<` is two characters, not an
             // operator: an arithmetic shift, a quoted mention of redirection, a
             // grep pattern hunting for one. Consuming until the delimiter turned
             // up meant those swallowed the whole rest of the script as body, with
@@ -217,7 +217,7 @@ fn hide_heredocs(script: &str) -> String {
 /// Where an opener's body ends and what its terminator line leaves behind, or
 /// `None` when the terminator never arrives.
 ///
-/// ⚠ **This is the whole test for whether a `<<` was an operator at all.**
+/// This is the whole test for whether a `<<` was an operator at all.
 /// Quoting cannot answer it. The corpus's commonest heredoc,
 /// `bash -c 'python3 - <<PY … PY'`, has its `<<` inside a quoted argument and is
 /// entirely real; `echo 'use << to redirect'` is the same shape and is not. What
@@ -347,7 +347,7 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
 
 /// Demote every `&&` whose success the script threw away.
 ///
-/// ⚠ **A call reports one exit status, and `;` discards the one before it.** In
+/// A call reports one exit status, and `;` discards the one before it. In
 /// `a && b; c`, exit 0 says `c` worked and says *nothing whatever* about `a` — so
 /// `b` cannot be confirmed by the status however the call turned out. Only the last
 /// `;`-separated segment ends in the status that gets reported.
@@ -355,7 +355,7 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
 /// Without this, "the call exited 0, so every `&&` ran" is an over-claim that reads
 /// as precision.
 pub(crate) fn forget_discarded_status(cmds: &mut [Simple]) {
-    // ⚠ **A closing keyword is not a command and has no status of its own.** The
+    // A closing keyword is not a command and has no status of its own. The
     // grammar surfaces `done`, `fi` and `esac` as ordinary words, so they arrive here
     // looking like unconditional commands sitting *after* the body they close. Left in,
     // the last one anchors the final segment and demotes every `&&` in the script.
@@ -435,7 +435,7 @@ fn walk(
         // gives the two halves of an `if`. Recording an arm as `Always` would claim a file
         // use that never happened.
         //
-        // ⚠ **The subject is not an arm.** `case $(readlink -f "$p") in` really does run
+        // The subject is not an arm. `case $(readlink -f "$p") in` really does run
         // `readlink`, whichever way the match goes, so it keeps the condition standing
         // outside the statement.
         Rule::case_stmt => {
@@ -451,7 +451,7 @@ fn walk(
                 }
             }
         }
-        // ⚠ **Defining a function runs none of it.** `f() { curl … > out; }` records a
+        // Defining a function runs none of it. `f() { curl … > out; }` records a
         // write to `out` at the moment the *name* is bound, and the body may never be
         // called at all.
         //
@@ -480,7 +480,7 @@ fn walk(
             // `a && b; c`, `b` needs `a` to have worked and `c` needs nothing.
             let mut here = Reached::Always;
             let mut open = Vec::new();
-            // ⚠ **A connector with nothing after it yet has not ended anything.** `a &&⏎b` is
+            // A connector with nothing after it yet has not ended anything. `a &&⏎b` is
             // one and-or list — bash's grammar is `and_or '&&' newline_list pipeline` — but
             // both the `&&` and the newline arrive here as separators, and reading the newline
             // as one put `b` back at unconditional. The same shape as the `a |⏎b` misparse in
@@ -521,7 +521,7 @@ fn walk(
 /// Take one step through a sequence's `if`s, and say whether what stands here runs
 /// unconditionally.
 ///
-/// ⚠ **The two arms of an `if` cannot both have run**, so recording both as
+/// The two arms of an `if` cannot both have run, so recording both as
 /// [`Reached::Always`] claims a file use that never happened — the one direction of
 /// error this reader is built to avoid.
 ///
@@ -535,7 +535,7 @@ fn walk(
 /// with the branches. An `if` left open by the end keeps everything after it
 /// uncertain, which is the safe direction for a script that is a fragment.
 fn branch(open: &mut Vec<bool>, pair: &pest::iterators::Pair<Rule>) -> Reached {
-    // ⚠ **One command can carry two keywords.** `then if b` opens a nested `if`
+    // One command can carry two keywords. `then if b` opens a nested `if`
     // *and* stands inside the outer one; reading only the first word leaves the
     // inner level unopened, and its `fi` then closes the outer — so everything
     // after the whole statement reads as certain again.
@@ -566,7 +566,7 @@ fn branch(open: &mut Vec<bool>, pair: &pest::iterators::Pair<Rule>) -> Reached {
 /// group is not descended into: `( if x; then y; fi )` balances inside itself, and
 /// reading its `if` from out here would leave a level open forever.
 ///
-/// ⚠ **A loop's `do` is stepped over rather than stopped at**, because it is not the
+/// A loop's `do` is stepped over rather than stopped at, because it is not the
 /// command being guarded either. `for p in …; do if [ -d "$p" ]; then rm -rf "$p";
 /// fi; done` writes `do` and `if` into one pipeline, and stopping at the `do` meant
 /// the `if` never opened — so the `rm -rf` inside a branch read as certain.
@@ -653,7 +653,7 @@ fn collect_redirect(
 /// Every command a word runs before the word is a word: `$( … )` and backticks, at
 /// any depth inside it.
 ///
-/// ⚠ **The depth is the point.** A word's expansions used to be read from its
+/// The depth is the point. A word's expansions used to be read from its
 /// immediate children only, which was right for `$(git rev-parse HEAD)` and silently
 /// wrong for `"$(git rev-parse HEAD)"` — the quoted form was one opaque token, so
 /// the command inside it was never walked and its files were never attributed
@@ -731,8 +731,8 @@ fn unquote(word: &str) -> String {
                 }
                 i += 1;
             }
-            // ⚠ **Inside double quotes a backslash escapes FIVE characters and
-            // is an ordinary character before anything else.** `"\.lpass"` is
+            // Inside double quotes a backslash escapes FIVE characters and
+            // is an ordinary character before anything else. `"\.lpass"` is
             // seven characters, `"lpass \["` keeps its backslash, and `tr -d
             // '\r'` inside a `bash -c "…"` payload means a carriage return —
             // measured in `reader/probes/quoting.sh`. Dropping the backslash
@@ -761,8 +761,8 @@ fn unquote(word: &str) -> String {
                 }
                 i += 1;
             }
-            // ⚠ **Outside quotes a backslash escapes, and dropping it is the
-            // point.** `'\''` is how POSIX puts a quote inside a quoted string —
+            // Outside quotes a backslash escapes, and dropping it is the
+            // point. `'\''` is how POSIX puts a quote inside a quoted string —
             // close, escaped quote, reopen — and reading the `\'` as two literal
             // characters gave back a word with a backslash where the quote
             // belongs. Every later stage then saw a word nobody wrote. Found by

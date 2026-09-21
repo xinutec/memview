@@ -5,7 +5,7 @@
 //! `shell-files` ranks the refusals by reason; this prints the payloads behind
 //! one of them, because a reason name says which construct and not which shape.
 //!
-//! ⚠ **It walks to the bottom, not to depth 1.** The first version re-parsed
+//! It walks to the bottom, not to depth 1. The first version re-parsed
 //! only the payloads it found in a top-level command, so a refusal inside
 //! `ssh host 'bash -c "…"'` was counted by `shell-files` and invisible here —
 //! which is how `Loop`, `FunctionDefinition`, `Arithmetic` and `Tilde` came to
@@ -163,7 +163,7 @@ fn main() -> anyhow::Result<()> {
         eprintln!("{n:>6}  {reason:<22} {carrier}");
     }
 
-    // ⚠ **"We refuse it" and "it is not shell" are different facts**, and only
+    // "We refuse it" and "it is not shell" are different facts, and only
     // bash settles the second. This crate must not spawn a process — see
     // `reader/src/lib.rs` — so the payloads go out NUL-separated and whoever
     // wants the verdict asks `bash -n` themselves.

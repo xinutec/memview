@@ -16,7 +16,7 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
   });
 
   it('names the phone before the Mac when there is no answer at all', () => {
-    // ⚠ **The order is the finding, not a preference.** Measured over 3.9 days
+    // The order is the finding, not a preference. Measured over 3.9 days
     // of this console's telemetry: 235 status-0 episodes tracking waking hours
     // — 20 at 09:00, 21 at 20:00, essentially none 01:00–07:00 — which is the
     // opposite of what a sleeping Mac produces. The near cause is this phone's
@@ -42,7 +42,7 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
   });
 
   it('takes unknown and narrows, rather than stringifying an object', () => {
-    // ⚠ This function exists because one callsite did `String(err)` and put
+    // This function exists because one callsite did `String(err)` and put
     // `cannot reach the runner: [object Object]` in front of the user — which
     // says nothing, and looks like a bug in the app rather than a sleeping Mac.
     expect(reason(new Error('the socket closed'))).toBe('the socket closed');

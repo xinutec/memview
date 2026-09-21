@@ -1,27 +1,27 @@
 //! The mined artefacts, brought up to date at the moment they are read.
 //!
-//! ⚠ **A cache nobody refreshes is a cache that lies, and every reader here handled
-//! that differently.** Before this existed: `memory-rank` REFUSED when the artefacts
+//! A cache nobody refreshes is a cache that lies, and every reader here handled
+//! that differently. Before this existed: `memory-rank` REFUSED when the artefacts
 //! were stale and told you to re-mine, `memory-tiers` disclosed the staleness and
 //! used the old numbers anyway, and `demotion-study`, `memory-blame` and the viewer
 //! API did not look. Three answers to one question, none of them "be up to date".
 //!
-//! ⚠ **The point is not that the nightly gets faster.** The nightly is unattended and
+//! The point is not that the nightly gets faster. The nightly is unattended and
 //! nobody waits for it. The point is that catching up now costs seconds, which is
 //! cheap enough to do before answering rather than to warn about.
 //!
-//! ⚠ **The nightly stays a FULL rebuild on purpose.** A resumed run is only ever as
+//! The nightly stays a FULL rebuild on purpose. A resumed run is only ever as
 //! correct as the chain of resumes behind it; a from-scratch mine repairs any drift
 //! the chain accumulates, and it is the baseline every parity check is measured
 //! against.
 //!
-//! ⚠ **A reader here NEVER WRITES.** Only `bin/agents` owns the artefacts. A reader
+//! A reader here NEVER WRITES. Only `bin/agents` owns the artefacts. A reader
 //! that wrote them would be a second writer racing every other session — and worse,
 //! it could not then skip any work, because writing a partially-computed artefact
 //! corrupts it. Staying read-only is what lets a caller say [`Needs::MEMORIES`] and
 //! not pay for a git walk it never looks at.
 //!
-//! ⚠ **So each reader catches up from the last MINE, not from the last reader.** The
+//! So each reader catches up from the last MINE, not from the last reader. The
 //! corpus grows slowly enough that a full day of drift is seconds of tails, which is
 //! cheaper than the coordination a shared writable cache would need.
 
@@ -62,12 +62,12 @@ impl Where {
 
 /// The effects — who last touched which file — current as of now.
 ///
-/// ⚠ **This one DOES carry `effects.json`**, because the question is "who wrote this
+/// This one DOES carry `effects.json`, because the question is "who wrote this
 /// path, ever", not "what happened lately". [`mined`] deliberately does not, and the
 /// difference is the whole reason both exist: a memory tool wants a fold over the
 /// corpus, this wants the corpus. Still writes nothing.
 pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
-    // ⚠ **Refuse rather than answer from nothing.** Without the carried artefact a
+    // Refuse rather than answer from nothing. Without the carried artefact a
     // resumed scan sees only what grew, so "who last wrote this path" would be answered
     // from a few minutes of history and read as "nobody" — a check that reports
     // all-clear because it has no evidence.
@@ -87,7 +87,7 @@ pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
     let from = carried.map(|carried| Resumed {
         carried,
         doing: reader::doing::Doing::default(),
-        // ⚠ **Absent is NOT empty here.** `effects.json` is an export the nightly
+        // Absent is NOT empty here. `effects.json` is an export the nightly
         // now builds into a temp directory and deletes, so on this Mac it is
         // usually GONE. Defaulting to empty would make every caller — the
         // staged-work check above all — report "nothing found" when it in fact
@@ -117,7 +117,7 @@ pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
 /// whenever the resume state is missing or damaged — see
 /// [`crate::mine::Carried::load`].
 ///
-/// ⚠ **Writes nothing.** See this module's head.
+/// Writes nothing. See this module's head.
 pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
     let generated = crate::couse::stamp(
         std::time::SystemTime::now()
@@ -126,7 +126,7 @@ pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
             .unwrap_or(0),
     );
     let resume_file = reader::home::cache(crate::mine::FILE);
-    // ⚠ **The timeline and the evidence are 122 MB and are NOT loaded here.**
+    // The timeline and the evidence are 122 MB and are NOT loaded here.
     // A reader that does not write them does not need them carried; the fold
     // state a memory tool actually reads — the roster, the day sets, `resolved`,
     // `first_seen` — all rides in `Carried`, which is 1.5 MB.
@@ -154,11 +154,11 @@ pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
 
 /// Who last wrote each path, current as of now.
 ///
-/// ⚠ **Carries [`crate::last_writer`], NOT `effects.json`.** The 70 MB export
+/// Carries [`crate::last_writer`], NOT `effects.json`. The 70 MB export
 /// left this machine, and it was only ever being parsed to answer this one
 /// question. Loading the fold instead costs a few MB and the tail.
 ///
-/// ⚠ **Refuses rather than answering from nothing**, for the reason [`effects`]
+/// Refuses rather than answering from nothing, for the reason [`effects`]
 /// gives: a resumed scan alone sees only what grew, so "who last wrote this"
 /// would be answered from minutes of history and read as "nobody" — a check
 /// reporting all-clear because it has no evidence.
@@ -175,8 +175,8 @@ pub fn last_writer(at: &Where) -> Result<(crate::last_writer::LastWriter, Agents
     // Only what grew since the last mine: `mined` carries no effects, so these
     // rows ARE the tail and folding them is the catch-up.
     known.absorb(&tail.effects);
-    // ⚠ **The roster comes back too, because the caller needs to know WHO IT
-    // IS.** Deriving that from the repository's directory name was a
+    // The roster comes back too, because the caller needs to know WHO IT
+    // IS. Deriving that from the repository's directory name was a
     // memview-shaped assumption — it is right only where the agent and the repo
     // happen to share a name, and wrong in every other repo, where it makes the
     // caller's own files read as somebody else's.

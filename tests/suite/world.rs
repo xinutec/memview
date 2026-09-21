@@ -242,7 +242,7 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
 
 /// `git -C <dir>` with every inherited git variable removed.
 ///
-/// ⚠ **`-C` sets the DIRECTORY and loses to `GIT_INDEX_FILE`, which wins.** These
+/// `-C` sets the DIRECTORY and loses to `GIT_INDEX_FILE`, which wins. These
 /// tests run under `cargo test`, `cargo test` runs under the gate, and the gate
 /// runs from `git commit`'s pre-commit hook — which exports `GIT_DIR` and
 /// `GIT_INDEX_FILE` to everything it spawns. So `git -C <tempdir> add f` wrote
@@ -286,7 +286,7 @@ fn a_commit_that_exists_is_not_a_finding() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ The memory does NOT say which repo a sha belongs to, and its name does not
+/// The memory does NOT say which repo a sha belongs to, and its name does not
 /// imply one. Resolving against the repo guessed from the name reported 65 dead
 /// of 237 — and five of the first six existed in a different repo. The question
 /// is asked of every repository, which is what this pins.
@@ -320,7 +320,7 @@ fn a_commit_no_repository_holds_is_reported() {
     assert_eq!(findings[0].severity, Severity::Warning);
 }
 
-/// ⚠ A decimal number is valid hex and this corpus writes them in backticks —
+/// A decimal number is valid hex and this corpus writes them in backticks —
 /// `1048575` and `1234567` both appear. Neither is a commit.
 #[test]
 fn an_all_digit_token_is_not_read_as_a_commit() {
@@ -339,7 +339,7 @@ fn an_all_digit_token_is_not_read_as_a_commit() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ A session-id prefix is eight hex characters and the corpus cites them in
+/// A session-id prefix is eight hex characters and the corpus cites them in
 /// backticks exactly as it cites shas.
 #[test]
 fn a_session_id_prefix_is_not_read_as_a_commit() {
@@ -368,7 +368,7 @@ fn a_session_id_prefix_is_not_read_as_a_commit() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ The bug that cost two failed commits: `-C` sets the directory, `GIT_DIR`
+/// The bug that cost two failed commits: `-C` sets the directory, `GIT_DIR`
 /// wins.
 ///
 /// `cargo test` runs under the gate, the gate runs from `git commit`'s
@@ -379,7 +379,7 @@ fn a_session_id_prefix_is_not_read_as_a_commit() {
 /// `error: Error building trees`. Reproduced against a copy of the index, then
 /// fixed.
 ///
-/// ⚠ **Asserted on the command, not by setting the variables.** The obvious test
+/// Asserted on the command, not by setting the variables. The obvious test
 /// exports `GIT_DIR` and checks nothing leaks — but `std::env::set_var` is
 /// process-global while cargo runs tests in parallel THREADS, so that test
 /// corrupts whichever neighbour happens to shell out at the same moment. A
@@ -403,7 +403,7 @@ fn the_test_helper_scrubs_every_inherited_git_variable() {
     }
 }
 
-/// ⚠ A retired repository still holds its commits.
+/// A retired repository still holds its commits.
 ///
 /// `dead-repo-path` accepts `~/Archive/<repo>` as the retirement record, so a
 /// memory may legitimately cite a sha from a repo that has left `~/Code`.
@@ -443,7 +443,7 @@ fn a_code_root_without_an_archive_beside_it_is_fine() {
     assert_eq!(findings.len(), 1, "{findings:?}");
 }
 
-/// ⚠ Not every repository the fleet uses lives under the code root.
+/// Not every repository the fleet uses lives under the code root.
 ///
 /// `~/.config/home-manager` is one, and searching only `~/Code` reported five of
 /// its commits as existing nowhere — which this rule's own text would have read
@@ -466,7 +466,7 @@ fn a_commit_in_a_config_repo_beside_the_code_root_still_resolves() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ **A restic snapshot id is 8 lowercase hex and reads as a sha.** Three sat in
+/// A restic snapshot id is 8 lowercase hex and reads as a sha. Three sat in
 /// the findings permanently — a snapshot id, a Hermes bytecode magic number and a
 /// `git hash-object` blob — and a warning that cannot be made true is one a
 /// reader learns to skip.
@@ -491,8 +491,8 @@ fn an_identifier_named_as_a_snapshot_is_not_read_as_a_commit() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ **The exemption above must not become a block-wide waiver, which is the
-/// mistake `dead-repo-path` explicitly avoids.** Measured on the corpus: scoped to
+/// The exemption above must not become a block-wide waiver, which is the
+/// mistake `dead-repo-path` explicitly avoids. Measured on the corpus: scoped to
 /// the enclosing block, one `restic` in a paragraph excuses every sha in it — 43
 /// real commit citations of 440. At 20 characters it excuses none.
 ///
@@ -515,8 +515,8 @@ fn a_kind_word_further_off_in_the_same_block_does_not_excuse_a_dead_sha() {
     assert_eq!(findings.len(), 1, "{findings:?}");
 }
 
-/// ⚠ **`^{commit}` leaves a real git object of another type looking like a sha
-/// that exists nowhere.** `c1b0730e` is `printf 'x' | git hash-object` — a blob
+/// `^{commit}` leaves a real git object of another type looking like a sha
+/// that exists nowhere. `c1b0730e` is `printf 'x' | git hash-object` — a blob
 /// this very suite writes — and it was reported as unresolvable while sitting in
 /// the object store the rule was searching. Git knew; the rule never asked.
 #[test]
@@ -542,7 +542,7 @@ fn a_git_object_that_is_not_a_commit_is_not_reported() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ **`session` is deliberately not a kind word.** Session ids are excluded by
+/// `session` is deliberately not a kind word. Session ids are excluded by
 /// `originSessionId`, which is exact; adding the word would excuse any sha
 /// written near the word "session" — and the corpus writes that word constantly.
 #[test]
@@ -559,7 +559,7 @@ fn the_word_session_does_not_excuse_a_dead_sha() {
     assert_eq!(findings.len(), 1, "{findings:?}");
 }
 
-/// ⚠ **A repo can be alive, pushed, and simply not cloned on this Mac.** The rule
+/// A repo can be alive, pushed, and simply not cloned on this Mac. The rule
 /// had two states — present, or retired to `~/Archive` — and this is the third.
 /// `project_phonos` hit it: a repo pushed with no working copy here, where the
 /// honest sentence names both the missing path and the remote.
@@ -580,7 +580,7 @@ fn a_block_naming_the_remote_accounts_for_a_missing_clone() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
-/// ⚠ **The exemption is per REPO.** Naming one repository's remote must not
+/// The exemption is per REPO. Naming one repository's remote must not
 /// excuse a stale path to a different one — the same trap the `~/Archive`
 /// exemption already guards, where a banner cleared a whole file.
 #[test]
@@ -601,7 +601,7 @@ fn naming_one_remote_does_not_excuse_a_different_missing_repo() {
     assert!(findings[0].detail.contains("lares"), "{findings:?}");
 }
 
-/// ⚠ **An org is not a repository.** `github.com/xinutec` locates nothing, and
+/// An org is not a repository. `github.com/xinutec` locates nothing, and
 /// accepting it would waive every missing path in a block that merely names the
 /// org — which the corpus does constantly.
 #[test]

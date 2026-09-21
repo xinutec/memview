@@ -63,7 +63,7 @@ fn a_trailing_slash_is_not_part_of_the_name() {
 
 #[test]
 fn prose_that_merely_begins_with_the_prefix_is_not_a_refusal() {
-    // ⚠ Straight from the corpus: `git log --oneline` output, where a commit
+    // Straight from the corpus: `git log --oneline` output, where a commit
     // subject begins with `cd: `. Read as a refusal, this would stop a `cd` that
     // succeeded from being applied — the same defect, pointing the other way.
     let said = "8047bc0 cd: TLS handshake + banner (amun.xinutec.org)\n\
@@ -86,7 +86,7 @@ fn silence_is_the_ordinary_case() {
 
 #[test]
 fn zsh_names_the_target_after_the_message_and_is_read_too() {
-    // ⚠ **43% of the corpus's refusals were invisible** while only bash's
+    // 43% of the corpus's refusals were invisible while only bash's
     // wording was read: zsh-worded refusals are nearly as common as bash-worded
     // ones. Every missed one is a `cd` the parser applied and the shell did
     // not — the exact defect this function exists to prevent.
@@ -210,7 +210,7 @@ fn a_fold_split_in_two_says_what_one_pass_says() {
     );
 }
 
-/// ⚠ **Without the carried episode the second half is orphaned.** This is the
+/// Without the carried episode the second half is orphaned. This is the
 /// 66-calls-a-run loss `Resume` exists to prevent, written down as a failure so
 /// that dropping `reopen` from the miner cannot pass the suite.
 #[test]
@@ -236,7 +236,7 @@ fn resuming_without_the_open_episode_orphans_the_rows_after_the_cut() {
     assert_eq!(out.episodes[0].until, 10);
 }
 
-/// ⚠ **The one thing a resume drops on purpose.** A call answered after the cut
+/// The one thing a resume drops on purpose. A call answered after the cut
 /// has nothing left to match its result to, so its verdict stays unknown.
 /// Measured at 3 calls across the corpus against a 349-row baseline — small
 /// enough to accept, not small enough to leave unsaid.
@@ -254,7 +254,7 @@ fn a_call_answered_after_the_cut_keeps_no_verdict() {
     assert_eq!(out.rows[0].v, Verdict::Unknown);
 }
 
-/// ⚠ **Episode identity used to be a POSITION in the vector**, assigned as
+/// Episode identity used to be a POSITION in the vector, assigned as
 /// `episodes.len()` at creation — so it depended on the order the scan reached
 /// things, which is exactly what reading only the changed transcripts alters.
 /// Measured on the real corpus: most rows differed by nothing but this index
@@ -264,7 +264,7 @@ fn a_call_answered_after_the_cut_keeps_no_verdict() {
 /// identical.
 #[test]
 fn episode_numbering_does_not_depend_on_the_order_the_work_arrived() {
-    // ⚠ **One agent, deliberately.** Two would also vary the AGENT dictionary,
+    // One agent, deliberately. Two would also vary the AGENT dictionary,
     // which is interned in arrival order and is a different question — covered
     // by `a_rebuilt_dictionary_gives_back_the_indices_it_was_frozen_with`. What
     // is under test here is episode numbering alone, so the only thing allowed
@@ -300,7 +300,7 @@ fn episode_numbering_does_not_depend_on_the_order_the_work_arrived() {
     );
 }
 
-/// ⚠ **Every row must still point at the episode that actually holds it.** A
+/// Every row must still point at the episode that actually holds it. A
 /// renumbering that lost the mapping would leave a plausible artefact whose rows
 /// name the wrong instruction — worse than the divergence it replaced.
 #[test]

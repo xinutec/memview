@@ -1261,7 +1261,7 @@ impl Session {
     /// recorded on the way out: the CLI writes a `custom-title` line and the roster
     /// reads names from there ([`crate::past::about`]).
     ///
-    /// ⚠ **This is the TITLE, and it does not reach the session's peers.** The CLI
+    /// This is the TITLE, and it does not reach the session's peers. The CLI
     /// keeps the name other sessions address separately, and no control subtype
     /// writes it — only `-n` at spawn does, so a rename becomes visible to the rest
     /// of the fleet at the conversation's next resume and not before. See

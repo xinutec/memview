@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
             // name to the first separator, which is what an entry is written
             // against.
             //
-            // ⚠ **The name must be found as a WORD, and a plain `find` is not.**
+            // The name must be found as a WORD, and a plain `find` is not.
             // The first run of this anchored on the first substring match, so
             // every `ss` sample printed the `ssh` that contained it and every
             // `lares` sample printed the `cd …/lares/rust` — 12 of 12 samples

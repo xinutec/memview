@@ -15,14 +15,14 @@
 //!   src/gist.rs   `.kill_on_drop(true)`, then `wait_with_output()`
 //!   src/deaf.rs   `.output()` with no `kill_on_drop`
 //!
-//! ⚠ **[`the_detector_can_see_a_zombie`] is why the other two mean anything.** A
+//! [`the_detector_can_see_a_zombie`] is why the other two mean anything. A
 //! test that finds no zombie passes just as well when it is looking in the wrong
 //! place, so one case leaks a child deliberately and fails if the table is blind.
 //!
-//! ⚠ **By pid, never by count.** Cargo runs these on threads of one process, so
+//! By pid, never by count. Cargo runs these on threads of one process, so
 //! "no zombies under us" is a question about whichever tests run beside it.
 //!
-//! ⚠ These assert on this machine's tokio and this platform's reaping, which is
+//! These assert on this machine's tokio and this platform's reaping, which is
 //! the point: a doc sentence cannot say what happens on the Mac the console runs
 //! on.
 
@@ -108,7 +108,7 @@ async fn kill_on_drop_leaves_nothing_behind() {
 /// name one. It is the same two steps `.output()` performs, with the same flag
 /// unset, which is the thing under test.
 ///
-/// ⚠ **If this fails, `src/deaf.rs` is #797's leak** — and the fix is the flag,
+/// If this fails, `src/deaf.rs` is #797's leak — and the fix is the flag,
 /// not a `SIGCHLD` handler, which #797 rules out for taking the exit status
 /// `Session::reap` reads.
 #[tokio::test]
@@ -180,7 +180,7 @@ fn a_zombie_is_reported_once_and_its_departure_once() {
     );
 }
 
-/// ⚠ The instrument, proved against the real `ps`: a zombie this process really
+/// The instrument, proved against the real `ps`: a zombie this process really
 /// owns is found by the real parser on the real table.
 ///
 /// Same argument as [`the_detector_can_see_a_zombie`] above — a recorder that
@@ -228,18 +228,18 @@ fn the_recorder_finds_a_real_zombie_under_this_process() {
 /// The shape that actually leaked: a child that **exits before the prompt is
 /// written**, so the write fails and the function returns before any wait.
 ///
-/// ⚠ **Neither existing case covers this.** Both model a child that OUTLIVES the
+/// Neither existing case covers this. Both model a child that OUTLIVES the
 /// timeout and is dropped mid-wait, and both reap. The real one — traced after
 /// three days defunct — died 66 seconds into a 90-second `PATIENCE`, so no
 /// timeout fired; the gist eventually stored came
 /// from a later call seventeen minutes on. `gist::ask` returned early on the
 /// failed write with `?` and dropped the child unwaited.
 ///
-/// ⚠ **`kill_on_drop` does NOT cover it either**, which is why this is not a
+/// `kill_on_drop` does NOT cover it either, which is why this is not a
 /// duplicate of the case above: killing a process that has already exited is a
 /// no-op, so the flag is set and the `<defunct>` stays.
 ///
-/// ⚠ **This pins the SHAPE, and does not guard `gist::ask`.** The wait is
+/// This pins the SHAPE, and does not guard `gist::ask`. The wait is
 /// performed here, so the test passes whether or not the fix is in place —
 /// reverting `gist.rs` does not fail it. `ask` spawns `claude`, which no unit
 /// test can do, so what actually watches that code is the deployed
@@ -258,7 +258,7 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
 
     // Let it exit, so the write below has nobody to write to.
     //
-    // ⚠ **Waited for, not slept for.** This was `sleep(200ms)`, which is a
+    // Waited for, not slept for. This was `sleep(200ms)`, which is a
     // timing assumption: under gate load `true` had not even been SCHEDULED in
     // 200ms, its pipe was still open, the write below SUCCEEDED, the reap
     // branch was skipped, and the assertion reported "left unreaped" — the

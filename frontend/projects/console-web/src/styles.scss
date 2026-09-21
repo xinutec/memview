@@ -49,7 +49,7 @@ body {
 //
 // `min-height`, so it beats the `height` Material sets from its own tokens.
 //
-// ⚠ **Both axes, and for a while this said only one.** Material's icon button is
+// Both axes, and for a while this said only one. Material's icon button is
 // 40px square, so a height-only floor produced a control 48 tall and 40 wide —
 // which passes a glance and fails a thumb, and the harness measures each axis
 // separately for exactly that reason. It was patched once, locally, on the
@@ -64,8 +64,8 @@ button {
 // An icon button is a glyph in the middle of a circle, and the floor above only
 // made the circle bigger.
 //
-// ⚠ **Material's icon button is 40px square with 8px of padding, and that
-// padding is in its structural CSS rather than read from the size token.** So a
+// Material's icon button is 40px square with 8px of padding, and that
+// padding is in its structural CSS rather than read from the size token. So a
 // box raised to 48 keeps 8px above the glyph and gets 16 below it, and the ⋮
 // rides high in its own bubble — measured at a glyph centred on y=25 inside a
 // state layer centred on y=28. Nothing was clipped, nothing overflowed and the
@@ -88,7 +88,7 @@ button[matIconButton] {
 
 // What markdown renders as, wherever the `rendered` pipe puts it.
 //
-// ⚠ **Global on purpose, and it has to be.** This HTML comes from the pipe
+// Global on purpose, and it has to be. This HTML comes from the pipe
 // through `[innerHTML]`, so it is not part of any component template and
 // Angular's emulated encapsulation cannot address it — a component stylesheet
 // rewrites `pre` to `pre[_ngcontent-xxx]` and the injected element has no such
@@ -98,7 +98,7 @@ button[matIconButton] {
 // so where it is styled: these rules are each a measurement (see the notes
 // below), and a second copy of them would drift from the first.
 @mixin rendered {
-  // ⚠ **`white-space: normal`, because this is HTML and not text.** `.entry`
+  // `white-space: normal`, because this is HTML and not text. `.entry`
   // sets `pre-wrap` so a plain message keeps the line breaks somebody typed —
   // and that is inherited here, where the content is markup. `marked` puts a
   // newline between every block it emits (`</h2>\n<p>`), so each one rendered as
@@ -133,7 +133,7 @@ button[matIconButton] {
   }
 
   pre {
-    // ⚠ **Wrapped, not scrolled.** This was `overflow-x: auto`, which keeps the
+    // Wrapped, not scrolled. This was `overflow-x: auto`, which keeps the
     // page from widening and hands the reader a horizontal scroller inside a
     // vertical one instead — on a phone that is a trap: the drag meant to move
     // the page moves the code, and it takes both hands to read a line. Most code
@@ -161,7 +161,7 @@ button[matIconButton] {
       padding: 0.2rem 0.4rem;
     }
 
-    // ⚠ **Only where the table did not say.** `|---:|` compiles to
+    // Only where the table did not say. `|---:|` compiles to
     // `align="right"` and Angular's sanitiser keeps the attribute — but a
     // presentational attribute loses to any CSS rule, so a blanket
     // `text-align: left` here silently threw away every alignment the author
@@ -263,7 +263,7 @@ mat-icon {
 
 // The shell is a column exactly as tall as the viewport: toolbar, page, stamp.
 //
-// ⚠ **A custom element is `display: inline` until something says otherwise**, so
+// A custom element is `display: inline` until something says otherwise, so
 // without this the column it looks like exists does not.
 //
 // This replaced three stacked guesses — `.page` sized itself with
@@ -284,14 +284,14 @@ app-root {
 // A picture opened from a link fills the screen, where every other sheet takes
 // the bottom of it.
 //
-// ⚠ **`panelClass` lands on the overlay PANE, not on the container**, which the
+// `panelClass` lands on the overlay PANE, not on the container, which the
 // first cut of this got wrong: `.picture-panel.mat-bottom-sheet-container`
 // matched nothing at all, and the sheet came up at Material's own 80vh with the
 // render squeezed into the bottom half of the phone. Measured off the DOM —
 // `DIV.cdk-overlay-pane picture-panel` with `MAT-BOTTOM-SHEET-CONTAINER` inside
 // it. So the pane is opened out and the container told to fill it.
 //
-// ⚠ Global because both of those elements are Material's own, outside the
+// Global because both of those elements are Material's own, outside the
 // component and so out of reach of its scoped styles — the same reason the ANSI
 // palette above is global.
 //

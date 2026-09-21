@@ -18,7 +18,7 @@ fn a_conversation_is_the_file_with_the_extension() {
 
 #[test]
 fn the_directory_beside_it_is_not_one() {
-    // ⚠ **The failure this exists for.** Claude Code puts a directory named for
+    // The failure this exists for. Claude Code puts a directory named for
     // the session right beside the session's transcript, holding `subagents/`
     // and `tool-results/`. Its file stem is the id, exactly like the file's, so
     // a stem match finds whichever `read_dir` returns first — and reading a
@@ -62,7 +62,7 @@ fn the_vocabulary_is_what_the_cli_writes() {
 
 #[test]
 fn the_two_orders_are_opposite_on_purpose() {
-    // ⚠ **This asserts a DECISION, not an implementation.** The console and the
+    // This asserts a DECISION, not an implementation. The console and the
     // viewer disagreed about which name wins, each with a confident rationale,
     // and the answer turned out to be that both were right: the CLI carries both
     // orders, split by what the name is for. Its session labeller reads
@@ -114,7 +114,7 @@ fn the_cli_s_own_description_is_not_a_name() {
 
 use reader::transcript::fatal_damage;
 
-/// ⚠ **Outside a session — the nightly — damage fails NOTHING** (memview#1546).
+/// Outside a session — the nightly — damage fails NOTHING (memview#1546).
 ///
 /// This test asserted the reverse once, and it was the reverse that was wrong:
 /// two unrepairable transcripts held `verify/memview` red for weeks, hiding
@@ -130,7 +130,7 @@ fn without_a_session_damage_fails_nothing() {
     assert_eq!(fatal_damage(0, None), 0);
 }
 
-/// ⚠ The point: another session's damaged transcript does not fail this run.
+/// The point: another session's damaged transcript does not fail this run.
 /// Damage cannot be repaired, so failing on it failed forever, for everybody.
 #[test]
 fn another_sessions_damage_does_not_fail_this_run() {
@@ -205,7 +205,7 @@ fn an_injected_reminder_is_not_what_the_person_typed() {
     assert_eq!(got[0].text, "go ahead");
 }
 
-/// ⚠ **A slash command IS what the person said**, so the wrapper comes off and
+/// A slash command IS what the person said, so the wrapper comes off and
 /// the turn stays — dropping it would lose every `/compact` and `/loop`.
 #[test]
 fn a_slash_command_survives_its_wrapper() {

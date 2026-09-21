@@ -74,7 +74,7 @@ const text = (value: object): boolean => 'text' in value && typeof value.text ==
 /**
  * What each kind of entry must carry to be drawable, one rule per kind.
  *
- * ⚠ **A table rather than a `switch`, so the compiler counts the kinds.** The
+ * A table rather than a `switch`, so the compiler counts the kinds. The
  * `satisfies` below fails when an `Entry` variant is added without a rule here,
  * where a switch would simply fall to its default and drop every revived entry
  * of the new kind — silently, and only on a phone that had been offline.

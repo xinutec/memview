@@ -13,7 +13,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
   const out = SPOKE.has(event.kind) ? entries.map(settled) : [...entries];
   switch (event.kind) {
     case 'text': {
-      // ⚠ **Past anything QUEUED, and nothing else.** A message sent while the
+      // Past anything QUEUED, and nothing else. A message sent while the
       // model is typing is shown the moment it is sent, but the CLI parks it and
       // reads it when the turn ends — so it interrupted nothing, and letting it
       // end the model's block split one message into two. On screen that is a

@@ -34,7 +34,7 @@ LOCAL="${CONSOLE_TUNNEL_LOCAL:-127.0.0.1:8097}"
 
 [ -r "$KEY" ] || { echo "no tunnel key at $KEY — see docs/agent-console.md" >&2; exit 1; }
 
-# ⚠ Take the ssh with us. `ssh` here is a child of this script, and killing the
+# Take the ssh with us. `ssh` here is a child of this script, and killing the
 # script while ssh runs in the foreground orphans it: it keeps the listener on
 # isis, so the next tunnel cannot bind, `ExitOnForwardFailure` does its job, and
 # the console redials in a loop against its own predecessor. Observed exactly

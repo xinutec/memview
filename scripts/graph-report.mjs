@@ -100,15 +100,15 @@ function syntheticGraph(nodeCount = 350, sectionCount = 12) {
 /**
  * Co-use pairs shaped like the mined ones, for the synthetic corpus.
  *
- * ⚠ **Without these the affinity guards cannot fire, and the gate runs the
- * synthetic corpus.** `affinityPull()` returns null on an empty affinity list,
+ * Without these the affinity guards cannot fire, and the gate runs the
+ * synthetic corpus. `affinityPull()` returns null on an empty affinity list,
  * so `pull &&` short-circuits and the check that graph-layout.ts promises —
  * "fails the build if this goes inert again" — was never once evaluated by the
  * build. Measured on the live corpus, the force sat at 0.946x, which
  * is the value its own comment records as having been REJECTED for doing
  * nothing visible, and nothing said so (memview#1307).
  *
- * ⚠ **A second mode rather than a changed default.** The plain synthetic graph
+ * A second mode rather than a changed default. The plain synthetic graph
  * deliberately has none — "the layout has to be sane without them" — and that
  * property is worth keeping, so this is reached by `--affinities` and the gate
  * runs both.
@@ -154,7 +154,7 @@ function syntheticAffinities(nodes, edges, sectionCount = 12) {
     }
   }
 
-  // ⚠ **And an equal share that ARE links — the real majority regime.** The
+  // And an equal share that ARE links — the real majority regime. The
   // first fixture made these 28% against the mine's ALL-pairs split, but the
   // PULLING pairs (all that survive the mine's filter) are 51.5% linked, and
   // the linked half is exactly where the two-sided spring regression lived.
@@ -270,7 +270,7 @@ const plan = layout.planLabels(
 // line here can say. Ten labels in one corner and ten spread across the picture
 // score identically on `labelsDrawn`, `labelsCollided` and all the rest.
 //
-// ⚠ **A one-landmark-per-region rule was built and REVERTED on this number.**
+// A one-landmark-per-region rule was built and REVERTED on this number.
 // Measured on the real 734-node corpus (#1306):
 //
 //     no spread rule    10 labels, 6/16 cells
@@ -287,12 +287,12 @@ const plan = layout.planLabels(
 // open on groups, and every number that decides whether that works is here rather
 // than judged by eye — the same argument the rest of this file makes.
 //
-// ⚠ The grouping is HYBRID by measurement, not by preference: MEMORY.md's authored
+// The grouping is HYBRID by measurement, not by preference: MEMORY.md's authored
 // `##` headings cover 47% of the corpus (349 indexed of 734, and memview#1210 has
 // CLOSED the index), so authored-only draws half the memories nowhere and a single
 // catch-all becomes six times the size of the next group.
-// ⚠ **The SYNTHETIC corpus cannot exercise either half of this, and the gate runs
-// the synthetic corpus.** Its fixture gives every node a section, so `hybridGroups`
+// The SYNTHETIC corpus cannot exercise either half of this, and the gate runs
+// the synthetic corpus. Its fixture gives every node a section, so `hybridGroups`
 // finds nothing to derive (12 authored + 0 derived) and no edge falls below the
 // threshold (0 hidden). On the live corpus it is 15 authored + 14 derived with 134
 // of 202 edges hidden. Same shape of blind spot the affinity guards had above.
@@ -315,7 +315,7 @@ const overview = layout.groupGraph(
 );
 const derivedGroups = overview.nodes.filter((n) => n.key.startsWith(layout.DERIVED_PREFIX));
 const shownEdges = overview.edges.filter((e) => e.weight >= OVERVIEW_MIN_WEIGHT);
-// ⚠ Reported, never silently dropped. 68 edges shown out of 202 looks exactly like
+// Reported, never silently dropped. 68 edges shown out of 202 looks exactly like
 // 68 being all there is — the rule `planLabels` already follows for labels.
 const hiddenEdges = overview.edges.length - shownEdges.length;
 const linkedAtThreshold = new Set(shownEdges.flatMap((e) => [e.source, e.target]));
@@ -340,7 +340,7 @@ const labelCells = (() => {
 // does it. `labelCells` above measures the 734-memory picture; this measures the
 // 29-region one, and they are different pictures.
 //
-// ⚠ Why this exists: the label-spread rule was built and REVERTED on the finding
+// Why this exists: the label-spread rule was built and REVERTED on the finding
 // that spread is bounded by where the nodes are — measured on 734 nodes. The
 // overview has 29. That measurement does not carry over, and re-taking it is
 // cheaper than re-arguing it.
@@ -622,7 +622,7 @@ const report = {
   stranded,
   indexAgreement: `${(agreement() * 100).toFixed(0)}%`,
   topBridge: topBridges.map((b) => `${b.name}(${b.spans})`).join(' '),
-  // ⚠ **Both numbers, because the total is not the evidence.** The layout scales
+  // Both numbers, because the total is not the evidence. The layout scales
   // each pair by `Math.max(0, npmi)`, and the mine's npmi is mostly NEGATIVE —
   // on the live corpus 1731 of 2220 pairs clamp to zero and exert no force at
   // all. Reporting only the total says 2220 where 489 is the number that acts,

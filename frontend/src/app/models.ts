@@ -370,7 +370,7 @@ export interface AgentsResult {
 /**
  * What a turn's work turned out to be. Mirrors `reader::doing::Verdict`.
  *
- * ⚠ **`unknown` is a real state, not a synonym for `ok`.** An interruption is
+ * `unknown` is a real state, not a synonym for `ok`. An interruption is
  * not a result at all but a separate message, so the call it stopped never gets
  * an answer — collapsing it into either would invent one. The Rust doc says
  * exactly this; the word on the wire is `unknown`, and mirroring it here as
@@ -383,7 +383,7 @@ export type Verdict = 'unknown' | 'ok' | 'failed' | 'rejected';
  * serde names are the wire's — `'a'` always, `'s'` only if what preceded it
  * succeeded, `'?'` under a condition the text cannot state.
  *
- * ⚠ **Three values, and every one of them is truthy.** Written as `boolean` it
+ * Three values, and every one of them is truthy. Written as `boolean` it
  * type-checked, mirrored nothing the server sends, and silenced the timeline's
  * uncertainty marker for the field's whole life (memview#1459).
  */
@@ -412,7 +412,7 @@ export interface Moment {
   /**
    * How many effects opening this row would show.
    *
-   * ⚠ **12.6% of rows are 0**, measured over the live artefact — 58,644 of
+   * 12.6% of rows are 0, measured over the live artefact — 58,644 of
    * 466,951, and 27 of the newest 200. A `test` or `build` minute need not
    * touch a file. Drawn on the row so a tap is never spent learning there was
    * nothing to learn, and so a 936-effect turn announces itself first.
@@ -453,7 +453,7 @@ export interface Timeline {
 /**
  * What one effect did. Mirrors `reader::effects::Did`.
  *
- * ⚠ **One letter, because that is what the wire carries.** The artefact holds
+ * One letter, because that is what the wire carries. The artefact holds
  * hundreds of thousands of these and is read over a VPN, so every variant is
  * `#[serde(rename)]`d to a character. Spelling them out here as `'read' |
  * 'wrote' | …` type-checked, rendered, and passed its own test — because the
@@ -476,7 +476,7 @@ export type Did =
    * The same, for one whose DIRECTORY the text gave. `path` holds that
    * directory.
    *
-   * ⚠ **Not a pattern, and never to be drawn as the file.** A locus is what the
+   * Not a pattern, and never to be drawn as the file. A locus is what the
    * subject is rooted at, not a set it belongs to, so rendering `path` bare
    * would claim a name the reader declined to give (memview#1458).
    */
@@ -497,8 +497,8 @@ export interface Effect {
   /**
    * What the TEXT required for this command to run — mirrors `shell::Reached`.
    *
-   * ⚠ **Not a boolean, and typing it as one hid a defect for the whole life of
-   * the field** (memview#1459). The wire sends `'a'`, `'s'` or `'?'`; all three
+   * Not a boolean, and typing it as one hid a defect for the whole life of
+   * the field (memview#1459). The wire sends `'a'`, `'s'` or `'?'`; all three
    * are truthy, so a template testing `!e.reached` never fired and every effect
    * drew as certain. Use [certain] — this alone cannot answer it.
    */
@@ -508,7 +508,7 @@ export interface Effect {
    * Whether this use may be attributed: the server's join of [reached] and
    * [verdict], via `Verdict::admits`.
    *
-   * ⚠ **One-sided — `false` means "cannot say", never "did not run".** Joining
+   * One-sided — `false` means "cannot say", never "did not run". Joining
    * the two fields here would be a third copy of a rule that lives in one place.
    */
   certain: boolean;
@@ -521,7 +521,7 @@ export interface Evidence {
   /**
    * Effects whose subject nobody could name.
    *
-   * ⚠ **Drawn, never dropped.** 7,305 of these exist in the artefact, and a
+   * Drawn, never dropped. 7,305 of these exist in the artefact, and a
    * panel showing only what resolved would read as a complete account of the
    * turn. Saying "and 12 more this could not name" is the difference between
    * evidence and a summary.
@@ -545,12 +545,12 @@ export interface Both {
 /**
  * What the reader makes of every shell command the fleet has run.
  *
- * ⚠ **Mined nightly, not computed on request.** The survey takes 13 seconds over
+ * Mined nightly, not computed on request. The survey takes 13 seconds over
  * 146k commands, so `corpus_at` is the age of the answer and the page says so —
  * a figure here and a figure from `--bin shell-files` can differ by a night and
  * by nothing else.
  *
- * ⚠ **Every list is truncated; no total is.** The counts above each list are
+ * Every list is truncated; no total is. The counts above each list are
  * over everything, and the lists are the top of it. A summary whose total was
  * the length of its own list is the failure this shape is built to avoid.
  */
@@ -567,7 +567,7 @@ export interface CorpusRead {
   /**
    * Calls to a function the calling script declares.
    *
-   * ⚠ **In `commands` and not in `handled`.** Splitting these out of `unhandled`
+   * In `commands` and not in `handled`. Splitting these out of `unhandled`
    * must not raise `understood` — nothing more was read, and a rate that rose
    * because calls left the denominator is a different fact from one that rose
    * because the reader learned something.
@@ -576,7 +576,7 @@ export interface CorpusRead {
   /**
    * Calls whose command NAME is a variable nobody bound — `$BIN`, `${TOOL}`.
    *
-   * ⚠ **The same standing as `local`, and for the same reason.** `$BIN` names a
+   * The same standing as `local`, and for the same reason. `$BIN` names a
    * different program in every script that sets it, so no table entry could
    * ever match it; and nothing was read either, so it is in `commands` and not
    * in `handled`.
@@ -598,8 +598,8 @@ export interface CorpusRead {
    * Uses whose subject the text does not determine — `$f` bound by a loop the
    * transcript never shows.
    *
-   * ⚠ **This is the honest ceiling, and it is drawn beside the coverage rather
-   * than below it.** It is a property of the corpus, not of the reader: a name
+   * This is the honest ceiling, and it is drawn beside the coverage rather
+   * than below it. It is a property of the corpus, not of the reader: a name
    * fed in at runtime has no answer in the text, and inventing one would be
    * worse than counting it unknown.
    */
@@ -611,7 +611,7 @@ export interface CorpusRead {
    * Subjects with a locus but no language — the directory is written out and
    * only the leaf is unknown, `Verified/Geo/${s%%:*}`.
    *
-   * ⚠ **Weaker than `unnamed_bounded` and stronger than nothing.** A glob gives
+   * Weaker than `unnamed_bounded` and stronger than nothing. A glob gives
    * the language too; this gives only the directory the answer is rooted at. It
    * is still counted in `unnamed`, because a locus is not a name.
    */
@@ -620,7 +620,7 @@ export interface CorpusRead {
   /**
    * Python operations whose path is one of a known finite set of literals.
    *
-   * ⚠ **These moved OUT of `unnamed_computed`**, which fell from 5,953 to 3,231
+   * These moved OUT of `unnamed_computed`, which fell from 5,953 to 3,231
    * when the reader learned to keep a name's several literal bindings. Showing
    * one without the other would read as 2,719 subjects becoming known, and
    * nothing became known: one of the set ran, and which is still not knowable.
@@ -632,7 +632,7 @@ export interface CorpusRead {
   /**
    * Tables the fleet's SQL read and changed.
    *
-   * ⚠ **Never added to `reads`/`writes`.** A table is not a file, and measured
+   * Never added to `reads`/`writes`. A table is not a file, and measured
    * over this corpus SQL names a file exactly never — no `INTO OUTFILE`, no
    * `LOAD DATA INFILE`, no sqlite `.read`. Folding them together would inflate
    * the file figure with subjects that have no path.

@@ -8,7 +8,7 @@
 //! agrees from the other side: TypeScript or JavaScript is the largest carried
 //! language by body count and by bytes.
 //!
-//! ⚠ **This corrects a ranking, and the older one is worth keeping in view.**
+//! This corrects a ranking, and the older one is worth keeping in view.
 //! `docs/reader.md` listed `node -e` under "not done — a query tool, not an editor",
 //! counting `node -e` alone and by distinct payload. It missed the heredocs, the
 //! `--input-type=module` shape, and every read. Reads are most of what a projection
@@ -33,7 +33,7 @@
 //! A name bound twice, bound to anything computed, or bound by a pattern, a `for` or
 //! a `catch` is not a constant.
 //!
-//! ⚠ **A template literal with a `${…}` in it is computed**, exactly as an f-string
+//! A template literal with a `${…}` in it is computed, exactly as an f-string
 //! is, and is recorded as unresolved rather than guessed at. A template with no
 //! substitution is an ordinary string.
 
@@ -83,7 +83,7 @@ pub fn read(source: &str) -> Program {
 
 /// Whether the text is JavaScript no runtime would accept, so nothing in it ran.
 ///
-/// ⚠ **Deliberately only the shape that can be decided by counting**, and for
+/// Deliberately only the shape that can be decided by counting, and for
 /// the reason [`crate::python::did_not_run`] gives: a wrong answer here
 /// *deletes* real file operations rather than inventing them, so the test has to
 /// be one nothing valid can trip. A string or a template that never closes, or a
@@ -101,7 +101,7 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
     // a regex literal from a division, by the same rule the grammar uses:
     // division needs a left operand, so a `/` in operand position opens a regex.
     //
-    // ⚠ **Without this the scanner deletes working programs.** `.replace(/['"]/g,
+    // Without this the scanner deletes working programs. `.replace(/['"]/g,
     // "")` holds an apostrophe inside a character class; read as an ordinary
     // quote it opens a string that never closes, and the whole program — file
     // writes and all — is thrown away as one that never ran. Caught by a test,
@@ -158,7 +158,7 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
                     ']' => '[',
                     _ => '{',
                 };
-                // ⚠ **A stray closer is not reported.** `}` on its own is how a
+                // A stray closer is not reported. `}` on its own is how a
                 // program that was cut off at the FRONT looks — a heredoc whose
                 // opening lines were lost — and this reader would rather read the
                 // half it has than throw the file uses away.
@@ -347,7 +347,7 @@ fn text(atom: &Pair<Rule>) -> Option<String> {
             let body = &raw[1..raw.len().saturating_sub(1)];
             Some(unescape(body))
         }
-        // ⚠ **Only a template with nothing substituted into it.** `` `${d}/x` ``
+        // Only a template with nothing substituted into it. `` `${d}/x` ``
         // is computed, and a reader that dropped the `${d}` would produce the
         // path `/x`, which is not a file anybody touched.
         Rule::template => {
@@ -712,7 +712,7 @@ fn callable(name: &str) -> Option<Call> {
         "readdirSync" | "readdir" | "globSync" | "glob" => Call::Walk,
         "mkdirSync" | "mkdir" | "mkdtempSync" => Call::Directory,
         "chdir" => Call::ChangeDir,
-        // ⚠ `exec`/`execSync` take a COMMAND LINE and run it through `/bin/sh`;
+        // `exec`/`execSync` take a COMMAND LINE and run it through `/bin/sh`;
         // `spawn`/`execFile` take a program and an argv and run neither through
         // a shell. Node's own manual draws the line there, and it decides
         // whether the text is a script or a filename.
@@ -936,7 +936,7 @@ impl Reader {
         let first = positional(args, 0);
         match call {
             Call::Read => self.use_of(name, first, false),
-            // ⚠ **A bare specifier is a PACKAGE, not a file in this tree.**
+            // A bare specifier is a PACKAGE, not a file in this tree.
             // `require("fs")`, `require("node:fs")` and `require("@angular/
             // compiler")` name nothing on disk here, and the last one has a
             // slash in it — so the caller's `looks_like_path` would have let it
@@ -1027,7 +1027,7 @@ impl Reader {
         // `const fsp = require("fs/promises")`, and `db.query(sql)`. The name
         // table is the same one, because what a function does to a file does not
         // depend on what it was reached through.
-        // ⚠ **The bare-method table is consulted FIRST.** `s.replace(…)` is a
+        // The bare-method table is consulted FIRST. `s.replace(…)` is a
         // string method and reaches `callable` as the bare word `replace`, which
         // the module table has no entry for — so without this the worklist filled
         // up with `replace`, `split` and `map`, which is the failure

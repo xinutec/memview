@@ -144,7 +144,7 @@ pub async fn callback(
 ) -> Response {
     match finish_sign_in(app, jar, q).await {
         Ok(done) => done.into_response(),
-        // ⚠ A failure here is HTML, not `AppError`'s JSON — see `sign_in_problem`.
+        // A failure here is HTML, not `AppError`'s JSON — see `sign_in_problem`.
         Err(said) => sign_in_problem(StatusCode::UNAUTHORIZED, said).into_response(),
     }
 }

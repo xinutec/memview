@@ -5,13 +5,13 @@ import type { Ranked } from "./Ranked";
 /**
  * The compact view an API serves.
  *
- * ⚠ **Named for what it is rather than `Summary`, because the wire-mirror check
- * matches TypeScript to Rust BY NAME.** `Reading` and `Summary` are both taken
+ * Named for what it is rather than `Summary`, because the wire-mirror check
+ * matches TypeScript to Rust BY NAME. `Reading` and `Summary` are both taken
  * by unrelated wire types in this workspace — a subscription usage reading, and
  * a session summary — and a mirror that resolves to the wrong struct reports
  * every field of this one as drift, which is exactly what it did.
  *
- * ⚠ **Every list is truncated and the totals are not.** A summary that ranked
+ * Every list is truncated and the totals are not. A summary that ranked
  * the top ten and reported ten as the total would be a lie by omission of
  * exactly the kind this codebase keeps finding; so the counts above the lists
  * are over everything, and the lists say how far down they go by being lists.
@@ -28,14 +28,14 @@ corpus_at: number | null, calls: number, unparsed: number, commands: number, unr
 /**
  * Calls to a function the calling script declares.
  *
- * ⚠ **In `commands` and not in `handled`**, so `understood` is unmoved by
+ * In `commands` and not in `handled`, so `understood` is unmoved by
  * splitting this out — nothing more was read. See [`Reading::understood`].
  */
 local: number, 
 /**
  * Calls whose command name is a variable nobody bound.
  *
- * ⚠ **In `commands` and not in `handled`**, exactly as `local` is, and for
+ * In `commands` and not in `handled`, exactly as `local` is, and for
  * the same reason: nothing more was read.
  */
 from_a_variable: number, 
@@ -67,7 +67,7 @@ unnamed_javascript: number, refused_here: number,
 /**
  * Table reads and changes, and how many distinct tables that is.
  *
- * ⚠ **Beside the file counts and never inside them.** A table is not a
+ * Beside the file counts and never inside them. A table is not a
  * file: 2,747 table reads added to `reads` would be 2,747 files that do not
  * exist. Measured — no statement in this corpus names a file at all.
  */

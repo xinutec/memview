@@ -3,8 +3,8 @@
 # the LAN (no auth — SESSION_SECRET unset). View at http://192.168.1.81:8091
 # (the Mac is headless; localhost is useless from other machines).
 #
-# ⚠ **The mined artefacts live under `cache/`, and pointing at the wrong path
-# costs you nothing visible.** `AGENTS_FILE` here named
+# The mined artefacts live under `cache/`, and pointing at the wrong path
+# costs you nothing visible. `AGENTS_FILE` here named
 # `~/.claude/memview/agents.json` — one directory above where the miner has
 # written it since the cache subdirectory appeared — so the dev server served a
 # graph with NO usage and NO affinities. Nothing failed: absence is a designed

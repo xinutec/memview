@@ -17,13 +17,13 @@
 # — **same pid**, so the children stay children, their stdin/stdout/stderr are
 # carried across in a HANDOVER env var, and launchd never sees a restart at all.
 #
-# ⚠ **Install by atomic rename.** macOS refuses to write to a running executable,
+# Install by atomic rename. macOS refuses to write to a running executable,
 # but replacing the directory entry is fine: the running process keeps its inode
 # and the path gains the new build, which is exactly what the re-exec then picks
 # up. Writing in place would fail; deleting first would leave a window where the
 # service cannot start.
 #
-# ⚠ **If the handover fails the console keeps running the OLD build**, holding
+# If the handover fails the console keeps running the OLD build, holding
 # everything it held. That is deliberate in the runner — exiting on a failed exec
 # would leave live `claude` processes with nobody holding their stdin — so a
 # failure here is a no-op, not an outage.
@@ -33,7 +33,7 @@ cd "$(dirname "$0")/.."
 CONSOLE_BIN="${CONSOLE_BIN:-$HOME/.local/libexec/agent-console}"
 DESK="${CONSOLE_DESK_ADDR:-127.0.0.1:8096}"
 
-# ⚠ **A flake build cannot see an untracked file.** `nix build` takes the git
+# A flake build cannot see an untracked file. `nix build` takes the git
 # working tree, modifications and all, but a file nobody has `git add`ed is not
 # in it — so a new module would go missing from the build with nothing said. The
 # common case is loud (a missing module fails to compile), which is exactly why
@@ -57,7 +57,7 @@ fi
 LIBEXEC="$(dirname "$CONSOLE_BIN")"
 mkdir -p "$LIBEXEC"
 
-# ⚠ **The installed copy is not free of the store.** It is a plain file this user
+# The installed copy is not free of the store. It is a plain file this user
 # owns, but `otool -L` says it loads libiconv from an absolute
 # `/nix/store/…` path, so a garbage collection that took that path would leave a
 # binary dyld cannot start — at the next restart, not at collection, since a

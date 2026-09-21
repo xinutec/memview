@@ -1,10 +1,10 @@
-//! ⚠ **A measurement, not a repair — memview#1503.** `blame::attribute` calls
+//! A measurement, not a repair — memview#1503. `blame::attribute` calls
 //! the EARLIEST write a creation, and a write is not a creation: `>>`,
 //! `sed -i`, an `Edit` and a `cp` onto an existing path all write a file that
 //! already existed. This asks how much of the corpus's recorded authorship
 //! rests on a write that could only have been an EDIT.
 //!
-//! ⚠ **It does NOT correct anything.** That ticket is explicit: half of every
+//! It does NOT correct anything. That ticket is explicit: half of every
 //! earlier pass dissolved on being read, and bulk-correcting from a proxy is
 //! what it exists to warn against.
 
@@ -13,7 +13,7 @@ use std::path::Path;
 
 /// Could this Bash command have CREATED the file, or does it require one?
 ///
-/// ⚠ **A text test, and it is named as one.** `FileUse` carries `write` and not
+/// A text test, and it is named as one. `FileUse` carries `write` and not
 /// whether the write truncates, so the append/create distinction the syntax tree
 /// holds (`RedirectOp::Append`) is gone by the time the reader answers. Fixing
 /// that properly means a field on `FileUse`; this is the cheap proxy that says
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let (mut creating, mut editing, mut none) = (0, 0, 0);
-    // ⚠ **The split that matters, and the first run buried it.** An origin
+    // The split that matters, and the first run buried it. An origin
     // resting on an edit is only a DEFECT where the corpus recorded that
     // editing session; where it records somebody else the answer came from
     // elsewhere and is already right. Reporting only "36 rest on an edit" makes

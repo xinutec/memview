@@ -1,6 +1,6 @@
 //! What language a heredoc body is written in, guessed from a mark.
 //!
-//! ⚠ **A guess, and the report that carries it says so.** The value is the
+//! A guess, and the report that carries it says so. The value is the
 //! ranking — is there a kilobyte of SQL here or a megabyte — never the label on
 //! any one body. It lives in the library rather than in `bin/opacity.rs`
 //! because a guess that decides what to build next is worth a test suite, and
@@ -9,7 +9,7 @@
 
 /// What a heredoc body looks like, **and the mark that decided it**.
 ///
-/// ⚠ **Anchored, and rewritten once because the first version was mostly wrong.**
+/// Anchored, and rewritten once because the first version was mostly wrong.
 /// It tested for marks *anywhere* in the body: `contains("SELECT ")` filed Python
 /// and shell under SQL because prose says "select", `starts_with('[')` filed an
 /// INI file under JSON, and `contains("\n#")` filed Rust under shell on the
@@ -17,8 +17,8 @@
 /// not a sniff. Every test below is anchored to the start of the body or to the
 /// start of a line, and JSON is not sniffed at all — it is parsed.
 ///
-/// ⚠ **The mark is returned because the first rewrite was still wrong and
-/// nothing said so.** A bucket labelled "Python" holding TypeScript reads as a
+/// The mark is returned because the first rewrite was still wrong and
+/// nothing said so. A bucket labelled "Python" holding TypeScript reads as a
 /// megabyte of Python left unread, and that is what ranks the next reader — the
 /// census is the instrument, so an unauditable guess inside it is worse than a
 /// wrong number, because the number looks the same either way. `--why <label>`
@@ -32,8 +32,8 @@
 pub fn looks_like(body: &str) -> (&'static str, &'static str) {
     let head = body.trim_start();
     let line_starts = |mark: &str| head.starts_with(mark) || body.contains(&format!("\n{mark}"));
-    // The remainder of every line that opens with `mark`. ⚠ **`import ` is not a
-    // language**: Python, TypeScript, Kotlin and Swift all open a line with it,
+    // The remainder of every line that opens with `mark`. `import ` is not a
+    // language: Python, TypeScript, Kotlin and Swift all open a line with it,
     // so the mark that decides has to be what comes AFTER it.
     let after = |mark: &'static str| {
         body.lines()
@@ -78,7 +78,7 @@ pub fn looks_like(body: &str) -> (&'static str, &'static str) {
         ("Swift", "imports an Apple framework")
     } else if after("import ").any(|rest| !rest.is_empty()) {
         ("Python", "a bare `import `")
-    // ⚠ **`from ` alone is English.** It filed task bodies and design notes as
+    // `from ` alone is English. It filed task bodies and design notes as
     // Python on the strength of a sentence that wrapped onto a line beginning
     // "from". Python's shape is `from X import Y`, and the `import` is the half
     // that carries the signal.

@@ -388,7 +388,7 @@ fn a_notification_that_names_neither_the_call_nor_an_ending_names_nothing() {
 
 #[test]
 fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
-    // ⚠ **Verbatim, and the whole of memview #925.** A monitor's three ordinary
+    // Verbatim, and the whole of memview #925. A monitor's three ordinary
     // endings — `stream ended`, `script failed`, `stopped` — all carry a
     // `<tool-use-id>` and close through the branch above. A timeout carries
     // none, so the console kept counting one: armed, timed out an hour later,
@@ -407,8 +407,8 @@ fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
 
 #[test]
 fn a_monitor_reporting_is_not_a_monitor_ending() {
-    // ⚠ **The reason the ending is matched on its words and not on the absence
-    // of a call.** Every line a monitor emits arrives as a notification of the
+    // The reason the ending is matched on its words and not on the absence
+    // of a call. Every line a monitor emits arrives as a notification of the
     // same shape — 3,114 of them on this machine against 68 timeouts — so
     // "names no call, therefore finished" would have closed the fleet-bump
     // monitor at 13:18:12 on its first line of output rather than at 14:06:32,
@@ -419,7 +419,7 @@ fn a_monitor_reporting_is_not_a_monitor_ending() {
             "its ordinary output",
             "=== coach: frontend/package.json ===",
         ),
-        // ⚠ A payload is arbitrary text, and the phrase is only the harness's by
+        // A payload is arbitrary text, and the phrase is only the harness's by
         // convention. This session's own grep for the timeout line printed it,
         // and a monitor watching that output would have ended itself — the
         // defect `detached` learned the hard way, where reading about the thing
@@ -478,7 +478,7 @@ fn two_messages_the_cli_handed_over_together_stay_two_messages() {
     // the session was working, minutes apart, and the CLI delivered everything
     // queued as one message with a block each.
     //
-    // ⚠ **Joining them is not merely a mangled bubble.** A prompt is the read
+    // Joining them is not merely a mangled bubble. A prompt is the read
     // receipt that clears a waiting message, matched on the words — so a joined
     // echo answers neither, and both sit marked "waiting to be read" while the
     // session replies to them.
@@ -518,7 +518,7 @@ fn an_ordinary_message_is_still_a_prompt() {
 
 #[test]
 fn context_is_read_per_message_rather_than_per_turn() {
-    // ⚠ The result line's `usage` is the SUM over every request a turn made, so
+    // The result line's `usage` is the SUM over every request a turn made, so
     // a long turn reports more tokens than the window holds — 1.6M against 1M,
     // seen on the phone. The per-message usage is the context as it stood.
     let line = r#"{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":1272,"cache_read_input_tokens":546967,"output_tokens":244},"content":[{"type":"text","text":"hello"}]}}"#;
@@ -592,14 +592,14 @@ fn the_usage_reply_gives_up_both_windows() {
 
 /// The same reply as CLI 2.1.226 gives it, trimmed to the rate limits.
 ///
-/// ⚠ **Copied from a live answer, not composed here.** Every fixed
+/// Copied from a live answer, not composed here. Every fixed
 /// model key is `null` and the one live scope is in the `model_scoped` array —
 /// which is the whole reason this shape had to be read rather than assumed.
 const SCOPED_REPLY: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":{"utilization":62,"resets_at":"2026-08-12T18:19:59.060276+00:00"},"seven_day":{"utilization":87,"resets_at":"2026-08-14T01:59:59.060301+00:00"},"seven_day_opus":null,"seven_day_sonnet":null,"model_scoped":[{"display_name":"Fable","utilization":6,"resets_at":"2026-08-14T01:59:59.060589+00:00"}]}}}}"#;
 
 #[test]
 fn a_models_own_allowance_is_read_out_of_the_array_it_lives_in() {
-    // ⚠ `model_scoped` is an ARRAY beside an object of windows, so the loop that
+    // `model_scoped` is an ARRAY beside an object of windows, so the loop that
     // reads a `utilization` off each value steps over it in silence — which is
     // how the Fable window went unnoticed while sitting in every reply.
     let mut found = console::protocol::usage_reply(SCOPED_REPLY).expect("rate limits");
@@ -643,7 +643,7 @@ fn an_ordinary_line_is_not_a_usage_reply() {
 
 #[test]
 fn a_response_whose_shape_has_moved_yields_nothing() {
-    // ⚠ The CLI calls `get_usage` experimental and says the shape may change.
+    // The CLI calls `get_usage` experimental and says the shape may change.
     // When it does, the console must fall back to the dashboard rather than
     // report a window it has misread.
     let moved = r#"{"type":"control_response","response":{"response":{"rateLimits":{"five_hour":{"utilization":31.5}}}}}"#;
@@ -665,7 +665,7 @@ fn answered(id: &str, said: &str) -> Event {
 
 #[test]
 fn every_way_a_tool_says_it_left_something_running() {
-    // ⚠ **Verbatim openings, taken off this machine's own transcripts.** The
+    // Verbatim openings, taken off this machine's own transcripts. The
     // decision about what counts is made from what a call *answers* rather than
     // from what it was asked to do, because `run_in_background` is a request only
     // `Bash` accepts — measured across 27,731 calls, it appears on nothing else.
@@ -681,7 +681,7 @@ fn every_way_a_tool_says_it_left_something_running() {
             "Command running in background with ID: bh0ynhbpb. Output is being written to /tmp/x",
         ),
         (
-            // ⚠ The one no rule about arguments could have found: its input says
+            // The one no rule about arguments could have found: its input says
             // `run_in_background: false`, because that is what was asked for.
             "a shell command moved there for outliving its timeout",
             "bzfolz7cw",
@@ -711,7 +711,7 @@ fn every_way_a_tool_says_it_left_something_running() {
 
 #[test]
 fn quoting_the_phrase_is_not_saying_it() {
-    // ⚠ **This test is itself the reason for the rule.** A `contains` matched
+    // This test is itself the reason for the rule. A `contains` matched
     // any result that merely repeated one of the openings — a grep for them, a
     // `Read` of `protocol::detached`, a `Read` of the list above — so opening
     // the file that defines the count added to it. Measured over this machine's
@@ -741,7 +741,7 @@ fn quoting_the_phrase_is_not_saying_it() {
 
 #[test]
 fn a_kill_is_the_ending_that_announces_nothing() {
-    // ⚠ **The only ending with no notification behind it.** Stopping a task
+    // The only ending with no notification behind it. Stopping a task
     // answers on the *stopping* call, and the call that started the work — the
     // one the count is keyed by — is never heard from again. Measured: 162 kills
     // across this machine's transcripts, every one matched to a launch we had
@@ -799,7 +799,7 @@ fn the_harness_notification_is_what_closes_one() {
 
 #[test]
 fn an_ending_that_knows_only_the_task_says_so_rather_than_guessing() {
-    // ⚠ **The two id spaces are not interchangeable and the type says which.**
+    // The two id spaces are not interchangeable and the type says which.
     // `state.background` is keyed by the call, so an ending naming one is a
     // removal and an ending naming a task is a search. Written as a fallback —
     // try it as a call, then as a task — this would pass today on the shapes of
@@ -816,7 +816,7 @@ fn an_ending_that_knows_only_the_task_says_so_rather_than_guessing() {
 
 #[test]
 fn a_new_turn_does_not_forget_what_is_still_running() {
-    // ⚠ **An init line is not a new process — it opens every turn.** Measured on
+    // An init line is not a new process — it opens every turn. Measured on
     // this console's own stream, where the order reads
     // `turn → started → busy → prompt`: the CLI announces itself again each time
     // it is spoken to, and the session, its cost and its context all carry on.
@@ -838,7 +838,7 @@ fn a_new_turn_does_not_forget_what_is_still_running() {
 
 #[test]
 fn the_seed_boundary_forgets_what_the_transcript_replayed() {
-    // ⚠ Measured on `health`: five tasks reported running, every one from that
+    // Measured on `health`: five tasks reported running, every one from that
     // afternoon, the newest gone nine hours, the session with no children at
     // all. A replayed transcript is full of calls that were backgrounded once —
     // history, not now. `Joined` is pushed after the replay for exactly this.
@@ -857,7 +857,7 @@ fn the_seed_boundary_forgets_what_the_transcript_replayed() {
 
 /// What a slash command's answer does on the live wire.
 ///
-/// ⚠ **Every slash command's output was silently dropped, not only `/tasks`.**
+/// Every slash command's output was silently dropped, not only `/tasks`.
 /// A command runs locally and answers as one complete `assistant` message with
 /// no deltas before it, and the live reader keeps only tool calls from a
 /// completed message — a rule that is right for generated text and wrong for the
@@ -906,7 +906,7 @@ mod synthetic {
 
 #[test]
 fn renaming_goes_over_the_control_channel() {
-    // ⚠ **The whole reason this exists.** `/rename` is INPUT: written to stdin,
+    // The whole reason this exists. `/rename` is INPUT: written to stdin,
     // parked by the CLI when it arrives mid-turn, and released as a prompt
     // (`commandMode: "prompt"`) — so the model reads the words and the name never
     // changes. Measured on a working session, which replied "Noted the rename
@@ -927,7 +927,7 @@ fn renaming_goes_over_the_control_channel() {
 
 #[test]
 fn a_permission_request_says_which_call_it_is_about() {
-    // ⚠ **Without this one action draws two widgets** (memview#86). The CLI
+    // Without this one action draws two widgets (memview#86). The CLI
     // announces the call and then asks about it, so a client that cannot tell the
     // two events apart from two actions shows a tool row AND a permission card
     // for one Write — and the card, sitting between two calls, breaks the run
@@ -990,7 +990,7 @@ fn a_call_without_a_description_falls_back_to_the_work() {
     assert_eq!(agent.label.as_deref(), Some("find bugs"));
 }
 
-/// ⚠ Nothing is invented. A call whose input carries no readable field gets the
+/// Nothing is invented. A call whose input carries no readable field gets the
 /// tool name alone — better unlabelled than a rendering of its JSON.
 #[test]
 fn a_call_with_nothing_readable_is_left_unlabelled() {
@@ -1003,8 +1003,8 @@ fn a_call_with_nothing_readable_is_left_unlabelled() {
     assert_eq!(blank.label, None);
 }
 
-/// ⚠ **The label is cut, because a real one was several hundred characters of
-/// shell.** The strip has one line on a 412px phone.
+/// The label is cut, because a real one was several hundred characters of
+/// shell. The strip has one line on a 412px phone.
 #[test]
 fn a_long_label_is_cut_and_flattened() {
     let long = "x".repeat(500);
@@ -1027,7 +1027,7 @@ fn a_long_label_is_cut_and_flattened() {
 
 /// The three answers CLI 2.1.226 gives, copied from the probe.
 ///
-/// ⚠ **Not composed here.** The success carries the mode it settled on, which is
+/// Not composed here. The success carries the mode it settled on, which is
 /// the whole reason the console can confirm rather than assume; and the refusals
 /// are the CLI's own words, which name a remedy the console would not have
 /// known to give. A throwaway session was sent three `set_permission_mode`
@@ -1038,7 +1038,7 @@ const MODE_UNKNOWN: &str = r#"{"type":"control_response","response":{"subtype":"
 
 #[test]
 fn a_settled_mode_is_the_one_the_reply_names() {
-    // ⚠ **Read out of the answer, not carried over from the request.** Taking
+    // Read out of the answer, not carried over from the request. Taking
     // `subtype == success` as agreement about WHICH mode would repeat #96 one
     // level down: a reply that succeeded at something, read as the mode asked
     // for.
@@ -1094,8 +1094,8 @@ fn what_is_not_a_control_response_is_not_a_mode() {
     assert_eq!(console::protocol::mode_reply(&asked), None);
 }
 
-/// ⚠ **A message sent to a BUSY session exists only as a `queued_command`
-/// attachment** — the CLI writes no `user` line for it. Reported from the
+/// A message sent to a BUSY session exists only as a `queued_command`
+/// attachment — the CLI writes no `user` line for it. Reported from the
 /// phone: messages showed as waiting and then vanished, because a re-seed reads
 /// the transcript and the transcript's only record of them produced no event.
 #[test]
@@ -1120,7 +1120,7 @@ fn a_message_delivered_to_a_busy_session_is_a_prompt() {
     assert_eq!(replayed, ["When formatting that is"]);
 }
 
-/// ⚠ **Only `queued_command`.** 54,566 `task_reminder` attachments in the corpus
+/// Only `queued_command`. 54,566 `task_reminder` attachments in the corpus
 /// against 21,349 queued messages — reading every attachment as speech would
 /// bury the conversation in machinery.
 #[test]

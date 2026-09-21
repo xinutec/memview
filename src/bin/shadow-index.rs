@@ -6,10 +6,10 @@
 //! Prints the disagreements; `--write` also drops the assembled file in memview's
 //! cache so it can be diffed with ordinary tools.
 //!
-//! ⚠ **It never touches `MEMORY.md`.** The corpus is not memview's to edit — the
+//! It never touches `MEMORY.md`. The corpus is not memview's to edit — the
 //! tools are built here and the memory session runs them (memview#1310).
 //!
-//! ⚠ **When the two disagree, the ALGORITHM is the first suspect.** This assembles
+//! When the two disagree, the ALGORITHM is the first suspect. This assembles
 //! from `teaser:` frontmatter, which most of the corpus does not yet carry, so a
 //! difference is far more likely to be a gap in the data than a fault in the file
 //! somebody maintains by hand.
@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     );
     println!("the written index carries {written_links} links\n");
 
-    // ⚠ **The gaps are printed BEFORE the drift, and that order is deliberate.**
+    // The gaps are printed BEFORE the drift, and that order is deliberate.
     // A reader who sees "37 lines differ" first will read the artefact as a
     // proposal to rewrite the file. The first thing to know is how much of the
     // corpus this can speak for at all.
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
         );
     }
 
-    // ⚠ **This is the finding the artefact exists for.** The teaser moved into
+    // This is the finding the artefact exists for. The teaser moved into
     // the memory so it could not rot apart from what it describes; these are the
     // places where it has.
     println!(

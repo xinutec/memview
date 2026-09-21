@@ -22,7 +22,7 @@ fn an_existing_stamp_is_kept_and_the_file_comes_back_unchanged() {
     assert_eq!(out, already);
 }
 
-/// ⚠ **The file's own claim outranks a mined one.** A recovered date that
+/// The file's own claim outranks a mined one. A recovered date that
 /// disagrees with what the memory says is a conflict to report, not an
 /// overwrite — silently correcting it is how a true date gets replaced by a
 /// guess, in a field nobody re-reads.
@@ -33,7 +33,7 @@ fn a_disagreeing_date_is_refused_rather_than_overwritten() {
     assert!(format!("{err}").contains("already says"), "{err}");
 }
 
-/// ⚠ A `created:` in the BODY is prose. Matching it would skip a memory that
+/// A `created:` in the BODY is prose. Matching it would skip a memory that
 /// genuinely needs the stamp — the same trap `memory-stamp` hit with `modified:`.
 #[test]
 fn a_date_in_the_body_is_not_a_stamp() {

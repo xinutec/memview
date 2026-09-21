@@ -1,7 +1,7 @@
 //! A memory whose content changed while its stamp did not (#1199's sibling —
 //! the verification I was doing by hand).
 //!
-//! ⚠ **Every case here is a diff the corpus actually produces.** The stamp is
+//! Every case here is a diff the corpus actually produces. The stamp is
 //! what recall's age banner reads, so a memory that keeps an old stamp over new
 //! content claims to be fresher than it is — and understating age is the
 //! dangerous direction, because it buys LESS scrutiny.
@@ -56,7 +56,7 @@ fn moving_only_the_stamp_is_not_a_finding() {
     assert!(stale(&diff).is_empty());
 }
 
-/// ⚠ A NEW memory has no previous stamp to advance. Reporting it would fail
+/// A NEW memory has no previous stamp to advance. Reporting it would fail
 /// every commit that writes a memory, which is the ordinary case.
 #[test]
 fn a_newly_added_memory_is_not_reported() {
@@ -69,7 +69,7 @@ fn a_newly_added_memory_is_not_reported() {
     assert!(stale(diff).is_empty());
 }
 
-/// ⚠ **The `+++`/`---` headers start with the same characters as content.**
+/// The `+++`/`---` headers start with the same characters as content.
 /// Counting them as edits would mark every file in every diff as changed, and
 /// the check would fire on a commit that only moved stamps.
 #[test]
@@ -119,7 +119,7 @@ fn body_edit(path: &str) -> String {
     format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n-old line\n+new line\n")
 }
 
-/// ⚠ **The index is not a memory and never can be.** `MEMORY.md` opens
+/// The index is not a memory and never can be. `MEMORY.md` opens
 /// `# Memory index` with no frontmatter by design, so it has no `modified:` to
 /// advance — and the index rule is "to add a line, take one out in the same
 /// edit", so nearly every memory written touches it. This used to fire at every
@@ -132,7 +132,7 @@ fn the_index_has_no_stamp_to_move_and_is_skipped() {
     assert_eq!(found, memview::stamped::Stale::default(), "{found:?}");
 }
 
-/// ⚠ **The predicate is the missing stamp, NOT the name.** This is the test
+/// The predicate is the missing stamp, NOT the name. This is the test
 /// that tells the two apart: same filename, but this one carries frontmatter
 /// with a stamp, so it is a memory and it is reported. A `== "MEMORY.md"` test
 /// would wrongly pass here — and would break silently the day the index is
@@ -158,7 +158,7 @@ fn any_file_without_frontmatter_is_skipped_whatever_it_is_called() {
     );
 }
 
-/// ⚠ **An unreadable file is REPORTED, not treated as exempt.** "Could not read
+/// An unreadable file is REPORTED, not treated as exempt. "Could not read
 /// it" and "it has no stamp" are the same silence from here, so skipping on
 /// `None` would make this rule pass on everything the day it is run from the
 /// wrong directory — a check that goes quiet is worse than one that fails.
@@ -198,7 +198,7 @@ fn frontmatter(origin: bool, modified: bool) -> String {
     meta
 }
 
-/// ⚠ **The case that made `memory-stamp` useless at its own job** (memview#1499).
+/// The case that made `memory-stamp` useless at its own job (memview#1499).
 ///
 /// It selected on a missing `modified:` alone. All twelve gaps in the live
 /// corpus HAD a stamp and lacked only the author, so none was returned and the
@@ -221,15 +221,15 @@ fn a_memory_with_an_author_and_no_stamp_is_missing_the_other_half() {
     assert!(lacks.any());
 }
 
-/// ⚠ **A complete memory must report NOTHING, or the selector is just a listing
-/// of the corpus** and `--apply` would rewrite all 720 files.
+/// A complete memory must report NOTHING, or the selector is just a listing
+/// of the corpus and `--apply` would rewrite all 720 files.
 #[test]
 fn a_memory_carrying_both_is_left_alone() {
     let lacks = memview::stamped::missing(&frontmatter(true, true));
     assert!(!lacks.any(), "{lacks:?}");
 }
 
-/// ⚠ **Frontmatter only.** A memory that discusses stamps in its prose — this
+/// Frontmatter only. A memory that discusses stamps in its prose — this
 /// corpus has several, including the one written today — must not be read as
 /// carrying one, or a genuinely unstamped memory about stamping is skipped.
 #[test]

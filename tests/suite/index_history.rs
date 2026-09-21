@@ -1,6 +1,6 @@
 //! Recovering MEMORY.md's membership from a transcript (#1240).
 //!
-//! ⚠ **Every failure here is SILENT in production.** The output is a list of
+//! Every failure here is SILENT in production. The output is a list of
 //! names that looks plausible whatever it contains, and it is the pre-period of
 //! a pre-registered study — a parser that quietly admits one word of prose adds
 //! a memory that was never indexed, and one that drops a link removes a demotion
@@ -24,7 +24,7 @@ fn a_link_target_is_a_memory_and_the_label_is_not() {
     );
 }
 
-/// ⚠ **The artefact this replaces holds `file` and `x` as memories.** Both came
+/// The artefact this replaces holds `file` and `x` as memories. Both came
 /// from matching prose rather than link targets, and both survived into a
 /// pre-registered study's pre-period. A label carrying a file name in backticks
 /// is the ordinary case in this index, not an edge one.
@@ -65,7 +65,7 @@ fn only_the_index_itself_counts_as_a_reading_of_it() {
     assert!(!is_the_index("/home/example/notes/MY-MEMORY.md"));
 }
 
-/// ⚠ **Transcripts are walked file by file, so readings arrive out of order.**
+/// Transcripts are walked file by file, so readings arrive out of order.
 /// Picking "whatever landed last" would choose a different winner per day on a
 /// different filesystem — a result that changes with directory order and never
 /// says so.
@@ -78,7 +78,7 @@ fn the_days_last_reading_wins_however_the_readings_arrive() {
     assert_eq!(history["2026-07-04"], set(&["a", "b"]));
 }
 
-/// ⚠ **An empty reading is a Read that returned something else** — an error, a
+/// An empty reading is a Read that returned something else — an error, a
 /// truncation — not a day on which the index was empty. Recording it would
 /// invent a mass demotion, and the study downstream reads demotions.
 #[test]

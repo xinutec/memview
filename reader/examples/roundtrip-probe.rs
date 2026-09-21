@@ -10,7 +10,7 @@
 //! Before building it, it is worth knowing whether it can *fail* — a property
 //! that holds by construction tests the renderer and nothing else.
 //!
-//! ⚠ **The suspicion going in was that it is vacuous, and it was wrong.** The
+//! The suspicion going in was that it is vacuous, and it was wrong. The
 //! reasoning: `argv` holds words with quotes already stripped, so a correct
 //! renderer single-quotes every word, and a single-quoted word parses back to
 //! itself by definition. Plausible, and false — the first run, over 105,594
@@ -27,7 +27,7 @@
 //! **Where it stands now: 99.97%** — 111,097 identical, 35 different, 0 that will
 //! not re-parse. That figure is the ratchet.
 //!
-//! ⚠ **`DIFFERENT` went UP, from 1 to 35, and that is the improvement.** memview#835
+//! `DIFFERENT` went UP, from 1 to 35, and that is the improvement. memview#835
 //! stopped `hide_heredocs` treating every `<<` as an operator — an arithmetic
 //! shift or a quoted mention of redirection would open a heredoc that never
 //! terminated and swallow the rest of the script. Fixing it retired the whole
@@ -37,7 +37,7 @@
 //! commands are unparseable** (416 → 358) — commands whose file effects the miner
 //! could not see at all. Read the two counts together; either alone lies.
 //!
-//! ⚠ **The 69 are NOT the same bug, which #833 assumed they were.** Fixing the
+//! The 69 are NOT the same bug, which #833 assumed they were. Fixing the
 //! escape left every one of them, and their cause is elsewhere: the word being
 //! rendered *contains a heredoc*, as in
 //! `nix-shell --run 'git commit -m "$(cat <<'"'"'EOF'"'"' … EOF)"'`. `hide_heredocs`
@@ -74,7 +74,7 @@ fn quoted(word: &str) -> String {
 
 /// One command, spelled canonically. `None` when it cannot be spelled at all.
 fn render(cmd: &Simple) -> Option<String> {
-    // ⚠ A heredoc body cannot be put back without inventing a delimiter that the
+    // A heredoc body cannot be put back without inventing a delimiter that the
     // body does not contain, and choosing one is a renderer's problem rather than
     // the parser's. Counted apart rather than guessed at.
     if !cmd.heredocs.is_empty() {
@@ -151,7 +151,7 @@ fn main() -> anyhow::Result<()> {
             }
             continue;
         };
-        // ⚠ `reached` and `scope` are excluded on purpose — see the module note.
+        // `reached` and `scope` are excluded on purpose — see the module note.
         let alike = first.len() == again.len()
             && first.iter().zip(&again).all(|(a, b)| {
                 a.argv == b.argv

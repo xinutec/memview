@@ -143,7 +143,7 @@ for s in "${bad[@]}"; do
 done
 
 section "3 · what the terminators DO, run for real"
-# ⚠ Three of them, and the difference is only visible by running: `;;` stops,
+# Three of them, and the difference is only visible by running: `;;` stops,
 # `;&` runs the next arm's body without testing it, `;;&` goes on testing.
 for op in ';;' ';&' ';;&'; do
   printf '%-4s → ' "$op"

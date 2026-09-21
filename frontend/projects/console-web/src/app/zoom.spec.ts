@@ -32,7 +32,7 @@ describe('fittedIn', () => {
   });
 
   it('leaves a small picture at its own size rather than blowing it up', () => {
-    // ⚠ `max-width: 100%` only shrinks. A model that assumed the picture filled
+    // `max-width: 100%` only shrinks. A model that assumed the picture filled
     // the frame would let a thumbnail be dragged around a gap that is not there.
     expect(fittedIn({ width: 200, height: 100 }, FRAME)).toEqual({ width: 200, height: 100 });
   });
@@ -65,7 +65,7 @@ describe('bounded', () => {
 
 describe('scaledAbout', () => {
   it('leaves what is under the fingers where it is', () => {
-    // ⚠ **The whole feel of a pinch.** Scaling about the centre instead lets the
+    // The whole feel of a pinch. Scaling about the centre instead lets the
     // thing being zoomed towards slide away from under the fingers.
     const at: Point = { x: 100, y: -150 };
     const view = scaledAbout(FIT, at, 2, FRAME, BASE);
@@ -108,7 +108,7 @@ describe('toggled', () => {
     const close = toggled(FIT, at, FRAME, BASE);
     expect(close.scale).toBe(CLOSER);
 
-    // ⚠ Out is FIT, not the way in reversed: dividing back would leave whatever
+    // Out is FIT, not the way in reversed: dividing back would leave whatever
     // it had been dragged to, so the picture returns off-centre.
     const dragged = moved(close, { x: -40, y: 30 }, FRAME, BASE);
     expect(toggled(dragged, at, FRAME, BASE)).toEqual(FIT);
@@ -133,7 +133,7 @@ describe('pinched', () => {
   });
 
   it('is not a pinch until the fingers are apart', () => {
-    // ⚠ Two pointers reported at the same place divide by zero, and the viewer
+    // Two pointers reported at the same place divide by zero, and the viewer
     // jumps to its limit on the first frame of the gesture.
     const same = [
       { x: 10, y: 10 },

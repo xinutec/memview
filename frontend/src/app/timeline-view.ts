@@ -11,7 +11,7 @@ import { Did, Effect, Evidence, Moment, Timeline, TimelineEpisode } from './mode
 /**
  * The wire's one-letter verbs, as a reader reads them.
  *
- * ⚠ **The wire is `r`/`w`/`s`/`u` and this page must not show that.** The
+ * The wire is `r`/`w`/`s`/`u` and this page must not show that. The
  * artefact renames every variant to a character because it is hundreds of
  * thousands of rows read over a VPN; that is the artefact's business, not the
  * reader's. Drawn straight, a turn read `w` and `s`.
@@ -61,12 +61,12 @@ const KINDS_SHOWN = 8;
  * which is `/api/effects`, keyed by the `(agent, at)` the row already carries.
  * Without that, a timeline is a list of assertions with nothing under them.
  *
- * ⚠ **What could not be named is drawn, never dropped.** 7,305 effects in the
+ * What could not be named is drawn, never dropped. 7,305 effects in the
  * artefact have a subject nobody could resolve. A panel showing only what
  * resolved would read as a complete account of the turn, and it is not one.
  * Same rule the parse sheet follows on the phone: say what you could not read.
  *
- * ⚠ **The summary is of the whole filtered range, not of the page.** Two
+ * The summary is of the whole filtered range, not of the page. Two
  * hundred rows cannot show the shape of two hundred thousand, so the server
  * counts every kind that matched and this draws that beside the rows. Reading
  * the strip off the visible page instead would quietly describe a sample.
@@ -80,7 +80,7 @@ const KINDS_SHOWN = 8;
 export class TimelineView {
   private api = inject(MemviewApi);
   /**
-   * ⚠ **Held, not reached for at the call site.** `takeUntilDestroyed()` with no
+   * Held, not reached for at the call site. `takeUntilDestroyed()` with no
    * argument must run in an injection context, which a click handler is not —
    * it threw there, after `loading` had already been set, so the page hung on a
    * progress bar that could never resolve. The constructor's first load hid it:
@@ -101,7 +101,7 @@ export class TimelineView {
 
   private load(): void {
     this.loading.set(true);
-    // ⚠ Withdrawn before every attempt. Set once and never cleared, a 403 from
+    // Withdrawn before every attempt. Set once and never cleared, a 403 from
     // one load would keep saying "owner-only" over the next load's real data.
     this.denied.set(false);
     this.api
@@ -122,14 +122,14 @@ export class TimelineView {
   /**
    * The moments, with a marker on each one that opens a new instruction.
    *
-   * ⚠ **A header, not a nested list.** The page is newest-first and paged, so a
+   * A header, not a nested list. The page is newest-first and paged, so a
    * stretch commonly begins above the top of it and continues below the bottom;
    * a container would have to pretend it knew where both ends were. A marker on
    * the first row of each run says the true thing — *this is where an
    * instruction begins* — and needs no boundary the page does not have.
    *
-   * ⚠ **On the FIRST row of the run as the page draws it, which is the
-   * instruction's newest moment and not its oldest.** Marking where the
+   * On the FIRST row of the run as the page draws it, which is the
+   * instruction's newest moment and not its oldest. Marking where the
    * instruction chronologically began put the header between two rows of the
    * same stretch — it read as a label for what came after and split what it
    * described. A heading goes above what it heads, whichever way time is
@@ -193,8 +193,8 @@ export class TimelineView {
   /**
    * Open a row onto its evidence, or close it if it is already open.
    *
-   * ⚠ **The pending state is `evidence: undefined`, and a template must not
-   * treat it as an empty list.** "Nothing to show" and "nothing yet" are
+   * The pending state is `evidence: undefined`, and a template must not
+   * treat it as an empty list. "Nothing to show" and "nothing yet" are
    * different sentences, and drawing the first while the request is in flight
    * is a claim the page cannot support.
    */
@@ -212,7 +212,7 @@ export class TimelineView {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((evidence) => {
-        // ⚠ The answer to a row that is no longer open is dropped. Two quick
+        // The answer to a row that is no longer open is dropped. Two quick
         // taps race, and the slower reply would otherwise land under the wrong
         // row — evidence attributed to a turn that did not do it.
         const open = this.opened();
@@ -234,7 +234,7 @@ export class TimelineView {
   /**
    * How long an instruction ran, in words.
    *
-   * ⚠ **Nought minutes is a real answer**, not a missing one: a stretch whose
+   * Nought minutes is a real answer, not a missing one: a stretch whose
    * rows all fall in the same minute is most of them, and "under a minute" says
    * that where "0 minutes" reads as a bug.
    */
@@ -254,7 +254,7 @@ export class TimelineView {
   /** What it did it to, or the pattern that bounds it, or the directory it is
    * under, or none of those.
    *
-   * ⚠ **A locus is spelled out as a phrase, never drawn bare** (memview#1458).
+   * A locus is spelled out as a phrase, never drawn bare (memview#1458).
    * Its `path` is the directory the subject is rooted AT, so printing it alone
    * would name a file the reader refused to name — and would be indistinguishable
    * from a `read` of the directory itself.

@@ -76,7 +76,7 @@ Path(p).write_text(x)
     // The soundness half, unchanged: one of them was written, so neither may be
     // recorded as written.
     assert!(uses(source).is_empty());
-    // ⚠ **It is no longer `unresolved`, and that is the change.** Both paths
+    // It is no longer `unresolved`, and that is the change. Both paths
     // are known and the directory they share is certain; what is unknown is
     // which one ran. Counted by `subjects_not_named` exactly as before, so the
     // headline cannot fall without something being named.
@@ -106,7 +106,7 @@ fn a_computed_argument_names_nothing() {
     assert!(uses("open('src/%s.ts' % name)").is_empty());
     // A `%` format still says nothing about the shape.
     assert_eq!(read("open('src/%s.ts' % name)").unresolved["open"], 1);
-    // ⚠ **A concatenation used to say nothing either, and that has changed.**
+    // A concatenation used to say nothing either, and that has changed.
     // `root + '/x.ts'` is not a file, but the literal carries its
     // own separator, so the NAME is certain and the shape is `*/x.ts` — a
     // language, never a use. The danger this test exists for is unaffected: the
@@ -124,7 +124,7 @@ fn a_computed_argument_names_nothing() {
     );
 }
 
-/// ⚠ **An f-string is not a shrug, and calling it one lost the certain half.**
+/// An f-string is not a shrug, and calling it one lost the certain half.
 /// `f'{root}/x.ts'` does not name a file, but it does say the file is called
 /// `x.ts` — a language, in `bounded`, never a use. Before this the whole thing
 /// went to `unresolved`, which reads as "nothing is known" (#1142).
@@ -146,7 +146,7 @@ fn an_f_string_with_a_literal_directory_is_located() {
     assert_eq!(program.located["data/archive"], 1);
 }
 
-/// ⚠ **Most f-strings are not paths**, and a rule that files a log line as a
+/// Most f-strings are not paths, and a rule that files a log line as a
 /// bounded subject invents thousands. 94.3% of the corpus's are formatting.
 #[test]
 fn an_f_string_that_is_not_a_path_stays_unresolved() {
@@ -198,8 +198,8 @@ fn predicates_are_not_uses() {
     assert!(uses("Path('src/x.ts').is_file()").is_empty());
 }
 
-/// ⚠ **The test above cannot tell "understood and ignored" from "never heard
-/// of".** Both produce no use, so it passed while `os.path.exists` sat third in
+/// The test above cannot tell "understood and ignored" from "never heard
+/// of". Both produce no use, so it passed while `os.path.exists` sat third in
 /// the reader's own worklist of calls it does not know, at 102 — the method
 /// spelling was handled and the module spelling was not. This asserts the
 /// difference the worklist sees (#1142).
@@ -269,7 +269,7 @@ fn changing_directory_is_reported() {
 
 #[test]
 fn a_command_the_program_ran_is_kept_for_the_shell_reader() {
-    // ⚠ **`subprocess.run` was the top of this reader's worklist** — 443 calls,
+    // `subprocess.run` was the top of this reader's worklist — 443 calls,
     // twice the next entry — and every one of them was a whole command whose
     // files nothing could see. The list form is what the corpus writes, and it
     // reaches `exec()` with no shell, so it stays an argv.
@@ -287,7 +287,7 @@ fn a_command_the_program_ran_is_kept_for_the_shell_reader() {
         read("os.system('cd app && cat x.ts')").ran,
         [Ran::Script("cd app && cat x.ts".to_string())]
     );
-    // ⚠ **A string without `shell=True` is NOT a script.** Python looks for a
+    // A string without `shell=True` is NOT a script. Python looks for a
     // program of that whole name and fails; reading it as shell would credit
     // the program with work it did not do.
     assert_eq!(
@@ -378,7 +378,7 @@ with open('/tmp/report.json', 'w') as f:
 /// not swallow the program that follows it.
 #[test]
 fn an_unterminated_string_ends_at_its_line() {
-    // ⚠ **This assertion was REVERSED, and deliberately.** It used to
+    // This assertion was REVERSED, and deliberately. It used to
     // expect `src/x.ts` back: the grammar stops a one-line literal at its line's
     // end, so reading continues and the write is found. Recovery is still right
     // for READING — but CPython refuses this source outright, so the write never
@@ -408,7 +408,7 @@ fn a_directory_is_not_a_file() {
 
 #[test]
 fn a_program_that_could_not_have_run_names_no_files() {
-    // ⚠ **Soundness, not coverage.** `f"{d[\"k\"]}"` is a `SyntaxError` on every
+    // Soundness, not coverage. `f"{d[\"k\"]}"` is a `SyntaxError` on every
     // interpreter this corpus ran — 3.9.6 and 3.12.14 both, PEP 701
     // notwithstanding — so the program raised before its first statement. A
     // permissive grammar reads it happily and hands back the paths it mentions,
@@ -455,7 +455,7 @@ fn an_unclosed_literal_is_a_program_that_never_ran() {
 
 #[test]
 fn a_closed_literal_is_left_alone() {
-    // ⚠ The direction that costs: flagging a program DISCARDS every file it
+    // The direction that costs: flagging a program DISCARDS every file it
     // named, so a false positive destroys knowledge. Measured over all 12,240
     // distinct programs, this rule over-claims none.
     assert_eq!(
@@ -484,7 +484,7 @@ fn located(source: &str) -> Vec<(String, usize)> {
 
 #[test]
 fn a_name_bound_to_two_literals_is_a_set_and_never_two_uses() {
-    // ⚠ **The whole soundness question in one test.** The program opened ONE of
+    // The whole soundness question in one test. The program opened ONE of
     // these. Recording both would claim a file was written that never was —
     // and it is the commonest unnamed shape in the corpus (37.9%), so getting
     // it wrong would be wrong thousands of times.
@@ -514,7 +514,7 @@ fn candidates_that_share_no_directory_are_bounded_but_not_located() {
 
 #[test]
 fn one_binding_that_is_not_a_literal_refuses_the_whole_set() {
-    // ⚠ **A set with a hole in it is not a set.** `p = compute()` may be any
+    // A set with a hole in it is not a set. `p = compute()` may be any
     // path at all, so the two literals beside it bound nothing — and claiming
     // the locus would be claiming a directory the program may never have
     // touched.
@@ -565,8 +565,8 @@ fn a_library_opens_the_file_it_is_given() {
     );
 }
 
-/// ⚠ **The rule is the three pairs the corpus writes, not "an import may be
-/// called".** A qualified name the table does not know keeps its old reading,
+/// The rule is the three pairs the corpus writes, not "an import may be
+/// called". A qualified name the table does not know keeps its old reading,
 /// so nothing leaves the file-operation denominator — a rate that rises because
 /// operations stopped being counted is not a rate that rose.
 #[test]
@@ -616,7 +616,7 @@ fn a_loop_over_a_literal_list_bounds_what_it_opens() {
     assert_eq!(located(source), [("out".to_string(), 1)]);
 }
 
-/// ⚠ **A bound is not a name, and the loop must not gain one.** Recording the
+/// A bound is not a name, and the loop must not gain one. Recording the
 /// pattern — or its directory — as a file this program used would claim a use
 /// of a path nothing opened.
 #[test]
@@ -627,7 +627,7 @@ fn a_bounded_loop_variable_never_becomes_a_use() {
     assert_eq!(uses(source), [used("captures/*.json", false)]);
 }
 
-/// ⚠ **The iterable is still evaluated.** Absorbing it into the loop header
+/// The iterable is still evaluated. Absorbing it into the loop header
 /// must not stop it being read: `open` here is a file operation whatever the
 /// loop then does with its lines, and a header that swallowed it would drop a
 /// use and shrink the denominator.
@@ -654,7 +654,7 @@ fn a_loop_over_a_name_is_still_a_shrug() {
     assert_eq!(read(source).unresolved.get("open"), Some(&1));
 }
 
-/// ⚠ **`in` used to swallow a parenthesised iterable.** `trailer` includes
+/// `in` used to swallow a parenthesised iterable. `trailer` includes
 /// `call`, so `for line in (base / 'g.log').read_text()` parsed as a call to a
 /// function named `in` — a keyword, which the table answers "does nothing" —
 /// and the read lost its receiver. Six reads in the corpus were being discarded
@@ -667,7 +667,7 @@ fn a_parenthesised_iterable_is_not_a_call_to_in() {
     assert_eq!(uses(source), [used("/home/example/s/g.log", false)]);
 }
 
-/// ⚠ **One unknown part must not discard the known ones**, in any of the three
+/// One unknown part must not discard the known ones, in any of the three
 /// spellings of a join. `os.path.join(BACKUP, name)` is `BACKUP/*` — a locus
 /// with an uncertain leaf — and before this the whole call was a shrug (#1142).
 #[test]
@@ -693,7 +693,7 @@ fn a_join_onto_an_unknown_directory_still_names_the_file() {
     assert!(program.located.is_empty(), "no directory is certain");
 }
 
-/// ⚠ **Adjacent unknowns are one run.** `join(a, b, 'x.ts')` is `*/x.ts`;
+/// Adjacent unknowns are one run. `join(a, b, 'x.ts')` is `*/x.ts`;
 /// `*/*/x.ts` would claim a depth nobody wrote down.
 #[test]
 fn adjacent_unknown_parts_do_not_claim_a_depth() {
@@ -728,7 +728,7 @@ fn a_join_of_known_parts_is_still_a_path() {
 
 /// The literal carries the separator, so the DIRECTORY survives.
 ///
-/// ⚠ This is the half a join gets for free. `join(d, name)` is `d/*` however
+/// This is the half a join gets for free. `join(d, name)` is `d/*` however
 /// little is known; `d + name` is `*` and says nothing, because `+` inserts
 /// nothing. Only the literal's own `/` locates anything here.
 #[test]
@@ -757,8 +757,8 @@ fn adjacent_unknown_concatenated_parts_are_one_run() {
     assert_eq!(program.bounded["*.json"], 1, "{:?}", program.bounded);
 }
 
-/// ⚠ **A guard, and the whole reason this shape was censused before it was
-/// built.** Concatenation puts nothing between its parts, so a join of two
+/// A guard, and the whole reason this shape was censused before it was
+/// built. Concatenation puts nothing between its parts, so a join of two
 /// unknowns is `*` — every file there is. It must stay a shrug.
 #[test]
 fn a_concatenation_of_nothing_known_is_still_unresolved() {
@@ -767,7 +767,7 @@ fn a_concatenation_of_nothing_known_is_still_unresolved() {
     assert_eq!(program.unresolved["open"], 1);
 }
 
-/// ⚠ **A guard: a sentence is not a path.** 92.2% of the corpus's
+/// A guard: a sentence is not a path. 92.2% of the corpus's
 /// concatenations are message building, and `path_shaped` is what refuses them.
 #[test]
 fn a_concatenated_message_is_not_a_path() {
@@ -785,14 +785,14 @@ fn a_concatenation_of_known_parts_stays_an_exact_path() {
 
 /// `Path.home()` is `~`, in both spellings.
 ///
-/// ⚠ **Rendered as `~`, not as the running user's real directory.** That is what
+/// Rendered as `~`, not as the running user's real directory. That is what
 /// `os.path.expanduser` already does here — it is a name-identity call, so the
 /// `~` it is handed comes back untouched — and the corpus is full of paths
 /// written that way by hand. Expanding one spelling and not the other would make
 /// the reader report two different files for the same directory (#1142).
 #[test]
 fn the_home_directory_is_a_path_in_both_spellings() {
-    // ⚠ The import is load-bearing in the TEST as well as in the code. Without
+    // The import is load-bearing in the TEST as well as in the code. Without
     // it `Path.home()` reads as a method on an unknown receiver and stays in the
     // worklist — which is what the first draft of this test asserted against,
     // and it failed for that reason rather than for a fault in the rule. Real
@@ -884,8 +884,8 @@ fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
 
 // --- a parameter bound at its call site (memview#1142) -----------------------
 
-/// ⚠ **`Why::Outside` said "the value came from outside the text, so no rule can
-/// ever read it" — and the value was four lines below.**
+/// `Why::Outside` said "the value came from outside the text, so no rule can
+/// ever read it" — and the value was four lines below.
 ///
 /// This is the shape the corpus writes for every scripted edit and for a batch
 /// of memory writes: a helper that takes a path, called with a
@@ -910,7 +910,7 @@ fn a_parameter_takes_the_literal_its_call_site_passes() {
     assert!(program.why.is_empty(), "{:?}", program.why);
 }
 
-/// ⚠ **Two functions sharing a parameter name must NOT cross-bind.** The reader
+/// Two functions sharing a parameter name must NOT cross-bind. The reader
 /// has no scopes, so bindings land in one flat namespace: `a`'s argument would
 /// answer `open(p)` inside `b`. That is a FABRICATED path, and this reader's
 /// whole discipline is that a fabrication costs more than an omission — so both
@@ -923,8 +923,8 @@ fn a_parameter_two_functions_share_is_refused_rather_than_guessed() {
     assert_eq!(program.why.get(&reader::program::Why::Outside), Some(&2));
 }
 
-/// ⚠ **Called twice with two literals is TWO WRITES, not a set — and this test
-/// asserted the opposite when it was written hours earlier** (memview#1499).
+/// Called twice with two literals is TWO WRITES, not a set — and this test
+/// asserted the opposite when it was written hours earlier (memview#1499).
 ///
 /// Feeding a call site into `bound` like an assignment made the bound-twice rule
 /// apply, which gave a bounded set for free and looked like a bonus. It is
@@ -960,7 +960,7 @@ fn a_variable_bound_twice_is_still_a_set() {
     assert_eq!(program.bounded.get("{one.md,two.md}"), Some(&1));
 }
 
-/// ⚠ **A name the program also binds itself is left alone.** An assignment has
+/// A name the program also binds itself is left alone. An assignment has
 /// its own account of the name; adding a call's argument would make one name a
 /// set of two unrelated things.
 #[test]
@@ -983,7 +983,7 @@ fn a_parameter_passed_a_computed_value_is_computed_not_outside() {
     assert_eq!(program.why.get(&reader::program::Why::Outside), None);
 }
 
-/// ⚠ **A keyword argument names its parameter and does not take a position**, so
+/// A keyword argument names its parameter and does not take a position, so
 /// binding it by index would put the value on the wrong one — a wrong path,
 /// which costs more than the miss it replaces. Skipped entirely for now.
 #[test]

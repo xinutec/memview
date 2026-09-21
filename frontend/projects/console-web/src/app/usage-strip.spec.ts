@@ -20,7 +20,7 @@ function reading(usage: Partial<Reading> = {}): Reading {
 /**
  * Render the strip and hand back its element.
  *
- * ⚠ **`nativeElement` is typed `any`**, and this project's lint refuses both an
+ * `nativeElement` is typed `any`, and this project's lint refuses both an
  * unsafe member access and the assertion that would silence it. Narrowed
  * through `unknown` with an `instanceof` instead: that is a real check rather
  * than a promise to the compiler, and it fails loudly if the fixture ever stops
@@ -56,7 +56,7 @@ describe('the usage strip', () => {
   });
 
   it('withholds a figure whose window has already turned over', async () => {
-    // ⚠ The ordinary case here, not an edge one: the reading only refreshes when
+    // The ordinary case here, not an edge one: the reading only refreshes when
     // an interactive session runs somewhere, so a console driven from a phone is
     // routinely looking at one taken several hours and one window ago.
     const said = (await render(reading({ five_hour: { pct: 28 } }))).textContent ?? '';
@@ -104,7 +104,7 @@ describe('the usage strip', () => {
   });
 
   it('leaves out a window it has heard nothing about', async () => {
-    // ⚠ Not the same as one that has reset. An event names one window at a
+    // Not the same as one that has reset. An event names one window at a
     // time, so the runner can know the week and have heard nothing yet about
     // the five hours — a row saying "reset since" would be an invented claim
     // about a window nobody has reported.

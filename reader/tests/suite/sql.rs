@@ -4,7 +4,7 @@ use reader::sql::read;
 
 /// The measurement that shaped the grammar: a function is not a table.
 ///
-/// ⚠ **This is the test the whole module exists for.** A regular expression for
+/// This is the test the whole module exists for. A regular expression for
 /// `FROM (\w+)` answers `datetime` here, and a fabricated subject is worse than
 /// a missing one: it corrupts every count downstream and nothing says so.
 #[test]
@@ -141,7 +141,7 @@ fn if_not_exists_is_a_guard_not_a_table() {
 
 /// A dot command ends at its line — the statement after it is still a statement.
 ///
-/// ⚠ **This was 50 corpus scripts read as nothing.** `.mode column` consumed the
+/// This was 50 corpus scripts read as nothing. `.mode column` consumed the
 /// query on the next line, so a script that opened with any sqlite directive
 /// contributed no tables at all.
 #[test]

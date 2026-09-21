@@ -9,7 +9,7 @@
 //! $f                   bound by the script itself → a hole, and no lookup helps
 //! ```
 //!
-//! ⚠ **This classifies a shape and never asks the world**; asking is the console's
+//! This classifies a shape and never asks the world; asking is the console's
 //! job (`docs/reader.md`). The `opaque-shapes` census cuts the same population by
 //! shape instead, and two subjects of identical shape fall on opposite sides of
 //! this line — which is how `$(cd .. && pwd -P)/dev-lint` came to be labelled an
@@ -19,7 +19,7 @@
 
 /// What a subject the text could not name would take to answer.
 ///
-/// ⚠ **Exactly one variant is answerable, by decision rather than by corpus.** A
+/// Exactly one variant is answerable, by decision rather than by corpus. A
 /// second means reopening *Reading is not running*; [`Unnamed::ALL`] and the
 /// invariant test make that impossible by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,7 +27,7 @@ pub enum Unnamed {
     /// `$TMPDIR`, `$HOME`, `$AMUN_DIR/photos` — a name the session's environment
     /// **may** hold, answered by a lookup that runs nothing.
     ///
-    /// ⚠ **An UPPER BOUND: all-uppercase is a convention, not a binding.** `A="adb -s
+    /// An UPPER BOUND: all-uppercase is a convention, not a binding. `A="adb -s
     /// host"` is a *script* assignment wearing the same spelling, and telling the two
     /// apart needs the script's own assignments, which a word classifier does not have
     /// (memview#1447). Printed by the census as "at most", because the error flatters
@@ -36,7 +36,7 @@ pub enum Unnamed {
     /// `$f`, `$d`, `${line}` — bound by the script a few lines above, where no lookup
     /// reaches.
     ///
-    /// ⚠ **The split this module exists to make**: identical in spelling to
+    /// The split this module exists to make: identical in spelling to
     /// [`Unnamed::Environment`] and answerable by nothing, so counting the two together
     /// reports a resolver ceiling that does not exist.
     ScriptBound,
@@ -54,7 +54,7 @@ pub enum Unnamed {
     NotASubject,
     /// A shape no rule here recognises.
     ///
-    /// ⚠ **Counted as a hole deliberately**: nothing has shown it answerable, and every
+    /// Counted as a hole deliberately: nothing has shown it answerable, and every
     /// refusal in this reader errs toward undercounting.
     Unclassified,
 }
@@ -107,7 +107,7 @@ impl Unnamed {
 
 /// Every parameter name a word expands, in the order they appear.
 ///
-/// ⚠ **The word is not the name.** `$d/gate.json`, `${line}` and `/tmp/$X/y` each
+/// The word is not the name. `$d/gate.json`, `${line}` and `/tmp/$X/y` each
 /// carry one name and none of them IS one, so any question asked of the name has to
 /// come through here rather than off the word.
 ///
@@ -128,8 +128,8 @@ pub fn names(word: &str) -> Vec<String> {
 
 /// Classify one unnamed subject, as the text wrote it.
 ///
-/// ⚠ **The order is the whole correctness argument, and two of the four steps are
-/// there because getting them wrong has already happened.**
+/// The order is the whole correctness argument, and two of the four steps are
+/// there because getting them wrong has already happened.
 ///
 /// 1. A word spanning lines is a program body, not a subject. A `jq` filter and a
 ///    TypeScript body both reach this bucket and both can open with a comment;
@@ -153,7 +153,7 @@ pub fn unnamed(word: &str) -> Unnamed {
     if word.contains("$(") || word.contains('`') {
         return Unnamed::Substitution;
     }
-    // ⚠ **Every parameter, not the first** (memview#1455). Resolvability across a word
+    // Every parameter, not the first (memview#1455). Resolvability across a word
     // is a conjunction: `/tmp/$HOME/$f` is unanswerable because `$f` is. The first
     // part the world cannot answer is what the word is.
     let mut answerable = false;

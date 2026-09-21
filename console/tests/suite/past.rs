@@ -72,7 +72,7 @@ fn named(dir: &Path, id: &str, title: Option<&str>, agent: Option<&str>) {
 
 /// A directory of this test's own.
 ///
-/// ⚠ **`name` must be unique across the file, and nothing checks it.** Two tests
+/// `name` must be unique across the file, and nothing checks it. Two tests
 /// sharing one silently share a directory — each `remove_dir_all`s the other's
 /// fixture and whichever writes last wins, so the pair passes alone and fails
 /// perhaps one run in six. It has cost an hour, where the reused name read its
@@ -233,7 +233,7 @@ fn a_conversation_that_ran_in_a_temporary_directory_is_not_listed() {
 
 #[test]
 fn a_conversation_that_is_not_listed_still_exists() {
-    // ⚠ The distinction the housekeeping turns on. `conversations` is a display
+    // The distinction the housekeeping turns on. `conversations` is a display
     // list and hides the probe above; `transcript_ids` is asked which
     // conversations are THERE, by whatever deletes things on the strength of the
     // answer. Confusing the two would have `images::tidy` delete the pictures of
@@ -299,8 +299,8 @@ fn a_conversation_is_shown_by_the_name_it_gave_itself() {
 
     let found = conversations(&root);
     assert_eq!(found.len(), 1);
-    // ⚠ **The title wins here and the agent name wins in the viewer, and that is
-    // the decision rather than an accident.** The reason used to be given as "one
+    // The title wins here and the agent name wins in the viewer, and that is
+    // the decision rather than an accident. The reason used to be given as "one
     // is a decision, the other a default" — a rationale the viewer answered with
     // an equally confident opposite one. Settled by reading the CLI,
     // which carries both orders split by what the name is for: its resume picker
@@ -373,7 +373,7 @@ fn spent(dir: &Path, id: &str, requests: &[(u64, u64, u64)], compacted_after: Op
     }
     std::fs::write(
         folder.join(format!("{id}.jsonl")),
-        // ⚠ With the trailing newline the CLI writes, because `counted` reads
+        // With the trailing newline the CLI writes, because `counted` reads
         // forward a whole line at a time and stops before a partial one — a
         // fixture ending mid-line would hide its own last event from it.
         format!("{}\n", lines.join("\n")),
@@ -451,7 +451,7 @@ fn a_measurement_after_a_compaction_is_the_one_that_counts() {
 
 #[test]
 fn a_live_session_is_told_when_its_fullness_is_gone() {
-    // ⚠ **The incremental read is the only way a running session finds out.**
+    // The incremental read is the only way a running session finds out.
     // The CLI writes the boundary to the file and says nothing on stdout, so a
     // console watching the stream sees a compaction happen as silence. Without
     // this the card keeps the pre-compaction figure until the session finishes
@@ -545,7 +545,7 @@ fn a_session_with_no_transcript_has_no_name_rather_than_a_wrong_one() {
 
 #[test]
 fn a_live_session_is_dated_by_the_transcript_it_is_writing() {
-    // ⚠ **Not by when the console picked it up.** `Summary::started` is when this
+    // Not by when the console picked it up. `Summary::started` is when this
     // process began — carried across an upgrade, reset by a restart — and for a
     // conversation that has run all day it is out by all day: the console's own
     // session read `13h ago` on a card while its transcript was four seconds
@@ -579,7 +579,7 @@ const SPOKE_MS: u64 = 1_785_775_253_605;
 
 #[test]
 fn picking_a_conversation_up_is_not_something_happening_in_it() {
-    // ⚠ **Measured on `scanner`, and it is why the file's own date will not do.**
+    // Measured on `scanner`, and it is why the file's own date will not do.
     // Opened after two days, it appeared as `just now`: resuming appends `mode`,
     // `permission-mode` and `bridge-session` lines, so the file was stamped that
     // second while the last line anybody had written was two days old.
@@ -676,7 +676,7 @@ fn spoken(dir: &Path, id: &str, exchanges: &[usize], compacted_after: Option<usi
     }
     std::fs::write(
         folder.join(format!("{id}.jsonl")),
-        // ⚠ With the trailing newline the CLI writes. A transcript is appended
+        // With the trailing newline the CLI writes. A transcript is appended
         // to a line at a time, and the count reads forward from a line
         // boundary — a fixture ending mid-line would be testing a shape the
         // real files do not have.
@@ -687,7 +687,7 @@ fn spoken(dir: &Path, id: &str, exchanges: &[usize], compacted_after: Option<usi
 
 #[test]
 fn an_exchange_counts_once_however_many_messages_it_took() {
-    // ⚠ **The unit is the exchange, not the message.** The result line's
+    // The unit is the exchange, not the message. The result line's
     // `num_turns` counts the assistant messages one exchange took — measured at
     // 5 and 8 for two real ones — which answers a question nobody asked. Three
     // exchanges of 1, 4 and 2 replies are three, not seven, and not the
@@ -754,7 +754,7 @@ fn signposted(dir: &Path, id: &str) -> std::path::PathBuf {
 
 #[test]
 fn only_the_places_worth_returning_to_are_landmarks() {
-    // ⚠ **The filter is the feature.** Assistant text and tool calls are most of
+    // The filter is the feature. Assistant text and tool calls are most of
     // every transcript and nobody remembers one, so a strip listing them is a
     // strip nobody can find anything in. What a person remembers is what they
     // said, what they sent, and where the conversation was cut.
@@ -821,7 +821,7 @@ fn resuming_a_walk_gives_the_same_answer_as_walking_it_whole() {
 
 #[test]
 fn a_walk_stops_before_a_line_that_is_still_being_written() {
-    // ⚠ **The trap that makes a resumable walk different from a one-shot one.**
+    // The trap that makes a resumable walk different from a one-shot one.
     // The console reads a file another process is appending to, so the tail is
     // routinely half a line of JSON. A one-shot walk can ignore that: the
     // fragment yields nothing and the walk was ending anyway. Resuming cannot —
@@ -863,14 +863,14 @@ fn a_walk_stops_before_a_line_that_is_still_being_written() {
 
 #[test]
 fn the_second_ask_does_not_walk_the_file_again() {
-    // ⚠ **Observed, not timed.** A cache that quietly re-walks passes every test
+    // Observed, not timed. A cache that quietly re-walks passes every test
     // about its ANSWER while delivering none of the saving, and a timing
     // assertion on a 12-line fixture measures noise. So the file's contents are
     // replaced with the same NUMBER of bytes: a walk from the start would find
     // nothing there, and only an answer kept from before can still be right.
     //
-    // ⚠ **It takes BOTH halves of the cache being disabled to fail this, which is
-    // worth knowing before trusting it.** Ablated three ways: dropping the
+    // It takes BOTH halves of the cache being disabled to fail this, which is
+    // worth knowing before trusting it. Ablated three ways: dropping the
     // unchanged-length short circuit passes, because resuming from `through`
     // then reads zero new bytes and returns the same kept list; dropping the
     // resume passes, because the short circuit gets there first. Only with
@@ -904,7 +904,7 @@ fn extending_a_walk_gives_the_same_list_as_walking_it_whole() {
     // The other half: extending must give the same ANSWER as walking the whole
     // file, or the saving is bought with a wrong list.
     //
-    // ⚠ **It pins the answer and NOT the saving, which its first name claimed.**
+    // It pins the answer and NOT the saving, which its first name claimed.
     // Ablated by forcing every walk to start at byte zero: this still passes,
     // because a full walk of a longer file is exactly what it asserts. The test
     // above is the one that says work was avoided.
@@ -932,8 +932,8 @@ fn extending_a_walk_gives_the_same_list_as_walking_it_whole() {
 
 #[test]
 fn a_landmark_lands_on_the_page_that_holds_it() {
-    // ⚠ **The whole point of the cursor, and it is off by one line if it is
-    // wrong.** `page` reads BACKWARDS from the offset it is given, so a cursor
+    // The whole point of the cursor, and it is off by one line if it is
+    // wrong. `page` reads BACKWARDS from the offset it is given, so a cursor
     // at the start of a landmark's line returns the page that stops just before
     // it — tapping your own message and not being shown your own message. The
     // offset is therefore the end of the line, which puts the landmark last on
@@ -990,7 +990,7 @@ fn padded_out(path: &Path, bytes: usize) {
 
 #[test]
 fn a_seed_starts_at_the_last_compaction_and_reaches_the_same_count() {
-    // ⚠ **The equivalence this optimisation rests on.** Reading from zero and
+    // The equivalence this optimisation rests on. Reading from zero and
     // reading from the boundary must be the same answer, because everything
     // before the boundary is thrown away by the reset when the read passes over
     // it. Two compactions, so the *last* one is the one found.
@@ -1033,8 +1033,8 @@ fn a_conversation_that_never_compacted_is_seeded_from_the_start() {
 
 #[test]
 fn the_search_for_the_boundary_widens_past_its_first_window() {
-    // ⚠ **The window is a guess, and this is the case where the guess is
-    // wrong.** With more bulk after the compaction than the first read covers,
+    // The window is a guess, and this is the case where the guess is
+    // wrong. With more bulk after the compaction than the first read covers,
     // a search that gave up there would seed from zero — right, but slowly —
     // and one that read the window as if it were the whole file would drop the
     // fragment at its start and find nothing. Ten megabytes against an eight
@@ -1077,7 +1077,7 @@ fn a_transcript_that_is_not_there_counts_no_exchanges() {
 
 #[test]
 fn a_directory_named_after_the_session_is_not_its_transcript() {
-    // ⚠ Claude Code puts a directory beside the transcript with exactly the same
+    // Claude Code puts a directory beside the transcript with exactly the same
     // name — `<id>/subagents/`, `<id>/tool-results/` — and a directory's file
     // stem is its whole name. Matching on the stem alone found the directory
     // first, and every reader downstream then reported an empty conversation:
@@ -1106,7 +1106,7 @@ fn a_directory_named_after_the_session_is_not_its_transcript() {
 
 #[test]
 fn only_what_arrived_since_the_last_count_is_read_again() {
-    // ⚠ **The whole point, and it was measured before it was written.** This was
+    // The whole point, and it was measured before it was written. This was
     // a whole-file pass at the end of every turn: 2.1 GB and 267,002 lines for
     // the largest transcript on this machine, twenty-four seconds just to read
     // the bytes, in the task that reads that session's stdout. A turn ends by
@@ -1142,7 +1142,7 @@ fn only_what_arrived_since_the_last_count_is_read_again() {
 
 #[test]
 fn the_tail_is_where_a_finished_background_task_is_found() {
-    // ⚠ **Measured, and it is the whole reason this read returns two things.**
+    // Measured, and it is the whole reason this read returns two things.
     // A backgrounded call answers at once with a task id, so the
     // harness's notification is its only end-of-work signal — and that
     // notification is injected as a user message nobody typed, which the CLI
@@ -1161,7 +1161,7 @@ fn the_tail_is_where_a_finished_background_task_is_found() {
         .open(&path)
         .expect("append");
     use std::io::Write;
-    // ⚠ **The queue line, not the user message it later becomes.** Both are real
+    // The queue line, not the user message it later becomes. Both are real
     // and both are here, in the order and with the gap the CLI writes them:
     // enqueued when the work ends, turned into a message only when the turn in
     // progress lets go — measured three minutes apart. Reading only the second
@@ -1185,7 +1185,7 @@ fn the_tail_is_where_a_finished_background_task_is_found() {
 
 #[test]
 fn a_monitor_that_timed_out_is_found_there_too_under_its_other_name() {
-    // ⚠ **This is the path that matters for a monitor, not the live stream.**
+    // This is the path that matters for a monitor, not the live stream.
     // The notification is written to the transcript and never put on stdout, so
     // a running session finds every ending here — including the one kind that
     // cannot name the call it came from. Verbatim from the transcript where
@@ -1269,7 +1269,7 @@ fn conversation(id: &str, name: Option<&str>) -> console::past::Conversation {
     }
 }
 
-/// ⚠ **The defect: three failures returned one value.** `arguments()` gave
+/// The defect: three failures returned one value. `arguments()` gave
 /// `Vec::new()` when `USER` was unset, when `ps` could not run, AND when nothing
 /// was running — so `in_use` said false for every conversation, each read as
 /// free, and a session could be resumed underneath a live process. Two processes
@@ -1284,7 +1284,7 @@ fn a_conversation_is_held_busy_when_the_process_table_cannot_be_asked() {
     assert!(in_use(&it, &Running::Unasked));
 }
 
-/// ⚠ **And the two must not be conflated the other way either.** `ps` answering
+/// And the two must not be conflated the other way either. `ps` answering
 /// with nothing IS an answer — nothing is running — and treating it as a failure
 /// would hold every conversation busy forever, which is a guard that can never
 /// go green.

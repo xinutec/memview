@@ -94,7 +94,7 @@
   // below its widest line, because it is allowed to wrap (see `.counts`). With
   // `max-content` there it could not, and a row with four figures in it crushed
   // the project name to a one-character column.
-  // ⚠ The bar's floor is what stops it being squeezed out of existence. Rendered
+  // The bar's floor is what stops it being squeezed out of existence. Rendered
   // at 390px with four figures beside it, `1fr` of the leftover was two pixels
   // and the row's only ranking cue was gone — while the row below, with fewer
   // figures, drew a full-width bar. A bar that exists only when there is spare
@@ -109,9 +109,9 @@
 
   .project {
     font: var(--mat-sys-body-small);
-    // ⚠ **`anywhere`, which this was, breaks between any two letters — and it
+    // `anywhere`, which this was, breaks between any two letters — and it
     // shrinks the element's min-content width to ONE CHARACTER, so the grid
-    // column above may legally be crushed to that.** Rendered at 390px it drew
+    // column above may legally be crushed to that. Rendered at 390px it drew
     // `health` as six stacked letters down the side of its own bar. `break-word`
     // keeps the min-content width at the whole word, so the column cannot
     // collapse, while a genuinely unbroken monster of a name still breaks rather

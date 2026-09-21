@@ -50,11 +50,11 @@
 //!     catching it would mean validating JavaScript syntax, which
 //!     `javascript.pest` declines to do by design.
 //!
-//! ⚠ **The instrument has a known blind spot, and it is not a small one.** Node
+//! The instrument has a known blind spot, and it is not a small one. Node
 //! cannot check TypeScript, so `--all` will always show `tsx` programs as
 //! refused. Read the nine, do not just count them.
 //!
-//! ⚠ **Run it both ways after touching `did_not_run`.** Without `--all` this
+//! Run it both ways after touching `did_not_run`. Without `--all` this
 //! prints what the reader discards, and node says whether any of it should have
 //! been kept — a single acceptance there is a defect, not a tuning question.
 //! With `--all` it prints everything, and node says what the reader *kept* that

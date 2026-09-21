@@ -2,13 +2,13 @@
 //!
 //!     cargo run --release --bin transcript-drift          # record, or compare
 //!
-//! ⚠ **This is the evidence a resumable mine rests on.** Making the mine cheap means
+//! This is the evidence a resumable mine rests on. Making the mine cheap means
 //! reading only what was appended, and that is sound only if the CLI appends. It
 //! reads like it does not: the CLI writes earlier stretches of a conversation back
 //! into the same file. But those copies are appended, tens of megabytes apart, and
 //! the prefix does not move (memview#1240).
 //!
-//! ⚠ **A wrong resume is SILENT.** It mines from an offset that means something else
+//! A wrong resume is SILENT. It mines from an offset that means something else
 //! and reports no error, so the claim has to keep being checked rather than
 //! established once. Two files watched for twenty-five minutes is where this started;
 //! this makes it the whole corpus, repeatably.
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let at = reader::home::cache("transcript-drift.json");
-    // ⚠ **An absent file and an unreadable one are different answers.** Absent
+    // An absent file and an unreadable one are different answers. Absent
     // is a legitimate first run. Unreadable is a lost baseline, and defaulting
     // it to empty would print "first run: recorded 1156" and re-record — the
     // comparison silently gone, in the one tool whose whole job is to notice
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
                     grew += 1;
                     appended_bytes += by;
                 }
-                // ⚠ These two are the whole point of the tool. Either one means
+                // These two are the whole point of the tool. Either one means
                 // a resumed read would have started in the wrong place.
                 Drift::Rewritten => rewritten.push(key.clone()),
                 Drift::Shrank => shrank.push(key.clone()),
@@ -70,8 +70,8 @@ fn main() -> Result<()> {
         }
     }
 
-    // ⚠ **What a resumable mine WOULD do tonight, printed beside the drift it is
-    // built on.** The guard is all-or-nothing — one unresumable file discards
+    // What a resumable mine WOULD do tonight, printed beside the drift it is
+    // built on. The guard is all-or-nothing — one unresumable file discards
     // every carried artefact — so the question that decides whether resuming is
     // worth anything is how often that fires in practice, and the only honest
     // way to answer it is against this corpus, nightly, over time.

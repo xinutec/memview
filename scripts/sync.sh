@@ -74,8 +74,8 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
 
 # Push one derived artefact: compressed on the wire, renamed into place.
 #
-# ⚠ **Compressed, and the corpus beside it has been since the day this was
-# written.** These are JSON with the same field names on every row, which is
+# Compressed, and the corpus beside it has been since the day this was
+# written. These are JSON with the same field names on every row, which is
 # exactly what a compressor eats: the largest of them shrinks by most of an
 # order of magnitude in under a second. The alternative on the table was
 # re-encoding the rows as positional arrays — which saves a little raw and, once
@@ -85,13 +85,13 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
 # was that all four of these skipped the compression `tar -czf` already gives
 # /corpus — 61 MB of JSON going up uncompressed beside a tarred corpus.
 #
-# ⚠ **Written to a temp and renamed**, because the app re-reads these on demand
+# Written to a temp and renamed, because the app re-reads these on demand
 # and truncate-then-write leaves a window in which the file on disk is not valid
 # JSON — [[reference_write_then_rename_or_the_reader_sees_half]]. Both names are
 # on /state, so the rename is within one filesystem and therefore atomic.
 push_json() {
   local what=$1 from=$2 to=$3
-  # ⚠ `${what}`, braced. `"$what…"` made bash read the ellipsis's bytes as part
+  # `${what}`, braced. `"$what…"` made bash read the ellipsis's bytes as part
   # of the NAME and die on `what…: unbound variable` — the high bytes count as
   # alphabetic in this locale. Every other message here is a literal, so this is
   # the first line in the file where a variable met one of its own ellipses.
@@ -140,7 +140,7 @@ else
   echo "no effects at $EFFECTS — skipping (mine it with: cargo run --release --bin agents)"
 fi
 
-# ⚠ **COMMAND TEXT IS PUSHED NOW, and once none was.** The note that
+# COMMAND TEXT IS PUSHED NOW, and once none was. The note that
 # stood here said "no transcript TEXT is pushed, and there is no artefact
 # carrying any". Half of that is no longer true and the half that is still holds,
 # so it is worth being exact about which.

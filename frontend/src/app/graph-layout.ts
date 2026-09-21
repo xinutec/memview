@@ -159,8 +159,8 @@ const AFFINITY_SPRING = 0.04;
  * them to the same distance as a stated link would claim more than the evidence
  * supports.
  *
- * ⚠ **The spring is one-sided: it pulls a far pair in and does NOTHING to a
- * near one.** Co-use is evidence two memories belong near each other; it is no
+ * The spring is one-sided: it pulls a far pair in and does NOTHING to a
+ * near one. Co-use is evidence two memories belong near each other; it is no
  * evidence they must sit exactly this far apart. A two-sided spring at this
  * rest fought the links — 51.5% of the pulling pairs are also linked
  * (memview#1307), a link holds its pair at REST_LENGTH 26, inside this rest,
@@ -433,7 +433,7 @@ export interface Framing {
  * unfocused view.
  */
 /**
- * ⚠ **`view` picks WHICH fit.** With the camera's angles the frame is the
+ * `view` picks WHICH fit. With the camera's angles the frame is the
  * projected bounding box ([`fitBox`]) and fills both dimensions; without them
  * only the angle-independent bounding sphere is available ([`fitZoom`]), which
  * wastes the narrower one. The sphere is not wrong, it is what can be computed
@@ -530,19 +530,19 @@ export function fitZoom(radius: number, width: number, height: number, margin = 
  * The zoom that frames the same nodes against the projected BOUNDING BOX rather
  * than a bounding sphere.
  *
- * ⚠ **A sphere fits the wider extent and wastes the narrower one**
+ * A sphere fits the wider extent and wastes the narrower one
  * (memview#1306c). [`fitZoom`] divides `min(width, height)` by ONE radius, so a
  * blob that projects wider than it is tall — which this corpus does — fills the
  * binding dimension and leaves the other empty. Measured on the cold `/graph`
  * view at phone width: about a third of the canvas empty above and below.
  *
- * ⚠ **Exact rather than iterative, because the projection is LINEAR in zoom.**
+ * Exact rather than iterative, because the projection is LINEAR in zoom.
  * [`project`] computes `scale = zoom * distance / depth`, and `depth` does not
  * depend on zoom — so a node's offset from the centre is proportional to it.
  * Measuring each offset at `zoom: 1` gives the reach per unit of zoom, and the
  * fit is then a division.
  *
- * ⚠ **Measured THROUGH [`project`], not by repeating its arithmetic.** A second
+ * Measured THROUGH [`project`], not by repeating its arithmetic. A second
  * copy of the rotation would be a fit that drifts from what is drawn, and two
  * implementations of one idea disagreeing silently is the failure this module is
  * careful about everywhere else.
@@ -965,7 +965,7 @@ export const UNSECTIONED_COLOUR = 'hsl(0 0% 60%)';
  * at degree >= 10 the live corpus drew ~25 labels that collided into unreadable
  * stacks. A fixed budget keeps the picture legible whatever the corpus does.
  *
- * ⚠ It bounds what is drawn, not what is considered — see `planLabels`. Bounding
+ * It bounds what is drawn, not what is considered — see `planLabels`. Bounding
  * the candidates instead spent the budget on labels that were then dropped for
  * colliding, and the live corpus rendered 6 of its 10.
  */
@@ -1067,7 +1067,7 @@ export function planLabels(
   const ranked = candidates
     .filter((c) => !c.pinned)
     .sort((a, b) => b.radius - a.radius || b.degree - a.degree);
-  // ⚠ **The budget caps labels DRAWN, not candidates considered.** Slicing the
+  // The budget caps labels DRAWN, not candidates considered. Slicing the
   // ranked list at `budget` and then losing some of that slice to collisions and
   // canvas edges left the picture quieter than the budget allows, with nothing
   // taking the dropped ones' place: the live corpus asked for 10 and rendered 6.
@@ -1167,7 +1167,7 @@ export interface GroupNode {
   /**
    * The most-connected member, and the REAL memory this group's dot stands on.
    *
-   * ⚠ **This is what lets an overview stay made of memories.** A group is not a
+   * This is what lets an overview stay made of memories. A group is not a
    * memory — it has no description, teaser or role — so a dot invented for it
    * would break the moment anyone clicked it, which is the failure this repo
    * keeps recording. Anchoring the dot on a member that genuinely exists means
@@ -1202,7 +1202,7 @@ export interface GroupGraph {
   /**
    * Memories the grouping placed nowhere.
    *
-   * ⚠ **Counted and named, never quietly bucketed.** Measured: 389 of
+   * Counted and named, never quietly bucketed. Measured: 389 of
    * 734 memories carry no authored `##` section, because the index holds 349
    * entries for a 734-memory corpus and memview#1210 has now CLOSED the index at
    * its ceiling — so this is a majority, and a permanent one.
@@ -1218,7 +1218,7 @@ export interface GroupGraph {
 /**
  * Collapse the memory graph into one node per group, for the overview.
  *
- * ⚠ **The grouping is a PARAMETER, not a choice made here.** memview#1306 has an
+ * The grouping is a PARAMETER, not a choice made here. memview#1306 has an
  * open question about whether the overview's dots come from MEMORY.md's authored
  * `##` headings — a top level a human writes and can override — or from the
  * derived link clusters, which cover the whole corpus but impose an algorithm's
@@ -1226,7 +1226,7 @@ export interface GroupGraph {
  * agree 55% of the time. This is written to be correct under either answer, so
  * the question can be settled without rewriting it.
  *
- * ⚠ **A self-link is internal; a link to an ungrouped memory is neither.** Both
+ * A self-link is internal; a link to an ungrouped memory is neither. Both
  * fold into the cross-group count by accident if unhandled, which would draw a
  * group as connected to something the reader cannot follow.
  *
@@ -1255,7 +1255,7 @@ export function groupGraph(
   }
 
   const internal = new Map<string, number>();
-  // ⚠ **The pair is carried in the VALUE, not encoded into the key.** Packing it
+  // The pair is carried in the VALUE, not encoded into the key. Packing it
   // into the key means unpacking it again, and every way of doing that either
   // asserts a shape back out of `any` — which `no-unsafe-type-assertion` refuses,
   // correctly — or picks a separator that a group name is free to contain. A
@@ -1272,7 +1272,7 @@ export function groupGraph(
       continue;
     }
     const [source, target] = a < b ? [a, b] : [b, a];
-    // ⚠ A NUL separator, spelled as an ESCAPE. A space would collide — a group
+    // A NUL separator, spelled as an ESCAPE. A space would collide — a group
     // key here is an authored `##` heading and `Rules — code & verify` holds
     // several — but a raw NUL byte in the source is invisible to every reader and
     // to grep.
@@ -1312,7 +1312,7 @@ export function groupGraph(
 /**
  * Marks a group name this code invented, as opposed to one Pippijn wrote.
  *
- * ⚠ **The two kinds of dot must stay tellable apart.** An authored `##` heading
+ * The two kinds of dot must stay tellable apart. An authored `##` heading
  * is a claim a person made and maintains; a derived group is a clustering's
  * opinion, and `feedback_no_user_edits_of_algorithm_output` says he does not
  * hand-edit those. A picture that presented them identically would invite exactly
@@ -1333,7 +1333,7 @@ const SECTION_SPLIT = ' — ';
  * dots, and at label size the shared `Rules — ` is most of the characters in
  * four of them — so even when two are drawn the eye cannot tell which is which.
  *
- * ⚠ **Shortened only when the parent is a region of its own.** Then the family
+ * Shortened only when the parent is a region of its own. Then the family
  * still reads as one — `Rules` beside `code & verify` — and the context the
  * prefix carried is on screen rather than deleted. A heading whose parent is not
  * drawn keeps its full name, because nothing else would supply it.
@@ -1354,7 +1354,7 @@ export function regionLabels(keys: readonly string[]): Map<string, string> {
  * Where each memory belongs in the overview: the authored section if it has one,
  * otherwise the derived cluster it fell into.
  *
- * ⚠ **Why a hybrid at all, measured on the live 734-node corpus.** The
+ * Why a hybrid at all, measured on the live 734-node corpus. The
  * authored `##` headings cover 47% of memories — `section` is assigned by walking
  * MEMORY.md, which indexes 349 of 734 — and memview#1210 has now CLOSED the index
  * at its ceiling, so the uncovered majority is permanent and grows. The four
@@ -1368,7 +1368,7 @@ export function regionLabels(keys: readonly string[]): Map<string, string> {
  *                                deliberately rejected
  *     hybrid (this)              29 groups, covers all, largest 63, no blob
  *
- * ⚠ **Its cost, stated rather than discovered later: 29 groups and 202 edges**,
+ * Its cost, stated rather than discovered later: 29 groups and 202 edges,
  * against a `READABLE_CLUSTERS` target that picks the 20-rung on this corpus. If
  * the picture is too dense the lever is `rung` below — NOT falling back to a
  * shape that hides half the corpus.
@@ -1402,7 +1402,7 @@ export function hybridGroups(
       continue;
     }
     const fallback = derived.get(name);
-    // ⚠ A memory in NO cluster and NO section still needs a home, or the overview
+    // A memory in NO cluster and NO section still needs a home, or the overview
     // silently loses it — which is the failure the authored-only shape was
     // rejected for. A singleton cluster is the honest answer: it belongs with
     // nothing, and saying so is the point.

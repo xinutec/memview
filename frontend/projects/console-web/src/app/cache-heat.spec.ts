@@ -7,7 +7,7 @@ const at = (minutes: number): number => NOW - minutes * 60_000;
 
 describe('withinCacheHour', () => {
   it('stops at the hour, because that is when the decision is gone', () => {
-    // ⚠ Not clamped-and-shown: a red clock on a session whose cache went hours
+    // Not clamped-and-shown: a red clock on a session whose cache went hours
     // ago warns about something nobody can still act on, and would sit red on
     // every idle row until it read as decoration.
     expect(withinCacheHour(at(59), NOW)).toBe(true);
@@ -22,7 +22,7 @@ describe('withinCacheHour', () => {
 
 describe('cacheStops', () => {
   it('lands the three colours on the minutes they are named for', () => {
-    // ⚠ The whole point of the two legs. Yellow is complete at 20 and the
+    // The whole point of the two legs. Yellow is complete at 20 and the
     // yellow-to-red sweep is half done at 40, which is where orange is.
     expect(cacheStops(at(20), NOW)).toEqual({ warm: 1, hot: 0 });
     expect(cacheStops(at(40), NOW).hot).toBeCloseTo(0.5);

@@ -6,7 +6,7 @@
 //! early, and the memories below the cut are indistinguishable from memories nobody
 //! wrote.
 //!
-//! ⚠ **This is computed from the file, not mined from a transcript.** The injected
+//! This is computed from the file, not mined from a transcript. The injected
 //! copy arrives in the system prompt, which no transcript entry carries. Recovering
 //! the cut from the record is therefore impossible, and recomputing it is better
 //! than mining would have been: it is a pure function of the file.
@@ -14,7 +14,7 @@
 /// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
 /// warning text.
 ///
-/// ⚠ **MEASURED, and it was a guess before that.** Claude Code prints the size and
+/// MEASURED, and it was a guess before that. Claude Code prints the size and
 /// the limit in the same units — `MEMORY.md is 25.7KB (limit: 24.4KB)` — so the only
 /// question was which kilobyte, and the file's own git history answers it. Every size
 /// the root has ever had, against the two readings of the two values the harness has
@@ -29,7 +29,7 @@
 /// the binary reading neither corresponds to any size the file has ever been. **So
 /// the limit is 24,400 bytes and this is the edge, not a warning line.**
 ///
-/// ⚠ **The corpus header's bracket is FALSIFIED by this** — it reads as though the
+/// The corpus header's bracket is FALSIFIED by this — it reads as though the
 /// limit sits between two observed sizes. The upper one is real; the lower is not,
 /// because the whole-arrival was measured under the limit and brackets nothing.
 pub const INDEX_CEILING: usize = 24_400;
@@ -57,7 +57,7 @@ impl Cut<'_> {
 
 /// The largest prefix of whole lines that fits under `ceiling`.
 ///
-/// ⚠ **Whole lines, which over-reports the loss by at most one partial line.** Whether
+/// Whole lines, which over-reports the loss by at most one partial line. Whether
 /// the harness cuts on a line boundary or at an exact byte is not established, and a
 /// byte cut would deliver one more fragment than this reports. Erring that way is the
 /// right direction — a half-delivered index line names a memory whose teaser is
