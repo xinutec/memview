@@ -323,7 +323,13 @@ $add-bottom: 2.5rem;
 // Something written and not sent. Neutral, which puts it with the task tally
 // rather than the state words: `.tasks` is primary and `.unread` tertiary, both
 // green here, and a third green was swallowed by the run.
+// Only ever drawn when there IS one, so it sits on the loud side of the
+// distinction `.list` already makes: variant while a count is empty, on-surface
+// once the row is holding something. NOT the accent — `.tasks.past` gives green
+// up for the reason it would bite here too (#879): it reads as busy before it is
+// read, and a draft is not the session working. Tertiary is no escape from that
+// in this theme; it resolves to the same value as primary.
 .draft {
   font: var(--mat-sys-label-small);
-  color: var(--mat-sys-on-surface-variant);
+  color: var(--mat-sys-on-surface);
 }
