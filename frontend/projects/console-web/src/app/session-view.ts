@@ -34,6 +34,7 @@ import { Lasted } from './lasted';
 import { modelName } from './model';
 import { type Entry, type Summary, type ToolCall } from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { Notice, NoticeBar, notice } from './notice';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
 import { PictureSheet } from './picture-sheet';
@@ -51,7 +52,15 @@ import { Updates } from './updates';
   templateUrl: './session-view.html',
   styleUrl: './session-view.scss',
   host: { '(click)': 'tapped($event)' },
-  imports: [Composer, EntryRow, Lasted, MatButtonModule, MatIconModule, MatProgressBarModule],
+  imports: [
+    Composer,
+    EntryRow,
+    Lasted,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    NoticeBar,
+  ],
 })
 export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
@@ -69,7 +78,6 @@ export class SessionView implements OnDestroy {
   private readonly injector = inject(Injector);
 
   readonly updateWaiting = inject(Updates).waiting;
-  readonly unreachable = this.roster.unreachable;
 
   // What the store holds for this conversation, and what is derived from it.
   private readonly held = signal<Held | undefined>(undefined);
@@ -78,9 +86,16 @@ export class SessionView implements OnDestroy {
   readonly blocks = computed<Block[]>(() => blocks(this.entries()));
   readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
   readonly adrift = computed(() => this.held()?.adrift() ?? false);
-  readonly stale = computed(() => this.held()?.stale() ?? false);
-  /** The stream has been down long enough that what is below may be behind. */
-  readonly dropped = computed(() => this.held()?.dropped() ?? false);
+  /** What is below came off this phone, not the conversation. See [[Kept]]. */
+  readonly kept = computed(() => this.held()?.source() === 'kept');
+  /** The one thing worth saying about the link, of the three that might be. */
+  readonly notice = computed<Notice | undefined>(() =>
+    notice({
+      acting: this.trouble(),
+      runner: this.roster.notice(),
+      stream: this.held()?.link.worth(),
+    }),
+  );
   readonly doing = computed(
     () => this.held()?.doing() ?? (this.held()?.spoken() ? undefined : this.session()?.busy),
   );

@@ -1,0 +1,9 @@
+<div class="notice" [class.quiet]="said().quiet" [attr.role]="said().quiet ? 'status' : 'alert'">
+  <mat-icon>{{ said().icon }}</mat-icon>
+  <p>
+    @if (said().lead; as lead) {
+      <strong>{{ lead }}</strong>
+    }
+    <span>{{ said().what }}</span>
+  </p>
+</div>

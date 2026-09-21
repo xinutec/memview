@@ -5,6 +5,7 @@ import { ConsoleApi } from './console-api';
 import { unhandled } from './exhaustive';
 import { Kept } from './kept';
 import { Entry, Timed } from './models';
+import { Patience } from './patience';
 import { fold } from './transcript';
 
 /**
@@ -12,13 +13,6 @@ import { fold } from './transcript';
  * of the last few things looked at, not a cache of everything.
  */
 const KEPT = 4;
-
-/**
- * How long the stream must be CONTINUOUSLY disconnected before the reader is told.
- * Comfortably past the browser's own retry, measured at about three seconds, so an
- * ordinary reconnect never raises a warning.
- */
-const DROPPED_AFTER_MS = 8000;
 
 /** One session's transcript, and the reader's place in it. */
 export interface Held {
@@ -52,33 +46,21 @@ export interface Held {
    */
   readonly live: WritableSignal<boolean>;
   /**
-   * Whether what is on screen is a copy kept on this phone rather than the
-   * conversation itself — true only between opening a session the Mac cannot be
-   * reached for and the transcript arriving. See [[Kept]].
+   * Where what is on screen came from. `kept` is the copy this phone last saw,
+   * shown only between opening a session the Mac cannot be reached for and the
+   * conversation itself arriving — and never written back. See [[Kept]].
    */
-  readonly stale: WritableSignal<boolean>;
+  readonly source: WritableSignal<'stream' | 'kept'>;
   /**
-   * Whether the stream is connected right now. The browser retries on its own; this
-   * decides whether the kept copy is worth offering.
+   * Whether the stream has been down long enough to say so, and the raw state
+   * behind that — see [[Patience]].
    *
-   * ⚠ **Not what to draw.** It goes true for a moment every time the browser
-   * reconnects — measured in the phone-width harness, whose mocked stream ends at
-   * once and comes back about every three seconds, five times in fifteen. A marker
-   * on this would blink at a reader whose connection is fine. See [dropped].
-   */
-  readonly offline: WritableSignal<boolean>;
-  /**
-   * Whether the stream has been down long enough to say so: [DROPPED_AFTER_MS]
-   * disconnected without a single event arriving.
-   *
-   * The gap this fills is a stream that stays dead while the poll behind the roster
+   * The gap it fills is a stream that stays dead while the poll behind the roster
    * keeps answering. Then the list looks healthy, nothing is said, and the
    * transcript simply stops — which on screen is indistinguishable from a session
    * that is thinking.
    */
-  readonly dropped: WritableSignal<boolean>;
-  /** Counting down to [dropped], while it is. */
-  patience?: ReturnType<typeof setTimeout>;
+  readonly link: Patience;
   /**
    * Whether the reader has jumped away from the live end. Only
    * [[SessionStore.goTo]] sets this and only [[SessionStore.rejoin]] clears it: it
@@ -124,7 +106,7 @@ export class SessionStore {
     const watching = this.api.follow(id, held.seen).subscribe((from) => {
       switch (from.kind) {
         case 'event':
-          this.connected(held);
+          held.link.right();
           this.take(id, held, from.event, from.seq);
           break;
         // Only when the runner says the stream starts again — see [[ConsoleApi]].
@@ -134,16 +116,15 @@ export class SessionStore {
           break;
         // The replay is over; what follows is happening — see [Held.live].
         case 'caught-up':
-          this.connected(held);
+          held.link.right();
           held.live.set(true);
           break;
         // The one moment a kept copy is wanted. Asked for here it races nothing: the
         // conversation is known not to be arriving.
         case 'offline':
-          held.offline.set(true);
-          // Armed here and cancelled by the next event, so a stream that keeps
-          // reconnecting never reaches it.
-          held.patience ??= setTimeout(() => held.dropped.set(true), DROPPED_AFTER_MS);
+          // Timed from here and cancelled by the next event, so a stream that keeps
+          // reconnecting never reaches the banner.
+          held.link.wrong({ kind: 'stream' });
           void this.hydrate(id, held);
           break;
         default:
@@ -163,9 +144,9 @@ export class SessionStore {
    */
   private async hydrate(id: string, held: Held): Promise<void> {
     const copy = await this.kept.entries(id);
-    if (!copy.length || held.entries().length || held.seen > 0 || !held.offline()) return;
+    if (!copy.length || held.entries().length || held.seen > 0 || !held.link.troubled) return;
     held.entries.set(copy);
-    held.stale.set(true);
+    held.source.set('kept');
   }
 
   /**
@@ -178,11 +159,10 @@ export class SessionStore {
     held.close?.();
     held.close = undefined;
     // Not reading it any more, so a drop is nothing to report.
-    clearTimeout(held.patience);
-    held.patience = undefined;
+    held.link.right();
     // Flushed on the way out, past the throttle: leaving is the moment a copy is
     // most likely to be wanted next.
-    if (!held.stale()) this.kept.keepNow(id, held.entries());
+    if (held.source() === 'stream') this.kept.keepNow(id, held.entries());
   }
 
   /**
@@ -241,14 +221,6 @@ export class SessionStore {
     return this.open(id);
   }
 
-  /** Anything arriving means the stream is up: the count stops and the marker goes. */
-  private connected(held: Held): void {
-    held.offline.set(false);
-    held.dropped.set(false);
-    clearTimeout(held.patience);
-    held.patience = undefined;
-  }
-
   private fresh(id: string): Held {
     const held: Held = {
       entries: signal<Entry[]>([]),
@@ -257,9 +229,8 @@ export class SessionStore {
       since: signal<number | undefined>(undefined),
       spoken: signal(false),
       live: signal(false),
-      stale: signal(false),
-      offline: signal(false),
-      dropped: signal(false),
+      source: signal<'stream' | 'kept'>('stream'),
+      link: new Patience(),
       adrift: signal(false),
       seen: 0,
       used: ++this.clock,
@@ -275,9 +246,9 @@ export class SessionStore {
       held.cursor.set(event.from);
       // The conversation itself has started arriving, so the copy has done its job.
       // Emptied, not appended to: the seed is the same entries over again.
-      if (held.stale()) {
+      if (held.source() === 'kept') {
         held.entries.set([]);
-        held.stale.set(false);
+        held.source.set('stream');
       }
     }
     // Only ever forward: unnumbered events arrive as 0.
@@ -303,7 +274,7 @@ export class SessionStore {
     held.entries.update((entries) => fold(entries, event));
     // Throttled inside, and not done on leaving instead: a phone stops reading when
     // the tunnel drops or the app is killed, and neither runs code here.
-    if (!held.stale()) this.kept.keep(id, held.entries());
+    if (held.source() === 'stream') this.kept.keep(id, held.entries());
   }
 
   /**
@@ -313,7 +284,7 @@ export class SessionStore {
    * page showed a timer running for as long as it was left open.
    */
   private forget(held: Held): void {
-    this.connected(held);
+    held.link.right();
     held.entries.set([]);
     held.cursor.set(0);
     held.seen = 0;
@@ -321,7 +292,7 @@ export class SessionStore {
     held.since.set(undefined);
     held.spoken.set(false);
     held.live.set(false);
-    held.stale.set(false);
+    held.source.set('stream');
   }
 
   /**

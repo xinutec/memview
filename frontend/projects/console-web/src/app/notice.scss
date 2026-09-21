@@ -1,0 +1,28 @@
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+
+  p {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+  }
+
+  strong {
+    margin-inline-end: 0.3rem;
+  }
+}
+
+// The transcript being behind is not an error: the browser is already mending it.
+.notice.quiet {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  outline: 1px solid var(--mat-sys-outline-variant);
+  outline-offset: -1px;
+}

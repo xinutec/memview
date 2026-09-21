@@ -15,9 +15,8 @@
   </p>
 }
 
-@if (trouble() || unreachable(); as what) {
-  <!-- An action's failure wins the line: the more specific, and the one just caused. -->
-  <p class="trouble">{{ what }}</p>
+@if (notice(); as what) {
+  <app-notice [notice]="what" />
 }
 
 @if (anyInUse()) {

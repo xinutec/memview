@@ -3,7 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import type { Overview } from './models';
-import { Reach } from './reach';
+import { Patience } from './patience';
 import { Updates } from './updates';
 
 /** How often the runner is asked what it is holding. */
@@ -19,17 +19,17 @@ const EVERY_MS = 5000;
 export class Roster {
   private api = inject(ConsoleApi);
   private updates = inject(Updates);
-  /** How patient the banner is. Its own, because there is exactly one poll. See [[Reach]]. */
-  private reach = new Reach();
+  /** How patient the banner is. Its own, because there is exactly one poll. */
+  private readonly patience = new Patience();
 
   /** The last answer, or nothing before the first one. */
   readonly state = signal<Overview | undefined>(undefined);
 
   /**
-   * Why the runner cannot be reached, once it has missed enough polls to be worth
-   * saying — see [[Reach]].
+   * Why the runner cannot be reached, once it has been silent long enough to be
+   * worth saying — see [[Patience]].
    */
-  readonly unreachable = signal('');
+  readonly notice = this.patience.worth;
 
   private timer?: ReturnType<typeof setInterval>;
   private readers = 0;
@@ -59,10 +59,9 @@ export class Roster {
       next: (state) => {
         this.state.set(state);
         this.updates.saw(state.bundle);
-        this.unreachable.set(this.reach.answered());
+        this.patience.right();
       },
-      error: (err: unknown) =>
-        this.unreachable.set(this.reach.failed(`cannot reach the runner: ${reason(err)}`)),
+      error: (err: unknown) => this.patience.wrong({ kind: 'runner', what: reason(err) }),
     });
   }
 }

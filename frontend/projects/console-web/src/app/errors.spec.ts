@@ -24,7 +24,7 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
     // us looking at the Mac, the tunnel and isis while the answer was in the
     // phone's own log.
     const said = reason(failed(0));
-    expect(said).toContain('no answer');
+    expect(said).toContain('unlocking');
     // Both named before either is ordered — `indexOf` returns -1 for a word that
     // is missing, so the comparison below passes vacuously without these.
     expect(said).toContain('phone');
@@ -34,11 +34,11 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
   });
 
   it('does not mistake an empty body for an explanation', () => {
-    expect(reason(failed(0, '   '))).toContain('no answer');
+    expect(reason(failed(0, '   '))).toContain('unlocking');
   });
 
   it('reports any other status as the runner answering', () => {
-    expect(reason(failed(503))).toBe('the runner answered 503');
+    expect(reason(failed(503))).toBe('The runner answered 503.');
   });
 
   it('takes unknown and narrows, rather than stringifying an object', () => {
@@ -46,7 +46,7 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
     // `cannot reach the runner: [object Object]` in front of the user — which
     // says nothing, and looks like a bug in the app rather than a sleeping Mac.
     expect(reason(new Error('the socket closed'))).toBe('the socket closed');
-    expect(reason({ nothing: 'useful' })).toBe('something went wrong');
-    expect(reason(undefined)).toBe('something went wrong');
+    expect(reason({ nothing: 'useful' })).toBe('Something went wrong.');
+    expect(reason(undefined)).toBe('Something went wrong.');
   });
 });

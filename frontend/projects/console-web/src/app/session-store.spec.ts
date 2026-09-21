@@ -276,7 +276,7 @@ describe('SessionStore', () => {
   describe('a stream that drops', () => {
     // ⚠ **The browser retries on its own, about every three seconds** — measured
     // against the phone-width harness, whose mocked stream ends at once and was
-    // re-requested five times in fifteen seconds. So a marker on `offline` itself
+    // re-requested five times in fifteen seconds. So a marker on the raw state
     // would blink at a reader whose connection is fine. What is drawn is
     // CONTINUOUS loss.
     //
@@ -291,25 +291,25 @@ describe('SessionStore', () => {
       // ORDINARY case, not news.
       const held = store.open('s1');
       runner.latest.offline();
-      expect(held.dropped(), 'warned the instant the stream dropped').toBe(false);
+      expect(held.link.worth(), 'warned the instant the stream dropped').toBeUndefined();
       vi.advanceTimersByTime(3000);
-      expect(held.dropped(), 'warned while the browser was still retrying').toBe(false);
+      expect(held.link.worth(), 'warned while the browser was still retrying').toBeUndefined();
     });
 
     it('says so once the stream has been down long enough', () => {
       const held = store.open('s1');
       runner.latest.offline();
       vi.advanceTimersByTime(8000);
-      expect(held.dropped()).toBe(true);
+      expect(held.link.worth()).toEqual({ kind: 'stream' });
     });
 
     it('takes it back the moment anything arrives', () => {
       const held = store.open('s1');
       runner.latest.offline();
       vi.advanceTimersByTime(8000);
-      expect(held.dropped()).toBe(true);
+      expect(held.link.worth()).toEqual({ kind: 'stream' });
       runner.latest.send({ at: 2, kind: 'text', text: 'back' }, 1);
-      expect(held.dropped(), 'the marker outlived the reconnection').toBe(false);
+      expect(held.link.worth(), 'the marker outlived the reconnection').toBeUndefined();
     });
 
     it('starts the count again rather than carrying it, on a second drop', () => {
@@ -319,9 +319,9 @@ describe('SessionStore', () => {
       runner.latest.send({ at: 1, kind: 'text', text: 'briefly back' }, 1);
       runner.latest.offline();
       vi.advanceTimersByTime(5000);
-      expect(held.dropped(), 'the first drop’s count was still running').toBe(false);
+      expect(held.link.worth(), 'the first drop’s count was still running').toBeUndefined();
       vi.advanceTimersByTime(3000);
-      expect(held.dropped()).toBe(true);
+      expect(held.link.worth()).toEqual({ kind: 'stream' });
     });
 
     it('does not count down for a transcript nobody is reading', () => {
@@ -331,7 +331,7 @@ describe('SessionStore', () => {
       runner.latest.offline();
       store.leave('s1');
       vi.advanceTimersByTime(60_000);
-      expect(held.dropped()).toBe(false);
+      expect(held.link.worth()).toBeUndefined();
     });
   });
 });

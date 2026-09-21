@@ -48,21 +48,13 @@
     </div>
   }
 }
-@if (trouble() || unreachable(); as what) {
-  <p class="trouble">{{ what }}</p>
+<!-- One line about the connection, ranked — see `notice`. Above the kept-copy
+     card, which says something else: that is about what is on screen, and this is
+     about the link. -->
+@if (notice(); as what) {
+  <app-notice [notice]="what" />
 }
-<!-- Below the kept-copy card and above the reader's own place: this is about the
-     connection, where `adrift` is about where they have scrolled to. -->
-@if (dropped()) {
-  <div class="deaf adrift" role="status">
-    <mat-icon>cloud_off</mat-icon>
-    <div class="what">
-      <strong>Not live.</strong>
-      <span>The stream dropped, so anything said since is not below yet.</span>
-    </div>
-  </div>
-}
-@if (stale()) {
+@if (kept()) {
   <div class="deaf adrift" role="status">
     <mat-icon>cloud_off</mat-icon>
     <div class="what">

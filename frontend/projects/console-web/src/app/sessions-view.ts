@@ -17,6 +17,7 @@ import { Foreground } from './foreground';
 import { Conversation, Gist, Holder, Summary, TaskCount } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { Notice, NoticeBar, notice } from './notice';
 import { placeOf, titleOf } from './naming';
 import { fullness, tokens } from './tokens';
 import { Updates } from './updates';
@@ -92,6 +93,7 @@ const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
+    NoticeBar,
     UsageStrip,
   ],
 })
@@ -110,11 +112,14 @@ export class SessionsView {
   readonly state = this.roster.state;
   readonly trouble = signal('');
   /**
-   * The last poll's verdict on whether the Mac is reachable. Separate from
-   * [trouble] because the two have opposite lifetimes: a failed action stays true
-   * until retried, a failed poll is superseded five seconds later.
+   * The one thing worth saying about the link. A failed action beats a failing
+   * poll: the two have opposite lifetimes — a failed action stays true until it is
+   * retried, a failed poll is superseded five seconds later — and it is the one
+   * the reader just caused.
    */
-  readonly unreachable = this.roster.unreachable;
+  readonly notice = computed<Notice | undefined>(() =>
+    notice({ acting: this.trouble(), runner: this.roster.notice() }),
+  );
   readonly starting = signal(false);
   /**
    * Conversations on disk, newest first. In a root store so coming back does not

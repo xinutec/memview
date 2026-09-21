@@ -5067,8 +5067,10 @@ test('a stream that stays dead says so, and says it once @ phone width', async (
   await expect(marker).toBeVisible();
   await expect(page.getByText('not below yet')).toBeVisible();
   // Once, not twice: the roster's poll is answering here, which is the whole
-  // point — the app looks healthy and only this transcript is not.
-  await expect(page.getByText('cannot reach the runner')).toBeHidden();
+  // point — the app looks healthy and only this transcript is not. Case-insensitive
+  // on purpose — an exact string here would go quietly vacuous the next time the
+  // sentence is recapitalised.
+  await expect(page.getByText(/cannot reach the runner/i)).toBeHidden();
   expect(await marker.count(), 'the marker was drawn more than once').toBe(1);
 
   await expectNoTextOverlaps(page, testInfo);
