@@ -105,7 +105,14 @@ async fn a_resumed_conversation_is_spawned_under_the_name_it_already_has() {
     let root = scratch();
     let dir = std::env::temp_dir();
     let id = "a-conversation-somebody-named";
-    transcript(&root, id, Some("toktok"));
+    // ⚠ **Unique per run, because the name is READ OFF THE PROCESS TABLE.**
+    // `past::in_use` holds a conversation busy when any running `claude` carries
+    // its id or its name as an argument — which is the guard working, not a fault.
+    // This was written as `toktok`, a session this fleet really runs: the day the
+    // real one was up, the resume was refused and the test failed on a machine,
+    // not on a change.
+    let name = format!("a-name-no-session-answers-to-{}", std::process::id());
+    transcript(&root, id, Some(&name));
 
     let roster = roster(&dir);
     roster
@@ -114,7 +121,7 @@ async fn a_resumed_conversation_is_spawned_under_the_name_it_already_has() {
 
     assert_eq!(
         called(&root, id).await,
-        "toktok",
+        name,
         "the name in the transcript did not become the name its peers see"
     );
 }
