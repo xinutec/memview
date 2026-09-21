@@ -328,16 +328,102 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     std::fs::write(repo.join("f.rs"), "x").expect("write");
     git(&["add", "f.rs"]);
     git(&["commit", "-qm", "one"]);
-    let out = git(&["rev-parse", "--short=8", "HEAD"]);
-    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    // The same honesty for the value the transcript is built from: an empty or
-    // odd-shaped sha would attribute nothing and blame the miner.
-    assert!(
-        sha.len() == 8 && sha.chars().all(|c| c.is_ascii_hexdigit()),
-        "fixture rev-parse produced {sha:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let short = |out: std::process::Output| {
+        let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        // The same honesty for the value the transcript is built from: an empty or
+        // odd-shaped sha would attribute nothing and blame the miner.
+        assert!(
+            sha.len() == 8 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+            "fixture rev-parse produced {sha:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        sha
+    };
+    let mut sha = short(git(&["rev-parse", "--short=8", "HEAD"]));
+
+    // A hash-shaped token needs at least one LETTER to be read as a mention —
+    // `commits::hash_candidates`, deliberately, because an all-digit run is far
+    // more often a number in prose than a hash. The cost is stated there: 3.4% of
+    // real commits go unattributed, counted rather than hidden.
+    //
+    // An 8-character short sha is all digits 2.3% of the time. A fixture that
+    // takes whatever git produced therefore failed that often, attributing zero
+    // commits while finding its agent — which is exactly the signature memview#1596
+    // chased for three sessions, refuting hermeticity, the nix TMPDIR spelling,
+    // GIT_* leakage, spawn failure under fork pressure and concurrent gates. All
+    // of those were correctly refuted; the randomness was in this line.
+    //
+    // It also disposes of that ticket's abandon condition. At 2.3% a twelve-run
+    // green streak happens by luck 75% of the time, so the streak was never
+    // evidence that anything had been fixed.
+    for attempt in 1.. {
+        if sha.chars().any(|c| c.is_ascii_alphabetic()) {
+            break;
+        }
+        assert!(
+            attempt < 64,
+            "no short sha with a letter after {attempt} amends"
+        );
+        git(&["commit", "-q", "--amend", "-m", &format!("one {attempt}")]);
+        sha = short(git(&["rev-parse", "--short=8", "HEAD"]));
+    }
     sha
+}
+
+/// The flake in memview#1596, made deterministic.
+///
+/// An 8-character short sha is all digits 2.3% of the time, and a hash-shaped
+/// token without a letter is not read as a mention — see `commits::hash_candidates`,
+/// where the trade is stated and costed. So the fixture beside this one failed
+/// 2.3% of runs with an agent found and zero commits attributed, which is the
+/// signature that ticket chased through hermeticity, the nix TMPDIR spelling,
+/// GIT_* leakage, fork pressure and concurrent gates.
+///
+/// This names the mechanism instead of waiting for it: the mention is all digits
+/// by construction, and attribution is zero every time. If the letter rule is
+/// ever relaxed, this fails and points at the retry loop that then has no job.
+#[test]
+fn an_all_digit_mention_attributes_nothing_which_is_what_1596_was() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let sessions = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    let memory = tempfile::tempdir().expect("tempdir");
+
+    repo_with_a_commit(code.path(), "alpha");
+    // Not the repo's real hash: eight digits, the shape git produces 2.3% of the
+    // time and the shape a mention cannot be recognised in.
+    let digits = "12345678";
+    assert!(memview::commits::hash_candidates(format!("landed in {digits}").as_bytes()).is_empty());
+
+    corpus_with(
+        root.path(),
+        "-code",
+        "s1",
+        &[&format!(
+            "{{\"type\":\"assistant\",\"timestamp\":\"2026-08-01T10:00:00Z\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"landed in {digits}\"}}]}}}}"
+        )],
+    );
+
+    let (seen, _) = scan_resumed(
+        Roots {
+            projects: root.path(),
+            sessions: sessions.path(),
+            code_root: &code.path().to_string_lossy(),
+            memory_root: &memory.path().to_string_lossy(),
+            home: "/home/example",
+        },
+        "2026-08-30T00:00:00Z",
+        None,
+        Needs::EVERYTHING,
+    )
+    .expect("scan");
+
+    assert!(
+        !seen.agents.is_empty(),
+        "the transcript was not read at all, which is a different fault"
+    );
+    let counted: usize = seen.agents.iter().map(|a| a.commits).sum();
+    assert_eq!(counted, 0, "an all-digit mention was attributed after all");
 }
 
 /// ⚠ **Commit attribution is RECOMPUTED from the whole git history each run, not
