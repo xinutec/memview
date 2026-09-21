@@ -94,6 +94,19 @@ const RULES: &[(&str, Severity, &str)] = &[
          deletes the only place it fires (memview#1234)",
     ),
     (
+        // An ERROR from the start, against this repo's usual warning-first
+        // sequencing, for two reasons. The corpus holds ZERO of these once the five
+        // found on 2026-09-21 were moved, so nothing is grandfathered; and the
+        // failure it reports is SILENT — serde drops the key, the memory reads as
+        // unjudged, and the author believes it judged. A warning for a silent fault
+        // is the same fault at one remove.
+        "misplaced-role",
+        Severity::Error,
+        "a `role:` written under `metadata:`, where nothing reads it — it belongs \
+         at the top level beside `description`, and an ignored declaration is \
+         indistinguishable from an absent one (memview#1537)",
+    ),
+    (
         "link-extension",
         Severity::Error,
         "a `[[name.md]]` wikilink can never resolve — the canonical id is the filename stem",
@@ -325,6 +338,16 @@ pub fn check(
     // A bound, not a style rule: every teaser is copied into a file with a hard
     // 24,400-byte ceiling. The longest index line is 123 bytes and a description's
     // median is 193, so this catches a description in the wrong field.
+    for doc in corpus.docs.values() {
+        if doc.meta.misplaced_role {
+            push(
+                "misplaced-role",
+                &doc.meta.name,
+                "`role:` is under `metadata:`; move it up beside `description:`".to_string(),
+            );
+        }
+    }
+
     for doc in corpus.docs.values() {
         let Some(teaser) = doc.meta.teaser.as_deref() else {
             continue;

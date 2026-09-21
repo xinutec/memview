@@ -796,6 +796,43 @@ fn a_pointer_whose_line_states_a_claim_is_reported_and_a_tripwires_is_not() {
     );
 }
 
+/// A `role:` under `metadata:` is dropped by serde without a word, so the memory
+/// reads as unjudged while its author believes it judged. Five sat that way on
+/// 2026-09-21, written by a session that had just built the rule that reads them.
+/// The control is the second file: the same declaration, spelled correctly, must
+/// not be accused.
+#[test]
+fn a_role_under_metadata_is_reported_and_a_top_level_one_is_not() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    std::fs::write(
+        d.join("buried.md"),
+        "---\nname: buried\ndescription: d\nmetadata:\n  type: reference\n  role: tripwire\n---\n\nb\n",
+    )
+    .expect("write");
+    std::fs::write(
+        d.join("plain.md"),
+        "---\nname: plain\ndescription: d\nrole: tripwire\nmetadata:\n  type: reference\n---\n\nb\n",
+    )
+    .expect("write");
+    std::fs::write(
+        d.join("MEMORY.md"),
+        "## R\n- [b](buried.md)\n- [p](plain.md)\n",
+    )
+    .expect("write");
+
+    let corpus = Corpus::load(d).expect("loads");
+    let flagged: Vec<String> = check(&corpus, None, None)
+        .into_iter()
+        .filter(|f| f.rule == "misplaced-role")
+        .map(|f| f.memory)
+        .collect();
+    assert_eq!(flagged, vec!["buried".to_string()]);
+    // And the correctly-spelled one is actually READ, which is the point of moving it.
+    assert_eq!(corpus.docs["plain"].meta.role.as_deref(), Some("tripwire"));
+    assert_eq!(corpus.docs["buried"].meta.role, None);
+}
+
 #[test]
 fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field() {
     // The whole frontmatter is defaulted when it does not parse, so EVERY field

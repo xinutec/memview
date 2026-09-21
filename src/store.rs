@@ -30,6 +30,12 @@ struct FrontmatterMeta {
     /// `memory-dated`, not observed. Absent on a memory no surviving transcript
     /// records — a DETECTION gap, never an mtime.
     created: Option<String>,
+    /// Never read as the judgement: `role` belongs at the TOP level, beside
+    /// `description`. Captured only so a misplacement can be REPORTED. Five
+    /// declarations sat here being ignored, and serde drops an unknown key without
+    /// a word, so an ignored declaration and an absent one looked identical — the
+    /// memory read as unjudged while its author believed it judged (memview#1537).
+    role: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -62,6 +68,15 @@ pub struct MemoryMeta {
     /// Absent is UNEXAMINED, never "safe to demote": a judgement held only in
     /// `memory-roles.json` cannot grow with the corpus (memview#1537).
     pub role: Option<String>,
+    /// Whether a `role:` was written under `metadata:`, where nothing reads it.
+    /// Reported rather than honoured: guessing the author's intent would make the
+    /// wrong spelling work and the schema meaningless.
+    ///
+    /// Off the wire. A frontmatter spelling mistake is a fact for `memory-lint`,
+    /// not something a reader of the memory needs, and every serialized field here
+    /// is one the TypeScript mirror must carry.
+    #[serde(skip)]
+    pub misplaced_role: bool,
     /// user | feedback | project | reference (from metadata.type, falling
     /// back to the filename prefix).
     pub mtype: String,
@@ -151,6 +166,9 @@ impl Corpus {
                 None => Frontmatter::default(),
             };
             let meta = fm.metadata.unwrap_or_default();
+            // Checked before `meta` is consumed below. A `role:` written here is not
+            // an alternative spelling to honour — it is a mistake to name.
+            let misplaced = meta.role.as_deref().is_some_and(|r| !r.trim().is_empty());
             let mtype = meta
                 .mtype
                 .unwrap_or_else(|| name.split('_').next().unwrap_or("other").to_string());
@@ -193,6 +211,7 @@ impl Corpus {
                             .role
                             .map(|r| r.trim().to_lowercase())
                             .filter(|r| !r.is_empty()),
+                        misplaced_role: misplaced,
                         mtype,
                         modified,
                         created,
