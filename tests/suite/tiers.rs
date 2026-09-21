@@ -309,6 +309,57 @@ fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
     );
 }
 
+/// ⚠ **The record can be WRONG, and the line is the thing a reader meets.**
+/// `memory-roles.json` is one model's 2026-08 classification, so a judgement of
+/// POINTER on a line that states its claim is a stale answer about a live
+/// tripwire — and demoting on it deletes the only place that claim fires. This
+/// is #1234's own defect one level down: that fix screened what the RECORD calls
+/// a tripwire and trusted the record for the other half.
+#[test]
+fn a_pointer_whose_line_states_a_claim_is_held_on_the_line() {
+    let at = Thresholds::default();
+    let misjudged = Entry {
+        claims: true,
+        ..housed("reference_the_record_says_pointer", Some(0), 0)
+    };
+    let trade = propose(&[misjudged], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        reasons(&trade.held),
+        [("reference_the_record_says_pointer", Held::Claims)]
+    );
+}
+
+/// The control, and it has to stay one: a bare label is CORRECT for a pointer.
+/// Holding every pointer would make the hold above unfalsifiable and leave the
+/// corpus with no demotion at all.
+#[test]
+fn a_pointer_whose_line_states_nothing_stays_demotable() {
+    let at = Thresholds::default();
+    let bare = housed("reference_a_bare_label", Some(0), 0);
+    let trade = propose(&[bare], TODAY, &at, 0, &no_strands);
+    assert!(trade.held.is_empty(), "a bare pointer label was held");
+    assert_eq!(trade.demote.len(), 1);
+}
+
+/// ⚠ **Checked BEFORE the freeze, for the same reason #1234's role check is.**
+/// Held as `Frozen` this becomes demotable the day the harvest lands; held on
+/// its line it never does, because a line that states a claim does not stop
+/// stating it on a date.
+#[test]
+fn a_frozen_claim_stating_pointer_is_held_on_the_line_not_the_freeze() {
+    let at = Thresholds::default();
+    let both = Entry {
+        claims: true,
+        frozen: true,
+        ..housed("reference_frozen_and_loud", Some(0), 0)
+    };
+    let trade = propose(&[both], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        reasons(&trade.held),
+        [("reference_frozen_and_loud", Held::Claims)]
+    );
+}
+
 /// ⚠ **A thin verdict that DEPENDS on discarded evidence is not a verdict.**
 /// Unprovable opens — a shell read after `&&`, or inside a script with one exit
 /// status — are collected and never scored (#1214), which is right: counting

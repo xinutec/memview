@@ -244,6 +244,15 @@ top of it:
     an error by writing longer lines: taking them to a claim costs ~4,000 bytes
     against 148 of headroom, so zero is reached by demoting or by the corpus
     shrinking (memview#822).
+
+    ⚠ **The other nine are the dangerous direction, and `loud-pointer` counts
+    them.** A judgement of POINTER on a line that states a claim is the record
+    disagreeing with what a reader meets — and `memory-tiers` demotes on the
+    record, so the disagreement costs that claim its only firing place. The
+    record is one model's 2026-08 classification and cannot keep up with the
+    corpus (memview#1537), which is why the LINE decides and the judgement is
+    reported. `memory-tiers` holds these as `Held::Claims`, ahead of the freeze:
+    a line that states a claim does not stop stating it on a date.
   * **The ratchet.** Being listed causes opens; demoting cuts opens, which then
     justifies staying demoted. The DEMOTED BUT STILL CONSULTED section exists as
     the counter-evidence.

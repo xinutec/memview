@@ -753,6 +753,49 @@ fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
     assert_eq!(flagged, vec!["mute_trip".to_string()]);
 }
 
+/// ⚠ **The same shape test, accusing the other role.** A judgement of POINTER on
+/// a line that states its claim is the record disagreeing with what a reader
+/// meets — and `memory-tiers` demotes on the record, so the disagreement costs
+/// the claim its only firing place (memview#1234). The mute-tripwire control
+/// above is this one's mirror: neither half means anything without the other.
+#[test]
+fn a_pointer_whose_line_states_a_claim_is_reported_and_a_tripwires_is_not() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    let index = concat!(
+        "## Rules\n",
+        "- [amun](bare_pointer.md)\n",
+        "- [the exe's `main` SILENTLY WINS](loud_pointer.md)\n",
+        "- [**a SILENT ablation is TWO findings**](bold_pointer.md)\n",
+        "- [a tripwire states its claim, correctly](loud_trip.md)\n"
+    );
+    for name in ["bare_pointer", "loud_pointer", "bold_pointer", "loud_trip"] {
+        std::fs::write(
+            d.join(format!("{name}.md")),
+            format!("---\nname: {name}\ndescription: d\nmetadata:\n  type: project\n---\n\nb\n"),
+        )
+        .expect("write");
+    }
+    std::fs::write(d.join("MEMORY.md"), index).expect("write index");
+    let corpus = Corpus::load(d).expect("loads");
+    let roles = serde_json::json!({ "roles": {
+        "bare_pointer": "pointer", "loud_pointer": "pointer",
+        "bold_pointer": "pointer", "loud_trip": "tripwire",
+    }});
+    let flagged: Vec<String> = check(&corpus, None, Some(&roles))
+        .into_iter()
+        .filter(|f| f.rule == "loud-pointer")
+        .map(|f| f.memory)
+        .collect();
+    // Both ways of stating a claim — a four-word clause and an emphasised run —
+    // and NEITHER the bare pointer, which is correct, nor the tripwire, whose
+    // loud line is its job.
+    assert_eq!(
+        flagged,
+        vec!["bold_pointer".to_string(), "loud_pointer".to_string()]
+    );
+}
+
 #[test]
 fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field() {
     // The whole frontmatter is defaulted when it does not parse, so EVERY field

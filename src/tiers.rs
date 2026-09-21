@@ -89,6 +89,10 @@ pub struct Entry {
     pub entry_cost: usize,
     /// What the line is for, where #884 has judged it.
     pub role: Option<Role>,
+    /// Whether the INDEX LINE states its claim — [`crate::study::states_a_claim`].
+    /// Read separately from [`Self::role`] because the two can disagree, and when
+    /// they do it is the line that a reader meets.
+    pub claims: bool,
     /// Reachable memories that already link it — the homes a demotion could
     /// land in without stranding it.
     pub homes: Vec<String>,
@@ -169,6 +173,10 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
 pub enum Held {
     /// The line IS the memory — a low open count is what SUCCESS looks like.
     Tripwire,
+    /// Judged a POINTER, but the line STATES A CLAIM. The record and the line
+    /// disagree and the line is what a reader meets, so it is held on the shape
+    /// and the judgement is reported instead — see `memory-lint`'s `loud-pointer`.
+    Claims,
     /// An absent judgement is not a pointer: it fails toward deleting a rule that
     /// fires from its line.
     Unjudged,
@@ -252,6 +260,12 @@ pub fn propose(
         let why = match entry.role {
             Some(Role::Tripwire) => Some(Held::Tripwire),
             None => Some(Held::Unjudged),
+            // ⚠ **Before the two reasons that can lift.** A record saying POINTER is
+            // one model's 2026-08 classification and cannot keep up with the corpus;
+            // the line is the thing a reader actually meets. Where they disagree,
+            // demoting on the record deletes a claim that fires from the index —
+            // which is #1234's own defect, one level down.
+            Some(Role::Pointer) if entry.claims => Some(Held::Claims),
             Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
             Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),
             Some(Role::Pointer) => None,

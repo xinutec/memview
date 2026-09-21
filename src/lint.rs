@@ -84,6 +84,16 @@ const RULES: &[(&str, Severity, &str)] = &[
          a reader who already knows it and warns nobody else",
     ),
     (
+        // A WARNING first, and promoted only once it has held at zero. A rule that
+        // flips to ERROR while instances remain blocks sixteen sessions' commits —
+        // the sequencing memview#1537 had to learn.
+        "loud-pointer",
+        Severity::Warning,
+        "a memory judged POINTER whose index line STATES A CLAIM — the judgement \
+         disagrees with the line, and `memory-tiers` will offer the demotion that \
+         deletes the only place it fires (memview#1234)",
+    ),
+    (
         "link-extension",
         Severity::Error,
         "a `[[name.md]]` wikilink can never resolve — the canonical id is the filename stem",
@@ -297,10 +307,6 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
 /// the output reads as a worklist. `roles` is `memory-roles.json`, or `None`
 /// where the caller has no reason to hold it; the `unjudged-role` rule is then
 /// skipped rather than reporting a gap it cannot see.
-fn states_a_claim(label: &str) -> bool {
-    label.contains("**") || label.split_whitespace().count() >= 4
-}
-
 pub fn check(
     corpus: &Corpus,
     couse: Option<&CoUse>,
@@ -521,9 +527,18 @@ pub fn check(
                     );
                     continue;
                 };
-                // Only a TRIPWIRE: a bare label is CORRECT for a pointer, and a tripwire's job
-                // is to act on a reader who did not come looking.
-                if role == crate::study::Role::Tripwire && !states_a_claim(&entry.label) {
+                // A bare label is CORRECT for a pointer, and a tripwire's job is to act on a
+                // reader who did not come looking — so the shape test accuses each role in
+                // the opposite direction.
+                let claims = crate::study::states_a_claim(&entry.label);
+                if role == crate::study::Role::Pointer && claims {
+                    push(
+                        "loud-pointer",
+                        &entry.name,
+                        format!("line reads {:?}", entry.label),
+                    );
+                }
+                if role == crate::study::Role::Tripwire && !claims {
                     push(
                         "mute-tripwire",
                         &entry.name,

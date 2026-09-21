@@ -26,7 +26,7 @@ use memview::agents::{MemoryDays, day_number};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
-use memview::study::role_for;
+use memview::study::{role_for, states_a_claim};
 use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
@@ -104,6 +104,12 @@ fn main() -> Result<()> {
     );
     let today = day_number(&now).unwrap_or(0);
     let index = corpus.index_md.clone().unwrap_or_default();
+    // The line a reader actually meets, by memory. Read once here rather than in
+    // `Entry`'s builder: one parsed pass over the index, as `index_entries` says.
+    let labels: BTreeMap<String, String> = memview::store::index_entries(&index)
+        .into_iter()
+        .map(|entry| (entry.name, entry.label))
+        .collect();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
     // Built ONCE: per memory it was ~446,000 markdown parses.
@@ -176,6 +182,7 @@ fn main() -> Result<()> {
                     &roles,
                     name.as_str(),
                 ),
+                claims: labels.get(name).is_some_and(|l| states_a_claim(l)),
                 homes: homes_for(&incoming, name, &reached),
                 frozen: frozen.contains(name),
                 depth: depths.get(name).copied(),
@@ -378,6 +385,11 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
             (
                 Held::Tripwire,
                 "the line IS the memory — demoting one deletes the only place it fires",
+            ),
+            (
+                Held::Claims,
+                "judged POINTER, but the line states a claim — the record disagrees with \
+                 what a reader meets, and `memory-lint`'s `loud-pointer` names it",
             ),
             (
                 Held::Unjudged,

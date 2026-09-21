@@ -368,7 +368,7 @@ impl Corpus {
 /// line scanner it replaced missed `setext` headings, misread links whose title
 /// held `](`, and indexed links inside fenced code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct IndexEntry {
+pub struct IndexEntry {
     pub name: String,
     /// The link's visible label — the cue a reader actually meets.
     pub label: String,
@@ -377,7 +377,7 @@ pub(crate) struct IndexEntry {
 
 /// Every link in the written index, in order. First mention wins per name; a
 /// later mention is a cross-reference.
-pub(crate) fn index_entries(index_md: &str) -> Vec<IndexEntry> {
+pub fn index_entries(index_md: &str) -> Vec<IndexEntry> {
     let options = markdown_options();
     let arena = Arena::new();
     let root = parse_document(&arena, index_md, &options);
