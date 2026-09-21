@@ -120,6 +120,18 @@ in  { name = "memview"
         , argv = [ "./scripts/tests-live-in-tests.sh" ]
         , timeout_s = 60
         }
+      , {-  Cargo never prunes stale artefacts and exec cost is O(files in the
+            directory), so the gate silts up its own build tree: 4,884 to
+            639,616 files in THREE DAYS, costing the rustdoc row 67s and the
+            whole run ~0.9 min. Nothing pruned it because nothing was ever
+            built to — the note said "check weekly", which is a chore nobody
+            scheduled. Cheap: `ls -f` neither sorts nor stats, ~2s at 640k.
+        -}
+        G.Check::{
+        , name = "the build tree has not silted up"
+        , argv = [ "./scripts/target-silt.sh" ]
+        , timeout_s = 120
+        }
       , G.Check::{
         , name = "formatting"
         , argv = G.inDevShell [ "cargo", "fmt", "--all", "--check" ]

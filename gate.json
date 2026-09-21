@@ -36,6 +36,16 @@
     },
     {
       "argv": [
+        "./scripts/target-silt.sh"
+      ],
+      "artifacts": [],
+      "cwd": ".",
+      "env": {},
+      "name": "the build tree has not silted up",
+      "timeout_s": 120
+    },
+    {
+      "argv": [
         "nix",
         "develop",
         "--no-warn-dirty",
