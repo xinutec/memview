@@ -25,9 +25,9 @@ fn a_session_is_known_by_the_name_in_its_own_record() {
     record(
         &root,
         4242,
-        r#"{"pid":4242,"name":"toktok","nameSource":"user"}"#,
+        r#"{"pid":4242,"name":"a-named-session","nameSource":"user"}"#,
     );
-    assert_eq!(named(&root, 4242).as_deref(), Some("toktok"));
+    assert_eq!(named(&root, 4242).as_deref(), Some("a-named-session"));
 }
 
 #[test]
