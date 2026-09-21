@@ -28,6 +28,19 @@ members = ["bash-oracle", "console", "reader"]
 # server simply never started. The server is the default; the linter is asked
 # for by name.
 default-run = "memview"
+# ⚠ **Cargo's freshness check walks THIS PACKAGE'S DIRECTORY, and this one is the
+# repository root** — so every file under `frontend/` was an input to the Rust
+# build. Measured 2026-09-21: `touch` one generated `.ts` file and `cargo doc
+# --workspace` went from 0.6s to 47.6s. With this line, 0.8s.
+#
+# That is what the gate was paying on an ORDINARY commit: the rustdoc row's 44s
+# was attributed to `gen-types` writing inside the crates, and it was really
+# any frontend edit at all — which is most commits. `gen-types` exports to a
+# scratch directory and never did write inside a crate.
+#
+# Only directories no Rust target reads. `console/tests/fixtures` is
+# `include_str!`d and is a DIFFERENT package's root, untouched by this.
+exclude = ["android", "docs", "frontend"]
 name = "memview"
 version = "0.1.0"
 edition = "2024"
