@@ -7,7 +7,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
-use rand::RngCore;
+use rand::Rng;
 
 use crate::config::Config;
 use crate::share::ShareStore;

@@ -133,7 +133,7 @@ pub struct Overview {
 fn bundle(dir: Option<&str>) -> Option<String> {
     use sha2::{Digest, Sha256};
     let page = std::fs::read(format!("{}/index.html", dir?)).ok()?;
-    Some(format!("{:x}", Sha256::digest(&page))[..16].to_string())
+    Some(hex::encode(Sha256::digest(&page))[..16].to_string())
 }
 
 async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
