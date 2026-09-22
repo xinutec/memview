@@ -32,5 +32,5 @@ allowBuilds:
 # resolving without it and diffing the version set — a separate question from
 # the package-manager move.
 overrides:
-  esbuild: ^0.28.1
+  esbuild: ^0.28.2
   '@babel/core': ^7.29.6
