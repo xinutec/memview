@@ -7,6 +7,11 @@
 //! making it need one would mean a test suite that spends money and fails when
 //! the network does.
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the environment and drives raw descriptors through libc"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

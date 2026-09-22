@@ -17,3 +17,6 @@ edition = "2024"
 reader = { path = "../reader" }
 anyhow = "1"
 serde_json = "1"
+
+[lints]
+workspace = true

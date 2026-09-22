@@ -6,6 +6,11 @@
 //! process exists (`--session-id`), so a client can subscribe to a session that
 //! is still starting and `--resume` later takes the same id.
 
+#![expect(
+    unsafe_code,
+    reason = "libc process control (waitpid, kill, raw descriptors) for the sessions this supervises"
+)]
+
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, VecDeque};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};

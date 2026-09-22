@@ -15,6 +15,11 @@
 //! Its own test binary, because it sets `CLAUDE_PROJECTS_DIR`. That is
 //! process-wide; see the note at the top of `cold.rs`.
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the process environment, unsafe under edition 2024"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

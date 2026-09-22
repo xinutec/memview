@@ -92,3 +92,6 @@ base64 = "0.22"
 
 [features]
 ts = ["dep:ts-rs", "reader/ts"]
+
+[lints]
+workspace = true

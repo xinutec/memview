@@ -42,3 +42,6 @@ tree-sitter-python = "0.25"
 
 [features]
 ts = ["dep:ts-rs"]
+
+[lints]
+workspace = true

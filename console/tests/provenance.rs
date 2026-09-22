@@ -17,6 +17,11 @@
 //! until somebody says which side it is on — and, if it is the console's own,
 //! either replays it or writes down what covers its absence.
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the process environment, unsafe under edition 2024"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

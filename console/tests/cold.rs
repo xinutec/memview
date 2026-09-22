@@ -20,6 +20,11 @@
 //! missing stops the session. `tests/provenance.rs` is where that distinction is
 //! made once for every event kind, rather than remembered.
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the environment and opens raw pipes through libc"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

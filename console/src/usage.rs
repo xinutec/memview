@@ -10,6 +10,8 @@
 //! window which is later. The age and the host travel with whichever won, and a
 //! window that has already reset reports no countdown.
 
+#![expect(unsafe_code, reason = "libc::gethostname into a fixed buffer")]
+
 use std::collections::BTreeMap;
 use std::ffi::CStr;
 use std::sync::{Arc, LazyLock};

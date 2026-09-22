@@ -42,20 +42,4 @@ else
   echo "  build it: nix develop -c cargo build --release --bin staged-check" >&2
 fi
 
-# ⚠ THE GATE'S EXIT CODE IS NOT A BOOLEAN, and `if ! cmd` throws it away.
-# `gate --help` is explicit: 1 = the gate ran and a check failed; 2 = it REFUSED
-# and judged NOTHING (unreadable table, or another gate already holds this
-# worktree's lock), which is "NOT a failing gate; a caller that conflates it
-# with 1 reports the opposite of the truth". This was that caller.
-#
-# Above 128 the gate was SIGNALLED: `on_interrupt` kills the running check's
-# process group and `_exit(128 + sig)`s, so there is no summary, no ledger row
-# for the check in flight and no log — and the whole thing reads as a broken
-# commit. That cost three re-runs of a green tree on 2026-09-16 before the shape
-# was recognised (tasks#1643); the number would have said so immediately.
-#
-# ⚠ `out=$(cmd) || rc=$?`, never `if ! out=$(cmd)` — the second is what discards
-# the number, and under `set -e` the `||` is also what stops the assignment
-# aborting the hook.
-
 exec nix run "git+file:../dev-lint?ref=HEAD#gate" -- . gate.json

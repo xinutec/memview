@@ -17,6 +17,11 @@
 //! process-wide, and a session reads it whenever it recounts, so a sibling test
 //! sharing the process would have its transcripts looked for somewhere else.
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the process environment, unsafe under edition 2024"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

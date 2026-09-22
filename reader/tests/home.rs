@@ -1,5 +1,10 @@
 //! Where memview's own files live, as opposed to Claude Code's (#1240).
 
+#![expect(
+    unsafe_code,
+    reason = "a test that sets the process environment, unsafe under edition 2024"
+)]
+
 /// One test, not two, because env vars are process-global. Two tests that
 /// each set and clear `MEMVIEW_DIR` pass alone and race each other under
 /// cargo's default thread pool — a flake that appears only under load and reads

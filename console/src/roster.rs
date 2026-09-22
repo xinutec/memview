@@ -1,6 +1,11 @@
 //! Every session the console owns. Sessions stay listed after they end: one that
 //! failed to start is the thing most worth seeing.
 
+#![expect(
+    unsafe_code,
+    reason = "env::remove_var, unsafe under edition 2024, on a path with no other thread"
+)]
+
 use anyhow::Context as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
