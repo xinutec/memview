@@ -13,9 +13,8 @@
 // The bar's LEADING icon button, whichever it is, pulled back into the toolbar's
 // own padding so the two screens start in the same place. 12, not the 8
 // Material's padding suggests: `styles.scss` raises every icon button to a 48px
-// target with `padding: 0`, and the harness measured what was left. Keyed on
-// position rather than a class: the class-keyed version broke the moment the
-// list gained a leading button.
+// target with `padding: 0`, and 12 is what is left. Keyed on position rather
+// than a class, so it holds whichever button leads.
 .bar > button:first-of-type {
   margin-left: -0.75rem;
 }

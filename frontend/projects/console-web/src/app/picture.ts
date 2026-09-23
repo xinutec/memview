@@ -143,8 +143,8 @@ export function fetchable(href: string): boolean {
     return false;
   }
   // `file:` is the path shape with a scheme on it; `coach` writes
-  // `[caption](file:///Volumes/…/x.png)`, and the shell handed the unknown scheme
-  // to Chrome (memview#1373). Not re-checked here: `images::fetch` refuses a
+  // `[caption](file:///Volumes/…/x.png)`, which the console serves. Not re-checked
+  // here: `images::fetch` refuses a
   // `file:` URL with a host, and the bound that counts is where bytes are read.
   return asked.protocol === 'http:' || asked.protocol === 'https:' || asked.protocol === 'file:';
 }

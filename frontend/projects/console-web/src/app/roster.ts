@@ -11,9 +11,8 @@ const EVERY_MS = 5000;
 
 /**
  * What the runner is holding, polled once for the whole app. One poll, not one
- * per view: two timers drifted in three facts, and a poll per visit once had
- * the phone asking twenty times over. A view READS this; a per-view
- * subscription can land after the view is gone.
+ * per view: two timers drift apart, and a poll per visit multiplies. A view reads
+ * this; a per-view subscription can land after the view is gone.
  */
 @Injectable({ providedIn: 'root' })
 export class Roster {

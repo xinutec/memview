@@ -6,8 +6,8 @@ import { Conversation } from './models';
 /**
  * The conversations on disk that could be picked up again. Root-provided so the
  * list survives navigation rather than blanking on every return. Fetched again
- * whenever somebody is looking: `busy` is a snapshot, and the list once said
- * *in use* minutes after the session had gone.
+ * whenever somebody is looking: `busy` is a snapshot, and a stale one says
+ * *in use* after the session has gone.
  */
 @Injectable({ providedIn: 'root' })
 export class PastStore {

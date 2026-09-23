@@ -90,7 +90,7 @@ export class Following {
   /**
    * How tall the window was at the last event, or -1 before one. A box that
    * changes shape is not a reader who moves: typing grows the composer, the gap
-   * that opens is exactly what the window lost (#731), and the soft keyboard is
+   * that opens is exactly what the window lost, and the soft keyboard is
    * the same thing several hundred pixels larger. Known exactly, so discounted
    * exactly rather than by widening [`SLACK`].
    */
@@ -146,9 +146,9 @@ export class Following {
    * The reader said something, and the page is about to move under them.
    *
    * This PROTECTS following; it does not restore it. Sending from halfway up the
-   * morning is not a request to be taken to the bottom (#82). What it settles is
+   * morning is not a request to be taken to the bottom. What it settles is
    * a race: sending collapses the composer, and the browser moves the position
-   * while it does — 91px nobody asked for, measured (#731) — which from outside is
+   * while it does, unasked, which from outside is
    * a reader's first scroll. What tells them apart is that one was expected.
    */
   spoke(): void {

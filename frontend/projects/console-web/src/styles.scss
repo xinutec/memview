@@ -59,13 +59,9 @@ body {
 //
 // `min-height`, so it beats the `height` Material sets from its own tokens.
 //
-// Both axes, and for a while this said only one. Material's icon button is
-// 40px square, so a height-only floor produced a control 48 tall and 40 wide —
-// which passes a glance and fails a thumb, and the harness measures each axis
-// separately for exactly that reason. It was patched once, locally, on the
-// composer's send button; the second one to appear was the toolbar's overflow
-// menu, which is the only control on screen at all times. A rule that has to be
-// rediscovered per button is not a rule.
+// Both axes: Material's icon button is 40px square, so a height-only floor makes
+// a control 48 tall and 40 wide, which passes a glance and fails a thumb. Here
+// rather than per button, so every button gets it.
 button {
   min-height: 3rem;
   min-width: 3rem;
@@ -143,16 +139,10 @@ button[matIconButton] {
   }
 
   pre {
-    // Wrapped, not scrolled. This was `overflow-x: auto`, which keeps the
-    // page from widening and hands the reader a horizontal scroller inside a
-    // vertical one instead — on a phone that is a trap: the drag meant to move
-    // the page moves the code, and it takes both hands to read a line. Most code
-    // blocks are wider than 412px, so it was the normal case rather than the
-    // edge one. Wrapping loses the shape of the indentation and keeps the words,
-    // which is the right way round on a screen this size.
-    //
-    // The layout harness never saw it: no fixture had an answer with code in it
-    // until one did, and then it was 618px over the edge.
+    // Wrapped, not scrolled: a horizontal scroller inside a vertical one is a trap
+    // on a phone, where the drag meant to move the page moves the code, and most
+    // code blocks are wider than the screen. Wrapping loses the shape of the
+    // indentation and keeps the words, which is the right way round here.
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     padding: 0.5rem;
@@ -174,8 +164,8 @@ button[matIconButton] {
     // Only where the table did not say. `|---:|` compiles to
     // `align="right"` and Angular's sanitiser keeps the attribute — but a
     // presentational attribute loses to any CSS rule, so a blanket
-    // `text-align: left` here silently threw away every alignment the author
-    // wrote. Measured: `align="right"` computed as `left`. Left is still the
+    // `text-align: left` here would silently throw away every alignment the author
+    // wrote. Left is still the
     // default, since that is what an unaligned column should be.
     th:not([align]),
     td:not([align]) {
@@ -234,10 +224,8 @@ app-tasks-sheet .said {
     }
   }
 
-  // The mode the session is on, at the right-hand end of its row — the only
-  // part of the old inline list anybody needed to see without opening anything.
-  // Its own class rather than `.tally`: that one is a count of tasks, and a
-  // shared name made a test asking for the count find this instead.
+  // The mode the session is on, at the right-hand end of its row. Its own class
+  // rather than `.tally`, which is a count of tasks.
   .current {
     margin-left: auto;
     padding-left: 1rem;

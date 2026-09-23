@@ -99,8 +99,7 @@ export class App {
   constructor() {
     // Say why a mode change did not take, in the CLI's own words. The refusal
     // arrives on the poll, not on the request — the CLI answers on its own stream
-    // later — and until this existed the header claimed the new mode for ever
-    // (memview #96). A snack-bar because the menu is shut by then.
+    // later. A snack-bar because the menu is shut by then.
     effect(() => {
       const why = this.here.open()?.mode_refused;
       if (!why) {
@@ -128,7 +127,7 @@ export class App {
    * before anything has confirmed it — a menu waiting on a phone round trip reads
    * as one that ignored the tap. Two things can still refuse it: the runner, in
    * the branch below, which puts the summary back; and the CLI, later, on its own
-   * stream, which arrives on the poll as `mode_refused` (#96).
+   * stream, which arrives on the poll as `mode_refused`.
    */
   protected setMode(mode: string): void {
     const open = this.here.open();

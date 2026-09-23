@@ -274,9 +274,8 @@ describe('SessionStore', () => {
   });
 
   describe('a stream that drops', () => {
-    // The browser retries on its own, about every three seconds — measured
-    // against the phone-width harness, whose mocked stream ends at once and was
-    // re-requested five times in fifteen seconds. So a marker on the raw state
+    // The browser retries on its own, about every three seconds, so a marker on
+    // the raw state
     // would blink at a reader whose connection is fine. What is drawn is
     // CONTINUOUS loss.
     //

@@ -10,14 +10,12 @@ import type { Picture } from './picture';
 /**
  * What has been written and not sent, per conversation, shared between devices.
  *
- * A draft is a DOCUMENT, not a string, and that is the whole design. Two
- * devices typing produce one text holding both edits, because edits merge — the
- * same reason a shared document has no dialogue asking which version you meant.
- * The runner merges too; `console/src/drafts.rs` carries the measurement that
- * ended the version which compared whole texts and asked a person to choose.
+ * A draft is a document, not a string. Two devices typing produce one text
+ * holding both edits, because edits merge, here and in the runner
+ * (`console/src/drafts.rs`), so nobody is asked which version they meant.
  *
- * A draft is a RECORD, not an instruction; nothing leaves until a person presses
- * send. memview#90 refused the queued send for that reason.
+ * A draft is a record, not an instruction: nothing leaves until a person presses
+ * send.
  */
 
 /** The name of the shared text inside a draft. The runner uses the same one. */
@@ -165,8 +163,8 @@ export class Drafts {
   }
 
   /**
-   * The picture waiting to go with the next message. Local only — #89 settled
-   * that a picture does not cross devices.
+   * The picture waiting to go with the next message. Local only: a picture is
+   * hundreds of kilobytes and two cannot be combined.
    */
   picture$(id: string): Observable<Picture | undefined> {
     return this.pictures.pipe(
@@ -258,8 +256,8 @@ export class Drafts {
       }
     } catch (err: unknown) {
       // Said out loud: a dead tunnel is the ordinary case, and a silent failure
-      // looks exactly like a quiet one from the composer. Through [[reason]],
-      // which exists because a `String(err)` once put `[object Object]` on screen.
+      // looks exactly like a quiet one from the composer. Through [[reason]], not
+      // `String(err)`, which gives `[object Object]`.
       const said = reason(err);
       console.warn('draft sync:', said);
       this.telemetry.note('draft-sync', said);
@@ -282,8 +280,8 @@ export class Drafts {
       const update = fromBase64(row.update);
       if (!update) continue;
       const kept = await this.open(row.ulid);
-      // Tagged `theirs`, which is what keeps it out of [dirty]. Echoing the
-      // runner's own bytes back at it is the loop that made the old design clash.
+      // Tagged `theirs`, which keeps it out of [dirty]: the runner's own bytes are
+      // not echoed back to it.
       Y.applyUpdate(kept.doc, update, 'theirs');
     }
   }

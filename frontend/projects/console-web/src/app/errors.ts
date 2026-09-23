@@ -18,9 +18,9 @@ export function reason(err: unknown): string {
     if (typeof err.error === 'string' && err.error.trim()) return err.error.trim();
     // Status 0 is no answer at all, and two things produce it: this phone's key
     // past its authentication window (Chromium refuses the handshake silently), or
-    // a Mac that is not answering. The phone is named first — measured over 3.9
-    // days, the 235 status-0 episodes track waking hours, the opposite of a
-    // sleeping Mac — and the Mac stays, being the case nobody would think of.
+    // a Mac that is not answering. The phone is named first, since these failures
+    // track waking hours rather than a sleeping Mac, and the Mac stays, being the
+    // case nobody would think of.
     if (err.status === 0) return 'This phone may need unlocking, or the Mac may be asleep.';
     return `The runner answered ${err.status}.`;
   }

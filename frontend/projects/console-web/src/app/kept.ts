@@ -5,9 +5,9 @@ import type { Entry } from './models';
 
 /**
  * The last transcript this phone saw, so a session can be READ when the Mac
- * cannot be reached — read, and nothing else. Queueing a message to go when the
- * connection returns was declined (memview #90): a message is an INSTRUCTION,
- * and one delivered minutes later is not what was meant.
+ * cannot be reached — read, and nothing else. No message is queued to go when
+ * the connection returns: a message is an instruction, and one delivered minutes
+ * later is not what was meant.
  *
  * A LOCAL document, so replication cannot carry it. No service worker: the
  * console sits behind a client-certificate gate, and ngsw's `navigationUrls`

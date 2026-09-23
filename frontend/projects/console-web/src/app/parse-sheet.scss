@@ -246,9 +246,8 @@ code {
   color: var(--mat-sys-outline);
   // The path may break anywhere; this may not. `.what` sets
   // `overflow-wrap: break-word` so a 78-character path can wrap, and the
-  // qualifier sitting in the same run inherited it — `unconfirmed` rendered as
-  // `unconfir` / `med`, which reads as a rendering fault rather than a word.
-  // Measured: the span occupied two line boxes. `normal` moves the whole word
+  // qualifier in the same run inherits it and breaks mid-word (`unconfir` / `med`),
+  // which reads as a rendering fault. `normal` moves the whole word
   // down instead, and still breaks it if it ever exceeds a line on its own.
   overflow-wrap: normal;
   // A space the markup does not have to carry, since the two spans are on

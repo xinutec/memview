@@ -129,8 +129,7 @@ describe('Drafts', () => {
 
   it('merges what the runner sends rather than replacing what is here', async () => {
     // The whole design in one assertion. The other device's words arrive
-    // while this one holds its own, and BOTH survive. Under the old protocol this
-    // was the moment somebody was asked to choose between them.
+    // while this one holds its own, and both survive.
     const { drafts } = harness((url) =>
       url.includes('since=') ? holding('a', 'from the phone') : new Response('[]', { status: 200 }),
     );
@@ -195,7 +194,7 @@ describe('Drafts', () => {
     });
 
     it('never crosses to the other device', async () => {
-      // #89 settled this: hundreds of kilobytes, and no way to combine two.
+      // Hundreds of kilobytes, and no way to combine two.
       const { drafts, sent } = harness();
       await drafts.hold('a', PICTURE);
       drafts.sync();

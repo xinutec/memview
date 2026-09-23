@@ -16,13 +16,9 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
   });
 
   it('names the phone before the Mac when there is no answer at all', () => {
-    // The order is the finding, not a preference. Measured over 3.9 days
-    // of this console's telemetry: 235 status-0 episodes tracking waking hours
-    // — 20 at 09:00, 21 at 20:00, essentially none 01:00–07:00 — which is the
-    // opposite of what a sleeping Mac produces. The near cause is this phone's
-    // client certificate passing its window, and naming the far one first sent
-    // us looking at the Mac, the tunnel and isis while the answer was in the
-    // phone's own log.
+    // The order is a finding, not a preference: status-0 failures track waking
+    // hours, the opposite of what a sleeping Mac produces. The near cause is this
+    // phone's client certificate passing its window.
     const said = reason(failed(0));
     expect(said).toContain('unlocking');
     // Both named before either is ordered — `indexOf` returns -1 for a word that

@@ -58,11 +58,8 @@ describe('pictorial', () => {
   });
 
   it('leaves alone what the console could not fetch anyway', () => {
-    // This asserted `file:` was left alone, and the reason it gave was
-    // true: the console refused it too, so rewriting the link would have made
-    // a tap fail where it used to work. Both ends have been corrected together
-    // (memview#1373) — `images::fetch` now reads a `file:` URL as the path it
-    // names, so the app may rewrite it and the console will serve it.
+    // `file:` is rewritten, not left alone: `images::fetch` reads a `file:` URL
+    // as the path it names, so the console serves it.
     expect(pictorial('not a url at all')).toBe(false);
     // The console's own routes are not places on a disk. Rewriting one would
     // send the console to fetch itself.
@@ -93,9 +90,8 @@ describe('fetchable', () => {
    * is the sniff at the far end: it is not a PNG, JPEG, GIF or WebP, so the
    * console answers a sentence and no bytes.
    *
-   * The old assertion cost `coach` three dead picture links (memview#1373). **A
-   * test whose example is chosen to look dangerous can pin a rule that does no
-   * work**, and its passing says nothing about the rule you think you have.
+   * A test whose example is chosen to look dangerous can pin a rule that does no
+   * work, and its passing says nothing about the rule you think you have.
    */
   it('does not pretend the scheme is what guards a file nobody may read', () => {
     expect(fetchable('/etc/passwd')).toBe(true);

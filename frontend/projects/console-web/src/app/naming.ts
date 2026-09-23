@@ -1,7 +1,7 @@
 /**
- * What to call a conversation on screen. One rule in one place, because the
- * list and the session page disagreed once, and a tap that lands on a different
- * name reads as having opened the wrong thing.
+ * What to call a conversation on screen. One rule in one place, so the list and
+ * the session page agree: a tap that lands on a different name reads as having
+ * opened the wrong thing.
  */
 
 /** The folder a session runs in, as the one word anybody uses for it. */

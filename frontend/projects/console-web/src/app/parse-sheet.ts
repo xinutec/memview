@@ -93,7 +93,7 @@ export class ParseSheet {
   /**
    * The concept's sentence with each path cut to its leaf.
    *
-   * Shortened HERE, never in `describe` (memview#1454): that returns the CONCEPT's
+   * Shortened here, never in `describe`: that returns the concept's
    * phrase, and the path is already carried by the use row and the footer. A
    * token at a time, so a greedy match cannot eat the words between subjects.
    *

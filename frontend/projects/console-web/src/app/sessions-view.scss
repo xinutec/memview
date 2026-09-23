@@ -127,7 +127,7 @@
   white-space: nowrap;
 
   // History, in the colour history is in on this card: past tense beside `ended`
-  // (#879) with a green accent read as busy before it was read.
+  // in green would read as busy.
   &.past {
     color: var(--mat-sys-on-surface-variant);
   }

@@ -78,11 +78,8 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   if (full) facts.push({ label: 'context', value: full });
   // Looked up rather than scanned: four facts in the card's row wrapped it.
   if (session.bytes) facts.push({ label: 'history', value: megabytes(session.bytes) });
-  // Named for what it is. It was a dollar sign on a card, shown once the
-  // account's verdict stopped being `allowed` — but that verdict is account-wide
-  // and the display per-session, so $422 landed on `memview` and nothing on
-  // `health`, which had spent $395. And it is not a bill: the sessions run on the
-  // subscription. The utilisation strip is what "have I got room" wants.
+  // Named for what it is, and not on the card: it is not a bill, since the
+  // sessions run on the subscription. The usage strip answers "have I got room".
   if (session.cost_usd) {
     facts.push({ label: 'tokens at list price', value: `$${session.cost_usd.toFixed(2)}` });
   }

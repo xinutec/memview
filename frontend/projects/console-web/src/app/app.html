@@ -81,7 +81,7 @@
           <mat-icon>label</mat-icon>
           <span>Rename</span>
         </button>
-        <!-- One row, not six: the modes used to be most of this menu. See [[ModesSheet]]. -->
+        <!-- One row, not six: the modes have their own sheet. See [[ModesSheet]]. -->
         <button mat-menu-item (click)="chooseMode(open)">
           <!-- The mode's own icon when there is one, a neutral one when the runner has not said. -->
           <mat-icon [class.loud]="loud()">{{ modeIcon() ?? 'shield' }}</mat-icon>

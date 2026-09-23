@@ -70,8 +70,8 @@ describe('scrolling away', () => {
 
   it('counts a few pixels short of the end as the end', () => {
     // Sub-pixel rounding and a stray pixel of over-scroll, and nothing wider:
-    // what the old slack was really covering was the browser's scroll
-    // anchoring, and that is turned off for this list.
+    // wider slack would only cover the browser's scroll anchoring, which is
+    // turned off for this list.
     const following = opened(10000);
 
     following.moved(box(end(10000) - 4, 10000));
@@ -85,8 +85,7 @@ describe('growth under a reader who has not moved', () => {
     // The reason the answer is remembered rather than measured. Growth
     // moves the end without firing a scroll event, so nothing here is asked
     // again — a fresh measurement would watch the end run away and call it
-    // leaving. It was measured that way once: captures at 122, 125, 129, 130 and
-    // 133 pixels from the end, none of them a person.
+    // leaving, 120–130 pixels from the end with nobody touching the screen.
     const following = opened(5000);
 
     for (const height of [5122, 5400, 6000, 9000]) {
@@ -227,8 +226,8 @@ describe('following · a gap the reader did not make', () => {
   });
 });
 
-describe('following · a thumb on the glass, measured 2026-08-10', () => {
-  // Replays the phone measurement that settled #116, made by holding the
+describe('following · a thumb on the glass', () => {
+  // Replays a phone trace, made by holding the
   // transcript still — deliberately not scrolling — while a session wrote into
   // it. The trace: `gap=19 top=110310 was=110316 wrote=110328 held=true
   // height=110938 view=609`. Six pixels of movement, eighteen from the last
@@ -288,7 +287,7 @@ describe('following · a thumb on the glass, measured 2026-08-10', () => {
   });
 
   it('still stops following when the hold was a real scroll back', () => {
-    // What #82 exists to protect, and what SLOP must not cost: reading back is
+    // What following must protect, and what SLOP must not cost: reading back is
     // hundreds of pixels, an order of magnitude clear of a resting thumb.
     const following = held();
 
@@ -312,8 +311,8 @@ describe('following · a thumb on the glass, measured 2026-08-10', () => {
   });
 });
 
-describe('following · the composer takes the window, measured 2026-08-11', () => {
-  // Replays the phone measurement in memview#731. Typing a message grows
+describe('following · the composer takes the window', () => {
+  // Replays a phone trace. Typing a message grows
   // the composer, which takes height from the transcript. The trace:
   //
   //     gap=44 top=138573 was=138617 wrote=138617 held=false view=562 height=139179
@@ -385,7 +384,7 @@ describe('following · the composer takes the window, measured 2026-08-11', () =
 });
 
 describe('following · saying something', () => {
-  // Measured on the phone (#731). Sending re-lays the page out
+  // A phone trace. Sending re-lays the page out
   // as the composer collapses, and the browser moves the position while it does:
   //
   //     unpinned gap=92 top=145066 was=145157 wrote=145157 held=false view=534
@@ -408,7 +407,7 @@ describe('following · saying something', () => {
   it('does not take a reader who had scrolled away back to the end', () => {
     // Sending PROTECTS following, it does not restore it — Pippijn's rule.
     // A message sent from halfway up the morning arrives at the end whether or
-    // not it is watched, and being yanked there is what #82 exists to prevent.
+    // not it is watched, and being yanked there is what this prevents.
     const following = new Following();
     following.landed(end(10000));
     following.moved(box(2000, 10000));

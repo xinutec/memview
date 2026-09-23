@@ -114,8 +114,7 @@
 }
 
 // A note against one question. Scoped to the element, because a transcript row
-// is also `class="note"` and the unscoped rule drew it as an input — the clock
-// beside it sat 7.4px high (memview#725) from the padding alone.
+// is also `class="note"` and must not be drawn as an input.
 input.note {
   width: 100%;
   box-sizing: border-box;

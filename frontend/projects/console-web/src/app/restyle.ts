@@ -15,10 +15,9 @@ declare global {
 }
 
 /**
- * Ask again for a stylesheet whose request failed. A dropped connection on
- * reload once left the app running completely unstyled — every icon is a font
- * ligature, so the buttons read `more_vert` and `send` — and nothing asked for
- * the stylesheet a second time. The failure usually happens before this class
+ * Ask again for a stylesheet whose request failed. Without it a dropped
+ * connection on reload leaves the app unstyled — every icon is a font ligature,
+ * so the buttons read `more_vert` and `send`. The failure usually happens before this class
  * exists, so the inline script in `index.html` records it and this drains what
  * it recorded.
  */

@@ -140,7 +140,7 @@ export class SessionStore {
    * Show what was last kept, for a conversation whose stream is not connected.
    * Every condition matters: entries on screen mean it is arriving, a sequence
    * number means it arrived and was cleared by a reset, and a stream that came
-   * back wants none of it. See [[Kept]] and memview #90.
+   * back wants none of it. See [[Kept]].
    */
   private async hydrate(id: string, held: Held): Promise<void> {
     const copy = await this.kept.entries(id);

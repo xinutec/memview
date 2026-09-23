@@ -258,8 +258,7 @@ export class SessionsView {
   /**
    * The directory this machine's conversations actually run in — counted over
    * live sessions and transcripts together, since a console that has just started
-   * holds no sessions. Not the first repository alphabetically, which is what the
-   * field used to open on.
+   * holds no sessions.
    */
   private commonest(): string | undefined {
     const seen = new Map<string, number>();
