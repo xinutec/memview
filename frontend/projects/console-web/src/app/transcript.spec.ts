@@ -399,7 +399,12 @@ describe('folding runs of tool calls', () => {
 
   it('counts what a folded run should say about itself', () => {
     const found = ran([call('a', true), call('b', false), call('c')]);
-    expect(found).toEqual({ calls: 3, failed: 1, running: 1, unrecorded: 0 });
+    expect(found).toEqual({ calls: 3, failed: 1, running: 1, unrecorded: 0, images: 0 });
+  });
+
+  it('counts the pictures in a folded run', () => {
+    const shot: ToolCall = { ...call('a', true), picture: '/tmp/shot.png' };
+    expect(ran([shot, call('b', true)]).images).toBe(1);
   });
 });
 
@@ -593,7 +598,7 @@ describe('a call whose result was never written', () => {
     const seen = tools(transcript(tool('live', 'Bash', { command: 'sleep 600' }), joined(1)));
     expect(first(seen).unrecorded).toBeUndefined();
     expect(first(seen).ok).toBeUndefined();
-    expect(ran(seen)).toEqual({ calls: 1, failed: 0, running: 1, unrecorded: 0 });
+    expect(ran(seen)).toEqual({ calls: 1, failed: 0, running: 1, unrecorded: 0, images: 0 });
   });
 
   it('leaves calls made after the boundary alone', () => {
@@ -611,7 +616,7 @@ describe('a call whose result was never written', () => {
         result('ok', true),
       ),
     );
-    expect(ran(seen)).toEqual({ calls: 2, failed: 0, running: 0, unrecorded: 1 });
+    expect(ran(seen)).toEqual({ calls: 2, failed: 0, running: 0, unrecorded: 1, images: 0 });
   });
 
   it('counts one earlier event in the singular', () => {

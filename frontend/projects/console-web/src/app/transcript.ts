@@ -302,6 +302,7 @@ export interface Ran {
   failed: number;
   running: number;
   unrecorded: number;
+  images: number;
 }
 
 export function ran(entries: readonly ToolCall[]): Ran {
@@ -310,5 +311,6 @@ export function ran(entries: readonly ToolCall[]): Ran {
     failed: entries.filter((entry) => entry.ok === false).length,
     running: entries.filter((entry) => entry.ok === undefined && !entry.unrecorded).length,
     unrecorded: entries.filter((entry) => entry.unrecorded).length,
+    images: entries.filter((entry) => entry.picture).length,
   };
 }

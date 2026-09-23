@@ -96,7 +96,12 @@
           (click)="folding.toggleRun(block.key)"
         >
           <mat-icon>{{ folding.opensRun(block.key) ? 'expand_less' : 'expand_more' }}</mat-icon>
-          <span class="count">{{ counted(block).calls }} tool calls</span>
+          <span class="count"
+            >{{ counted(block).calls }} tool calls
+            @if (counted(block).images; as images) {
+              ({{ images }} image{{ images === 1 ? '' : 's' }})
+            }
+          </span>
           @if (counted(block).running) {
             <span class="running">
               {{ counted(block).running }} running {{ runningFor(block) | lasted }}
