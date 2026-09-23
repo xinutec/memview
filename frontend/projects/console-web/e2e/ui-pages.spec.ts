@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
@@ -2473,26 +2473,28 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   // window to divide by.
   const fill = page.locator('.session').nth(0).locator('mat-progress-bar.fill');
   await expect(fill).toHaveAttribute('aria-valuenow', '50');
-  await expect(fill).not.toHaveClass(/\bfull\b/);
+  const heat = (bar: Locator) =>
+    bar.evaluate((el: HTMLElement) => el.style.getPropertyValue('--heat'));
+  expect(await heat(fill)).toBe('0');
   // Below the facts, not over them: the card keeps its bottom padding.
   const factsBox = await page.locator('.session').nth(0).locator('.facts').boundingBox();
   const fillBox = await fill.boundingBox();
   expect(factsBox!.y + factsBox!.height).toBeLessThanOrEqual(fillBox!.y);
   await expect(page.locator('.session').nth(1).locator('mat-progress-bar.fill')).toHaveCount(0);
 
-  // Amber once compaction is close.
-  await page.route('**/api/state', (r) =>
-    r.fulfill({
-      json: {
-        ...STATE,
-        sessions: [{ ...RUNNING, name: 'running', context: 950_000, window: 1_000_000 }],
-      },
-    }),
-  );
-  await page.reload();
-  await expect(page.locator('.session').nth(0).locator('mat-progress-bar.fill')).toHaveClass(
-    /\bfull\b/,
-  );
+  // Towards amber from 80%, squared, and all of it from 90%.
+  for (const [context, want] of [
+    [850_000, '0.25'],
+    [950_000, '1'],
+  ] as const) {
+    await page.route('**/api/state', (r) =>
+      r.fulfill({
+        json: { ...STATE, sessions: [{ ...RUNNING, name: 'running', context, window: 1_000_000 }] },
+      }),
+    );
+    await page.reload();
+    expect(await heat(page.locator('.session').nth(0).locator('mat-progress-bar.fill'))).toBe(want);
+  }
 
   // The row wraps rather than clipping, and what it must not do is push the card
   // sideways or land on top of itself.

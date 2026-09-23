@@ -53,6 +53,8 @@ interface Row {
   readonly context?: string;
   /** The same, 0–100, when the window is known. */
   readonly fill?: number;
+  /** How near compaction, 0–1 — see [[heat]]. */
+  readonly heat?: number;
   /**
    * What this conversation is about, in a sentence, and when it was written.
    * Inference, drawn as such — see `console/src/gist.rs`.
@@ -82,6 +84,13 @@ interface Row {
  * stopped for the day. Within a rank, last activity.
  */
 const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
+
+/** How full, and how near compaction: none below 80%, all of it from 90%, squared between. */
+function filled(context?: number, window?: number): Pick<Row, 'fill' | 'heat'> {
+  if (!context || !window) return {};
+  const fill = Math.round((context / window) * 100);
+  return { fill, heat: Math.min(1, Math.max(0, (fill - 80) / 10)) ** 2 };
+}
 
 /** Every session this console owns, and the way to start another. */
 @Component({
@@ -170,10 +179,7 @@ export class SessionsView {
         named: !!session.name,
         live: session,
         context: fullness(session.context, session.window),
-        fill:
-          session.context && session.window
-            ? Math.round((session.context / session.window) * 100)
-            : undefined,
+        ...filled(session.context, session.window),
         // `context` is the last request's prompt size, so absent means nothing cached.
         cached: !!session.context,
         gist: gists[session.id],
