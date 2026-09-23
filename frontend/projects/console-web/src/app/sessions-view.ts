@@ -51,6 +51,8 @@ interface Row {
    * and a finished one. Undefined when nothing has said.
    */
   readonly context?: string;
+  /** The same, 0–100, when the window is known. */
+  readonly fill?: number;
   /**
    * What this conversation is about, in a sentence, and when it was written.
    * Inference, drawn as such — see `console/src/gist.rs`.
@@ -168,6 +170,10 @@ export class SessionsView {
         named: !!session.name,
         live: session,
         context: fullness(session.context, session.window),
+        fill:
+          session.context && session.window
+            ? Math.round((session.context / session.window) * 100)
+            : undefined,
         // `context` is the last request's prompt size, so absent means nothing cached.
         cached: !!session.context,
         gist: gists[session.id],

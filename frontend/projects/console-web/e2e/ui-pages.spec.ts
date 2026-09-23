@@ -2469,6 +2469,12 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   // a fact you look up belongs rather than one you scan a list by.
   expect(facts.join(' '), 'the size is back on the card').not.toContain('MB');
 
+  // The same fullness as a bar on the card's bottom edge, only where there is a
+  // window to divide by.
+  const fill = page.locator('.session').nth(0).locator('mat-progress-bar.fill');
+  await expect(fill).toHaveAttribute('aria-valuenow', '50');
+  await expect(page.locator('.session').nth(1).locator('mat-progress-bar.fill')).toHaveCount(0);
+
   // The row wraps rather than clipping, and what it must not do is push the card
   // sideways or land on top of itself.
   await expectNoTextOverlaps(page, testInfo);
