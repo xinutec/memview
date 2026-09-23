@@ -310,16 +310,3 @@ fn two_spellings_of_one_act_show_a_person_the_same_sentence() {
     assert_eq!(a.steps[0].concept, b.steps[0].concept);
     assert_ne!(a.steps[0].kind, b.steps[0].kind, "and the L2 chips differ");
 }
-
-#[test]
-fn an_edit_made_in_python_arrives_as_its_replacements() {
-    let command = "python3 - <<'EOF'\np = 'src/a.rs'\ns = open(p).read()\nopen(p, 'w').write(s.replace('one', 'two'))\nEOF";
-    assert_eq!(
-        asked(command, Some(true)).edits,
-        vec![console::parse::Replacement {
-            path: "/home/example/Code/health/src/a.rs".to_string(),
-            before: "one".to_string(),
-            after: "two".to_string(),
-        }]
-    );
-}

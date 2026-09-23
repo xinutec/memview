@@ -4782,56 +4782,6 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
   await expectNoClippedText(page, testInfo, 'app-diff-sheet');
 });
 
-test('an edit made in python shows as a diff in the command sheet @ phone width', async ({
-  page,
-}, testInfo) => {
-  const command =
-    "python3 - <<'EOF'\ns = open('a.rs').read()\nopen('a.rs', 'w').write(s.replace('one', 'two'))\nEOF";
-  await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
-    r.fulfill({
-      contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', input: { command }, at: NEXT },
-        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
-      ]
-        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-        .join(''),
-    }),
-  );
-  await page.route('**/api/sessions/*/parse', (r) =>
-    r.fulfill({
-      json: {
-        ...PARSED_GOLDEN,
-        edits: [
-          {
-            path: '/home/example/Code/memview/src/a.rs',
-            before: 'let x = one;',
-            after: 'let x = two;',
-          },
-          { path: '/home/example/Code/memview/src/a.rs', before: 'one()', after: 'two()' },
-        ],
-      },
-    }),
-  );
-  await page.goto(`/s/${RUNNING.id}`);
-
-  await page.locator('.entry.tool button.opens').click();
-  const sheet = page.locator('app-parse-sheet');
-  await sheet.locator('app-diff').first().waitFor();
-  await settleTransforms(page);
-  await expect(
-    sheet.locator('.file'),
-    'the file is named once, above its first change',
-  ).toHaveCount(1);
-  await expect(sheet.locator('.file')).toContainText('a.rs');
-  await expect(sheet.locator('app-diff')).toHaveCount(2);
-  await expect(sheet.locator('.line.gone').first()).toContainText('let x = one;');
-  await expect(sheet.locator('.line.added').first()).toContainText('let x = two;');
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-});
-
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
   page,
 }, testInfo) => {

@@ -57,9 +57,6 @@ struct PythonParser;
 
 pub use crate::program::{Program, Ran, Refused, Tally, Use, Why};
 
-mod rewrites;
-pub use rewrites::{Replaced, Rewrite, rewrites};
-
 /// Read a Python program.
 ///
 /// The grammar accepts punctuation it has no reading for, so this does not fail

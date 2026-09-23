@@ -41,13 +41,6 @@ fn main() -> anyhow::Result<()> {
         .position(|a| a == "--sample")
         .and_then(|i| args.get(i + 1))
         .cloned();
-    // Programs whose edits were read, printed with what was read from them: the
-    // check that a replacement shown is the one the program made.
-    let rewritten = args
-        .iter()
-        .position(|a| a == "--rewrites")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse::<usize>().ok());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;
@@ -57,9 +50,6 @@ fn main() -> anyhow::Result<()> {
     // path is real is judged on what was typed, not on where it landed.
     let mut paths: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut witnessed = 0usize;
-    // Programs that wrote a file, and those whose edits were read as replacements.
-    let mut writing = 0usize;
-    let mut rewriting = 0usize;
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -87,24 +77,6 @@ fn main() -> anyhow::Result<()> {
         for op in &found.ops {
             let Op::Python { source } = op else { continue };
             let program = python::read(source);
-            if program.uses.iter().any(|used| used.write) {
-                writing += 1;
-                let found = python::rewrites(source);
-                rewriting += usize::from(!found.is_empty());
-                if let Some(every) = rewritten
-                    && !found.is_empty()
-                    && rewriting.is_multiple_of(every)
-                {
-                    println!("--- program:\n{}\n--- read as:", source.trim_end());
-                    for rewrite in &found {
-                        println!("{}:", rewrite.path);
-                        for pair in &rewrite.replaced {
-                            println!("  - {:?}\n  + {:?}", pair.old, pair.new);
-                        }
-                    }
-                    println!();
-                }
-            }
             if let Some(sample) = &sample
                 && program.unknown.contains_key(sample.as_str())
                 && witnessed < show
@@ -163,10 +135,6 @@ fn main() -> anyhow::Result<()> {
     for (why, n) in &tally.why {
         println!("    {:<34} {n}", why.name());
     }
-    println!(
-        "programs that wrote    {writing}\n  edits read as replacements {rewriting}  ({:.1}%)",
-        100.0 * rewriting as f64 / writing.max(1) as f64
-    );
     println!("file uses             {}", tally.uses);
     println!(
         "  kept as paths       {}  ({:.1}%)",
