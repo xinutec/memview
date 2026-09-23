@@ -9,7 +9,7 @@ interface Bar {
   pct: number;
   /** How long until it turns over. Absent once it already has — see [[Window]]. */
   left?: string;
-  /** Near the ceiling, where the number stops being background information. */
+  /** Near the ceiling and spent faster than the clock: on course to run out before the reset. */
   high: boolean;
   /**
    * How far through the window the clock is, 0–100 — or absent. Read at the SAME
@@ -77,14 +77,15 @@ export class UsageStrip {
 
 function bar(label: string, window: Window, spanMs: number): Bar {
   const left = window.resets_in_ms;
+  // Clamped, because a reading can outlive its own window and a marker off the
+  // bar is worse than none.
+  const elapsed = left === undefined ? undefined : clamp(((spanMs - left) / spanMs) * 100);
   return {
     label,
     pct: Math.round(window.pct),
     left: left === undefined ? undefined : span(left),
-    high: left !== undefined && window.pct >= LOUD,
-    // Clamped, because a reading can outlive its own window and a marker off the
-    // bar is worse than none.
-    elapsed: left === undefined ? undefined : clamp(((spanMs - left) / spanMs) * 100),
+    high: elapsed !== undefined && window.pct >= LOUD && window.pct > elapsed,
+    elapsed,
     days: spanMs >= 2 * DAY ? boundaries(spanMs) : [],
   };
 }

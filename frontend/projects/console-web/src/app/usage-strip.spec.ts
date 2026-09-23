@@ -84,6 +84,12 @@ describe('the usage strip', () => {
     expect(host.querySelector('.pct.high')?.textContent).toContain('92%');
   });
 
+  it('does not mark a window spent more slowly than its clock', async () => {
+    // 85% spent with 12 hours of the week left: on course to finish under the cap.
+    const host = await render(reading({ seven_day: { pct: 85, resets_in_ms: 12 * HOUR } }));
+    expect(host.querySelector('.high')).toBeNull();
+  });
+
   it("draws a model's own allowance under the model's name", async () => {
     const said =
       (await render(reading({ models: [{ model: 'Fable', pct: 6, resets_in_ms: 34 * HOUR }] })))
