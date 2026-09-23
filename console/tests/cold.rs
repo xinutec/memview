@@ -438,9 +438,8 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
     // The ordering is the whole test. `asked` binds to the first `Prompt`
     // seen while nothing is bound, and `adopt` seeds from the transcript right
     // after building its state — so a label restored AFTER the seed, or not at
-    // all, is taken by whatever prompt happens to start the last page. Measured
-    // on the phone: a session's subtitle changed across two upgrades an hour
-    // apart with nobody touching it (memview #1146).
+    // all, is taken by whatever prompt happens to start the last page, and the
+    // subtitle changes on every upgrade.
     let scratch = projects();
     let id = "a-session-with-a-page-full-of-prompts";
     let folder = scratch.join("project");

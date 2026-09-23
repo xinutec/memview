@@ -125,7 +125,7 @@ mod recorded {
         // is a wrapper and not the words. Reading it back as the typed command is
         // what tells the console the session has READ the message — without it
         // nothing ever answers the write, and the marker saying so stays up for
-        // ever (memview #120).
+        // ever.
         //
         // The args are part of it: `/loop check eval output` and `/loop` are two
         // different messages, and only the whole of it matches what was sent.
@@ -388,12 +388,9 @@ fn a_notification_that_names_neither_the_call_nor_an_ending_names_nothing() {
 
 #[test]
 fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
-    // Verbatim, and the whole of memview #925. A monitor's three ordinary
-    // endings — `stream ended`, `script failed`, `stopped` — all carry a
-    // `<tool-use-id>` and close through the branch above. A timeout carries
-    // none, so the console kept counting one: armed, timed out an hour later,
-    // and still drawn as running when Pippijn asked why one session had two
-    // monitors.
+    // Verbatim. A monitor's three ordinary endings — `stream ended`, `script
+    // failed`, `stopped` — all carry a `<tool-use-id>` and close through the
+    // branch above. A timeout carries none, and must still end the count.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b9drzo2f6</task-id>\n<summary>Monitor event: \"fleet bump progress, per repo\"</summary>\n<event>[Monitor timed out — re-arm if needed.]</event>\n</task-notification>"}]}}"#;
     assert!(
         matches!(
@@ -558,9 +555,7 @@ fn the_window_is_declared_on_the_result_line_and_nowhere_else() {
 #[test]
 fn a_replayed_transcript_carries_the_context_too() {
     // A session that has just been resumed or carried across an upgrade should
-    // know how full it is straight away. The counts are in the transcript; the
-    // recorded reader used to drop them, so the figure was blank until the next
-    // turn ended.
+    // know how full it is straight away, from the counts in the transcript.
     let line = r#"{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":1272,"cache_read_input_tokens":546967,"output_tokens":244},"content":[{"type":"text","text":"hello"}]}}"#;
     let events = console::protocol::read_recorded(line);
     assert!(
@@ -861,7 +856,7 @@ fn the_seed_boundary_forgets_what_the_transcript_replayed() {
 /// A command runs locally and answers as one complete `assistant` message with
 /// no deltas before it, and the live reader keeps only tool calls from a
 /// completed message — a rule that is right for generated text and wrong for the
-/// one case that has none (memview #106).
+/// one case that has none.
 mod synthetic {
     use console::protocol::{Event, read};
 
@@ -912,8 +907,8 @@ fn renaming_goes_over_the_control_channel() {
     // changes. Measured on a working session, which replied "Noted the rename
     // (CLI-side, nothing for me to do)".
     //
-    // A control request is answered whatever the turn is doing. Measured against
-    // 2.1.226 two seconds into a running turn: `success` at once, and the
+    // A control request is answered whatever the turn is doing: `success` at once
+    // two seconds into a running turn, and the
     // transcript gained a `custom-title` line — the first field in the console's
     // own naming chain.
     let line = console::protocol::rename("rename-abc", "tasks");
@@ -927,7 +922,7 @@ fn renaming_goes_over_the_control_channel() {
 
 #[test]
 fn a_permission_request_says_which_call_it_is_about() {
-    // Without this one action draws two widgets (memview#86). The CLI
+    // Without this one action draws two widgets. The CLI
     // announces the call and then asks about it, so a client that cannot tell the
     // two events apart from two actions shows a tool row AND a permission card
     // for one Write — and the card, sitting between two calls, breaks the run
@@ -967,8 +962,7 @@ fn a_permission_request_without_a_call_is_still_a_question() {
 
 /// A background call is named by what the caller wrote about it, not by its id.
 ///
-/// The count was the whole report until #740: a phone saying *1 background task
-/// running* could not say which, and answering it took a `ps` on the Mac.
+/// A count alone, *1 background task running*, cannot say which.
 #[test]
 fn a_call_is_named_by_its_description() {
     let called = console::protocol::called(
@@ -1039,9 +1033,8 @@ const MODE_UNKNOWN: &str = r#"{"type":"control_response","response":{"subtype":"
 #[test]
 fn a_settled_mode_is_the_one_the_reply_names() {
     // Read out of the answer, not carried over from the request. Taking
-    // `subtype == success` as agreement about WHICH mode would repeat #96 one
-    // level down: a reply that succeeded at something, read as the mode asked
-    // for.
+    // `subtype == success` as agreement about which mode would read a reply that
+    // succeeded at something as the mode asked for.
     assert_eq!(
         console::protocol::mode_reply(MODE_SET),
         Some(console::protocol::ModeReply::Now("acceptEdits".to_string()))
@@ -1051,7 +1044,7 @@ fn a_settled_mode_is_the_one_the_reply_names() {
 #[test]
 fn a_refusal_keeps_the_words_the_cli_used() {
     // They name the cause AND the remedy — the launch flag — which is more than
-    // this console knows to say. #96 was open because nothing read this at all.
+    // this console knows to say.
     let Some(console::protocol::ModeReply::Refused(why)) =
         console::protocol::mode_reply(MODE_REFUSED)
     else {

@@ -126,8 +126,8 @@ async fn a_session_that_was_never_handed_anything_is_absent_rather_than_zero() {
 
 #[tokio::test]
 async fn a_session_that_finished_its_list_still_gets_a_row() {
-    // The case `open > 0` used to hide, and the reason the rule is now keyed
-    // on the total: `0/9` is a session that cleared its plate, which is a
+    // Keyed on the total, not on `open > 0`: `0/9` is a session that cleared its
+    // plate, which is a
     // different fact from never having been given one — and the better of the
     // two to be able to see.
     let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;

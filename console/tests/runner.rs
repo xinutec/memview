@@ -113,10 +113,8 @@ async fn a_session_starts_takes_a_message_and_answers() {
 
 #[tokio::test]
 async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
-    // The list is drawn without opening anything. This used to be counted
-    // by the session's own page from its event stream, so the one screen that
-    // could say "something is still running here" was the screen you had to be
-    // on already. The runner watches the same two events and the count rides the
+    // The list is drawn without opening anything, so the runner counts: it
+    // watches the same two events a session's page would, and the count rides the
     // summary.
     //
     // A detached call answers at once, saying that it has left something
@@ -880,9 +878,8 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
     assert_eq!(summary.mode.as_deref(), Some("auto"), "the mode restarted");
     // The label, which the transcript DOES record and cannot give back.
-    // A re-seed replays one page, so `asked` bound to whatever prompt started it
-    // and moved on every upgrade — see the note on `Tally::asked` (memview
-    // #1146).
+    // A re-seed replays one page, so `asked` must come from the head of the file
+    // or it moves on every upgrade — see the note on `Tally::asked`.
     assert_eq!(
         summary.asked.as_deref(),
         Some("the first thing it was ever asked"),
@@ -1220,12 +1217,9 @@ const ENDED: &str =
 
 #[tokio::test]
 async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose() {
-    // The defect, measured against CLI 2.1.221/226. A slash
-    // command written to a working session is not run: the CLI parks it as a
-    // `queued_command` with `commandMode: "prompt"` and hands it to the MODEL as
-    // words. `/rename` sent from the phone got "Noted the rename (CLI-side,
-    // nothing for me to do)" and no name was ever written, with nothing on
-    // screen saying the command had been demoted.
+    // A slash command written to a working session is not run: the CLI parks it
+    // as a `queued_command` with `commandMode: "prompt"` and hands it to the model
+    // as words, so `/rename` would rename nothing.
     use std::io::Write;
     let (session, stdin, mut stdout, _stderr) = wired();
 
@@ -1396,9 +1390,7 @@ mod deafness {
         // minutes. A session blocked on a question is MID-TURN, so
         // `idle_since` is unset and the test above is silent for ever. But a
         // session that asked a question and stopped is not working — it said so —
-        // and the console had written the answer into its pipe. One session was
-        // answered and still blocked half an hour later, with the card on the
-        // phone green throughout (memview #122).
+        // and the console had written the answer into its pipe.
         assert_eq!(
             deaf_after(None, None, Some(NOW - AFTER - 1), false, NOW),
             Some(AFTER + 1),
@@ -1479,7 +1471,7 @@ async fn a_message_stops_being_in_flight_when_the_session_reads_it_back() {
 
 #[tokio::test]
 async fn a_slash_command_is_never_counted_as_in_flight() {
-    // Measured against CLI 2.1.221: `--replay-user-messages` does not
+    // `--replay-user-messages` does not
     // replay a command. Counting one would leave it in flight for ever, and
     // ninety seconds later the console would call a perfectly well session deaf
     // every time anybody typed `/compact`.
@@ -1502,11 +1494,9 @@ async fn a_slash_command_is_never_counted_as_in_flight() {
 
 /// What a conversation is allowed to do, across everything that forgets.
 ///
-/// Resuming used to drop a session to Manual and report that as the truth.
-/// A session in `auto`, stopped and resumed, came back `default` — and then
-/// stops at the first tool call
-/// needing approval and waits, which from a phone is the stall it was restarted
-/// for (memview #119).
+/// A session in `auto`, stopped and resumed, must not come back `default`: it
+/// would stop at the first tool call needing approval and wait, which from a
+/// phone is the stall it was restarted for.
 mod remembering_the_mode {
     use super::*;
     use console::modes::Modes;
@@ -1566,10 +1556,8 @@ mod remembering_the_mode {
 
 /// Whether a turn is running, as the runner observes it.
 ///
-/// The console called a working session idle. Reported from the phone:
-/// "It says you're idle. My messages aren't seen by you yet." The
-/// session was mid-turn throughout, running tools — but `busy` is announced only
-/// when it CHANGES, and no status was drawn as *idle* (memview #112).
+/// Not read off `busy`, which is announced only when it changes: a session
+/// mid-turn running tools can have no status standing.
 mod whether_it_is_working {
     use super::*;
 
@@ -1625,14 +1613,9 @@ mod whether_it_is_working {
         assert!(!session.summary().working, "the turn ended");
     }
 
-    /// Hours of `working` over a process doing nothing. A session was
-    /// resumed whose transcript ended mid-turn, so the seeded events said
-    /// "speaking" and no `Turn` ever followed to take it back. The card claimed a
-    /// turn was running while the process held no API socket and a flat sliver of
-    /// a core — and a message sent to it was picked up at once, because nothing
-    /// was ever wrong with
-    /// it. `Joined` set `idle_since` and left `working` alone, so the session
-    /// was marked idle and mid-turn at the same time (memview #640).
+    /// A resumed transcript that ends mid-turn seeds "speaking", and no `Turn`
+    /// follows to take it back. `Joined` must clear `working` as well as set
+    /// `idle_since`, or the session reads as idle and mid-turn at once.
     ///
     /// Against the rule rather than a spawned session: reaching this needs a
     /// transcript that ends mid-turn and a resume to read it, which is the
@@ -1696,9 +1679,8 @@ async fn a_stop_writes_down_when_the_kill_is_due() {
     // Because the timer that carries it does not survive an upgrade. The
     // kill lives in a `tokio::spawn`, and `handover` re-execs this process; the
     // session is not carried either, since closing stdin makes its descriptors
-    // unkeepable. A stopped session ran on for two and a quarter hours,
-    // owned by nobody. The deadline is written down so the next image can
-    // finish what this one started — see #750.
+    // unkeepable. The deadline is written down so the next image can finish
+    // what this one started.
     let dir = std::env::temp_dir();
     let roster = roster(&dir);
     let session = roster.start(&dir.display().to_string()).expect("start");
@@ -1860,7 +1842,7 @@ impl Drop for Disguised {
 #[test]
 fn the_kill_does_land_on_the_process_that_is_still_that_conversation() {
     // The other half of the guard, and the half that matters: refusing every
-    // kill would also pass the test above while leaving #750 exactly as it was.
+    // kill would also pass the test above while leaving stopped sessions running.
     let id = "b1b1b1b1-0000-4000-8000-000000000001";
     let dir = std::env::temp_dir().join(format!("console-finish-{}", std::process::id()));
     let mut wearing = wearing_the_name(&dir, id);
@@ -1872,7 +1854,7 @@ fn the_kill_does_land_on_the_process_that_is_still_that_conversation() {
 
 #[tokio::test]
 async fn a_kill_the_last_image_could_not_deliver_is_delivered_by_this_one() {
-    // The whole of #750, from the receiving end. The old image wrote down
+    // The receiving end of a stop across an upgrade. The old image wrote down
     // what it was in the middle of stopping; this reads it and finishes the job
     // it could not, because `execve` took its timer with it.
     //

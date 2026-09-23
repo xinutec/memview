@@ -297,9 +297,8 @@ fn directories(root: &std::path::Path) -> Vec<String> {
 
 #[test]
 fn pictures_go_when_the_conversation_they_belong_to_does() {
-    // Nothing removed one before this. Deleting a transcript left its pictures
-    // behind for good — megabytes each, under a name that no longer answered to
-    // anything, and no page that could ever show them again.
+    // Otherwise a deleted transcript's pictures stay for good — megabytes each,
+    // and no page that could ever show them again.
     let root = scratch("tidy-gone");
     kept_for(&root, &["alive", "deleted"]);
 
@@ -463,12 +462,8 @@ async fn a_far_end_that_is_not_listening_is_a_sentence_rather_than_a_wait() {
 
 #[tokio::test]
 async fn a_scheme_this_does_not_fetch_is_refused_before_anything_is_asked() {
-    // This used to include `file:`, on an argument that was already false
-    // when it was written. It said refusing the scheme was what stopped
-    // `~/.ssh/id_ed25519` being served to whoever tapped a link — but the `/`
-    // arm at the top of [`fetch`] has always read any local path, so the same
-    // key was reachable by writing it without the scheme. The refusal guarded
-    // nothing and cost `coach` three dead picture links (memview#1373).
+    // Not `file:`: refusing that scheme would guard nothing, since the `/` arm
+    // at the top of [`fetch`] reads any local path anyway.
     //
     // What actually guards it is the sniff, and it is tested where it lives:
     // `a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either` and
@@ -570,12 +565,10 @@ async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
     );
 }
 
-/// `file:` was refused, and the refusal was recorded as proof the bound
-/// held. It was only ever put to a scheme nobody writes. `coach` writes
-/// `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary prose, and
-/// every one of those was dead while the identical path without the scheme
-/// served 200 image/png. A refusal tested only against a hostile shape looks
-/// right until something friendly is put to it (memview#1373).
+/// `coach` writes `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary
+/// prose, and that must serve like the same path without the scheme. A refusal
+/// tested only against a hostile shape looks right until something friendly is
+/// put to it.
 #[tokio::test]
 async fn a_file_url_is_the_path_it_names() {
     let path = on_disk("scheme", PNG);

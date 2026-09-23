@@ -108,9 +108,8 @@ async fn kill_on_drop_leaves_nothing_behind() {
 /// name one. It is the same two steps `.output()` performs, with the same flag
 /// unset, which is the thing under test.
 ///
-/// If this fails, `src/deaf.rs` is #797's leak — and the fix is the flag,
-/// not a `SIGCHLD` handler, which #797 rules out for taking the exit status
-/// `Session::reap` reads.
+/// If this fails, `src/deaf.rs` leaks zombies — and the fix is the flag, not a
+/// `SIGCHLD` handler, which would take the exit status `Session::reap` reads.
 #[tokio::test]
 async fn no_kill_on_drop_leaves_nothing_behind() {
     let child = briefly().spawn().expect("sleep did not spawn");
@@ -258,12 +257,9 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
 
     // Let it exit, so the write below has nobody to write to.
     //
-    // Waited for, not slept for. This was `sleep(200ms)`, which is a
-    // timing assumption: under gate load `true` had not even been SCHEDULED in
-    // 200ms, its pipe was still open, the write below SUCCEEDED, the reap
-    // branch was skipped, and the assertion reported "left unreaped" — the
-    // test failing its own precondition and wearing it as a reaping bug
-    // (memview#1243, failing in-gate and passing alone moments later).
+    // Waited for, not slept for: under load `true` may not run for a while, and
+    // then its pipe is still open, the write below succeeds, and the test fails
+    // its own precondition looking like a reaping bug.
     // Exited-but-unreaped IS the zombie state, so the precondition is
     // waited on directly and a machine too loaded to run `true` in five
     // seconds names the precondition instead of the behaviour.
@@ -293,7 +289,7 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
         sent.is_none(),
         "precondition: a write to an exited child's pipe succeeded"
     );
-    // What `gist::ask` now does on that path, and what it used to skip.
+    // What `gist::ask` does on that path.
     let _ = child.wait().await;
 
     assert!(

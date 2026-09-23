@@ -152,7 +152,7 @@ fn the_deepest_real_transcript_is_still_reached() {
 #[test]
 fn many_short_lines_are_not_what_the_bound_is_about() {
     // Two hundred lines of metadata is nothing to read when the lines are small,
-    // and the old line-counting bound refused it. The cost being guarded against
+    // so the bound is not on lines. The cost being guarded against
     // is bytes off a file that can reach a gigabyte, not lines.
     let root = scratch("many-lines");
     transcript(&root, "project", "chatty", Some("/home/example/Code"), 200);
@@ -300,10 +300,8 @@ fn a_conversation_is_shown_by_the_name_it_gave_itself() {
     let found = conversations(&root);
     assert_eq!(found.len(), 1);
     // The title wins here and the agent name wins in the viewer, and that is
-    // the decision rather than an accident. The reason used to be given as "one
-    // is a decision, the other a default" — a rationale the viewer answered with
-    // an equally confident opposite one. Settled by reading the CLI,
-    // which carries both orders split by what the name is for: its resume picker
+    // the decision rather than an accident, taken from the CLI, which carries both
+    // orders split by what the name is for: its resume picker
     // reads `customTitle` and never consults `agentName`, its session labeller
     // reads `agentName` first. This is a list of conversations to pick from, so
     // it is the picker's question. See `reader::transcript::AS_CONVERSATION`.
@@ -471,9 +469,8 @@ fn a_live_session_is_told_when_its_fullness_is_gone() {
 
 #[test]
 fn a_conversation_this_console_just_stopped_running_is_free_at_once() {
-    // A transcript written seconds ago used to read as in use, which meant the
-    // session a console restart had *just* killed could not be picked up for two
-    // minutes — the exact moment somebody wants it back. Nothing runs `claude`
+    // Freshness must not read as in use: the session a console restart has just
+    // killed is the one somebody wants back at once. Nothing runs `claude`
     // here but the console, and it kills what it runs on the way out, so the
     // process table is accurate immediately and freshness says nothing.
     let root = scratch("busy-fresh");
@@ -1106,10 +1103,8 @@ fn a_directory_named_after_the_session_is_not_its_transcript() {
 
 #[test]
 fn only_what_arrived_since_the_last_count_is_read_again() {
-    // The whole point, and it was measured before it was written. This was
-    // a whole-file pass at the end of every turn: 2.1 GB and 267,002 lines for
-    // the largest transcript on this machine, twenty-four seconds just to read
-    // the bytes, in the task that reads that session's stdout. A turn ends by
+    // The whole point: a transcript can reach gigabytes, and this runs at the end
+    // of every turn in the task that reads the session's stdout. A turn ends by
     // appending a few kilobytes, and that is all this reads.
     let root = scratch("incremental");
     spoken(&root, "growing", &[1, 1], None);
@@ -1188,9 +1183,7 @@ fn a_monitor_that_timed_out_is_found_there_too_under_its_other_name() {
     // This is the path that matters for a monitor, not the live stream.
     // The notification is written to the transcript and never put on stdout, so
     // a running session finds every ending here — including the one kind that
-    // cannot name the call it came from. Verbatim from the transcript where
-    // memview #925 was noticed: a monitor timed out and was still drawn as
-    // running an hour later.
+    // cannot name the call it came from: a monitor's timeout, verbatim.
     let root = scratch("timed-out");
     spoken(&root, "watching", &[1], None);
     let path = transcript_of(&root, "watching").expect("transcript");
@@ -1254,7 +1247,7 @@ fn a_transcript_that_shrank_is_counted_from_the_start() {
     assert_eq!(counted(&path, stale).counted.interactions, 2);
 }
 
-// --- an unanswerable question is not "nothing running" (memview#1457) --------
+// --- an unanswerable question is not "nothing running" ---------------------
 
 /// A conversation with just enough on it for [`in_use`] to judge.
 fn conversation(id: &str, name: Option<&str>) -> console::past::Conversation {

@@ -149,9 +149,7 @@ fn a_command_that_will_not_parse_says_so() {
     // Returning an empty step list for them would show an unreadable command as
     // a command that did nothing.
     //
-    // This was `case $x in a) echo hi;; esac` until memview#901 taught the
-    // grammar to read one, and the test then failed against correct code. An
-    // unclosed quote is the durable example: it is not a gap waiting to be
+    // An unclosed quote, not an unsupported construct: it is not a gap waiting to be
     // filled but text that cannot be read by anything, so nothing will ever
     // close it.
     let answer = asked("grep \"unterminated file.txt", Some(true));
@@ -221,12 +219,7 @@ fn what_a_script_runs_is_not_said_twice() {
 #[test]
 fn the_shape_the_phone_is_drawn_from() {
     // The phone check reads the file this test writes, so a copy cannot
-    // drift. It used to be a hand-written answer in `ui-pages.spec.ts` with a
-    // comment claiming this test pinned it — a convention, not a mechanism, and
-    // it failed exactly as you would expect: the labels changed, this test was
-    // updated, its TypeScript copy was not, and the layout check went on drawing
-    // `nothing` and `run` for hours. A stub agrees with whatever it was last
-    // told.
+    // drift: a hand-written stub agrees with whatever it was last told.
     //
     // The command is the transcript fixture's own, and it FAILED — which is why
     // it is worth drawing: everything after the `&&` parses, classifies and

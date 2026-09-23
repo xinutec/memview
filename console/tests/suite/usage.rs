@@ -277,19 +277,10 @@ fn a_window_that_has_turned_over_beats_the_old_one_outright() {
 
 #[test]
 fn a_window_end_that_wobbles_by_a_second_is_still_the_same_window() {
-    // The defect this exists for (#814). The console drew a figure half an
-    // hour stale while the CLI answered a fresher one for the same window:
-    // successive samples showed the reading's age climbing 1:1 with the clock,
-    // so nothing was being accepted at all.
-    //
-    // The reset instant is not a constant. Two `get_usage` probes 30 s apart both
-    // answered `23:19:59.838278`; one ten minutes earlier answered
-    // `23:19:59.955616`, and the figure the console was holding said `23:20:01`.
-    // It drifts, and not in one direction. Judging *any* difference to be a
-    // different window instance meant the highest instant ever heard latched the
-    // window shut: every later reading looked like an older instance and was
-    // dropped whole — the figure and its arrival time together — until the window
-    // really did turn over, hours later.
+    // The reset instant is not a constant: it drifts by fractions of a second
+    // between readings, in both directions. Judging any difference to be a
+    // different window instance would let the highest instant ever heard latch
+    // the window shut, and every later reading would be dropped as older.
     //
     // A turnover moves the instant by the length of the window. A second is not a
     // turnover of anything.
@@ -317,8 +308,8 @@ fn a_window_end_that_wobbles_by_a_second_is_still_the_same_window() {
 #[test]
 fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
     // What a `rate_limit_event` carries when the CLI declines to say. There is
-    // nothing to compare but arrival, which is the old rule — kept for exactly
-    // the case that has no better answer.
+    // nothing to compare but arrival, which is the rule for exactly the case
+    // that has no better answer.
     let first = Seen {
         utilization: 0.5,
         resets_at: None,
@@ -338,11 +329,9 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
 
 #[test]
 fn a_confirmation_of_the_same_figure_still_refreshes_its_age() {
-    // The half of #113 that made a good number look untrustworthy. With
-    // `candidate.utilization > held.utilization` alone, a session reconfirming
-    // the figure already held was discarded — and its arrival time with it — so
-    // `at` recorded when the number last WENT UP rather than when it was last
-    // heard. A figure confirmed a minute ago was then drawn as an hour old.
+    // With `candidate.utilization > held.utilization` alone, a reconfirmation
+    // would be discarded with its arrival time, and `at` would record when the
+    // number last went up rather than when it was last heard.
     let held_now = held(0.13, TURNS, 1_000);
     let again = held(0.13, TURNS, 61_000);
     assert!(
@@ -463,11 +452,9 @@ fn a_measured_dashboard_row_is_how_another_machines_reset_arrives() {
 
 #[test]
 fn a_reading_outlives_the_session_that_heard_it() {
-    // The backwards jump, #87. Two sessions, one holding 93% and one 92%.
-    // The roster used to rebuild this from its live sessions on every poll, so
-    // when the 93% session ended the highest remaining was 92% — and the front
-    // page, polling every five seconds, showed 92 → 93 → 92 with nothing about
-    // the account having changed.
+    // Two sessions, one holding 93% and one 92%. Rebuilt from live sessions on
+    // every poll, the figure would step back to 92% when the 93% session ends,
+    // with nothing about the account having changed.
     let mut known = BTreeMap::new();
     console::usage::remember(
         &mut known,
@@ -504,7 +491,7 @@ fn but_a_window_that_has_turned_over_does_drop_the_old_high_water_mark() {
     );
 }
 
-/// Who gets asked what the account has spent, highest first. See memview #817.
+/// Who gets asked what the account has spent, highest first.
 mod who_is_asked {
     use console::usage::asked_before;
 
@@ -524,10 +511,9 @@ mod who_is_asked {
 
     #[test]
     fn an_idle_session_is_asked_before_a_busier_but_more_recent_one() {
-        // The whole of #817. `busy` spoke most recently and therefore holds
-        // the freshest figure — and will not answer until its turn ends, which is
-        // how the ages drifted to 109s against a sixty-second beat. `idle` has a
-        // cache seconds older and answers now.
+        // `busy` spoke most recently and therefore holds the freshest figure, and
+        // will not answer until its turn ends. `idle` has a cache seconds older and
+        // answers now.
         assert_eq!(
             asked(&[("idle", false, 1_000), ("busy", true, 9_999)]),
             "idle"
@@ -546,7 +532,7 @@ mod who_is_asked {
 
     #[test]
     fn a_fleet_that_is_entirely_busy_still_gets_asked() {
-        // Falls back to the old rule rather than to nobody: a deferred answer is
+        // Falls back to recency rather than to nobody: a deferred answer is
         // worth more than a figure that never updates while everything works.
         assert_eq!(
             asked(&[("older", true, 1_000), ("newer", true, 8_000)]),
