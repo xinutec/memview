@@ -209,16 +209,17 @@
           }
         </div>
       }
+      <!-- On the card's bottom edge, which takes no room; the top edge is where loading
+           shows. Inside the content, which keeps its padding only as the last child. -->
+      @if (row.fill; as fill) {
+        <mat-progress-bar
+          class="fill"
+          mode="determinate"
+          [value]="fill"
+          [attr.aria-label]="row.context + ' of context'"
+        />
+      }
     </mat-card-content>
-    <!-- The bottom edge takes no room, and the top edge is where loading shows. -->
-    @if (row.fill; as fill) {
-      <mat-progress-bar
-        class="fill"
-        mode="determinate"
-        [value]="fill"
-        [attr.aria-label]="row.context + ' of context'"
-      />
-    }
   </mat-card>
 </ng-template>
 

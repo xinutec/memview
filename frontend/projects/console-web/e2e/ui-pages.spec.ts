@@ -2473,6 +2473,10 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   // window to divide by.
   const fill = page.locator('.session').nth(0).locator('mat-progress-bar.fill');
   await expect(fill).toHaveAttribute('aria-valuenow', '50');
+  // Below the facts, not over them: the card keeps its bottom padding.
+  const factsBox = await page.locator('.session').nth(0).locator('.facts').boundingBox();
+  const fillBox = await fill.boundingBox();
+  expect(factsBox!.y + factsBox!.height).toBeLessThanOrEqual(fillBox!.y);
   await expect(page.locator('.session').nth(1).locator('mat-progress-bar.fill')).toHaveCount(0);
 
   // The row wraps rather than clipping, and what it must not do is push the card
