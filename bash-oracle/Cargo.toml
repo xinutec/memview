@@ -3,8 +3,9 @@ name = "bash-oracle"
 version = "0.1.0"
 edition = "2024"
 
-# The second gate: bash printing its own parse, so the syntax tree has a check
-# that is not itself. See docs/execution-model.md and src/lib.rs.
+# The second gates: bash printing its own parse, and CPython parsing the Python
+# (`python-gate`), so each syntax tree has a check that is not itself. See
+# docs/execution-model.md and src/lib.rs.
 #
 # ⚠ **A workspace member and not a module of `reader`, for the reason the
 # console is one and not a feature of the viewer.** `reader` states that it runs

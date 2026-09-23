@@ -233,6 +233,8 @@ cargo run --release -p reader --example tree-sitter-python-probe -- <corpus>
 cargo run --release -p bash-oracle --bin syntax-report -- <corpus> [--oracle] [--why SUBSTRING]
 # the Python tree: how much reads, whether the round-trip law holds, the ranked refusals
 cargo run --release -p reader --bin python-syntax-report -- <corpus> [--show LABEL N]
+# the Python tree against CPython's own parse, and CPython compiling our print
+cargo run --release -p bash-oracle --bin python-gate -- <corpus> [--show VERDICT N]
 # every distinct Python program the corpus runs, one JSON string a line — to measure with CPython
 cargo run --release -p reader --example python-sources -- <corpus> > programs.jsonl
 ```

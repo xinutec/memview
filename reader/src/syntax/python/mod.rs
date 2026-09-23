@@ -6,11 +6,13 @@
 //! the corpus holds almost none of them, and a refusal is ranked, not guessed at.
 
 pub mod ast;
+pub mod canonical;
 pub mod law;
 pub mod lex;
 pub mod parse;
 pub mod print;
 
+pub use canonical::canonical;
 pub use law::{Outcome, check};
 pub use parse::{Reason, Refusal, parse};
 pub use print::print;

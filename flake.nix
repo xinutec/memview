@@ -127,6 +127,10 @@
             # fetching 46 MB from the channel to run the one thing the error
             # message just told you to run.
             pkgs.dhall-json
+            # The Python tree's second gate is CPython's own parser, so it has to
+            # be a real interpreter; /usr/bin/python3 on a Mac is a stub that asks
+            # for Xcode's tools. See bash-oracle's `python-gate`.
+            pkgs.python3
           ];
         };
       });

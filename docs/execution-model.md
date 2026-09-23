@@ -544,10 +544,15 @@ built against was 99.2% of them. What it refuses is ranked by `python-syntax-rep
 the largest single reason is a comment inside brackets, which the tree has no
 slot for yet.
 
-⚠ **CPython as the second gate is not built yet**, and until it is, a tree that
-is consistently wrong and prints back as itself passes the law — the blind spot
-the shell's tree needed bash's printer for. It is the next step, in a crate of its
-own since it spawns a process.
+**CPython is the second gate, and it reads the original text.** A tree that is
+consistently wrong prints back as itself and passes the law, so only a reader that
+is not ours can object. `python-gate` (in `bash-oracle`, the crate that spawns
+processes) renders our tree in CPython's own shape (`canonical`) and compares it
+with `ast.parse` of the same program, node for node; number literals are valued
+by CPython. The third gate rides along: CPython compiles our print. On its first
+run every program the parser read agreed on both, and every program CPython
+refused was refused here too. Making subtraction read as addition in the
+canonical form failed hundreds of them at that node, so the gate can fail.
 
 ## Placement
 
