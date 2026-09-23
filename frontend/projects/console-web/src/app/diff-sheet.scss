@@ -1,0 +1,53 @@
+:host {
+  display: block;
+  // No scroller of its own: the sheet's container already scrolls
+  // (DL-ANGULAR-NESTED-SCROLLER).
+}
+
+.who {
+  font: var(--mat-sys-title-medium);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.where,
+.note {
+  margin: 0.125rem 0 0.75rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.diff {
+  margin: 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--mat-sys-surface-container-high);
+  // The scale first, then the family it does not carry.
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+}
+
+.line {
+  display: block;
+  padding: 0 0.625rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  // Continuation lines of a wrapped one sit under its text, not under the mark.
+  padding-left: 1.75rem;
+  text-indent: -1.125rem;
+}
+
+.same {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.gone {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.added {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}

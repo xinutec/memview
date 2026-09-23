@@ -4742,6 +4742,46 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
+test('an edit opens as a diff of what it replaced @ phone width', async ({ page }, testInfo) => {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        {
+          kind: 'tool',
+          id: 'e1',
+          name: 'Edit',
+          input: {
+            file_path: '/home/example/Code/xinutec-infra/plan/core/src/intent.rs',
+            old_string:
+              "/// Only this fact's probes are dropped, on the assumption that an effect closing one\n/// fact does not disturb another.\nfn dropped() {}",
+            new_string: "/// Only this fact's probes are dropped.\nfn dropped() {}",
+          },
+          at: NEXT,
+        },
+        { kind: 'tool_result', id: 'e1', ok: true, detail: 'The file has been updated.', at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  await page.locator('.entry.tool button.opens').click();
+  const sheet = page.locator('app-diff-sheet');
+  await sheet.waitFor();
+  await settleTransforms(page);
+  await expect(sheet.locator('.who')).toHaveText('intent.rs');
+  await expect(sheet.locator('.line.gone')).toHaveCount(2);
+  await expect(sheet.locator('.line.added')).toHaveCount(1);
+  await expect(sheet.locator('.line.same')).toContainText('fn dropped() {}');
+
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, 'app-diff-sheet');
+});
+
 test('a picture a session read is drawn small, and a tap opens it whole @ phone width', async ({
   page,
 }, testInfo) => {

@@ -1,5 +1,5 @@
 import { unhandled } from './exhaustive';
-import { type Asked, type Entry, type Timed, type ToolCall, asking } from './models';
+import { type Asked, type Change, type Entry, type Timed, type ToolCall, asking } from './models';
 import { QUESTION_TOOL, questionsOf } from './questions';
 
 /**
@@ -62,6 +62,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         call: event.id,
         tool: event.name,
         text: describe(event.name, event.input),
+        change: changed(event.name, event.input),
         at: at(event),
       });
       break;
@@ -242,6 +243,13 @@ function date(at: number): string {
     day: 'numeric',
     month: 'short',
   });
+}
+
+/** What an `Edit` replaced, read off its arguments; nothing for any other call. */
+function changed(name: string, args: Readonly<Record<string, unknown>>): Change | undefined {
+  const { old_string: before, new_string: after, replace_all: all } = args;
+  if (name !== 'Edit' || typeof before !== 'string' || typeof after !== 'string') return undefined;
+  return { before, after, everywhere: all === true };
 }
 
 /** The one argument worth showing for a call, else the argument names. */

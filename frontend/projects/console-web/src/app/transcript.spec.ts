@@ -654,3 +654,32 @@ describe('a picture a call returned', () => {
     expect(first(tools(transcript(fetched, picture))).picture).toBeUndefined();
   });
 });
+
+describe('an edit', () => {
+  it('keeps what it replaced and what replaced it', () => {
+    const edit = tool('e1', 'Edit', {
+      file_path: '/tmp/a.rs',
+      old_string: 'let x = 1;',
+      new_string: 'let x = 2;',
+    });
+    expect(first(tools(transcript(edit))).change).toEqual({
+      before: 'let x = 1;',
+      after: 'let x = 2;',
+      everywhere: false,
+    });
+  });
+
+  it('says when it replaced every occurrence', () => {
+    const edit = tool('e1', 'Edit', {
+      file_path: '/tmp/a.rs',
+      old_string: 'a',
+      new_string: 'b',
+      replace_all: true,
+    });
+    expect(first(tools(transcript(edit))).change?.everywhere).toBe(true);
+  });
+
+  it('is nothing for a call that is not an edit', () => {
+    expect(first(tools(transcript(tool('b1', 'Bash', { command: 'ls' })))).change).toBeUndefined();
+  });
+});

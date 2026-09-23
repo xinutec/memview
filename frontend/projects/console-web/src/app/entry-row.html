@@ -15,7 +15,11 @@
     } @else {
       <span class="tool-name">{{ entry.tool }}</span>
       @if (parseable(entry)) {
-        <button type="button" class="tool-arg parse" (click)="parse.emit(entry)">
+        <button type="button" class="tool-arg opens" (click)="parse.emit(entry)">
+          {{ entry.text }}
+        </button>
+      } @else if (entry.change) {
+        <button type="button" class="tool-arg opens" (click)="diff.emit(entry)">
           {{ entry.text }}
         </button>
       } @else {

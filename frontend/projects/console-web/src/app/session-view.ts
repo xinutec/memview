@@ -35,6 +35,7 @@ import { modelName } from './model';
 import { type Entry, type Summary, type ToolCall } from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
+import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
 import { PictureSheet } from './picture-sheet';
@@ -433,6 +434,16 @@ export class SessionView implements OnDestroy {
 
   protected enlarge(picture: string): void {
     this.full.update((open) => (open === picture ? undefined : picture));
+  }
+
+  protected diff(entry: ToolCall): void {
+    if (!entry.change) return;
+    this.dismiss.onBack(
+      this.sheet.open(DiffSheet, {
+        data: { path: entry.text, change: entry.change },
+        panelClass: 'session-sheet',
+      }),
+    );
   }
 
   protected parse(entry: ToolCall): void {

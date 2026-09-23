@@ -132,6 +132,15 @@ export interface ToolCall extends Stamped, Partial<Ask> {
   unrecorded?: boolean;
   /** Where the picture it returned lives, when it read one on this machine. */
   picture?: string;
+  /** What an `Edit` replaced, and what replaced it. */
+  change?: Change;
+}
+
+/** One edit to a file: the text replaced, what replaced it, and whether everywhere. */
+export interface Change {
+  readonly before: string;
+  readonly after: string;
+  readonly everywhere: boolean;
 }
 
 /** An ask the fold could not attach to a call, drawn as its own entry. */

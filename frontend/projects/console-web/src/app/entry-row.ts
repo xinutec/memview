@@ -34,6 +34,7 @@ export class EntryRow {
   readonly pictureAt = input.required<(name: string) => string>();
 
   readonly parse = output<ToolCall>();
+  readonly diff = output<ToolCall>();
   readonly enlarge = output<string>();
 
   protected readonly drawn = computed(() => (pending(this.entry()) ? 'ask' : this.entry().kind));
