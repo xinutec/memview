@@ -4,9 +4,16 @@
   overflow: hidden;
 }
 
+// Grey, the card border's own colour: green on a card means working. Amber only
+// once compaction is close.
 .fill {
   position: absolute;
   inset: auto 0 0;
+  --mat-progress-bar-active-indicator-color: var(--mat-sys-outline);
+}
+
+.fill.full {
+  --mat-progress-bar-active-indicator-color: var(--warn);
 }
 
 .session {
