@@ -77,34 +77,6 @@
   flex: 1;
 }
 
-button.opens {
-  appearance: none;
-  background: none;
-  border: none;
-  // Longhands, because `font:` is a shorthand and would take the family with
-  // it. This rule outranks `.tool-arg` (0,1,1 against 0,1,0), so `font: inherit`
-  // here would hand the row's body font to the one argument that is a shell
-  // command. Everything a button needs resetting is below; the family
-  // stays where it is declared once, on `.tool-arg`.
-  font-size: inherit;
-  font-weight: inherit;
-  font-style: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-  text-align: left;
-  cursor: pointer;
-  padding: 0.25rem 0;
-  margin: -0.25rem 0;
-  text-decoration: underline dotted var(--mat-sys-outline);
-  text-underline-offset: 0.25em;
-
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 2px;
-    border-radius: 0.125rem;
-  }
-}
-
 .running {
   font: var(--mat-sys-label-small);
   opacity: 0.7;

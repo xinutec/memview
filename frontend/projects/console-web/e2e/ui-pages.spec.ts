@@ -4782,6 +4782,49 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
   await expectNoClippedText(page, testInfo, 'app-diff-sheet');
 });
 
+test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
+  page,
+}, testInfo) => {
+  const input = {
+    file_path: '/home/example/Code/memview/console/src/usage.rs',
+    old_string: 'const EVERY: Duration = Duration::from_secs(300);',
+    new_string: 'const EVERY: Duration = Duration::from_secs(60);',
+  };
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'e1', name: 'Edit', input, at: NEXT },
+        {
+          kind: 'ask',
+          id: 'q1',
+          call: 'e1',
+          tool: 'Edit',
+          input,
+          title: 'Edit usage.rs',
+          at: NEXT,
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const card = page.locator('app-ask-card');
+  await expect(card.getByRole('button', { name: 'allow' })).toBeVisible();
+  await card.locator('button.opens').click();
+  const sheet = page.locator('app-diff-sheet');
+  await sheet.waitFor();
+  await settleTransforms(page);
+  await expect(sheet.locator('.who')).toHaveText('usage.rs');
+  await expect(sheet.locator('.line.gone')).toContainText('from_secs(300)');
+  await expect(sheet.locator('.line.added')).toContainText('from_secs(60)');
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
 test('a picture a session read is drawn small, and a tap opens it whole @ phone width', async ({
   page,
 }, testInfo) => {

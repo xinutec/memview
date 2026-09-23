@@ -1,8 +1,8 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 
 import { Asks } from './asks';
-import { type Questioned, pending } from './models';
+import { type Change, type Questioned, pending } from './models';
 import { type Question, choiceOf } from './questions';
 
 /** A question the session is asking, or asked: the choices, and then the answer. */
@@ -14,6 +14,7 @@ import { type Question, choiceOf } from './questions';
 })
 export class AskCard {
   readonly entry = input.required<Questioned>();
+  readonly diff = output<Change>();
 
   protected readonly asks = inject(Asks);
   /**

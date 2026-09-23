@@ -7,19 +7,19 @@
     <span>{{ entry.text }}</span>
   }
   @case ('ask') {
-    <app-ask-card [entry]="entry" />
+    <app-ask-card [entry]="entry" (diff)="diff.emit($event)" />
   }
   @case ('tool') {
     @if (pending(entry)) {
-      <app-ask-card [entry]="entry" />
+      <app-ask-card [entry]="entry" (diff)="diff.emit($event)" />
     } @else {
       <span class="tool-name">{{ entry.tool }}</span>
       @if (parseable(entry)) {
         <button type="button" class="tool-arg opens" (click)="parse.emit(entry)">
           {{ entry.text }}
         </button>
-      } @else if (entry.change) {
-        <button type="button" class="tool-arg opens" (click)="diff.emit(entry)">
+      } @else if (entry.change; as change) {
+        <button type="button" class="tool-arg opens" (click)="diff.emit(change)">
           {{ entry.text }}
         </button>
       } @else {

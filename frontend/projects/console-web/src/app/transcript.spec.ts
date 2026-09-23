@@ -663,6 +663,7 @@ describe('an edit', () => {
       new_string: 'let x = 2;',
     });
     expect(first(tools(transcript(edit))).change).toEqual({
+      path: '/tmp/a.rs',
       before: 'let x = 1;',
       after: 'let x = 2;',
       everywhere: false,
@@ -677,6 +678,17 @@ describe('an edit', () => {
       replace_all: true,
     });
     expect(first(tools(transcript(edit))).change?.everywhere).toBe(true);
+  });
+
+  it('can be read before it is allowed, from the question about it', () => {
+    const asking: Timed = {
+      kind: 'ask',
+      id: 'q1',
+      tool: 'Edit',
+      input: { file_path: '/tmp/a.rs', old_string: 'a', new_string: 'b' },
+    };
+    const entry = asked(first(transcript(asking)));
+    expect(entry.change?.after).toBe('b');
   });
 
   it('is nothing for a call that is not an edit', () => {

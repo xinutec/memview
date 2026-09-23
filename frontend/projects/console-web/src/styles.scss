@@ -315,3 +315,29 @@ app-root {
     padding: 0.5rem 0.75rem;
   }
 }
+
+// A tool call's argument that opens a sheet: a command to read, an edit to diff.
+// Here rather than in a component, since the row and the permission card both
+// draw one. Longhands only: the family comes from `.tool-arg`.
+button.opens {
+  appearance: none;
+  background: none;
+  border: none;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  margin: -0.25rem 0;
+  text-decoration: underline dotted var(--mat-sys-outline);
+  text-underline-offset: 0.25em;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+    border-radius: 0.125rem;
+  }
+}

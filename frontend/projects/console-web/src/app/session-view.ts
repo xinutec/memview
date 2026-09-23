@@ -32,7 +32,7 @@ import { Foreground } from './foreground';
 import { Here } from './here';
 import { Lasted } from './lasted';
 import { modelName } from './model';
-import { type Entry, type Summary, type ToolCall } from './models';
+import { type Change, type Entry, type Summary, type ToolCall } from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
 import { DiffSheet } from './diff-sheet';
@@ -436,14 +436,8 @@ export class SessionView implements OnDestroy {
     this.full.update((open) => (open === picture ? undefined : picture));
   }
 
-  protected diff(entry: ToolCall): void {
-    if (!entry.change) return;
-    this.dismiss.onBack(
-      this.sheet.open(DiffSheet, {
-        data: { path: entry.text, change: entry.change },
-        panelClass: 'session-sheet',
-      }),
-    );
+  protected diff(change: Change): void {
+    this.dismiss.onBack(this.sheet.open(DiffSheet, { data: change, panelClass: 'session-sheet' }));
   }
 
   protected parse(entry: ToolCall): void {

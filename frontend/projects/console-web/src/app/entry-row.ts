@@ -7,7 +7,7 @@ import { Clock } from './clock';
 import { Coloured } from './coloured';
 import { Folding } from './folding';
 import { Lasted } from './lasted';
-import { type ToolCall, type Entry, pending } from './models';
+import { type Change, type ToolCall, type Entry, pending } from './models';
 import { fetchedAt, thumbnailAt } from './picture';
 import { PICTURE, Rendered } from './rendered';
 
@@ -34,7 +34,7 @@ export class EntryRow {
   readonly pictureAt = input.required<(name: string) => string>();
 
   readonly parse = output<ToolCall>();
-  readonly diff = output<ToolCall>();
+  readonly diff = output<Change>();
   readonly enlarge = output<string>();
 
   protected readonly drawn = computed(() => (pending(this.entry()) ? 'ask' : this.entry().kind));

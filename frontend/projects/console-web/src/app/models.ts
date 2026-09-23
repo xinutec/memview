@@ -112,6 +112,8 @@ export interface Ask {
   reply?: Reply;
   /** Decided here, not yet taken up by the runner. */
   settling?: boolean;
+  /** What an `Edit` replaces, so it can be read before it is allowed. */
+  change?: Change;
 }
 
 /** A tool call. Carries the ask about it, when the CLI asked before running it. */
@@ -132,12 +134,11 @@ export interface ToolCall extends Stamped, Partial<Ask> {
   unrecorded?: boolean;
   /** Where the picture it returned lives, when it read one on this machine. */
   picture?: string;
-  /** What an `Edit` replaced, and what replaced it. */
-  change?: Change;
 }
 
-/** One edit to a file: the text replaced, what replaced it, and whether everywhere. */
+/** One edit to a file: which file, the text replaced, what replaced it, and whether everywhere. */
 export interface Change {
+  readonly path: string;
   readonly before: string;
   readonly after: string;
   readonly everywhere: boolean;

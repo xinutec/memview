@@ -99,6 +99,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         text: event.title ?? describe(event.tool, event.input),
         at: at(event),
         questions,
+        change: changed(event.tool, event.input),
       });
       break;
     }
@@ -247,9 +248,10 @@ function date(at: number): string {
 
 /** What an `Edit` replaced, read off its arguments; nothing for any other call. */
 function changed(name: string, args: Readonly<Record<string, unknown>>): Change | undefined {
-  const { old_string: before, new_string: after, replace_all: all } = args;
-  if (name !== 'Edit' || typeof before !== 'string' || typeof after !== 'string') return undefined;
-  return { before, after, everywhere: all === true };
+  const { file_path: path, old_string: before, new_string: after, replace_all: all } = args;
+  if (name !== 'Edit' || typeof path !== 'string') return undefined;
+  if (typeof before !== 'string' || typeof after !== 'string') return undefined;
+  return { path, before, after, everywhere: all === true };
 }
 
 /** The one argument worth showing for a call, else the argument names. */

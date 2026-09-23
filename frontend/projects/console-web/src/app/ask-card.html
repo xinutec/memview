@@ -1,7 +1,14 @@
 <div class="question">
   <div class="wants">
     <span class="tool-name">{{ entry().tool }}</span>
-    <span class="tool-arg">{{ entry().text }}</span>
+    <!-- An edit can be read before it is allowed. -->
+    @if (entry().change; as change) {
+      <button type="button" class="tool-arg opens" (click)="diff.emit(change)">
+        {{ entry().text }}
+      </button>
+    } @else {
+      <span class="tool-arg">{{ entry().text }}</span>
+    }
   </div>
   @if (entry().allowed === undefined) {
     @if (entry().questions; as questions) {
