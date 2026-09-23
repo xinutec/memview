@@ -10,6 +10,7 @@ pub mod config;
 pub mod conversation;
 pub mod deaf;
 pub mod drafts;
+pub mod edits;
 pub mod gist;
 pub mod images;
 pub mod marks;

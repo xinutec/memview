@@ -40,6 +40,8 @@ pub struct Roster {
     /// Each transcript's landmarks, walked once and then only extended. See
     /// [`crate::marks`] — the walk is the whole of the "go to" sheet's wait.
     marks: Arc<crate::marks::Marks>,
+    /// What each `Bash` call changed in the files it wrote. See [`crate::edits`].
+    edits: Arc<crate::edits::Edits>,
     /// The truest reading of each rate-limit window, kept across the sessions that
     /// heard it, or the figure steps back when one ends. Utilisation only rises inside
     /// a window, and
@@ -95,8 +97,14 @@ impl Roster {
             tasks: Arc::default(),
             modes,
             marks: Arc::default(),
+            edits: Arc::new(crate::edits::Edits::new(crate::edits::edits_root())),
             spent: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
+    pub fn edits(&self) -> Arc<crate::edits::Edits> {
+        Arc::clone(&self.edits)
     }
 
     /// Every landmark in a conversation, walking only what has arrived since the

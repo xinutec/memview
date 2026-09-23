@@ -55,6 +55,8 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/earlier", get(earlier))
         .route("/api/sessions/{id}/landmarks", get(landmarks))
         .route("/api/sessions/{id}/parse", post(parse))
+        .route("/api/sessions/{id}/edits", get(edits))
+        .route("/api/hook", post(hook))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
@@ -940,4 +942,69 @@ pub fn spa(index: &str, path: &str) -> axum::response::Response {
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no index").into_response()
         }
     }
+}
+
+/// GET /api/sessions/{id}/edits — what this conversation's `Bash` calls were
+/// predicted to change, and which did not end up as predicted. Kept on disk, so it
+/// outlives the events that announced them.
+async fn edits(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Json<crate::edits::Record> {
+    Json(roster.edits().of(&id))
+}
+
+/// What a Claude Code hook sends, as far as this reads it. Every field defaults: a
+/// payload this cannot read must answer, not block the call with a 422.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Hooked {
+    hook_event_name: String,
+    session_id: String,
+    tool_name: String,
+    tool_use_id: String,
+    cwd: String,
+    tool_input: serde_json::Value,
+}
+
+/// POST /api/hook — a `Bash` call about to run, or just finished. Before: predict
+/// what it will change and tell the session's listeners. After: check the files
+/// against the prediction, and say when they diverge. The hook waits on this.
+async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> StatusCode {
+    if hooked.tool_name != "Bash" {
+        return StatusCode::NO_CONTENT;
+    }
+    let edits = roster.edits();
+    let call = hooked.tool_use_id.clone();
+    match hooked.hook_event_name.as_str() {
+        "PreToolUse" => {
+            let command = hooked.tool_input["command"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            let (session, cwd) = (hooked.session_id.clone(), hooked.cwd.clone());
+            let predicted =
+                tokio::task::spawn_blocking(move || edits.before(&session, &call, &command, &cwd))
+                    .await
+                    .ok()
+                    .flatten();
+            if let (Some(edited), Some(held)) = (predicted, roster.get(&hooked.session_id)) {
+                held.edited(edited);
+            }
+        }
+        "PostToolUse" => {
+            let checked = tokio::task::spawn_blocking(move || edits.after(&call))
+                .await
+                .ok()
+                .flatten();
+            if let Some((session, diverged)) = checked
+                && !diverged.paths.is_empty()
+                && let Some(held) = roster.get(&session)
+            {
+                held.diverged(diverged);
+            }
+        }
+        _ => {}
+    }
+    StatusCode::NO_CONTENT
 }

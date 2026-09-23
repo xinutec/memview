@@ -15,6 +15,13 @@ import { type Question, choiceOf } from './questions';
 export class AskCard {
   readonly entry = input.required<Questioned>();
   readonly diff = output<Change>();
+  /** Open the command's sheet, which shows what it is predicted to change. */
+  readonly parse = output();
+
+  protected readonly predicted = computed(() => {
+    const entry = this.entry();
+    return entry.kind === 'tool' && !!entry.hunks?.length;
+  });
 
   protected readonly asks = inject(Asks);
   /**

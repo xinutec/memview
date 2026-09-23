@@ -7,6 +7,7 @@ import {
   type CorpusRead,
   type Decision,
   type Described,
+  type EditRecord,
   KINDS,
   type Landmark,
   type Message,
@@ -62,6 +63,11 @@ export class ConsoleApi {
 
   task(id: string, task: string): Observable<Described> {
     return this.http.get<Described>(`${session(id)}/tasks/${encodeURIComponent(task)}`);
+  }
+
+  /** What each `Bash` call of a conversation was predicted to change, and which diverged. */
+  edits(id: string): Observable<EditRecord> {
+    return this.http.get<EditRecord>(`${session(id)}/edits`);
   }
 
   parse(id: string, command: string, ok?: boolean): Observable<Parsed> {

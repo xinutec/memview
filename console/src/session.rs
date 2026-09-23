@@ -1405,6 +1405,22 @@ impl Session {
         }
     }
 
+    /// What a call will change in the files it writes. See [`crate::edits`].
+    pub fn edited(&self, edited: crate::edits::Edited) {
+        self.push(Event::Edited {
+            call: edited.call,
+            hunks: edited.hunks,
+        });
+    }
+
+    /// A call whose files did not end up as predicted. See [`crate::edits`].
+    pub fn diverged(&self, diverged: crate::edits::Diverged) {
+        self.push(Event::Diverged {
+            call: diverged.call,
+            paths: diverged.paths,
+        });
+    }
+
     /// Record an event as having happened now.
     fn push(&self, event: Event) {
         self.push_at(event, Some(now()));

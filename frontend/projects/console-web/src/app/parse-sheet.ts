@@ -4,7 +4,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
-import { Parsed, Line } from './models';
+import { DiffView } from './diff-view';
+import { type Change, Parsed, Line } from './models';
 import { reason } from './errors';
 
 /** What the sheet is opened with: the command as it was written, and how its
@@ -14,6 +15,10 @@ export interface About {
   readonly command: string;
   /** `undefined` while the call is still running — see [[ConsoleApi.parse]]. */
   readonly ok?: boolean;
+  /** What the call will change in the files it writes, as the reader predicts it. */
+  readonly hunks?: readonly Change[];
+  /** The files did not end up as predicted. */
+  readonly diverged?: boolean;
 }
 
 /**
@@ -33,7 +38,7 @@ const DEEPEST_INDENT = 3;
   selector: 'app-parse-sheet',
   templateUrl: './parse-sheet.html',
   styleUrl: './parse-sheet.scss',
-  imports: [MatIconModule, MatProgressBarModule],
+  imports: [DiffView, MatIconModule, MatProgressBarModule],
 })
 export class ParseSheet {
   private api = inject(ConsoleApi);
@@ -54,6 +59,23 @@ export class ParseSheet {
       error: (wrong) => this.trouble.set(reason(wrong)),
     });
   }
+
+  /**
+   * What the reader predicted the command would change, as diffs, each file named
+   * once above its first.
+   */
+  protected readonly edits = computed(() => {
+    const changes: readonly Change[] = this.about.hunks ?? [];
+    return changes.map((change, at) => {
+      const file = change.path.split('/').at(-1) ?? change.path;
+      return {
+        change,
+        named: changes[at - 1]?.path !== change.path,
+        file,
+        folder: change.path.slice(0, -file.length),
+      };
+    });
+  });
 
   /** Every step, with what the template needs that JSON cannot carry. */
   protected readonly steps = computed(() =>

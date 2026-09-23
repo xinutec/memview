@@ -135,6 +135,17 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
         image: bool,
     },
+    /// What a `Bash` call will change in the files it writes, as the reader
+    /// predicts it. See [`crate::edits`].
+    Edited {
+        call: String,
+        hunks: Vec<crate::edits::Hunk>,
+    },
+    /// A call whose files did not end up as predicted — a defect in the evaluator.
+    Diverged {
+        call: String,
+        paths: Vec<String>,
+    },
     /// One turn finished.
     Turn {
         cost_usd: f64,

@@ -4,7 +4,9 @@ import { Observable, map } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { unhandled } from './exhaustive';
 import { Kept } from './kept';
-import { Entry, Timed } from './models';
+import { type Change, Entry, Timed } from './models';
+import { reason } from './errors';
+import type { Hunk } from './generated/Hunk';
 import { Patience } from './patience';
 import { fold } from './transcript';
 
@@ -67,6 +69,10 @@ export interface Held {
    * is about where the reader is, not the connection.
    */
   readonly adrift: WritableSignal<boolean>;
+  /** What each `Bash` call is predicted to change, by call — see [[ConsoleApi.edits]]. */
+  readonly edited: WritableSignal<ReadonlyMap<string, readonly Change[]>>;
+  /** Calls whose files did not end up as predicted. */
+  readonly diverged: WritableSignal<ReadonlySet<string>>;
   // No background count here: it arrives on the summary, from the runner, which is
   // the copy that survives a reload. See `session::Summary::background`.
   /** The last sequence number this transcript accounts for, 0 for none. */
@@ -103,6 +109,16 @@ export class SessionStore {
     held.close?.();
     held.used = ++this.clock;
     this.held.set(id, held);
+    // Kept on the Mac, so it covers calls older than the stream's scrollback.
+    this.api.edits(id).subscribe({
+      next: (record) => {
+        held.edited.set(
+          new Map(record.edited.map((edited) => [edited.call, edited.hunks.map(change)])),
+        );
+        held.diverged.set(new Set(record.diverged.map((diverged) => diverged.call)));
+      },
+      error: (err: unknown) => console.warn('edits:', reason(err)),
+    });
     const watching = this.api.follow(id, held.seen).subscribe((from) => {
       switch (from.kind) {
         case 'event':
@@ -232,6 +248,8 @@ export class SessionStore {
       source: signal<'stream' | 'kept'>('stream'),
       link: new Patience(),
       adrift: signal(false),
+      edited: signal<ReadonlyMap<string, readonly Change[]>>(new Map()),
+      diverged: signal<ReadonlySet<string>>(new Set()),
       seen: 0,
       used: ++this.clock,
     };
@@ -271,6 +289,13 @@ export class SessionStore {
         held.spoken.set(true);
       }
     }
+    if (event.kind === 'edited') {
+      const hunks = event.hunks.map(change);
+      held.edited.update((edited) => new Map(edited).set(event.call, hunks));
+    }
+    if (event.kind === 'diverged') {
+      held.diverged.update((diverged) => new Set(diverged).add(event.call));
+    }
     held.entries.update((entries) => fold(entries, event));
     // Throttled inside, and not done on leaving instead: a phone stops reading when
     // the tunnel drops or the app is killed, and neither runs code here.
@@ -307,4 +332,9 @@ export class SessionStore {
       this.held.delete(id);
     }
   }
+}
+
+/** An observed hunk, in the shape the diff view draws. Only the lines shown changed. */
+function change(hunk: Hunk): Change {
+  return { ...hunk, everywhere: false };
 }

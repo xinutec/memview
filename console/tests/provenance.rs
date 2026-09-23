@@ -99,6 +99,9 @@ fn provenance(event: &Event) -> Provenance {
              seen it. The one entry here that admits a loss rather than naming a \
              source; if the chip is ever missed, this is the line to change.",
         )),
+        Event::Edited { .. } | Event::Diverged { .. } => Provenance::Runtime(Care::Covered(
+            "/api/sessions/{id}/edits, kept on disk per conversation — see edits::Edits::of",
+        )),
         Event::Trouble { .. } => Provenance::Runtime(Care::Covered(
             "nothing — a past error message, of no use once the turn it broke is over",
         )),

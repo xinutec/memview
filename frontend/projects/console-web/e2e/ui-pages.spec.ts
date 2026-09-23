@@ -4782,6 +4782,131 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
   await expectNoClippedText(page, testInfo, 'app-diff-sheet');
 });
 
+test('what a command is predicted to change is marked on its row and drawn in its sheet @ phone width', async ({
+  page,
+}, testInfo) => {
+  const command = "sed -i '' 's/one/two/' src/a.rs";
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'b1', name: 'Bash', input: { command }, at: NEXT },
+        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+        {
+          kind: 'edited',
+          call: 'b1',
+          hunks: [
+            {
+              path: '/home/example/Code/memview/src/a.rs',
+              before: 'x\none\ny\n',
+              after: 'x\ntwo\ny\n',
+            },
+          ],
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/parse', (r) =>
+    r.fulfill({ json: { ...PARSED_GOLDEN, edits: [] } }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const row = page.locator('.entry.tool');
+  await expect(row.locator('mat-icon.edited')).toBeVisible();
+  await row.locator('button.opens').click();
+  const sheet = page.locator('app-parse-sheet');
+  await sheet.locator('app-diff').waitFor();
+  await settleTransforms(page);
+  await expect(sheet.locator('.file')).toContainText('a.rs');
+  await expect(sheet.locator('.line.gone')).toHaveText('− one');
+  await expect(sheet.locator('.line.added')).toHaveText('+ two');
+  await expect(sheet.locator('.line.same')).toHaveCount(2);
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
+test('a command waiting for permission shows what it will change @ phone width', async ({
+  page,
+}, testInfo) => {
+  const command = "cat > notes.txt <<'EOF'\nnew\nEOF";
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'b1', name: 'Bash', input: { command }, at: NEXT },
+        {
+          kind: 'edited',
+          call: 'b1',
+          hunks: [{ path: '/home/example/Code/notes.txt', before: 'old\n', after: 'new\n' }],
+        },
+        { kind: 'ask', id: 'q1', call: 'b1', tool: 'Bash', input: { command }, at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const card = page.locator('app-ask-card');
+  await expect(card.getByRole('button', { name: 'allow' })).toBeVisible();
+  await card.locator('button.opens').click();
+  const sheet = page.locator('app-parse-sheet');
+  await expect(sheet.locator('.line.gone')).toHaveText('− old');
+  await expect(sheet.locator('.line.added')).toHaveText('+ new');
+  await settleTransforms(page);
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
+test('a call whose files did not end up as predicted says so @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'b1', name: 'Bash', input: { command: 'echo x > a' }, at: NEXT },
+        {
+          kind: 'edited',
+          call: 'b1',
+          hunks: [{ path: '/home/example/Code/a', before: '', after: 'x\n' }],
+        },
+        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+        { kind: 'diverged', call: 'b1', paths: ['/home/example/Code/a'] },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const row = page.locator('.entry.tool');
+  await expect(row.locator('mat-icon.diverged')).toBeVisible();
+  await expect(row.locator('mat-icon.edited')).toHaveCount(0);
+  await row.locator('button.opens').click();
+  const sheet = page.locator('app-parse-sheet');
+  await expect(sheet.locator('.diverged')).toContainText('did not end up as predicted');
+  await settleTransforms(page);
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
   page,
 }, testInfo) => {

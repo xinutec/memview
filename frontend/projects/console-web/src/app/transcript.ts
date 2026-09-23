@@ -165,6 +165,8 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       });
       break;
     // Carried in the session's own state, not on the transcript.
+    case 'edited':
+    case 'diverged':
     case 'started':
     case 'context':
     case 'background':

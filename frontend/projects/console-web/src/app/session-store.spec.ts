@@ -4,7 +4,7 @@ import { Observable, of } from 'rxjs';
 
 import { ConsoleApi, type Streamed } from './console-api';
 import { Local } from './local';
-import { Entry, Page, Timed } from './models';
+import { type EditRecord, Entry, Page, Timed } from './models';
 import { SessionStore } from './session-store';
 import { first, last, nth } from './testing';
 
@@ -45,6 +45,13 @@ class Runner {
       this.opened.push(stream);
       return () => (stream.closed = true);
     });
+  }
+
+  /** What the Mac has kept of each call's predictions. Set by the test. */
+  kept: EditRecord = { edited: [], diverged: [] };
+
+  edits(): Observable<EditRecord> {
+    return of(this.kept);
   }
 
   /** What a page fetched by cursor comes back with. Set by the test. */
@@ -92,6 +99,27 @@ describe('SessionStore', () => {
     runner.latest.send({ kind: 'text', text }, seq);
     runner.latest.send({ kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 0 }, seq + 1);
   }
+
+  it('knows the edits the Mac kept as soon as a session is opened', () => {
+    runner.kept = {
+      edited: [{ call: 'b1', hunks: [{ path: '/a.rs', before: 'one\n', after: 'two\n' }] }],
+      diverged: [{ call: 'b1', paths: ['/a.rs'] }],
+    };
+    const held = store.open('s1');
+    expect(held.edited().get('b1')).toEqual([
+      { path: '/a.rs', before: 'one\n', after: 'two\n', everywhere: false },
+    ]);
+    expect(held.diverged().has('b1')).toBe(true);
+  });
+
+  it('adds an edit the moment the runner announces it', () => {
+    const held = store.open('s1');
+    first(runner.opened).send(
+      { kind: 'edited', call: 'b2', hunks: [{ path: '/b.rs', before: '', after: 'new\n' }] },
+      1,
+    );
+    expect(held.edited().get('b2')?.[0]?.after).toBe('new\n');
+  });
 
   it('resumes a session it is re-entered rather than reading it again', () => {
     // The whole reason this store exists. Held in the view, the transcript died

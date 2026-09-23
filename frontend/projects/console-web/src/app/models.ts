@@ -24,6 +24,8 @@ export type { Mode } from './generated/Mode';
 export type { Overview } from './generated/Overview';
 export type { Page } from './generated/Page';
 export type { Parsed } from './generated/Parsed';
+export type { Edited } from './generated/Edited';
+export type { Record as EditRecord } from './generated/Record';
 export type { Ranked } from './generated/Ranked';
 export type { Reach } from './generated/Reach';
 export type { Reading } from './generated/Reading';
@@ -59,6 +61,8 @@ export const KINDS = [
   'tool',
   'background',
   'tool_result',
+  'edited',
+  'diverged',
   'turn',
   'limit',
   'busy',
@@ -134,6 +138,10 @@ export interface ToolCall extends Stamped, Partial<Ask> {
   unrecorded?: boolean;
   /** Where the picture it returned lives, when it read one on this machine. */
   picture?: string;
+  /** What it will change in the files it writes, as the reader predicts it. */
+  hunks?: readonly Change[];
+  /** Its files did not end up as predicted: the evaluator was wrong about it. */
+  diverged?: boolean;
 }
 
 /** One edit to a file: which file, the text replaced, what replaced it, and whether everywhere. */

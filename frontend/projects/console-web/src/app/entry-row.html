@@ -11,7 +11,7 @@
   }
   @case ('tool') {
     @if (pending(entry)) {
-      <app-ask-card [entry]="entry" (diff)="diff.emit($event)" />
+      <app-ask-card [entry]="entry" (diff)="diff.emit($event)" (parse)="parse.emit(entry)" />
     } @else {
       <span class="tool-name">{{ entry.tool }}</span>
       @if (parseable(entry)) {
@@ -35,6 +35,14 @@
         <mat-icon class="ok" aria-label="succeeded">check</mat-icon>
       } @else {
         <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
+      }
+      <!-- What the reader predicts it changes: what the command sheet opens on. -->
+      @if (entry.diverged) {
+        <mat-icon class="diverged" aria-label="did not change the files as predicted"
+          >report</mat-icon
+        >
+      } @else if (entry.hunks?.length) {
+        <mat-icon class="edited" aria-label="changes files">edit</mat-icon>
       }
       @if (entry.head) {
         <span class="returned ansi" [innerHTML]="entry.head | coloured"></span>

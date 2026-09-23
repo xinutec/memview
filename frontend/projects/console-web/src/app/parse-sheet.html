@@ -1,5 +1,21 @@
 <h2 class="who">the command, as written and as read</h2>
 
+<!-- Above the command: what the reader predicts it changes, read before it ran. -->
+@if (about.diverged) {
+  <p class="diverged">
+    <mat-icon>report</mat-icon>
+    <span>The files did not end up as predicted. The reader was wrong about this call.</span>
+  </p>
+}
+@for (edit of edits(); track $index) {
+  @if (edit.named) {
+    <p class="file">
+      {{ edit.file }} <span class="folder">{{ edit.folder }}</span>
+    </p>
+  }
+  <app-diff [change]="edit.change" />
+}
+
 <!-- Raw first, entire, never truncated: the transcript row shows one ellipsised
      line, so this is the only place on the phone that holds the whole command.
      Wraps rather than scrolling sideways, which fights the sheet's own swipe. -->

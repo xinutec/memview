@@ -83,7 +83,18 @@ export class SessionView implements OnDestroy {
   // What the store holds for this conversation, and what is derived from it.
   private readonly held = signal<Held | undefined>(undefined);
   readonly session = signal<Summary | undefined>(undefined);
-  readonly entries = computed<Entry[]>(() => this.held()?.entries() ?? []);
+  readonly entries = computed<Entry[]>(() => {
+    const held = this.held();
+    if (!held) return [];
+    const edited = held.edited();
+    const diverged = held.diverged();
+    return held.entries().map((entry) => {
+      if (entry.kind !== 'tool' || !entry.call) return entry;
+      const hunks = edited.get(entry.call);
+      if (!hunks) return entry;
+      return { ...entry, hunks, diverged: diverged.has(entry.call) };
+    });
+  });
   readonly blocks = computed<Block[]>(() => blocks(this.entries()));
   readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
   readonly adrift = computed(() => this.held()?.adrift() ?? false);
@@ -443,7 +454,13 @@ export class SessionView implements OnDestroy {
   protected parse(entry: ToolCall): void {
     this.dismiss.onBack(
       this.sheet.open(ParseSheet, {
-        data: { session: this.id(), command: entry.text, ok: entry.ok },
+        data: {
+          session: this.id(),
+          command: entry.text,
+          ok: entry.ok,
+          hunks: entry.hunks,
+          diverged: entry.diverged,
+        },
         panelClass: 'session-sheet',
       }),
     );

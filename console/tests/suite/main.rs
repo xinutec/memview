@@ -13,8 +13,10 @@
 mod attest;
 mod conversation;
 mod drafts;
+mod edits;
 mod gate;
 mod gist;
+mod hook;
 mod images;
 mod orphan;
 mod paging;

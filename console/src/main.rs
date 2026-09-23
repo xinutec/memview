@@ -21,6 +21,19 @@ use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // `agent-console hook`: Claude Code's hook for `Bash`, run by every session on
+    // this Mac. See [`hook`].
+    if std::env::args().nth(1).as_deref() == Some("hook") {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        if let Err(why) = hook().await {
+            // Exit 2 blocks the call and hands the session this sentence: a console
+            // that cannot be reached is a fault to see, not a diff to go without.
+            eprintln!("the agent console could not be reached: {why:#}");
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -219,4 +232,38 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// How long the hook keeps trying: an upgrade re-executes the console and its port
+/// is closed for a moment.
+const HOOK_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Hand the hook's input to the console and wait for it to answer.
+async fn hook() -> Result<()> {
+    use std::io::Read as _;
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input)?;
+    let url = format!("http://{}/api/hook", Config::from_env().desk);
+    let client = reqwest::Client::new();
+    let deadline = std::time::Instant::now() + HOOK_PATIENCE;
+    loop {
+        let sent = client
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(input.clone())
+            .send()
+            .await;
+        match sent {
+            Ok(answer) => {
+                answer
+                    .error_for_status()
+                    .with_context(|| format!("at {url}"))?;
+                return Ok(());
+            }
+            Err(why) if why.is_connect() && std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            Err(why) => return Err(why).with_context(|| format!("at {url}")),
+        }
+    }
 }

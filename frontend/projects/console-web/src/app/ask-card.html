@@ -6,6 +6,11 @@
       <button type="button" class="tool-arg opens" (click)="diff.emit(change)">
         {{ entry().text }}
       </button>
+    } @else if (predicted()) {
+      <!-- A command the reader predicts: its sheet shows what it will change. -->
+      <button type="button" class="tool-arg opens" (click)="parse.emit()">
+        {{ entry().text }}
+      </button>
     } @else {
       <span class="tool-arg">{{ entry().text }}</span>
     }

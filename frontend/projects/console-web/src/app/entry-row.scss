@@ -192,3 +192,13 @@
   font-family: ui-monospace, monospace;
   color: var(--mat-sys-on-surface-variant);
 }
+
+// Beside the verdict, and as quiet as it: a fact about the call, not an alarm.
+.edited {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// The prediction was wrong: a defect in the reader, and meant to be seen.
+.diverged {
+  color: var(--mat-sys-error);
+}

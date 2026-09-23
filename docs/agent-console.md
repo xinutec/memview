@@ -1715,6 +1715,38 @@ buttons were.
   `window.brokenAssets` directly, so it tests the draining and not the catching.
   Only a browser can show whether that script really runs before the `<link>`.
 
+## What a command will change, before it runs
+
+Every `Bash` call on this Mac passes through one Claude Code hook,
+`agent-console hook`, before it runs and again after. The hook is a messenger: it
+hands the call to the console on the loopback port and waits for the answer.
+
+**Before.** The console asks the reader which files the command writes, reads
+their current text, and gives both to the reader's evaluator, which answers with
+the text each file will hold afterwards — or a named refusal
+([execution-model.md](execution-model.md#two-settings-one-evaluator)). The answer
+is kept for the call and drawn at once: the tool row gets a pencil, and its sheet
+shows the change as a diff, hunks with a few lines of context. For an edit waiting
+on permission, that is the change being asked about.
+
+**After.** The console reads the same files again and compares them with what was
+predicted. Agreement is silent. A divergence is kept as a finding — the command,
+the prediction and what the file actually holds — and shown on the row as what it
+is: the evaluator was wrong about this call.
+
+**It fails closed.** A console that cannot be reached is a fault to see, so the
+hook exits 2, which blocks the call and hands the session the reason. It keeps
+trying for a few seconds first, because an upgrade re-executes the console and
+its port is closed for that long.
+
+**Only the reader's understanding is shown.** A call the evaluator refuses gets
+no diff and no marker; the refusal is counted on the reader's report instead, as
+the next shape to teach it.
+
+The hook fires for sessions started in a terminal too, since it is in the
+machine's Claude Code settings. Their transcripts are readable here, so their
+predictions are worth keeping as well.
+
 ## Upgrading the runner without dropping a session
 
 `SIGUSR2` replaces the console's own executable in place, keeping every session
