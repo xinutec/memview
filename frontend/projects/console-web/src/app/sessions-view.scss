@@ -197,23 +197,16 @@
 // The age and its clock travel together. `--warm` and `--hot` (0..1 from
 // [[cacheStops]]) drive two nested mixes `in oklch`, whose hue interpolation
 // supplies the orange between yellow and red; both on the SPAN so the time
-// colours with the clock. Not `--mat-sys-error`, a tone-80 pastel on a dark
-// ground. The two themes take different stops: a yellow readable on `#111411`
-// is 2.3:1 on the light surface.
+// colours with the clock.
 .since {
   --warm: 0;
   --hot: 0;
-  // dev-lint: allow-hardcoded-color no M3 role is yellow; 3.8:1 light, 13.0:1 dark
-  --cache-warn: light-dark(#997e00, #efd956);
-  // dev-lint: allow-hardcoded-color no M3 role is red on both grounds; 6.3:1 light, 4.8:1 dark
-  --cache-peak: light-dark(#b71a18, #e84838);
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
   color: color-mix(
     in oklch,
-    color-mix(in oklch, var(--cache-peak) calc(var(--hot) * 100%), var(--cache-warn))
-      calc(var(--warm) * 100%),
+    color-mix(in oklch, var(--peak) calc(var(--hot) * 100%), var(--warn)) calc(var(--warm) * 100%),
     var(--mat-sys-on-surface-variant)
   );
 }

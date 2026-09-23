@@ -17,6 +17,16 @@ html {
       density: 0,
     )
   );
+
+  // Signal colours M3 has no role for. Not `--mat-sys-error`, a tone-80 pastel on
+  // a dark ground; each theme takes its own stop, as a yellow readable on dark is
+  // 2.3:1 on light.
+  // dev-lint: allow-hardcoded-color no M3 role is yellow; 3.8:1 light, 13.0:1 dark
+  --warn: light-dark(#997e00, #efd956);
+  // dev-lint: allow-hardcoded-color no M3 role is red on both grounds; 6.3:1 light, 4.8:1 dark
+  --peak: light-dark(#b71a18, #e84838);
+  // dev-lint: allow-hardcoded-color no M3 role is blue; 5.7:1 light, 8.2:1 dark
+  --spare: light-dark(#1a5fb4, #8ab4f8);
 }
 
 // Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):

@@ -91,11 +91,20 @@
   opacity: 0.7;
 }
 
-// Near the ceiling. Colour rather than a second number, because the point of
-// noticing is that it happens without reading.
-.high {
-  color: var(--mat-sys-error);
-  --mat-progress-bar-active-indicator-color: var(--mat-sys-error);
+// The pace, in colour rather than a second number, so it is noticed without reading.
+.spare {
+  color: var(--spare);
+  --mat-progress-bar-active-indicator-color: var(--spare);
+}
+
+.over {
+  color: var(--warn);
+  --mat-progress-bar-active-indicator-color: var(--warn);
+}
+
+.short {
+  color: var(--peak);
+  --mat-progress-bar-active-indicator-color: var(--peak);
 }
 
 // A window whose reading has expired. Present, so the row does not silently

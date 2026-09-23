@@ -75,19 +75,27 @@ describe('the usage strip', () => {
   it('does not shout about a window that has expired', async () => {
     // A full window that has already reset is not something to be alarmed by —
     // the alarm would be about a limit that has since been given back.
-    const host = await render(reading({ five_hour: { pct: 99 } }));
-    expect(host.querySelector('.high')).toBeNull();
+    const host = await render(reading({ five_hour: { pct: 99 }, seven_day: undefined }));
+    expect(host.querySelector('.over, .short')).toBeNull();
   });
 
   it('marks a window that is nearly spent', async () => {
-    const host = await render(reading({ five_hour: { pct: 92, resets_in_ms: HOUR } }));
-    expect(host.querySelector('.pct.high')?.textContent).toContain('92%');
+    const host = await render(reading({ age_ms: 0, five_hour: { pct: 92, resets_in_ms: HOUR } }));
+    expect(host.querySelector('.pct.short')?.textContent).toContain('92%');
+  });
+
+  it('warns when some of the rest would not fit', async () => {
+    const host = await render(
+      reading({ age_ms: 0, five_hour: { pct: 60, resets_in_ms: 2.5 * HOUR } }),
+    );
+    expect(host.querySelector('.pct.over')?.textContent).toContain('60%');
   });
 
   it('does not mark a window spent more slowly than its clock', async () => {
-    // 85% spent with 12 hours of the week left: on course to finish under the cap.
+    // 85% spent with 12 hours of the week left: on course to finish under the cap,
+    // whatever the time of day.
     const host = await render(reading({ seven_day: { pct: 85, resets_in_ms: 12 * HOUR } }));
-    expect(host.querySelector('.high')).toBeNull();
+    expect(host.querySelector('.over, .short')).toBeNull();
   });
 
   it("draws a model's own allowance under the model's name", async () => {

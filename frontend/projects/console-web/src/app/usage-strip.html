@@ -4,11 +4,11 @@
       <div class="window">
         <span class="label">{{ bar.label }}</span>
         @if (bar.left; as left) {
-          <span class="pct" [class.high]="bar.high">{{ bar.pct }}%</span>
+          <span class="pct" [class]="bar.pace">{{ bar.pct }}%</span>
           <!-- The bar and its markers share one box: positions ON the level. -->
           <span class="level">
             <mat-progress-bar
-              [class.high]="bar.high"
+              [class]="bar.pace"
               mode="determinate"
               [value]="bar.pct"
               [attr.aria-label]="bar.label + ' used'"
@@ -17,7 +17,7 @@
               <i class="day" [style.left.%]="at" aria-hidden="true"></i>
             }
             @if (bar.elapsed; as at) {
-              <!-- Where the CLOCK is, against where the spend is: fill behind the mark is room
+              <!-- Where the clock is, against where the spend is: fill behind the mark is room
                    to spare. Titled rather than labelled — a phone has no hover. -->
               <i
                 class="clock"

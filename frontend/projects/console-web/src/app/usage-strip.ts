@@ -2,6 +2,7 @@ import { Component, computed, input } from '@angular/core';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { Reading, Window } from './models';
+import { Pace, awake, pace } from './pace';
 
 /** One window as the strip draws it. */
 interface Bar {
@@ -9,23 +10,19 @@ interface Bar {
   pct: number;
   /** How long until it turns over. Absent once it already has — see [[Window]]. */
   left?: string;
-  /** Near the ceiling and spent faster than the clock: on course to run out before the reset. */
-  high: boolean;
+  pace: Pace;
   /**
-   * How far through the window the clock is, 0–100 — or absent. Read at the SAME
-   * instant as `pct`: both come from one reading, and the phone's clock would
-   * compare a fresh time against a stale spend.
+   * How far through the window the clock is, 0–100 — or absent. Taken at the
+   * instant of the reading, not now, so it compares with `pct`. A week counts
+   * only waking hours: that is when it can be spent.
    */
   elapsed?: number;
   /**
-   * Where the day boundaries fall, 0–100, for a window measured in days. Empty
-   * for the five-hour window.
+   * Where the day boundaries fall, 0–100, on the same axis. Empty for the
+   * five-hour window.
    */
   days: number[];
 }
-
-/** Past this, a window is worth noticing rather than merely knowing. */
-const LOUD = 80;
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -56,6 +53,7 @@ export class UsageStrip {
   protected readonly bars = computed<Bar[]>(() => {
     const usage = this.usage();
     if (!usage) return [];
+    const bar = measure(Date.now(), usage.age_ms);
     return [
       // A window the runner has heard nothing about gets no row: absent is not reset,
       // and neither is zero. See [[Reading]].
@@ -75,29 +73,42 @@ export class UsageStrip {
   });
 }
 
-function bar(label: string, window: Window, spanMs: number): Bar {
-  const left = window.resets_in_ms;
-  // Clamped, because a reading can outlive its own window and a marker off the
-  // bar is worse than none.
-  const elapsed = left === undefined ? undefined : clamp(((spanMs - left) / spanMs) * 100);
-  return {
-    label,
-    pct: Math.round(window.pct),
-    left: left === undefined ? undefined : span(left),
-    high: elapsed !== undefined && window.pct >= LOUD && window.pct > elapsed,
-    elapsed,
-    days: spanMs >= 2 * DAY ? boundaries(spanMs) : [],
+/** Bars as of `now`, for a reading `age` old. */
+function measure(now: number, age: number) {
+  return (label: string, window: Window, spanMs: number): Bar => {
+    const left = window.resets_in_ms;
+    const pct = Math.round(window.pct);
+    if (left === undefined) return { label, pct, pace: 'even', days: [] };
+    const end = now + left;
+    const start = end - spanMs;
+    const weekly = spanMs >= 2 * DAY;
+    // Share of the window gone by `at`, 0–1. A reading can outlive its window,
+    // and a marker off the bar is worse than none.
+    const share = (at: number) =>
+      clamp(weekly ? awake(start, at) / awake(start, end) : (at - start) / spanMs);
+    const taken = now - age;
+    const through = share(taken);
+    const judged = pace(window.pct, through, weekly ? awake(taken, end) : end - taken);
+    return {
+      label,
+      pct,
+      left: span(left),
+      // A five-hour surplus is back within the day; only a week's gets spent at night.
+      pace: judged === 'spare' && !weekly ? 'even' : judged,
+      elapsed: through * 100,
+      days: weekly ? boundaries(spanMs).map((at) => share(start + at) * 100) : [],
+    };
   };
 }
 
-/** Day boundaries inside a window, as percentages, ends excluded. */
+/** Day boundaries inside a window, as offsets from its start, ends excluded. */
 function boundaries(spanMs: number): number[] {
   const days = Math.round(spanMs / DAY);
-  return Array.from({ length: days - 1 }, (_, i) => ((i + 1) / days) * 100);
+  return Array.from({ length: days - 1 }, (_, i) => (i + 1) * DAY);
 }
 
-function clamp(pct: number): number {
-  return Math.min(100, Math.max(0, pct));
+function clamp(share: number): number {
+  return Math.min(1, Math.max(0, share));
 }
 
 /** A duration, to the coarsest unit that still says something. */

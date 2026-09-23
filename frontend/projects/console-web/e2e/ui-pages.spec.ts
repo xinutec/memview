@@ -4670,6 +4670,9 @@ test('reader — an unmined survey says so on its own screen @ phone width', asy
 test('usage — the week bar marks the days and where the clock is @ phone width', async ({
   page,
 }, testInfo) => {
+  // A week is measured in waking hours, so where its marks fall depends on the
+  // time of day: pinned to a Wednesday at 14:00.
+  await page.clock.setFixedTime(new Date(2026, 8, 23, 14));
   await mockRunner(page);
   await page.goto('/');
 
@@ -4681,14 +4684,21 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   // drawn at 100% would sit under the edge and read as a rendering fault.
   await expect(week.locator('.day')).toHaveCount(6);
 
-  // The clock, placed from the same reading as the fill. The fixture is 66%
-  // spent with 54h left of 168 — so 67.9% elapsed, and the two marks land
-  // within two points of each other. That IS the message: on pace.
+  // The window runs Friday 20:00 to Friday 20:00: 98 waking hours. The first
+  // boundary, Saturday 20:00, is 14 of them in.
+  const first = await week
+    .locator('.day')
+    .first()
+    .evaluate((el: HTMLElement) => el.style.left);
+  expect(Number.parseFloat(first)).toBeCloseTo((14 / 98) * 100, 1);
+
+  // The clock, placed at the reading, taken 4h ago at 10:00: 60 waking hours
+  // in. 66% spent against 61% gone is ahead enough to be amber.
   const clock = week.locator('.clock');
   await expect(clock).toHaveCount(1);
   const at = await clock.evaluate((el: HTMLElement) => el.style.left);
-  expect(Number.parseFloat(at)).toBeGreaterThan(66);
-  expect(Number.parseFloat(at)).toBeLessThan(70);
+  expect(Number.parseFloat(at)).toBeCloseTo((60 / 98) * 100, 1);
+  await expect(page.locator('.window', { hasText: 'Week' }).locator('.pct.over')).toHaveCount(1);
 
   // The five-hour row gets no day ticks, and asserting that is the point:
   // a window with no unit a person tracks would gain noise, not information.
