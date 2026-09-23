@@ -268,7 +268,10 @@ function elapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** The transcript grouped for drawing: runs of tool calls fold into one row. */
+/**
+ * The transcript grouped for drawing: runs of tool calls fold into one row. A call
+ * waiting on a question, or one that returned a picture, stays out of the fold.
+ */
 export type Block =
   { kind: 'one'; entry: Entry } | { kind: 'tools'; key: string; entries: ToolCall[] };
 
@@ -286,7 +289,11 @@ export function blocks(entries: readonly Entry[]): Block[] {
     run = [];
   };
   for (const entry of entries) {
-    if (entry.kind === 'tool' && !(entry.ask !== undefined && entry.allowed === undefined)) {
+    const folds =
+      entry.kind === 'tool' &&
+      !entry.picture &&
+      !(entry.ask !== undefined && entry.allowed === undefined);
+    if (folds) {
       run.push(entry);
       continue;
     }
