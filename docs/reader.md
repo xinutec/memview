@@ -36,6 +36,7 @@ Each stage's authoritative explanation is its module doc-comment.
 | module | question |
 | --- | --- |
 | `reader/src/syntax/` + `project.rs` | which commands does this script run? |
+| `reader/src/syntax/python/` | the tree for the Python inside it ([execution-model.md](execution-model.md#the-python-tree)) |
 | `reader/src/shell.rs` + `shell.pest` | the same question, second answer — the check on the first |
 | `reader/src/shell_ops.rs` | what does one command do, to which paths? |
 | `reader/src/python.rs` + `python.pest` | same, for inline Python |
@@ -230,6 +231,10 @@ cargo run --release -p reader --example tree-sitter-python-probe -- <corpus>
 
 # the syntax tree: coverage, the ranked refusals, and all three gates
 cargo run --release -p bash-oracle --bin syntax-report -- <corpus> [--oracle] [--why SUBSTRING]
+# the Python tree: how much reads, whether the round-trip law holds, the ranked refusals
+cargo run --release -p reader --bin python-syntax-report -- <corpus> [--show LABEL N]
+# every distinct Python program the corpus runs, one JSON string a line — to measure with CPython
+cargo run --release -p reader --example python-sources -- <corpus> > programs.jsonl
 ```
 
 `--why <substring>` prints the commands behind every use of a matching path, and

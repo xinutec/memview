@@ -21,6 +21,7 @@ mod oracle;
 mod predict;
 mod projection;
 mod python;
+mod python_syntax;
 mod resolvable;
 mod shell;
 mod shell_files;

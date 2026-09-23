@@ -511,6 +511,44 @@ so the two do not stay separable.
 `Bash` tool calls only. `Workflow` JavaScript and scripts checked into
 repositories are deferred, not declined.
 
+## The Python tree
+
+`reader/src/syntax/python/` is the second language's tree, under the same law and
+built the same way: a tree, a parser that refuses by name, a printer that is a
+pure function of the tree.
+
+**Its scope is the language the corpus writes, measured with CPython's own parser
+before a line was written.** Of 34,056 distinct programs CPython read 33,945, and
+they are scripts: calls, attributes, assignments and imports in nearly all of
+them; comparisons, subscripts, `assert`, `for`, f-strings, comprehensions, `if`,
+`def`, `try`, `with` and `lambda` in a large minority. Classes appeared in 4
+programs, `async` in 5, generators in 32, annotations and `match` in none. So
+those are refused by name rather than built.
+
+**It normalises where CPython normalises, and nowhere else.** An `elif` is an
+`else` holding one `if`; adjacent string literals are one value; quoting and
+escapes are resolved into the value. So one meaning is one tree, and the printer
+chooses a spelling — `repr`'s quoting, four-space blocks, parentheses only where
+precedence needs them and around every tuple but a subscript's, where
+`x[1:2, 3]` cannot carry them.
+
+**Comments are nodes, and a comment's column decides its block.** CPython drops
+them, so only the law checks them. A comment on its own line is held until the
+next code line says how many blocks close: indented past that line, it belongs to
+a block being closed; otherwise to the level the line opens. Attached to the
+block still open instead, a comment after a one-line `for` moved into the loop on
+the round trip — 152 programs, found by the law on its first run.
+
+**The law holds for every program the parser reads**, which on the corpus it was
+built against was 99.2% of them. What it refuses is ranked by `python-syntax-report`;
+the largest single reason is a comment inside brackets, which the tree has no
+slot for yet.
+
+⚠ **CPython as the second gate is not built yet**, and until it is, a tree that
+is consistently wrong and prints back as itself passes the law — the blind spot
+the shell's tree needed bash's printer for. It is the next step, in a crate of its
+own since it spawns a process.
+
 ## Placement
 
 The tree goes underneath the reader. **The existing reader is prototype
