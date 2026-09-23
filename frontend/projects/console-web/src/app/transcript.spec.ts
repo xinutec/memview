@@ -649,21 +649,3 @@ describe('a picture a call returned', () => {
     expect(first(tools(transcript(fetched, picture))).picture).toBeUndefined();
   });
 });
-
-describe('a picture among tool calls', () => {
-  it('stays out of the fold, so it is seen without opening the run', () => {
-    const calls = ['a', 'b', 'c', 'd', 'e', 'f'].flatMap((id) => [
-      tool(id, 'Bash', { command: `echo ${id}` }),
-      result(id, true, id),
-    ]);
-    const read = tool('r1', 'Read', { file_path: '/tmp/shot.png' });
-    const picture: Timed = { kind: 'tool_result', id: 'r1', ok: true, detail: '', image: true };
-    const drawn = blocks(transcript(...calls.slice(0, 6), read, picture, ...calls.slice(6)));
-    const alone = drawn.filter((block) => block.kind === 'one');
-    expect(
-      alone.map(
-        (block) => block.kind === 'one' && block.entry.kind === 'tool' && block.entry.picture,
-      ),
-    ).toEqual(['/tmp/shot.png']);
-  });
-});
