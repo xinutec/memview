@@ -147,6 +147,9 @@ pub struct Extract {
     pub python: crate::python::Tally,
     /// The same, for the JavaScript inside the shell.
     pub javascript: crate::program::Tally,
+    /// Files the Python inside the shell rewrote by literal replacements, with the
+    /// path resolved — see [`crate::python::rewrites`].
+    pub rewrites: Vec<crate::python::Rewrite>,
     /// What the SQL inside the shell touched — **tables, not files**.
     ///
     /// Kept apart from `files` on a measurement, not on taste. Across the corpus's
@@ -414,6 +417,7 @@ impl Extract {
         }
         self.python.merge(inner.python);
         self.javascript.merge(inner.javascript);
+        self.rewrites.extend(inner.rewrites);
         self.tables.merge(&inner.tables);
         for (name, n) in inner.local {
             *self.local.entry(name).or_insert(0) += n;
@@ -1206,6 +1210,20 @@ fn extract_nested(
             Op::Python { source } => {
                 out.handled += 1;
                 let program = crate::python::read(source);
+                // Resolved by the rules a use goes through; a program that moved its
+                // own directory has no relative path to resolve.
+                for rewrite in crate::python::rewrites(source) {
+                    let anchored = rewrite.path.starts_with('/') || rewrite.path.starts_with('~');
+                    if (anchored || !program.chdir)
+                        && looks_like_path(&rewrite.path)
+                        && let Some(path) = resolve(&rewrite.path, here.as_deref(), home)
+                    {
+                        out.rewrites.push(crate::python::Rewrite {
+                            path,
+                            replaced: rewrite.replaced,
+                        });
+                    }
+                }
                 let (kept, refused) = carried(
                     &program,
                     "python",

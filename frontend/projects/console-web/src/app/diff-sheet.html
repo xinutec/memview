@@ -3,7 +3,4 @@
 @if (change.everywhere) {
   <p class="note">Every occurrence in the file.</p>
 }
-<!-- Wraps rather than scrolling sideways, which fights the sheet's own swipe. -->
-<pre
-  class="diff"
-><code>@for (line of lines; track $index) {<span class="line" [class]="line.kind">{{ mark[line.kind] }} {{ line.text }}</span>}</code></pre>
+<app-diff [change]="change" />

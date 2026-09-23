@@ -28,6 +28,21 @@
   overflow-wrap: break-word;
 }
 
+.file {
+  margin: 0 0 0.25rem;
+  font: var(--mat-sys-title-small);
+  overflow-wrap: anywhere;
+}
+
+.folder {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+app-diff {
+  margin-bottom: 0.75rem;
+}
+
 .summary {
   margin: 0 0 0.25rem;
   font: var(--mat-sys-label-large);

@@ -46,9 +46,22 @@ pub struct Parsed {
     /// Commands that exist because a determinate loop was run out. Shown because
     /// a reader counting lines will otherwise find more steps than they wrote.
     pub unrolled: usize,
+    /// What the command's Python replaced in the files it wrote back, in order —
+    /// the edit an `Edit` call would have carried. See [`reader::python::rewrites`].
+    pub edits: Vec<Replacement>,
     /// Scripts inside a wrapper that the grammar could not read — a hole in the
     /// middle of a parse that otherwise succeeded.
     pub nested_unparsed: usize,
+}
+
+/// One replacement in one file: every occurrence of `before` became `after`.
+#[derive(Debug, Serialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Replacement {
+    pub path: String,
+    pub before: String,
+    pub after: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -160,6 +173,7 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
                 steps: Vec::new(),
                 unread: Vec::new(),
                 unrolled: 0,
+                edits: Vec::new(),
                 nested_unparsed: 0,
             };
         }
@@ -177,6 +191,17 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
             })
             .collect(),
         unrolled: walk.unrolled,
+        edits: walk
+            .rewrites
+            .iter()
+            .flat_map(|rewrite| {
+                rewrite.replaced.iter().map(|pair| Replacement {
+                    path: rewrite.path.clone(),
+                    before: pair.old.clone(),
+                    after: pair.new.clone(),
+                })
+            })
+            .collect(),
         nested_unparsed: walk.nested_unparsed.values().sum(),
     }
 }

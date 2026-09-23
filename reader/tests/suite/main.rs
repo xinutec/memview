@@ -21,6 +21,7 @@ mod oracle;
 mod projection;
 mod python;
 mod resolvable;
+mod rewrites;
 mod shell;
 mod shell_files;
 mod shell_ops;

@@ -1,5 +1,16 @@
 <h2 class="who">the command, as written and as read</h2>
 
+<!-- Above the command: for an edit made in Python the command is mostly the old and
+     new text, and this is the same thing read. -->
+@for (edit of edits(); track $index) {
+  @if (edit.named) {
+    <p class="file">
+      {{ edit.file }} <span class="folder">{{ edit.folder }}</span>
+    </p>
+  }
+  <app-diff [change]="edit.change" />
+}
+
 <!-- Raw first, entire, never truncated: the transcript row shows one ellipsised
      line, so this is the only place on the phone that holds the whole command.
      Wraps rather than scrolling sideways, which fights the sheet's own swipe. -->

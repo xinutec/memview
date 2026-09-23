@@ -4,7 +4,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
-import { Parsed, Line } from './models';
+import { DiffView } from './diff-view';
+import { type Change, Parsed, Line } from './models';
 import { reason } from './errors';
 
 /** What the sheet is opened with: the command as it was written, and how its
@@ -33,7 +34,7 @@ const DEEPEST_INDENT = 3;
   selector: 'app-parse-sheet',
   templateUrl: './parse-sheet.html',
   styleUrl: './parse-sheet.scss',
-  imports: [MatIconModule, MatProgressBarModule],
+  imports: [DiffView, MatIconModule, MatProgressBarModule],
 })
 export class ParseSheet {
   private api = inject(ConsoleApi);
@@ -54,6 +55,23 @@ export class ParseSheet {
       error: (wrong) => this.trouble.set(reason(wrong)),
     });
   }
+
+  /**
+   * What the command's Python replaced, as diffs, each file named once above its
+   * first. `str.replace` changes every occurrence.
+   */
+  protected readonly edits = computed(() =>
+    (this.parsed()?.edits ?? []).map((edit, at, all) => {
+      const change: Change = { ...edit, everywhere: true };
+      const file = edit.path.split('/').at(-1) ?? edit.path;
+      return {
+        change,
+        named: all[at - 1]?.path !== edit.path,
+        file,
+        folder: edit.path.slice(0, -file.length),
+      };
+    }),
+  );
 
   /** Every step, with what the template needs that JSON cannot carry. */
   protected readonly steps = computed(() =>
