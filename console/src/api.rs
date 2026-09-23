@@ -301,7 +301,17 @@ async fn picture(Path((id, name)): Path<(String, String)>) -> Response {
 /// Not cached: this is a window onto a file that gets re-rendered, and a cache
 /// would answer the second look with the first render.
 async fn elsewhere(Query(asked): Query<Elsewhere>) -> Response {
-    match crate::images::fetch(&asked.url).await {
+    let fetched = crate::images::fetch(&asked.url).await;
+    // Decoding and scaling is CPU work, kept off the executor.
+    let fetched = match fetched {
+        Ok(got) if asked.small => tokio::task::spawn_blocking(move || {
+            crate::images::thumbnail(got, crate::images::THUMBNAIL)
+        })
+        .await
+        .map_err(|why| crate::images::Reason::Answered(format!("could not scale it: {why}"))),
+        other => other,
+    };
+    match fetched {
         Ok(got) => (
             [
                 (header::CONTENT_TYPE, got.media_type),
@@ -321,10 +331,13 @@ async fn elsewhere(Query(asked): Query<Elsewhere>) -> Response {
     }
 }
 
-/// The URL to fetch, as it came off the query string.
+/// The URL to fetch, as it came off the query string, and whether to scale it down
+/// to a thumbnail.
 #[derive(Deserialize)]
 struct Elsewhere {
     url: String,
+    #[serde(default)]
+    small: bool,
 }
 
 /// Show a session a picture. Its own route rather than a field on [`input`]: a

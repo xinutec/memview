@@ -27,7 +27,11 @@ detail: string,
 /**
  * The full length in characters, present only when `detail` is a cut of it.
  */
-cut?: number, } | { "kind": "turn", cost_usd: number, 
+cut?: number, 
+/**
+ * Whether it returned a picture, which a client can show from the call's path.
+ */
+image?: boolean, } | { "kind": "turn", cost_usd: number, 
 /**
  * How big the context window is. Declared on the result line and nowhere else;
  * how full it is comes from [`Event::Context`].

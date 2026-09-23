@@ -48,6 +48,12 @@
       @if (folding().shows(entry)) {
         <pre class="result ansi" [innerHTML]="entry.detail | coloured"></pre>
       }
+      <!-- Scaled down on the Mac and fetched only when scrolled to; a tap opens it whole. -->
+      @if (entry.picture; as path) {
+        <a class="picture" [class]="PICTURE" [href]="fetchedAt(path)">
+          <img [src]="thumbnailAt(path)" loading="lazy" [alt]="'the picture at ' + path" />
+        </a>
+      }
     }
   }
   @case ('asked') {

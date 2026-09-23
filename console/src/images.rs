@@ -135,6 +135,32 @@ pub struct Fetched {
     pub bytes: Vec<u8>,
 }
 
+/// The longest edge of a thumbnail, in pixels: a phone column at its density.
+pub const THUMBNAIL: u32 = 480;
+
+/// `got` scaled to fit `longest` pixels on its longer edge, as JPEG. Unchanged when it
+/// already fits or cannot be decoded: a thumbnail saves bytes and guards nothing.
+pub fn thumbnail(got: Fetched, longest: u32) -> Fetched {
+    let Ok(picture) = image::load_from_memory(&got.bytes) else {
+        return got;
+    };
+    if picture.width().max(picture.height()) <= longest {
+        return got;
+    }
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    let small = picture.thumbnail(longest, longest).into_rgb8();
+    if small
+        .write_to(&mut bytes, image::ImageFormat::Jpeg)
+        .is_err()
+    {
+        return got;
+    }
+    Fetched {
+        media_type: "image/jpeg".to_string(),
+        bytes: bytes.into_inner(),
+    }
+}
+
 /// Why a picture from somewhere else is not on its way back. Two cases because
 /// they blame different parties: refusing to go is a 400 against the asker, a far
 /// end that failed is a 502 about somewhere else.

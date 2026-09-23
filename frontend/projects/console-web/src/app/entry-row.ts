@@ -8,7 +8,8 @@ import { Coloured } from './coloured';
 import { Folding } from './folding';
 import { Lasted } from './lasted';
 import { type ToolCall, type Entry, pending } from './models';
-import { Rendered } from './rendered';
+import { fetchedAt, thumbnailAt } from './picture';
+import { PICTURE, Rendered } from './rendered';
 
 /**
  * One line of the transcript. An `<li>` so the list stays a list; the class is
@@ -37,6 +38,9 @@ export class EntryRow {
 
   protected readonly drawn = computed(() => (pending(this.entry()) ? 'ask' : this.entry().kind));
   protected readonly pending = pending;
+  protected readonly PICTURE = PICTURE;
+  protected readonly fetchedAt = fetchedAt;
+  protected readonly thumbnailAt = thumbnailAt;
 
   protected runningFor(entry: ToolCall): number | undefined {
     if (entry.unrecorded || entry.at === undefined) return undefined;

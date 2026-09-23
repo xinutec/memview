@@ -130,6 +130,10 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         cut: Option<usize>,
+        /// Whether it returned a picture, which a client can show from the call's path.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        image: bool,
     },
     /// One turn finished.
     Turn {
@@ -408,11 +412,12 @@ enum Block {
     Other,
 }
 
-/// What a tool returned, as text a phone can hold, and its true length when cut.
-/// Text blocks only, joined.
-fn returned(content: Content) -> (String, Option<usize>) {
-    let text = content
-        .blocks()
+/// What a tool returned, as text a phone can hold, its true length when cut, and
+/// whether it held a picture. Text blocks only, joined.
+fn returned(content: Content) -> (String, Option<usize>, bool) {
+    let blocks = content.blocks();
+    let image = blocks.iter().any(|block| matches!(block, Block::Image));
+    let text = blocks
         .into_iter()
         .filter_map(|block| match block {
             Block::Text { text } => Some(text),
@@ -423,11 +428,15 @@ fn returned(content: Content) -> (String, Option<usize>) {
         .join("\n");
     let whole = text.chars().count();
     if whole <= RESULT_SNIPPET {
-        return (text, None);
+        return (text, None, image);
     }
     // By characters, not bytes: a cut in the middle of one leaves a string that is
     // not text.
-    (text.chars().take(RESULT_SNIPPET).collect(), Some(whole))
+    (
+        text.chars().take(RESULT_SNIPPET).collect(),
+        Some(whole),
+        image,
+    )
 }
 
 /// One transcript line's own record of when it happened. Read separately from
@@ -1032,12 +1041,13 @@ fn from_user(content: Content) -> Vec<Event> {
                 is_error,
                 content,
             } => {
-                let (detail, cut) = returned(content);
+                let (detail, cut, image) = returned(content);
                 vec![Event::ToolResult {
                     id: tool_use_id,
                     ok: !is_error,
                     detail,
                     cut,
+                    image,
                 }]
             }
             Block::Text { text } if carries => {
@@ -1285,7 +1295,14 @@ fn is_plumbing(text: &str) -> bool {
         "<command-message>",
     ];
     let head = text.trim_start();
-    TAGS.iter().any(|tag| head.starts_with(tag))
+    TAGS.iter().any(|tag| head.starts_with(tag)) || is_picture_note(head)
+}
+
+/// The harness's note after every picture it hands the model:
+/// `[Image: original 824x2300, displayed at 717x2000. Multiply coordinates by 1.15 to map to original image.]`
+fn is_picture_note(text: &str) -> bool {
+    text.starts_with("[Image: original ")
+        && text.trim_end().ends_with(" to map to original image.]")
 }
 
 /// A background call, named the way somebody looking at the strip would name it.

@@ -625,3 +625,27 @@ describe('a call whose result was never written', () => {
     });
   });
 });
+
+describe('a picture a call returned', () => {
+  const read = tool('r1', 'Read', { file_path: '/tmp/shot.png' });
+  const picture: Timed = {
+    kind: 'tool_result',
+    id: 'r1',
+    ok: true,
+    detail: '[an image]',
+    image: true,
+  };
+
+  it('is shown from the path the call read', () => {
+    expect(first(tools(transcript(read, picture))).picture).toBe('/tmp/shot.png');
+  });
+
+  it('is not guessed from words', () => {
+    expect(first(tools(transcript(read, result('r1', true, 'a page')))).picture).toBeUndefined();
+  });
+
+  it('needs a path the console can open', () => {
+    const fetched = tool('r1', 'WebFetch', { prompt: 'what is on it' });
+    expect(first(tools(transcript(fetched, picture))).picture).toBeUndefined();
+  });
+});

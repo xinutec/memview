@@ -130,6 +130,8 @@ export interface ToolCall extends Stamped, Partial<Ask> {
   cut?: number;
   /** Was running when the runner restarted, so no result will come. */
   unrecorded?: boolean;
+  /** Where the picture it returned lives, when it read one on this machine. */
+  picture?: string;
 }
 
 /** An ask the fold could not attach to a call, drawn as its own entry. */

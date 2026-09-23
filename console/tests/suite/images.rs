@@ -672,3 +672,53 @@ async fn a_file_too_large_for_the_wire_is_refused_at_its_size_not_after_reading_
 
     assert_eq!(why.to_string(), "it is 8 MB, and this serves at most 8 MB");
 }
+
+/// A real picture of the given size, encoded as PNG.
+fn picture(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(width, height, image::Rgb([200, 120, 40]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("encode");
+    bytes.into_inner()
+}
+
+#[test]
+fn a_thumbnail_fits_its_longest_edge_and_keeps_the_shape() {
+    let small = console::images::thumbnail(
+        console::images::Fetched {
+            media_type: "image/png".to_string(),
+            bytes: picture(824, 2300),
+        },
+        480,
+    );
+    assert_eq!(small.media_type, "image/jpeg");
+    let drawn = image::load_from_memory(&small.bytes).expect("decodes");
+    assert_eq!(drawn.height(), 480);
+    assert_eq!(drawn.width(), 172, "824 × 480 / 2300, rounded");
+}
+
+#[test]
+fn a_picture_that_already_fits_is_served_as_it_is() {
+    let bytes = picture(300, 200);
+    let same = console::images::thumbnail(
+        console::images::Fetched {
+            media_type: "image/png".to_string(),
+            bytes: bytes.clone(),
+        },
+        480,
+    );
+    assert_eq!(same.media_type, "image/png");
+    assert_eq!(same.bytes, bytes);
+}
+
+#[test]
+fn a_picture_that_cannot_be_decoded_is_served_as_it_is() {
+    let same = console::images::thumbnail(
+        console::images::Fetched {
+            media_type: "image/png".to_string(),
+            bytes: PNG.to_vec(),
+        },
+        480,
+    );
+    assert_eq!(same.bytes, PNG);
+}

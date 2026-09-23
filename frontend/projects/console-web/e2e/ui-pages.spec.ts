@@ -4742,6 +4742,45 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
+test('a picture a session read is drawn small, and a tap opens it whole @ phone width', async ({
+  page,
+}, testInfo) => {
+  const SHOT = '/tmp/usage-shape/red-dark.png';
+  const asked: string[] = [];
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'r1', name: 'Read', input: { file_path: SHOT }, at: NEXT },
+        { kind: 'tool_result', id: 'r1', ok: true, detail: '[an image]', image: true, at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) => {
+    asked.push(r.request().url());
+    return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const thumb = page.locator('.entry.tool a.picture-link img');
+  await thumb.waitFor();
+  await expect.poll(() => asked.length, 'the thumbnail was not fetched').toBeGreaterThan(0);
+  expect(asked[0], 'the small version, not the original').toContain('small=true');
+
+  await thumb.click();
+  const shown = page.locator('app-picture-sheet img');
+  await shown.waitFor();
+  await settleTransforms(page);
+  expect(asked.at(-1), 'the sheet asks for the original').not.toContain('small=true');
+  expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
 test("a render whose server is gone says so, in the console's words @ phone width", async ({
   page,
 }, testInfo) => {

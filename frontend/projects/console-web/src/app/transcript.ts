@@ -75,6 +75,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         detail: event.detail,
         cut: event.cut ?? undefined,
         head: event.detail.split('\n', 1)[0],
+        picture: event.image && call.text.startsWith('/') ? call.text : undefined,
       };
       break;
     }

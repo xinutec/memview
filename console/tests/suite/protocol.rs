@@ -211,6 +211,21 @@ mod recorded {
     }
 
     #[test]
+    fn the_note_beside_a_picture_is_not_your_message() {
+        // The harness adds it after every picture it hands the model: in the
+        // transcript as `isMeta`, on the stream as `isSynthetic`.
+        let note = "[Image: original 824x2300, displayed at 717x2000. Multiply coordinates by 1.15 to map to original image.]";
+        let recorded = format!(
+            r#"{{"type":"user","isMeta":true,"message":{{"role":"user","content":"{note}"}}}}"#
+        );
+        let streamed = format!(
+            r#"{{"type":"user","isSynthetic":true,"message":{{"role":"user","content":[{{"type":"text","text":"{note}"}}]}}}}"#
+        );
+        assert!(read_recorded(&recorded).is_empty());
+        assert!(console::protocol::read(&streamed).is_empty());
+    }
+
+    #[test]
     fn a_message_that_merely_mentions_a_tag_is_still_yours() {
         // Recognised by how they open, not by containing a tag anywhere — asking
         // about `<system-reminder>` is a thing a person does.
@@ -257,7 +272,7 @@ mod detail {
         let line = result("3 matches in src/main.rs", false);
         assert!(matches!(
             read_recorded(&line).as_slice(),
-            [Event::ToolResult { id, ok, detail, cut }]
+            [Event::ToolResult { id, ok, detail, cut, image: false }]
                 if id == "t1" && *ok && detail == "3 matches in src/main.rs" && cut.is_none()
         ));
     }
@@ -328,7 +343,16 @@ mod detail {
         let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"image","source":{}}]}]}}"#;
         assert!(matches!(
             read_recorded(line).as_slice(),
-            [Event::ToolResult { detail, .. }] if detail == "[an image]"
+            [Event::ToolResult { detail, image: true, .. }] if detail == "[an image]"
+        ));
+    }
+
+    #[test]
+    fn a_result_in_words_is_not_a_picture() {
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"a page"}]}}"#;
+        assert!(matches!(
+            read_recorded(line).as_slice(),
+            [Event::ToolResult { image: false, .. }]
         ));
     }
 
@@ -655,6 +679,7 @@ fn answered(id: &str, said: &str) -> Event {
         ok: true,
         detail: said.to_string(),
         cut: None,
+        image: false,
     }
 }
 
