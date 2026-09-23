@@ -255,9 +255,8 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
         "gists: asking pid {} about {named}",
         child.id().unwrap_or(0)
     );
-    // Every `?` here used to leak the child. `kill_on_drop` does not save that case:
-    // a child that has ALREADY exited cannot be killed, so the `<defunct>` stays.
-    // The real one died before the timeout and was never waited for.
+    // Every `?` here must still end in a wait: `kill_on_drop` cannot kill a child
+    // that has already exited, so its `<defunct>` would stay.
     let sent = async {
         let mut stdin = child.stdin.take()?;
         stdin.write_all(prompt.as_bytes()).await.ok()?;

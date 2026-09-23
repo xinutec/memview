@@ -19,7 +19,7 @@ pub struct Modes {
 
 impl Modes {
     /// Read what the last run wrote. An unreadable file is an empty set and a loud log
-    /// line: sessions then come back Manual, which is the old failure, not a new one.
+    /// line: sessions then come back Manual, as they would with no file at all.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str(&text) {

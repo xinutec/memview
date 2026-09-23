@@ -27,8 +27,7 @@ busy?: string,
 /**
  * Whether a turn is running — observed by the runner, not narrated by the CLI.
  * [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
- * a long stretch of one activity leaves nothing standing, and no status was
- * drawn as *idle* over a session running tools throughout (memview #112).
+ * a long stretch of one activity leaves nothing standing.
  * Deliberately not a timeout: a turn can legitimately be quiet for minutes.
  */
 working: boolean, 
@@ -57,12 +56,12 @@ context?: number, window?: number,
 background: number, 
 /**
  * WHICH background calls are still running. `background` is kept beside this:
- * the list wants a number, the strip wants the name (memview #740).
+ * the list wants a number, the strip wants the name.
  */
 running: Array<Called>, 
 /**
  * The account's own verdict on its rate limit, when it has given one:
- * `allowed`, `allowed_warning` or `rejected` (CLI 2.1.220). `None` until the
+ * `allowed`, `allowed_warning` or `rejected`. `None` until the
  * account says something — the reason cost is hidden by default.
  */
 limit?: string, 

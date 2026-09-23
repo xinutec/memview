@@ -1,24 +1,15 @@
 //! What has been written and not sent, per conversation, shared between devices.
 //!
-//! A draft is a RECORD, not an instruction: it acts on nothing until a person
-//! presses send, so it can be replicated freely — unlike the queued send memview
-//! #90 refused, which would deliver an instruction minutes after it was meant.
+//! A draft is a record, not an instruction: it acts on nothing until a person
+//! presses send, so it can be replicated freely.
 //!
 //! The runner holds it because both clients talk to this process. One way in,
 //! `/api/sync/drafts`, in the shape life uses: two mechanisms writing one map is
 //! how drafts diverge silently.
 //!
-//! There is no such thing as a conflict here, by construction. The earlier
-//! design compared whole texts and refused a push whose assumed master had moved,
-//! leaving a person to choose between two versions of their own sentence. Its
-//! premise was written down — *prose cannot be field-merged* — and it is wrong:
-//! merging prose character by character is what a CRDT does, and it is why a
-//! shared document has no conflict dialogue. Measured before replacing it: 44
-//! refusals in one log, and in 13 of 15 the client's assumed text was a few
-//! characters SHORT of what was held. Not two thoughts. One, mid-keystroke.
-//!
-//! So a draft is a [`yrs`] document and a push is an UPDATE, which merges. Two
-//! devices typing produce one text and nobody is asked anything.
+//! A draft is a [`yrs`] document and a push is an update, which merges, so there
+//! is no conflict to resolve. Two devices typing produce one text; the usual
+//! disagreement is one device a few keystrokes behind the other.
 //!
 //! Text only. A picture is hundreds of kilobytes and there is no meaningful way
 //! to combine two; it stays in the client's own storage.
@@ -99,7 +90,7 @@ pub struct Checkpoint {
 ///
 /// No assumed state, and nothing to refuse. An update carries its own
 /// causal context, so the runner never has to be told what the client thought was
-/// here — which is exactly the question the old protocol asked and got wrong.
+/// here.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -325,8 +316,7 @@ impl Drafts {
     /// Merge everything a client sent, and answer with the merged documents.
     ///
     /// Always the merged state, never a refusal. The client applies what comes
-    /// back and is then level with the runner — the round trip the old protocol spent
-    /// asking whether it was allowed to write at all.
+    /// back and is then level with the runner.
     pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {
         entries
             .into_iter()

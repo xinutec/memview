@@ -77,7 +77,7 @@ pub enum Event {
     },
     /// A slash command — `/compact`, `/context` — rather than something said to the
     /// model. A command has no read receipt: `--replay-user-messages` does not replay
-    /// one, so a *waiting to be read* marker on it would never clear (memview #120).
+    /// one, so a *waiting to be read* marker on it would never clear.
     /// Its own variant so that everything counting what a person said keeps counting
     /// what a person said.
     Command {
@@ -145,9 +145,7 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         stop: Option<String>,
     },
-    /// A rate-limit window changed state. It carries the percentage: the CLI's own
-    /// schema for `rate_limit_event` has `utilization`, which the console ignored
-    /// for a long time while reading a stale copy off the dashboard. One window per
+    /// A rate-limit window changed state, with its `utilization`. One window per
     /// event, so the windows are collected as they are seen.
     Limit {
         window: String,
@@ -357,8 +355,7 @@ struct Message {
 
 /// The `model` a message carries when nothing generated it: how a slash command
 /// answers, as one complete `assistant` message with no deltas before it. [`read`]
-/// keeps only tool calls from a completed message, and that rule dropped every
-/// slash command's output (memview #106).
+/// keeps only tool calls from a completed message, except from this one.
 const SYNTHETIC: &str = "<synthetic>";
 
 /// `content` is a list of blocks — except on user lines where it is a bare
@@ -777,7 +774,7 @@ pub type Annotations = std::collections::BTreeMap<String, Annotation>;
 
 /// What a person said about a question: options picked, or words instead.
 /// `response` and `answers` are alternatives — the CLI's result builder tests
-/// `response` first and reports only that (2.1.220), so prose sent alongside
+/// `response` first and reports only that, so prose sent alongside
 /// choices throws the choices away. The client is where that is made visible.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -812,7 +809,7 @@ impl Reply {
 /// it approves, and the console echoes the input unchanged. For [`QUESTION_TOOL`]
 /// that edit is the whole point — its `call` reads `answers` out of its own
 /// arguments, so approving unchanged yields *"The user did not answer the
-/// questions."* (measured, 2.1.220).
+/// questions."*
 pub fn decision(
     id: &str,
     allowed: bool,
@@ -901,10 +898,7 @@ pub enum ModeReply {
 }
 
 /// A session's answer to a mode change, if that is what this line is. Read it,
-/// or a mode is claimed on screen the CLI never entered — the header read
-/// *Bypass Permissions* over a session still asking for approval.
-///
-/// Measured on CLI 2.1.226:
+/// or the screen claims a mode the CLI never entered. The two shapes:
 ///
 /// ```text
 /// {"subtype":"success","request_id":"…","response":{"mode":"acceptEdits"}}
@@ -958,7 +952,7 @@ pub fn get_usage(request_id: &str) -> String {
 /// Read field by field: the CLI warns the shape may change, and a moved shape
 /// yields no reading rather than a wrong one. A model's own allowance is not a
 /// key beside the others — `model_scoped` is an ARRAY of `{display_name,
-/// utilization, resets_at}`, and the fixed keys it used to live under are null.
+/// utilization, resets_at}`.
 /// Not matched on a request id: any response carrying rate limits is an answer.
 pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
     let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
@@ -1116,7 +1110,7 @@ pub fn shown(text: &str) -> (Option<String>, String) {
 }
 
 /// One user message carrying a picture and what was said about it. The CLI
-/// forwards an `image` block on stdin as the API defines one (measured, 2.1.221).
+/// forwards an `image` block on stdin as the API defines one.
 /// The picture first, the words after: a question read before the thing it is
 /// about is answered from the question alone.
 ///
@@ -1294,8 +1288,7 @@ fn is_plumbing(text: &str) -> bool {
     TAGS.iter().any(|tag| head.starts_with(tag))
 }
 
-/// A background call, named the way somebody looking at the strip would name it:
-/// *1 background task running* could not say which (memview #740).
+/// A background call, named the way somebody looking at the strip would name it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]

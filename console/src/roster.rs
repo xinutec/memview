@@ -40,9 +40,9 @@ pub struct Roster {
     /// Each transcript's landmarks, walked once and then only extended. See
     /// [`crate::marks`] — the walk is the whole of the "go to" sheet's wait.
     marks: Arc<crate::marks::Marks>,
-    /// The truest reading of each rate-limit window, kept ACROSS the sessions that
-    /// heard it: derived fresh from live sessions, the figure went 92 → 93 → 92 as a
-    /// session ended (memview #87). Utilisation only rises inside a window, and
+    /// The truest reading of each rate-limit window, kept across the sessions that
+    /// heard it, or the figure steps back when one ends. Utilisation only rises inside
+    /// a window, and
     /// [`crate::usage::fresher`] discards an old window outright.
     spent: Mutex<BTreeMap<String, crate::session::Seen>>,
 }
@@ -289,9 +289,8 @@ impl Roster {
     /// terminal, so the guard is a rail, not a boundary.
     ///
     /// The mode comes from the session still in hand, else from [`crate::modes`] —
-    /// the case that matters, since it is an ended session that gets resumed, and a
-    /// resume on the console's default once dropped a session to Manual silently
-    /// (memview #119).
+    /// the case that matters, since it is an ended session that gets resumed, and the
+    /// console's default would drop it to Manual.
     pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
         let known = self
             .get(id)
@@ -337,7 +336,7 @@ impl Roster {
             name: crate::past::named(&crate::past::projects_root(), id),
             ..self.config.spawn.clone()
         };
-        // Said out loud: the one thing about a resume that used to change silently.
+        // Logged: the mode is what a resume can change without anyone seeing.
         tracing::info!(
             "resuming {id} in {} on {}",
             real.display(),
@@ -364,7 +363,7 @@ impl Roster {
     /// The only known cure, and not a repair. The unread messages are re-sent by hand,
     /// since they sit in the old process's pipe — the step somebody doing it manually
     /// forgets. The mode is carried across; a cure that takes a session's permissions
-    /// away is one people learn not to use (memview #119).
+    /// away is one people learn not to use.
     pub async fn revive(&self, id: &str) -> Result<Arc<Session>, String> {
         let old = self
             .get(id)
@@ -434,8 +433,8 @@ impl Roster {
     ///
     /// If this RETURNS, the upgrade failed and this is still the old build, holding
     /// everything it held. A session being stopped travels in [`STOPPING`]: it fails
-    /// the descriptor test by construction, and dropping it left its kill in a task
-    /// `execve` discarded (memview #750).
+    /// the descriptor test by construction, and its kill lives in a task `execve`
+    /// discards.
     pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
         use std::os::unix::process::CommandExt;
 

@@ -6,7 +6,6 @@
 export type Window = { pct: number, 
 /**
  * How long until this window turns over, in milliseconds. Absent once it has
- * passed: the percentage belonged to a window that no longer exists, and since a
- * reading arrives hours late as a matter of course, that is the ordinary case.
+ * passed, which is ordinary for a reading hours old.
  */
 resets_in_ms?: number, };

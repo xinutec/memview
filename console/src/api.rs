@@ -430,7 +430,7 @@ struct Mode {
 }
 
 /// The modes the CLI declares, so an unknown one is refused here rather than by
-/// a session out of sight. The 2.1.220 binary's enum, in escalation order.
+/// a session out of sight. In escalation order.
 const MODES: [&str; 6] = [
     "plan",
     "default",
@@ -535,7 +535,7 @@ async fn stop(
 
 /// Stop a session that has stopped listening and start it again on the same
 /// conversation — see [`Roster::revive`]. Slow on purpose: it waits for the old
-/// process to leave the process table, measured at about thirty seconds, or one
+/// process to leave the process table, up to about thirty seconds, or one
 /// transcript gets two writers.
 async fn revive(
     State(roster): State<Arc<Roster>>,
@@ -581,7 +581,7 @@ struct Page {
 /// `spawn_blocking`: the walk parses the whole transcript — seconds for a large
 /// one — and no gate ahead of the parser survives the format; see
 /// [`crate::past::landmarks`]. The first ask pays it; [`crate::marks`] keeps what
-/// the walk found and extends it (memview #808).
+/// the walk found and extends it.
 async fn landmarks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,

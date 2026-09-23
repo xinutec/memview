@@ -148,8 +148,8 @@ async fn main() -> Result<()> {
     }
 }
 
-/// What to type, with the binary's own name in it. `CARGO_BIN_NAME`, never the
-/// name written out: a rename once left the old word in every line of this text.
+/// What to type, with the binary's own name in it: `CARGO_BIN_NAME`, so a rename
+/// cannot leave the old name behind.
 fn usage() -> String {
     let me = env!("CARGO_BIN_NAME");
     format!(

@@ -57,9 +57,7 @@ pub struct Tally {
     pub mode: Option<String>,
     /// The first thing this session was asked to do — see [`Summary::asked`]. A
     /// fallback: [`crate::past::opening`] reads it from the HEAD of the transcript and
-    /// overwrites this, which is used only for a session with no transcript. The
-    /// carried value is only as good as the image that computed it, and every earlier
-    /// one computed it from the last page (memview #1146).
+    /// overwrites this, which is used only for a session with no transcript.
     #[serde(default)]
     pub asked: Option<String>,
     /// What the session is doing, if anything. See [`Summary::busy`]. A re-seed cannot
@@ -69,7 +67,7 @@ pub struct Tally {
     pub busy: Option<String>,
     /// Questions the session is blocked on. A `can_use_tool` request is a control
     /// message, not a transcript line, and the session stays blocked on it across an
-    /// upgrade — dropping these orphaned the question and lost an hour.
+    /// upgrade: dropped, the question is orphaned.
     #[serde(default)]
     pub pending: BTreeMap<String, Pending>,
     /// Background tasks still running — see [`Summary::background`]. A re-seed
@@ -129,8 +127,8 @@ pub struct Seen {
 }
 
 /// Wait on an adopted child, so the kernel can let go of it when it ends. An
-/// adopted session has no [`Child`] to wait on, and every one that ended left a
-/// `<defunct>` behind a parent that never asked (memview #753).
+/// adopted session has no [`Child`] to wait on, so without this each one that ends
+/// stays `<defunct>`.
 ///
 /// A blocking `waitpid`, one thread per adopted session. NOT `SIGCHLD` =
 /// `SIG_IGN`: that reaps every child and takes the exit status [`Session::reap`]
@@ -253,8 +251,7 @@ pub struct Summary {
     pub busy: Option<String>,
     /// Whether a turn is running — observed by the runner, not narrated by the CLI.
     /// [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
-    /// a long stretch of one activity leaves nothing standing, and no status was
-    /// drawn as *idle* over a session running tools throughout (memview #112).
+    /// a long stretch of one activity leaves nothing standing.
     /// Deliberately not a timeout: a turn can legitimately be quiet for minutes.
     pub working: bool,
     /// How many times someone has spoken to this session since it was last
@@ -279,11 +276,11 @@ pub struct Summary {
     #[serde(skip_serializing_if = "none")]
     pub background: usize,
     /// WHICH background calls are still running. `background` is kept beside this:
-    /// the list wants a number, the strip wants the name (memview #740).
+    /// the list wants a number, the strip wants the name.
     #[serde(default)]
     pub running: Vec<crate::protocol::Called>,
     /// The account's own verdict on its rate limit, when it has given one:
-    /// `allowed`, `allowed_warning` or `rejected` (CLI 2.1.220). `None` until the
+    /// `allowed`, `allowed_warning` or `rejected`. `None` until the
     /// account says something — the reason cost is hidden by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -531,8 +528,7 @@ fn in_flight(state: &mut State, event: &Event) {
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
         // A decision written down the pipe of a session that ASKED for it. Its own
         // clock: a session blocked on a question is mid-turn, so the message test
-        // cannot fire — `health` sat on an answered question for thirty-one minutes
-        // (memview #122). Silence after this is not work.
+        // cannot fire. Silence after this is not work.
         Event::Answered { .. } => state.decided = state.decided.or(Some(now())),
         _ => {}
     }
@@ -560,8 +556,7 @@ fn in_flight(state: &mut State, event: &Event) {
 /// Whether a turn is running, after `event`. Set by the session speaking,
 /// cleared when the turn ends, and false until it has ever spoken. `Started` and
 /// `Joined` clear it too, or a resumed session whose file ends mid-turn reads as
-/// working for over an hour (memview #640). Public because reaching that case
-/// in a test needs only this.
+/// working. Public because reaching that case in a test needs only this.
 pub fn working_after(was: bool, event: &Event) -> bool {
     match event {
         Event::Text { .. }
@@ -677,7 +672,7 @@ pub struct Spawn {
     pub name: Option<String>,
     /// What the session may do without being asked. In headless mode there is nobody
     /// to answer a prompt, so under the CLI's default EVERY tool call needing
-    /// permission is refused (measured: a `Write` came back `is_error`).
+    /// permission is refused.
     pub permission_mode: Option<String>,
 }
 
@@ -735,8 +730,7 @@ impl Session {
             restarted,
         });
         // From the head of the file, overriding whatever the page set: the replay is
-        // the LAST page and full of prompts, which is how a subtitle changed on every
-        // upgrade (memview #1146). Set unconditionally, including to `None`;
+        // the LAST page and full of prompts. Set unconditionally, including to `None`;
         // `origin_read` is what makes `None` stick. See [`crate::past::opening`].
         {
             let mut state = self.state.lock();
@@ -795,8 +789,8 @@ impl Session {
             } else {
                 ["--session-id", &id]
             })
-            // The switch that makes approvals possible at all — undocumented in `--help` at
-            // 2.1.220, found in the TypeScript SDK. Without it a session in `manual` mode
+            // The switch that makes approvals possible at all; `--help` does not list it,
+            // the TypeScript SDK uses it. Without it a session in `manual` mode
             // refuses every tool call outright and no question ever reaches the client.
             .args(["--permission-prompt-tool", "stdio"])
             .stdin(Stdio::piped())
@@ -1314,8 +1308,8 @@ impl Session {
     }
 
     /// Take the CLI at its word about what mode it is in — the correction
-    /// [`Session::set_mode`]'s optimism depends on; without it a refused mode stayed
-    /// on screen for the life of the session (memview #96). The confirmed mode comes
+    /// [`Session::set_mode`]'s optimism depends on, or a refused mode stays on
+    /// screen. The confirmed mode comes
     /// from the reply, not from what was asked — see [`protocol::mode_reply`].
     fn settle_mode(&self, reply: protocol::ModeReply) {
         let mut state = self.state.lock();
@@ -1379,8 +1373,7 @@ impl Session {
 
     /// End the session: close stdin, and kill it if it has not gone on its own.
     /// The deadline is recorded as well as slept on, because the sleep does not
-    /// survive an upgrade — `handover` re-execs this process and the session is not
-    /// carried, so a stopped one once ran for two and a quarter hours (memview #750).
+    /// survive an upgrade: `handover` re-execs this process and the sleep is lost.
     /// [`crate::roster::Roster::finish_stopping`] reads it.
     pub async fn stop(self: &Arc<Self>) {
         self.stdin.lock().await.take();
@@ -1435,8 +1428,7 @@ impl Session {
     /// Three things at once: a message is in flight; the session is between turns
     /// ([`State::idle_since`]) — one mid tool call parks input on purpose; and long
     /// enough, [`DEAF_AFTER_MS`] or [`DEAF_AFTER_COMPACT_MS`]. The clock starts at
-    /// whichever came second. It cannot see a session that goes deaf MID-TURN; both
-    /// measured episodes were between turns.
+    /// whichever came second. It cannot see a session that goes deaf mid-turn.
     pub fn deaf(&self) -> Option<i64> {
         deaf_for(&self.state.lock())
     }

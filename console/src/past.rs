@@ -145,8 +145,7 @@ pub fn in_use(conversation: &Conversation, running: &Running) -> bool {
 }
 
 /// What the process table said, or that it could not be asked. Two states,
-/// because collapsing them removed the guard in silence (memview#1457): an empty
-/// answer is never evidence that nothing is running.
+/// because an empty answer is never evidence that nothing is running.
 pub enum Running {
     /// `ps` answered. Empty means nothing is running, which is a real answer.
     Asked(Vec<String>),
@@ -398,10 +397,9 @@ const SIGN: usize = 120;
 /// Every landmark in a transcript, oldest first.
 ///
 /// This reads and parses the WHOLE file, seconds on a large one; call it off the
-/// executor. Two byte-level gates were tried and both were wrong: the first
-/// `"type":"` in a line is a NESTED one, and a user message's `content` is often
-/// a bare string with no typed block, so a gate found 129 of 1,665 landmarks.
-/// A prescan here is very cheap to get silently wrong.
+/// executor. No byte-level prescan: the first `"type":"` in a line is often a
+/// nested one, and a user message's `content` is often a bare string with no typed
+/// block, so a prescan silently misses most landmarks.
 pub fn landmarks(path: &Path) -> Vec<Landmark> {
     landmarks_from(path, 0).found
 }
@@ -793,8 +791,7 @@ struct Tail {
 
 /// The first thing this session was asked to do, from the head of its transcript.
 ///
-/// Derived, never carried: the head of an append-only file does not move, where a
-/// value carried across handovers drifted on every upgrade (memview #1146). The
+/// Derived, never carried: the head of an append-only file does not move. The
 /// first PROMPT, not the first line — `read_recorded` declines the plumbing a
 /// transcript opens with.
 ///

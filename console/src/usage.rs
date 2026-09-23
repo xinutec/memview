@@ -43,9 +43,9 @@ pub struct Published {
     pub five_hour_resets_at: String,
     pub seven_day_pct: f64,
     pub seven_day_resets_at: String,
-    /// The writer's own claim about provenance: a measurement (the API's figure at an
-    /// instant the writer could date — home schema v9) or an echo of cached headers.
-    /// Defaulted false, so a writer that does not say claims the weaker kind.
+    /// The writer's claim about provenance: a measurement (the API's figure at an
+    /// instant it could date) or an echo of cached headers. A writer that does not
+    /// say claims the weaker kind.
     #[serde(default)]
     pub measured: bool,
 }
@@ -57,16 +57,14 @@ pub struct Published {
 pub struct Window {
     pub pct: f64,
     /// How long until this window turns over, in milliseconds. Absent once it has
-    /// passed: the percentage belonged to a window that no longer exists, and since a
-    /// reading arrives hours late as a matter of course, that is the ordinary case.
+    /// passed, which is ordinary for a reading hours old.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub resets_in_ms: Option<i64>,
 }
 
-/// One window that belongs to a single model rather than to the plan. Named by the
-/// model, not a key: as of CLI 2.1.226 the scope arrives in a `model_scoped`
-/// array carrying its own `display_name`, so the name is data. See
+/// One window that belongs to a single model rather than to the plan. The CLI
+/// names it with a `display_name`, so the name is data. See
 /// [`crate::protocol::usage_reply`].
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -196,9 +194,8 @@ pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
 }
 
 /// How far two readings may disagree about when one window ends and still be
-/// the same window. A minute: thirty times the drift seen, and a three hundredth
-/// of the smallest real turnover (five hours). Too tight held a stale reading for
-/// an hour (#814).
+/// the same window: well above the drift between readings, well below the
+/// shortest window.
 const SAME_WINDOW: i64 = 60;
 
 /// Whether two reset instants describe one window instance. See [`SAME_WINDOW`].
@@ -208,9 +205,9 @@ fn same_window(held: crate::session::ResetsAt, candidate: crate::session::Resets
 
 /// Fold what the sessions have just said into what is already known.
 ///
-/// A reading outlives the session that heard it: gathered fresh per poll, the
-/// figure showed 92 → 93 → 92 as a session ended (memview #87). Safe because
-/// [`fresher`] decides each window — the figure still falls exactly when it should.
+/// A reading outlives the session that heard it, or the figure steps back when
+/// that session ends. [`fresher`] still decides each window, so it falls when it
+/// should.
 pub fn remember(
     known: &mut BTreeMap<String, Seen>,
     heard: impl IntoIterator<Item = (String, Seen)>,
@@ -233,10 +230,9 @@ fn published_as_seen(pct: f64, resets_at: &str, ts: &str, measured: bool) -> Opt
         utilization: pct / 100.0,
         resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
         at: crate::session::Heard(at(ts)?),
-        // The row's own claim, not this console's assertion: a row that does not say
-        // (pre home v9) is an echo, which may fill in but never lower. The date is ITS
-        // host's capture instant, so the row this console published about itself comes
-        // back with the stamp it went out with and cannot displace anything.
+        // The row's own claim: one that does not say is an echo, which may fill in
+        // but never lower. Dated by its host, so this console's own row comes back
+        // with the stamp it went out with and displaces nothing.
         measured,
     })
 }
@@ -247,10 +243,9 @@ pub fn merged(
     now_ms: i64,
 ) -> Option<Reading> {
     let published = dashboard.map(|it| reading(it, now_ms));
-    // Judged, not fallen back on: `live.or_else(published)` preferred an hour-old
-    // own reading over a six-minute-old published one. Each reading carries the
-    // machine that took it, because the winner decides what the age and host lines
-    // are about.
+    // Judged, not fallen back on: an old own reading must not beat a newer published
+    // one. Each carries the machine that took it, since the winner decides the age
+    // and host lines.
     let pick = |mine: Option<&Seen>, theirs: Option<Seen>| -> Option<(Seen, String)> {
         let theirs = theirs.map(|it| {
             (
@@ -435,9 +430,8 @@ fn now_ms() -> i64 {
 /// Highest wins.
 ///
 /// Idleness first, recency second: the most recent speaker holds the freshest
-/// cache but is very nearly the one working now, and a busy CLI answers no control
-/// request until its turn ends (asked 2.0 s into a turn, answered at 8.5 s —
-/// memview #817). A session that has just finished answers at once.
+/// cache but is likely still working, and a busy CLI answers no control request
+/// until its turn ends. A session that has just finished answers at once.
 pub fn asked_before(working: bool, last_heard: i64) -> (bool, i64) {
     (!working, last_heard)
 }

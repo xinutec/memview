@@ -214,7 +214,7 @@ impl Tasks {
     /// How long an answer is served without asking again.
     const TTL: Duration = Duration::from_secs(30);
 
-    /// Hard ceiling on a request, an order above the measured 56–139 ms.
+    /// Hard ceiling on a request, an order of magnitude above a normal one.
     const TIMEOUT: Duration = Duration::from_secs(2);
 
     pub fn new() -> Self {

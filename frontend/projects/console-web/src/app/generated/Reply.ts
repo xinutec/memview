@@ -5,7 +5,7 @@ import type { Answer } from "./Answer";
 /**
  * What a person said about a question: options picked, or words instead.
  * `response` and `answers` are alternatives — the CLI's result builder tests
- * `response` first and reports only that (2.1.220), so prose sent alongside
+ * `response` first and reports only that, so prose sent alongside
  * choices throws the choices away. The client is where that is made visible.
  */
 export type Reply = { answers?: { [key in string]: Answer }, response?: string, 
