@@ -18,6 +18,7 @@ mod javascript;
 mod leaf;
 mod naming;
 mod oracle;
+mod predict;
 mod projection;
 mod python;
 mod resolvable;

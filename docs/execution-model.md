@@ -34,6 +34,47 @@ A third question — what the command was *for* — belongs to the layer above
 both: [concept-model.md](concept-model.md) designs it, and the round-trip law
 below is the shape it generalises.
 
+### Two settings, one evaluator
+
+Prediction is a **pure function** of a command and whatever state it is given:
+the files it will write, as far as the text and that state determine them, or a
+refusal that names the construct it could not follow. It never opens a file and
+never runs a program. What differs is only what it is given:
+
+- **From history** it is given the text alone. The filesystem that answered the
+  command has moved on, so a write whose result depends on a file's old contents
+  is undetermined, and says so.
+- **Before a live call** it is also given the current text of each file the
+  command will write, read at the edge by the console
+  ([agent-console.md](agent-console.md#what-a-command-will-change-before-it-runs)).
+  The same evaluator, with more of its inputs known, can then say what each file
+  will hold afterwards.
+
+IO lives at the edges and nowhere else: reading the files before the call is one
+edge, reading them after it is the other. Everything between is a value.
+
+**Reconstruction and prediction meet on every live call.** After the call, the
+console reads the same files again and compares them with the prediction. That
+comparison is the third oracle, beside the fixture shims and bash's printer — and
+the only one that sees real work at full scale, because it observes the call that
+was going to run anyway rather than re-executing anything. A divergence is a
+defect in the evaluator, kept with the command and both texts so it becomes a
+test. The target is a prediction that never diverges; the check stays once it is
+reached, so the two cannot drift apart again.
+
+**What the evaluator cannot follow yields no prediction, never an
+approximation.** It is refused by name and counted, the way every other gap in
+this layer is, and that census is what orders the next construct to teach it.
+Observation is never a substitute for it: a diff taken from the files alone would
+show a change nobody here understood, and hide the gap that says what to build.
+
+The order it grows in comes from the corpus. Shell first, where the tree exists:
+a heredoc into a file carries its whole new text, then `echo`/`printf` into a
+file, then `sed -i`. Python, the largest share by far, follows once it has a tree
+of its own — see Scope.
+
+### What the flat reader knows
+
 The existing reader answers a weak form of the second, and what it *knows* is
 worth carrying over — see Placement for what that means about its code. It has no
 tree: output is a flat command list with structure projected away. So nothing

@@ -52,6 +52,7 @@ pub mod doing;
 pub mod effects;
 pub mod home;
 pub mod javascript;
+pub mod predict;
 pub mod program;
 pub mod project;
 pub mod python;

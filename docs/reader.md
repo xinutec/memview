@@ -43,6 +43,7 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/sql.rs` + `sql.pest` | same, for inline SQL — but in TABLES, not files |
 | `reader/src/program.rs` | the types both carried readers answer in |
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
+| `reader/src/predict.rs` | what will the files it writes hold afterwards? `--bin predict-report` ranks what it does not follow yet |
 | `reader/src/reading.rs` | the whole corpus surveyed, as a value the report and both apps draw |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
 | `reader/src/concept.rs` | what was it FOR — and back to a command again ([concept-model.md](concept-model.md)) |
@@ -85,7 +86,10 @@ everything belongs to that machine and never reaches the local index.
 **An invented path makes every downstream count a lie.** Every refusal errs
 toward undercounting.
 
-- Nothing is looked up on disk — that filesystem is gone.
+- Nothing is looked up on disk. Reading history, that filesystem is gone.
+  Predicting a live call, the console reads the files and passes their text in
+  as a value — the reader still opens nothing
+  ([execution-model.md](execution-model.md#two-settings-one-evaluator)).
 - Nothing is expanded beyond `~` and `$HOME`, the one knowable value.
 - A word needs a `/`, a `~` or an extension to be a path. Costs real reads
   (`rg foo src` loses `src`); keeps flag values from becoming filenames.
@@ -1278,6 +1282,12 @@ Two properties:
 
 ⚠ It runs only the fixtures in that file, in a scratch directory it removes. **No
 corpus command is ever re-executed.**
+
+**A live call is checked against its own outcome.** When the console predicts a
+call before it runs, it compares the prediction with the files afterwards; a
+divergence is a defect, kept with its command and both texts
+([execution-model.md](execution-model.md#two-settings-one-evaluator)). It
+observes a call that ran anyway, so this is still no re-execution.
 
 ### Why this is not sound abstract interpretation
 
