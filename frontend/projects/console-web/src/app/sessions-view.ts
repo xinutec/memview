@@ -53,8 +53,9 @@ interface Row {
   readonly context?: string;
   /** The same, 0–100, when the window is known. */
   readonly fill?: number;
-  /** How near compaction, 0–1 — see [[heat]]. */
-  readonly heat?: number;
+  /** How near compaction: towards amber, then towards red, each 0–1 — see [[filled]]. */
+  readonly warm?: number;
+  readonly hot?: number;
   /**
    * What this conversation is about, in a sentence, and when it was written.
    * Inference, drawn as such — see `console/src/gist.rs`.
@@ -85,11 +86,16 @@ interface Row {
  */
 const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
 
-/** How full, and how near compaction: none below 80%, all of it from 90%, squared between. */
-function filled(context?: number, window?: number): Pick<Row, 'fill' | 'heat'> {
+/**
+ * How full, and how near compaction. Towards amber from 80% to 90%, squared, so
+ * it stays quiet early; towards red from 90% to 95%, linear, since past 95% a
+ * compaction has no room left to write its summary.
+ */
+function filled(context?: number, window?: number): Pick<Row, 'fill' | 'warm' | 'hot'> {
   if (!context || !window) return {};
   const fill = Math.round((context / window) * 100);
-  return { fill, heat: Math.min(1, Math.max(0, (fill - 80) / 10)) ** 2 };
+  const ramp = (from: number, to: number) => Math.min(1, Math.max(0, (fill - from) / (to - from)));
+  return { fill, warm: ramp(80, 90) ** 2, hot: ramp(90, 95) };
 }
 
 /** Every session this console owns, and the way to start another. */

@@ -5,14 +5,16 @@
 }
 
 // Grey, the card border's own colour: green on a card means working. Towards
-// amber by `--heat` as compaction comes close.
+// amber by `--warm`, then red by `--hot`, as compaction comes close — the
+// cache clock's mix.
 .fill {
-  --heat: 0;
+  --warm: 0;
+  --hot: 0;
   position: absolute;
   inset: auto 0 0;
   --mat-progress-bar-active-indicator-color: color-mix(
     in oklch,
-    var(--warn) calc(var(--heat) * 100%),
+    color-mix(in oklch, var(--peak) calc(var(--hot) * 100%), var(--warn)) calc(var(--warm) * 100%),
     var(--mat-sys-outline)
   );
 }

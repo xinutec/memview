@@ -2474,18 +2474,21 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   const fill = page.locator('.session').nth(0).locator('mat-progress-bar.fill');
   await expect(fill).toHaveAttribute('aria-valuenow', '50');
   const heat = (bar: Locator) =>
-    bar.evaluate((el: HTMLElement) => el.style.getPropertyValue('--heat'));
-  expect(await heat(fill)).toBe('0');
+    bar.evaluate((el: HTMLElement) =>
+      ['--warm', '--hot'].map((name) => el.style.getPropertyValue(name)).join(' '),
+    );
+  expect(await heat(fill)).toBe('0 0');
   // Below the facts, not over them: the card keeps its bottom padding.
   const factsBox = await page.locator('.session').nth(0).locator('.facts').boundingBox();
   const fillBox = await fill.boundingBox();
   expect(factsBox!.y + factsBox!.height).toBeLessThanOrEqual(fillBox!.y);
   await expect(page.locator('.session').nth(1).locator('mat-progress-bar.fill')).toHaveCount(0);
 
-  // Towards amber from 80%, squared, and all of it from 90%.
+  // Towards amber from 80%, squared; towards red from 90%, linear; all red from 95%.
   for (const [context, want] of [
-    [850_000, '0.25'],
-    [950_000, '1'],
+    [850_000, '0.25 0'],
+    [930_000, '1 0.6'],
+    [960_000, '1 1'],
   ] as const) {
     await page.route('**/api/state', (r) =>
       r.fulfill({

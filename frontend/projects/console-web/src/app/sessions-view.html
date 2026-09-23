@@ -214,7 +214,8 @@
       @if (row.fill; as fill) {
         <mat-progress-bar
           class="fill"
-          [style.--heat]="row.heat"
+          [style.--warm]="row.warm"
+          [style.--hot]="row.hot"
           mode="determinate"
           [value]="fill"
           [attr.aria-label]="row.context + ' of context'"
