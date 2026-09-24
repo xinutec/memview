@@ -95,7 +95,8 @@ impl Config {
                 // neither `acceptEdits` nor `bypassPermissions` on anybody's behalf.
                 permission_mode: std::env::var("CONSOLE_PERMISSION_MODE")
                     .ok()
-                    .filter(|mode| !mode.is_empty()),
+                    .filter(|mode| !mode.is_empty())
+                    .map(|mode| crate::modes::Mode::named(&mode)),
                 // Per conversation, not per console: a resume fills it from the transcript.
                 name: None,
             },

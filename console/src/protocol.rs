@@ -115,7 +115,10 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         task: Option<String>,
-        status: String,
+        /// How it ended, when the notification says.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        status: Option<Ended>,
     },
     /// A tool call came back, with what it returned cut to [`RESULT_SNIPPET`] — the
     /// verdict alone showed a `grep` had succeeded and not one word of what it found.
@@ -163,7 +166,7 @@ pub enum Event {
     /// event, so the windows are collected as they are seen.
     Limit {
         window: String,
-        status: String,
+        status: Allowance,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         resets_at: Option<i64>,
@@ -651,7 +654,8 @@ struct ModelUsage {
 struct Limit {
     #[serde(rename = "rateLimitType")]
     kind: String,
-    status: String,
+    #[serde(deserialize_with = "crate::named::by_name")]
+    status: Allowance,
     #[serde(rename = "resetsAt")]
     resets_at: Option<i64>,
     /// A fraction, not a percentage.
@@ -907,11 +911,11 @@ pub fn rename(request_id: &str, title: &str) -> String {
     .to_string()
 }
 
-pub fn set_mode(request_id: &str, mode: &str) -> String {
+pub fn set_mode(request_id: &str, mode: &crate::modes::Mode) -> String {
     serde_json::json!({
         "type": "control_request",
         "request_id": request_id,
-        "request": {"subtype": "set_permission_mode", "mode": mode},
+        "request": {"subtype": "set_permission_mode", "mode": mode.name()},
     })
     .to_string()
 }
@@ -924,7 +928,7 @@ pub const SET_MODE: &str = "set-mode-";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModeReply {
     /// The mode the CLI says it is now in — NOT the one asked for.
-    Now(String),
+    Now(crate::modes::Mode),
     /// The CLI refused, in its own words, which are better than any of ours.
     Refused(String),
 }
@@ -951,9 +955,9 @@ pub fn mode_reply(line: &str) -> Option<ModeReply> {
         return None;
     }
     match response.get("subtype")?.as_str()? {
-        "success" => Some(ModeReply::Now(
-            response.get("response")?.get("mode")?.as_str()?.to_string(),
-        )),
+        "success" => Some(ModeReply::Now(crate::modes::Mode::named(
+            response.get("response")?.get("mode")?.as_str()?,
+        ))),
         // A refusal with no words is still a refusal: the claim on screen comes down.
         "error" => Some(ModeReply::Refused(
             response
@@ -1237,9 +1241,7 @@ fn finished(text: &str) -> Option<Event> {
     if !is_notification(text) {
         return None;
     }
-    let status = between(text, "<status>", "</status>")
-        .unwrap_or("done")
-        .to_string();
+    let status = between(text, "<status>", "</status>").map(crate::named::named);
     // The ordinary case by a wide margin: the count is keyed by the call.
     if let Some(call) = between(text, "<tool-use-id>", "</tool-use-id>") {
         return Some(Event::Background {
@@ -1254,6 +1256,43 @@ fn finished(text: &str) -> Option<Event> {
         task: Some(task.to_string()),
         status,
     })
+}
+
+/// How a background task ended, as its notification says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum Ended {
+    Completed,
+    Failed,
+    Killed,
+    Stopped,
+    Unknown(String),
+}
+
+impl crate::named::Named for Ended {
+    fn unknown(name: String) -> Self {
+        Ended::Unknown(name)
+    }
+}
+
+/// The account's own verdict on a rate-limit window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum Allowance {
+    Allowed,
+    AllowedWarning,
+    Rejected,
+    Unknown(String),
+}
+
+impl crate::named::Named for Allowance {
+    fn unknown(name: String) -> Self {
+        Allowance::Unknown(name)
+    }
 }
 
 /// Whether a notification that names no call is nonetheless an ending. Most such

@@ -115,7 +115,7 @@ impl Roster {
 
     /// Remember what a conversation is allowed to do, so a later resume can put
     /// it back. See [`crate::modes`].
-    pub fn remember_mode(&self, id: &str, mode: &str) {
+    pub fn remember_mode(&self, id: &str, mode: &crate::modes::Mode) {
         self.modes.set(id, mode);
     }
 
@@ -209,7 +209,7 @@ impl Roster {
                         .spawn
                         .permission_mode
                         .clone()
-                        .unwrap_or_else(|| crate::session::DEFAULT_MODE.to_string()),
+                        .unwrap_or(crate::modes::Mode::Default),
                 );
             }
             match Session::adopt(
@@ -309,7 +309,12 @@ impl Roster {
 
     /// The same, with the mode stated outright — `None` for the console's configured
     /// one. See [`Self::revive`].
-    fn resume_as(&self, dir: &str, id: &str, mode: Option<String>) -> Result<Arc<Session>, String> {
+    fn resume_as(
+        &self,
+        dir: &str,
+        id: &str,
+        mode: Option<crate::modes::Mode>,
+    ) -> Result<Arc<Session>, String> {
         let real = self.config.resolve(dir).inspect_err(|why| {
             tracing::warn!("refused a resume of {id} in {dir}: {why}");
         })?;
@@ -350,8 +355,9 @@ impl Roster {
             real.display(),
             spawn
                 .permission_mode
-                .as_deref()
-                .unwrap_or(crate::session::DEFAULT_MODE)
+                .as_ref()
+                .unwrap_or(&crate::modes::Mode::Default)
+                .name()
         );
         let session = self.hold(
             id.to_string(),

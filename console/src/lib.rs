@@ -16,6 +16,7 @@ pub mod gist;
 pub mod images;
 pub mod marks;
 pub mod modes;
+pub mod named;
 pub mod parse;
 pub mod past;
 pub mod peers;

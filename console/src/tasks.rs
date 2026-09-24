@@ -47,6 +47,26 @@ fn token() -> Option<String> {
     .filter(|held| !held.is_empty())
 }
 
+/// Where a task stands, in the service's own words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum Status {
+    Open,
+    Doing,
+    Done,
+    /// Closed without being done: overtaken, obsolete, or decided against.
+    Dropped,
+    Unknown(String),
+}
+
+impl crate::named::Named for Status {
+    fn unknown(name: String) -> Self {
+        Status::Unknown(name)
+    }
+}
+
 /// One row of the list: what it is, and whether it is done.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -57,9 +77,8 @@ pub struct Task {
     #[serde(deserialize_with = "as_text")]
     pub id: String,
     pub subject: String,
-    /// `open`, `doing` or `done`, in the service's own words: a third state exists
-    /// and the client sorts on it.
-    pub status: String,
+    #[serde(deserialize_with = "crate::named::by_name")]
+    pub status: Status,
     /// Whether there is prose behind it worth fetching.
     #[serde(default)]
     pub detailed: bool,

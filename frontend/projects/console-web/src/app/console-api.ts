@@ -12,7 +12,7 @@ import {
   KINDS,
   type Landmark,
   type Message,
-  type Mode,
+  type ModeChange,
   type Overview,
   type Page,
   type Parsed,
@@ -25,6 +25,7 @@ import {
   type Task,
   type Timed,
 } from './models';
+import { type Known } from './modes';
 import { fetchedAt } from './picture';
 import { type Answers, type Notes } from './questions';
 
@@ -141,8 +142,8 @@ export class ConsoleApi {
     return this.http.post<Summary>(`${session(at)}/decide`, body);
   }
 
-  setMode(id: string, mode: string): Observable<Summary> {
-    return this.http.post<Summary>(`${session(id)}/mode`, { mode } satisfies Mode);
+  setMode(id: string, mode: Known): Observable<Summary> {
+    return this.http.post<Summary>(`${session(id)}/mode`, { mode } satisfies ModeChange);
   }
 
   rename(id: string, title: string): Observable<Summary> {

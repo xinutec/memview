@@ -63,7 +63,10 @@ fn the_rate_limit_window_is_a_status_and_not_a_percentage() {
         .collect();
     assert_eq!(
         limits,
-        vec![("five_hour".to_string(), "allowed".to_string())]
+        vec![(
+            "five_hour".to_string(),
+            console::protocol::Allowance::Allowed
+        )]
     );
 }
 
@@ -396,7 +399,7 @@ fn a_task_notification_is_not_something_the_person_said() {
     assert!(matches!(
         read(line).as_slice(),
         [Event::Background { tool: Some(tool), task: None, status }]
-            if tool == "toolu_011Cnk" && status == "completed"
+            if tool == "toolu_011Cnk" && *status == Some(console::protocol::Ended::Completed)
     ));
 }
 
@@ -816,7 +819,7 @@ fn the_harness_notification_is_what_closes_one() {
         console::protocol::running(&Event::Background {
             tool: Some("toolu_bg".to_string()),
             task: None,
-            status: "completed".to_string(),
+            status: Some(console::protocol::Ended::Completed),
         }),
         console::protocol::Running::Ended(console::protocol::Named::Call("toolu_bg".to_string()))
     );
@@ -833,7 +836,7 @@ fn an_ending_that_knows_only_the_task_says_so_rather_than_guessing() {
         console::protocol::running(&Event::Background {
             tool: None,
             task: Some("b9drzo2f6".to_string()),
-            status: "done".to_string(),
+            status: None,
         }),
         console::protocol::Running::Ended(console::protocol::Named::Task("b9drzo2f6".to_string()))
     );
@@ -1066,7 +1069,9 @@ fn a_settled_mode_is_the_one_the_reply_names() {
     // succeeded at something as the mode asked for.
     assert_eq!(
         console::protocol::mode_reply(MODE_SET),
-        Some(console::protocol::ModeReply::Now("acceptEdits".to_string()))
+        Some(console::protocol::ModeReply::Now(
+            console::modes::Mode::AcceptEdits
+        ))
     );
 }
 
@@ -1112,7 +1117,7 @@ fn what_is_not_a_control_response_is_not_a_mode() {
     assert_eq!(console::protocol::mode_reply("not json at all"), None);
     // A control REQUEST going the other way carries the same id and must not be
     // read as its own answer.
-    let asked = console::protocol::set_mode("set-mode-6f7c2f11", "plan");
+    let asked = console::protocol::set_mode("set-mode-6f7c2f11", &console::modes::Mode::Plan);
     assert_eq!(console::protocol::mode_reply(&asked), None);
 }
 
@@ -1182,4 +1187,21 @@ fn a_workflow_is_labelled_by_the_name_its_script_declares() {
 /// line arrives.
 fn strip(tool: &str, input: &serde_json::Value) -> console::protocol::Called {
     console::protocol::called(tool, &console::call::Call::read(tool, input))
+}
+
+#[test]
+fn a_mode_the_console_does_not_know_is_kept_by_name() {
+    use console::modes::Mode;
+    assert_eq!(Mode::named("acceptEdits"), Mode::AcceptEdits);
+    assert_eq!(Mode::named("bypassPermissions").name(), "bypassPermissions");
+    let new = Mode::named("askTwice");
+    assert_eq!(new, Mode::Unknown("askTwice".to_string()));
+    assert_eq!(
+        serde_json::to_string(&new).expect("json"),
+        r#"{"unknown":"askTwice"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&Mode::DontAsk).expect("json"),
+        r#""dontAsk""#
+    );
 }

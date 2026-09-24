@@ -247,11 +247,11 @@ async fn a_list_carries_what_a_row_needs_and_not_the_prose() {
     // this — it is what a session calls a task in its own prose, `#631`.
     assert_eq!(listed[0].id, "631");
     assert_eq!(listed[0].subject, "A slash command becomes prose");
-    assert_eq!(listed[0].status, "open");
+    assert_eq!(listed[0].status, console::tasks::Status::Open);
     assert!(listed[0].detailed, "there is prose worth opening");
     // The service's own words, not a boolean of ours: `doing` is a third state
     // and the client sorts on it.
-    assert_eq!(listed[1].status, "done");
+    assert_eq!(listed[1].status, console::tasks::Status::Done);
     assert!(!listed[1].detailed);
 }
 
@@ -350,4 +350,16 @@ async fn a_task_with_prose_returns_the_markdown_not_the_html() {
 async fn a_task_that_is_not_there_is_not_an_error() {
     let (address, _) = serving(vec![]).await;
     assert_eq!(reading(address).detail("404").await, None);
+}
+
+#[test]
+fn a_status_the_service_grows_later_is_kept_by_name() {
+    let row: console::tasks::Task = serde_json::from_value(serde_json::json!({
+        "id": 7, "subject": "x", "status": "parked"
+    }))
+    .expect("a row");
+    assert_eq!(
+        row.status,
+        console::tasks::Status::Unknown("parked".to_string())
+    );
 }

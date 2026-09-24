@@ -85,8 +85,9 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   }
   // The CLI's own vocabulary, verbatim, and only when it is not the ordinary
   // answer.
-  if (session.limit && session.limit !== 'allowed') {
-    facts.push({ label: 'rate limit', value: session.limit });
+  const limit = session.limit;
+  if (limit && limit !== 'allowed') {
+    facts.push({ label: 'rate limit', value: typeof limit === 'string' ? limit : limit.unknown });
   }
   return facts;
 }

@@ -16,7 +16,7 @@ import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Here } from './here';
 import { Summary } from './models';
-import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { type Known, modeIcon, modeIsLoud, modeTitle } from './modes';
 import { titleOf } from './naming';
 import { Choosing, ModesSheet } from './modes-sheet';
 import { RenameSheet } from './rename-sheet';
@@ -129,7 +129,7 @@ export class App {
    * the branch below, which puts the summary back; and the CLI, later, on its own
    * stream, which arrives on the poll as `mode_refused`.
    */
-  protected setMode(mode: string): void {
+  protected setMode(mode: Known): void {
     const open = this.here.open();
     if (!open) return;
     this.here.open.set({ ...open, mode });
@@ -194,8 +194,8 @@ export class App {
   /** Offer what the session may do without asking. See [[ModesSheet]] for why
    *  this is a sheet rather than six rows in the menu. */
   protected chooseMode(session: Summary): void {
-    // Typed on the way in, so the dismissal value is `string | undefined`.
-    const sheet = this.sheet.open<ModesSheet, Choosing, string>(ModesSheet, {
+    // Typed on the way in, so the dismissal value is `Known | undefined`.
+    const sheet = this.sheet.open<ModesSheet, Choosing, Known>(ModesSheet, {
       data: { id: session.id, mode: session.mode },
       panelClass: 'start-sheet',
     });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { Task } from './models';
+import { type Status, type Task } from './models';
 import { above, closedLabel, dueLabel, shownTasks, standingOf, waitingOn } from './tasks-sheet';
 
 /**
@@ -12,7 +12,7 @@ import { above, closedLabel, dueLabel, shownTasks, standingOf, waitingOn } from 
  * the open ones on the tasks session, wearing the unknown-status question mark,
  * while the toggle offered to reveal what it was already showing.
  */
-const task = (id: string, status: string): Task => ({
+const task = (id: string, status: Status): Task => ({
   id,
   subject: `task ${id}`,
   status,
@@ -36,8 +36,8 @@ describe('standingOf', () => {
   it('still treats a state it has never heard of as news', () => {
     // The fallback that was doing dropped's job. It keeps its job for a fifth
     // state: shown, ranked with the open ones, marked as unknown.
-    expect(standingOf('parked').open).toBe(true);
-    expect(standingOf('parked').icon).toBe('help');
+    expect(standingOf({ unknown: 'parked' }).open).toBe(true);
+    expect(standingOf({ unknown: 'parked' }).icon).toBe('help');
   });
 });
 
@@ -47,7 +47,7 @@ describe('shownTasks', () => {
     task('2', 'open'),
     task('3', 'dropped'),
     task('4', 'doing'),
-    task('5', 'parked'),
+    task('5', { unknown: 'parked' }),
   ];
 
   it('hides the dropped ones along with the done ones', () => {
@@ -112,7 +112,7 @@ describe('shownTasks and rank', () => {
     // it is opened with is "what is this conversation actually on". So the
     // service's order survives WITHIN a status rather than across the list, and
     // a P0 floats above every other open task but not above work in hand.
-    const ranked = (id: string, status: string, priority?: string): Task => ({
+    const ranked = (id: string, status: Status, priority?: string): Task => ({
       ...task(id, status),
       priority,
     });

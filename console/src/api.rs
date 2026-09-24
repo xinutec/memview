@@ -445,34 +445,21 @@ async fn decide(
 #[derive(serde::Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
-struct Mode {
-    mode: String,
+struct ModeChange {
+    mode: crate::modes::Mode,
 }
-
-/// The modes the CLI declares, so an unknown one is refused here rather than by
-/// a session out of sight. In escalation order.
-const MODES: [&str; 6] = [
-    "plan",
-    "default",
-    "dontAsk",
-    "acceptEdits",
-    "auto",
-    "bypassPermissions",
-];
 
 async fn mode(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
-    Json(body): Json<Mode>,
+    Json(body): Json<ModeChange>,
 ) -> Result<Json<Summary>, (StatusCode, String)> {
-    if !MODES.contains(&body.mode.as_str()) {
+    // Only a mode the CLI declares, so an unknown one is refused here rather than by a
+    // session out of sight.
+    if let crate::modes::Mode::Unknown(name) = &body.mode {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
-                "{} is not a permission mode: {}",
-                body.mode,
-                MODES.join(", ")
-            ),
+            format!("{name} is not a permission mode"),
         ));
     }
     let session = roster

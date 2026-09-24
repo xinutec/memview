@@ -844,11 +844,11 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
-        mode: Some("auto".into()),
+        mode: Some(console::modes::Mode::Auto),
         asked: Some("the first thing it was ever asked".into()),
         cost_usd: 1.25,
         window: Some(1_000_000),
-        limit: Some("allowed_warning".into()),
+        limit: Some(console::protocol::Allowance::AllowedWarning),
         busy: None,
         pending: Default::default(),
         background: Default::default(),
@@ -876,7 +876,11 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
 
     let summary = session.summary();
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
-    assert_eq!(summary.mode.as_deref(), Some("auto"), "the mode restarted");
+    assert_eq!(
+        summary.mode,
+        Some(console::modes::Mode::Auto),
+        "the mode restarted"
+    );
     // The label, which the transcript DOES record and cannot give back.
     // A re-seed replays one page, so `asked` must come from the head of the file
     // or it moves on every upgrade — see the note on `Tally::asked`.
@@ -887,7 +891,10 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     );
     assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
-    assert_eq!(summary.limit.as_deref(), Some("allowed_warning"));
+    assert_eq!(
+        summary.limit,
+        Some(console::protocol::Allowance::AllowedWarning)
+    );
     assert!((summary.cost_usd - 1.25).abs() < f64::EPSILON);
 }
 
@@ -966,7 +973,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
-        mode: Some("auto".into()),
+        mode: Some(console::modes::Mode::Auto),
         asked: Some("the first thing it was ever asked".into()),
         cost_usd: 0.0,
         window: None,
@@ -1091,7 +1098,7 @@ async fn a_session_reports_the_mode_it_was_actually_started_with() {
     let roster = roster(&dir);
     let session = roster.start(&dir.display().to_string()).expect("start");
 
-    assert_eq!(session.summary().mode.as_deref(), Some("default"));
+    assert_eq!(session.summary().mode, Some(console::modes::Mode::Default));
 }
 
 #[tokio::test]
@@ -1100,9 +1107,15 @@ async fn changing_the_mode_is_reported_at_once() {
     let roster = roster(&dir);
     let session = roster.start(&dir.display().to_string()).expect("start");
 
-    session.set_mode("acceptEdits").await.expect("set mode");
+    session
+        .set_mode(&console::modes::Mode::AcceptEdits)
+        .await
+        .expect("set mode");
 
-    assert_eq!(session.summary().mode.as_deref(), Some("acceptEdits"));
+    assert_eq!(
+        session.summary().mode,
+        Some(console::modes::Mode::AcceptEdits)
+    );
 }
 
 #[tokio::test]
@@ -1114,8 +1127,13 @@ async fn a_mode_change_that_could_not_be_sent_leaves_the_old_one_showing() {
     let session = roster.start(&dir.display().to_string()).expect("start");
     session.stop().await;
 
-    assert!(session.set_mode("bypassPermissions").await.is_err());
-    assert_eq!(session.summary().mode.as_deref(), Some("default"));
+    assert!(
+        session
+            .set_mode(&console::modes::Mode::BypassPermissions)
+            .await
+            .is_err()
+    );
+    assert_eq!(session.summary().mode, Some(console::modes::Mode::Default));
 }
 
 #[tokio::test]
@@ -1150,7 +1168,6 @@ async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions
     // `adopt` itself keeps what it was handed; the roster is what fills the gap,
     // because only it knows how this console starts sessions.
     assert_eq!(session.summary().mode, None);
-    assert_eq!(console::session::DEFAULT_MODE, "default");
 }
 
 /// A session driven through real pipes, so what reaches the CLI can be read.
@@ -1514,12 +1531,12 @@ mod remembering_the_mode {
         let _ = std::fs::remove_file(&store);
 
         let learnt = Modes::load(store.clone());
-        learnt.set("hardware", "auto");
+        learnt.set("hardware", &console::modes::Mode::Auto);
         drop(learnt);
 
         assert_eq!(
-            Modes::load(store).get("hardware").as_deref(),
-            Some("auto"),
+            Modes::load(store).get("hardware"),
+            Some(console::modes::Mode::Auto),
             "a console that has restarted still knows"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -1541,14 +1558,17 @@ mod remembering_the_mode {
         let roster = roster(&dir);
         // Left deliberately on something other than the console's default, which
         // is what makes losing it cost anything.
-        roster.remember_mode("a-conversation-from-before", "acceptEdits");
+        roster.remember_mode(
+            "a-conversation-from-before",
+            &console::modes::Mode::AcceptEdits,
+        );
 
         let session = roster
             .resume(&dir.display().to_string(), "a-conversation-from-before")
             .expect("resume");
         assert_eq!(
-            session.summary().mode.as_deref(),
-            Some("acceptEdits"),
+            session.summary().mode,
+            Some(console::modes::Mode::AcceptEdits),
             "not the console's configured mode, and not Manual"
         );
     }

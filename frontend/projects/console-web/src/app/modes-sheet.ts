@@ -2,12 +2,13 @@ import { Component, inject, signal } from '@angular/core';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatIconModule } from '@angular/material/icon';
 
-import { offeredModes } from './modes';
+import { type Mode } from './models';
+import { type Known, offeredModes } from './modes';
 
 /** Which session is being set, and what it is on now. */
 export interface Choosing {
   readonly id: string;
-  readonly mode?: string;
+  readonly mode?: Mode;
 }
 
 /**
@@ -29,7 +30,7 @@ export class ModesSheet {
   /** What it is on, as far as this sheet knows. See [[App.setMode]] for who records it. */
   protected readonly chosen = signal(this.given.mode);
 
-  protected pick(mode: string): void {
+  protected pick(mode: Known): void {
     // Dismissed WITH the choice rather than calling the API here: the toolbar owns
     // the optimistic set and the rollback.
     this.sheet.dismiss(mode);

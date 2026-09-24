@@ -6,7 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
-import { Task } from './models';
+import { Status, Task } from './models';
 import { Rendered } from './rendered';
 import { reason } from './errors';
 
@@ -33,7 +33,7 @@ export interface Standing {
  * of them among the open work. `Status::is_open` is a method there for the same
  * reason.
  */
-const STATUS: Record<string, Standing> = {
+const STATUS: Record<Exclude<Status, { unknown: string }>, Standing> = {
   doing: { rank: 0, title: 'underway', icon: 'pending', open: true },
   open: { rank: 1, title: 'open', icon: 'radio_button_unchecked', open: true },
   done: { rank: 2, title: 'done', icon: 'check_circle', open: false },
@@ -50,8 +50,8 @@ const STATUS: Record<string, Standing> = {
 const UNKNOWN: Standing = { rank: 1, title: 'open', icon: 'help', open: true };
 
 /** Where a status stands, including one this console has never heard of. */
-export function standingOf(status: string): Standing {
-  return STATUS[status] ?? UNKNOWN;
+export function standingOf(status: Status): Standing {
+  return typeof status === 'string' ? STATUS[status] : UNKNOWN;
 }
 
 /** The rows to draw: open work first, and the closed ones only when asked. */

@@ -1,8 +1,13 @@
-interface Mode {
+import type { Mode } from './models';
+
+interface Shown {
   title: string;
   rank: number;
   icon: string;
 }
+
+/** A mode this client has a label for: every mode but one the CLI added since. */
+export type Known = Exclude<Mode, { unknown: string }>;
 
 /**
  * What a session may do without asking, in the CLI's own words. The stored
@@ -19,18 +24,29 @@ export const MODES = {
   acceptEdits: { title: 'Accept edits', rank: 2, icon: 'edit' },
   auto: { title: 'Auto', rank: 3, icon: 'auto_mode' },
   bypassPermissions: { title: 'Bypass Permissions', rank: 4, icon: 'lock_open' },
-} satisfies Record<string, Mode>;
+} satisfies Record<Known, Shown>;
 
-/** The same table read by a name off the wire, which may be none of them. */
-const BY_NAME: Record<string, Mode | undefined> = MODES;
+/** Every known mode, checked both ways against the generated union as `KINDS` is. */
+const KNOWN = [
+  'plan',
+  'default',
+  'dontAsk',
+  'acceptEdits',
+  'auto',
+  'bypassPermissions',
+] as const satisfies readonly Known[];
+
+type Unlisted = Exclude<Known, (typeof KNOWN)[number]>;
+const everyModeIsListed: Unlisted extends never ? true : never = true;
+void everyModeIsListed;
 
 /**
  * How a mode should read on screen. An unknown mode is shown as it arrived:
  * the CLI gains modes between releases.
  */
-export function modeTitle(mode: string | undefined): string | undefined {
-  if (!mode) return undefined;
-  return BY_NAME[mode]?.title ?? mode;
+export function modeTitle(mode: Mode | undefined): string | undefined {
+  if (mode === undefined) return undefined;
+  return typeof mode === 'string' ? MODES[mode].title : mode.unknown;
 }
 
 /**
@@ -38,7 +54,7 @@ export function modeTitle(mode: string | undefined): string | undefined {
  * for opposite reasons — `bypassPermissions` does the dangerous thing unasked,
  * `dontAsk` quietly does not do it at all.
  */
-export function modeIsLoud(mode: string | undefined): boolean {
+export function modeIsLoud(mode: Mode | undefined): boolean {
   return mode === 'bypassPermissions' || mode === 'dontAsk';
 }
 
@@ -47,19 +63,21 @@ export function modeIsLoud(mode: string | undefined): boolean {
  * unrecognised mode gets a question mark, since a blank reads as the careful
  * setting.
  */
-export function modeIcon(mode: string | undefined): string | undefined {
-  if (!mode) return undefined;
-  return BY_NAME[mode]?.icon ?? 'help';
+export function modeIcon(mode: Mode | undefined): string | undefined {
+  if (mode === undefined) return undefined;
+  return typeof mode === 'string' ? MODES[mode].icon : 'help';
 }
 
 /**
  * The modes to offer, least allowed first, so the menu reads as a dial.
  * `dontAsk` shares a rank with `default` and is broken by name.
  */
-export function offeredModes(): { mode: string; title: string; icon: string; loud: boolean }[] {
-  return Object.entries(MODES)
-    .sort(([leftName, left], [rightName, right]) =>
-      left.rank === right.rank ? leftName.localeCompare(rightName) : left.rank - right.rank,
+export function offeredModes(): { mode: Known; title: string; icon: string; loud: boolean }[] {
+  return [...KNOWN]
+    .sort((left, right) =>
+      MODES[left].rank === MODES[right].rank
+        ? left.localeCompare(right)
+        : MODES[left].rank - MODES[right].rank,
     )
-    .map(([mode, { title, icon }]) => ({ mode, title, icon, loud: modeIsLoud(mode) }));
+    .map((mode) => ({ mode, ...MODES[mode], loud: modeIsLoud(mode) }));
 }

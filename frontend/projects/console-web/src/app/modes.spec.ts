@@ -17,7 +17,7 @@ describe('permission modes', () => {
     // The CLI gains modes between releases. Dropping one this console has not
     // heard of would leave the header saying nothing at all about permissions —
     // which reads as the safe case, and is the one time it might not be.
-    expect(modeTitle('somethingNew')).toBe('somethingNew');
+    expect(modeTitle({ unknown: 'somethingNew' })).toBe('somethingNew');
   });
 
   it('says nothing for a session that has not recorded one', () => {
@@ -68,7 +68,7 @@ describe('the menu of modes', () => {
   it('gives an unrecognised mode a visible icon rather than none', () => {
     // A blank where "what may this session do" goes reads as the careful
     // setting, which is the one case it might not be.
-    expect(modeIcon('somethingNew')).toBe('help');
+    expect(modeIcon({ unknown: 'somethingNew' })).toBe('help');
     expect(modeIcon(undefined)).toBeUndefined();
   });
 

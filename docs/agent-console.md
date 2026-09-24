@@ -835,6 +835,12 @@ already had, every time, for ever.
   `ask` event carries that as `does`. A tool whose arguments change shape falls
   to `other` in that one place, not to a blank field on the phone. The raw
   arguments of a question stay on the Mac, where the answer is written into them.
+- **A set of values named by something outside is an enum with an `unknown`
+  case that keeps the word** (`console/src/named.rs`): the permission mode, the
+  rate-limit verdict, how a background task ended, a task's status. On the wire a
+  known value is its name and a new one is `{"unknown": "…"}`, so the client
+  switches over every known value and still draws the new one; the Mac logs it
+  where it arrived.
 - **Component styles cannot reach `[innerHTML]` content.** Emulated encapsulation
   rewrites every selector with a scope attribute that injected nodes do not
   carry. Markdown styling therefore lives in the global `styles.scss`, scoped by

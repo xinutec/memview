@@ -52,9 +52,9 @@ pub struct Tally {
     pub model: Option<String>,
     pub cost_usd: f64,
     pub window: Option<u64>,
-    pub limit: Option<String>,
+    pub limit: Option<crate::protocol::Allowance>,
     /// See [`Summary::mode`]. Carried because the console is the only thing that knows it.
-    pub mode: Option<String>,
+    pub mode: Option<crate::modes::Mode>,
     /// The first thing this session was asked to do — see [`Summary::asked`]. A
     /// fallback: [`crate::past::opening`] reads it from the HEAD of the transcript and
     /// overwrites this, which is used only for a session with no transcript.
@@ -217,10 +217,6 @@ const STDERR_KEPT: usize = 4000;
 /// is incremental, so this is set by how long a wrong number may stay on screen.
 const RECOUNT_EVERY: Duration = Duration::from_secs(5);
 
-/// The CLI's own name for the mode a session runs in when nothing is passed.
-/// Displayed as *Manual*: it asks before every tool call that needs permission.
-pub const DEFAULT_MODE: &str = "default";
-
 /// What a client sees of a session without reading its transcript.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -284,7 +280,7 @@ pub struct Summary {
     /// account says something — the reason cost is hidden by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
-    pub limit: Option<String>,
+    pub limit: Option<crate::protocol::Allowance>,
     /// The first thing this session was asked to do, kept as its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -308,10 +304,10 @@ pub struct Summary {
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
     /// `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
     /// transcript says — a resumed session carries the previous session's mode
-    /// lines. `default` is shown as *Manual*; the client keeps the label table.
+    /// lines.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
-    pub mode: Option<String>,
+    pub mode: Option<crate::modes::Mode>,
     /// Why the last mode change was refused, in the CLI's own words. Present only
     /// until the next change is asked for: it describes an attempt, not a state.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -431,10 +427,10 @@ struct State {
     counted: crate::past::Counted,
     /// See [`Summary::mode`]. Written optimistically when the console asks for a
     /// change, and corrected when the CLI answers — [`Session::settle_mode`].
-    mode: Option<String>,
+    mode: Option<crate::modes::Mode>,
     /// What the mode was before a change the CLI has not answered yet, so a refusal
     /// can put it back. Cleared either way when the answer arrives.
-    restore: Option<String>,
+    restore: Option<crate::modes::Mode>,
     /// See [`Summary::mode_refused`].
     mode_refused: Option<String>,
     cost_usd: f64,
@@ -443,7 +439,7 @@ struct State {
     context: Option<u64>,
     window: Option<u64>,
     /// See [`Summary::limit`].
-    limit: Option<String>,
+    limit: Option<crate::protocol::Allowance>,
     /// What the API last said about each rate-limit window. See [`Tally::spent`].
     spent: BTreeMap<String, Seen>,
     /// Background tool calls started and not yet ended, keyed by the call (what a
@@ -688,7 +684,7 @@ pub struct Spawn {
     /// What the session may do without being asked. In headless mode there is nobody
     /// to answer a prompt, so under the CLI's default EVERY tool call needing
     /// permission is refused.
-    pub permission_mode: Option<String>,
+    pub permission_mode: Option<crate::modes::Mode>,
 }
 
 impl Session {
@@ -820,7 +816,7 @@ impl Session {
             command.args(["-n", name]);
         }
         if let Some(mode) = &spawn.permission_mode {
-            command.args(["--permission-mode", mode]);
+            command.args(["--permission-mode", mode.name()]);
         }
 
         let mut child = command
@@ -850,7 +846,7 @@ impl Session {
                     spawn
                         .permission_mode
                         .clone()
-                        .unwrap_or_else(|| DEFAULT_MODE.to_string()),
+                        .unwrap_or(crate::modes::Mode::Default),
                 ),
                 ..State::default()
             }),
@@ -1290,7 +1286,7 @@ impl Session {
     /// Change what this session may do without asking. Recorded optimistically —
     /// the CLI's answer is not waited for, see [`protocol::set_mode`] — and only
     /// after stdin has taken the line, so a failed write leaves the true mode on screen.
-    pub async fn set_mode(&self, mode: &str) -> Result<()> {
+    pub async fn set_mode(&self, mode: &crate::modes::Mode) -> Result<()> {
         let line = protocol::set_mode(&format!("set-mode-{}", self.id), mode);
         let mut held = self.stdin.lock().await;
         let stdin = held
@@ -1311,7 +1307,7 @@ impl Session {
         }
         // The old explanation goes with the old attempt.
         state.mode_refused = None;
-        state.mode = Some(mode.to_string());
+        state.mode = Some(mode.clone());
         Ok(())
     }
 
@@ -1475,7 +1471,7 @@ impl Session {
     }
 
     /// What this session was last told it may do without asking. See [`Summary::mode`].
-    pub fn mode(&self) -> Option<String> {
+    pub fn mode(&self) -> Option<crate::modes::Mode> {
         self.state.lock().mode.clone()
     }
 
