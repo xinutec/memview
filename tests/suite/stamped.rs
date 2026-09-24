@@ -241,3 +241,24 @@ fn a_stamp_in_the_body_is_prose_and_not_a_stamp() {
     let lacks = memview::stamped::missing(&raw);
     assert!(lacks.origin && lacks.modified, "{lacks:?}");
 }
+
+/// `modified:` is when the file last changed, which is its mtime. The
+/// transcript's time is when a session FIRST wrote it; a memory edited later
+/// would be stamped as older than its content.
+#[test]
+fn a_recovered_modified_is_the_files_mtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("m.md");
+    std::fs::write(&path, "x").unwrap();
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_790_260_000_123);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(at)
+        .unwrap();
+    assert_eq!(
+        memview::stamped::modified_from_mtime(&path).unwrap(),
+        "2026-09-24T14:26:40.123Z"
+    );
+}

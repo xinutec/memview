@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use memview::atomic;
 use memview::blame::{Author, attribute};
-use memview::stamped::{Missing, missing};
+use memview::stamped::{Missing, missing, modified_from_mtime};
 
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
@@ -69,21 +69,19 @@ fn main() -> Result<()> {
                 // `modified:` this will refuse to touch. A dry run that shows
                 // more than the apply does is worse than none.
                 let lacks = absent(path);
+                let modified = modified_from_mtime(path)?;
                 let mut fields = Vec::new();
                 if lacks.origin {
                     fields.push(format!("originSessionId: {session}"));
                 }
                 if lacks.modified {
-                    fields.push(format!("modified: {at}"));
+                    fields.push(format!("modified: {modified} (first written {at})"));
                 } else {
-                    // Context, not a write: the origin time is why that session
-                    // is named, and it is commonly older than the stamp on the
-                    // file, which is a later edit.
                     fields.push(format!("(first written {at}; modified: kept)"));
                 }
                 println!("  {name}\n      {}", fields.join("\n      "));
                 if apply {
-                    stamp(path, session, at)?;
+                    stamp(path, session, &modified)?;
                 }
             }
             // Named, not guessed. No transcript claims this file, which
@@ -140,8 +138,9 @@ fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Write both fields under the existing `metadata:` block.
-fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
+/// Write the missing fields under the existing `metadata:` block; `modified` is
+/// the file's mtime.
+fn stamp(path: &Path, session: &str, modified: &str) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
     let anchor = "\n  type: ";
     let Some(start) = text.find(anchor) else {
@@ -151,20 +150,15 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
         .find('\n')
         .map(|n| start + 1 + n)
         .unwrap_or(text.len());
-    // Each field only if ABSENT, and `modified:` was NOT guarded. A
-    // memory can be missing one and not the other, and appending a second
-    // `modified:` would do worse than duplicate it: the
-    // value written here is the write this scan FOUND, so it would overwrite a
-    // deliberate stamp with the file's state BEFORE a later edit. That is the
-    // ordering trap `~/.claude`'s pre-commit hook already warns about, arriving
-    // by a different door.
+    // Each field only if absent: a memory can lack one and not the other, and
+    // a deliberate `modified:` must not be replaced.
     let lacks = missing(&text);
     let mut added = String::new();
     if lacks.origin {
         added.push_str(&format!("\n  originSessionId: {session}"));
     }
     if lacks.modified {
-        added.push_str(&format!("\n  modified: {at}"));
+        added.push_str(&format!("\n  modified: {modified}"));
     }
     if added.is_empty() {
         return Ok(());

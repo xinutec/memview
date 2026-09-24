@@ -54,6 +54,16 @@ pub fn missing(raw: &str) -> Missing {
     }
 }
 
+/// A recovered `modified:`: the file's mtime, in the corpus's
+/// `2026-09-24T14:26:40.123Z` form.
+///
+/// Not the transcript's time, which is when a session first wrote the file and
+/// predates any later edit.
+pub fn modified_from_mtime(path: &std::path::Path) -> std::io::Result<String> {
+    let mtime: chrono::DateTime<chrono::Utc> = std::fs::metadata(path)?.modified()?.into();
+    Ok(mtime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+}
+
 /// What a diff says about stamps: which memories went stale, and which files could
 /// not be judged at all.
 ///
