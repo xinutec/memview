@@ -88,8 +88,11 @@ WebView wrapper.
 
 ### What phase 1 actually does
 
-`console/src/`: `protocol.rs` reads the CLI's stream-json into a small closed set
-of events; `session.rs` owns one subprocess and its transcript; `roster.rs` holds
+`console/src/`: `protocol/` reads the CLI's stream-json into a small closed set
+of events — `background.rs` the work left running, `control.rs` what the console
+writes back; `session/` owns one subprocess and its transcript — `state.rs` how
+each event changes it, `input.rs` what is written to it, `view.rs` what it
+answers; `roster.rs` holds
 them all; `api.rs` serves them, streaming with SSE. Four modules work off disk
 rather than asking a session anything: `past.rs` reads the transcripts, `gist.rs`
 the sentence about each, `tasks.rs` the list a session keeps for itself, and
@@ -147,7 +150,7 @@ results and partial deltas come back as JSON lines on stdout.
 over the TypeScript SDK. The SDK is a typed wrapper versioned in lockstep with
 the CLI (0.3.220 against 2.1.220), and the cost of declining it was accepted
 knowingly: the control protocol behind approvals had to be read off the wire
-rather than handed over. It was, and `protocol.rs` speaks it in about thirty
+rather than handed over. It was, and `protocol/control.rs` speaks it in about thirty
 lines. The SDK is still worth _reading_ — it is where
 `--permission-prompt-tool stdio` was found.
 
@@ -790,6 +793,7 @@ themselves carry the reasoning.
 | `models.ts`           | re-exports those, plus `Entry` — the transcript line as drawn — and the `KINDS` list   |
 | `entry-row.ts`        | one transcript line, typed by its kind                                                |
 | `run-row.ts`          | a run of tool calls folded into one row                                               |
+| `transcript-list.ts`  | a transcript's rows, as a list the page around it scrolls                             |
 | `workflow-view.ts`    | one workflow run: its agents by phase                                                 |
 | `agent-view.ts`       | one workflow agent's transcript, read-only                                            |
 | `console-api.ts`      | HTTP, one method per route                                                            |
@@ -1158,7 +1162,7 @@ is asked once a minute; the answer is account-wide, so asking a second is asking
 the same question twice.
 
 - ⚠ **This was shipped the wrong way first, on a belief that was written down as
-  fact.** A comment in `protocol.rs` said the percentages existed only in the
+  fact.** A comment in the protocol module said the percentages existed only in the
   statusLine hook's input, so the first version read them off the home dashboard
   — which collects them from that hook on whatever machine last ran an
   interactive session. A status line belongs to a terminal and these sessions are

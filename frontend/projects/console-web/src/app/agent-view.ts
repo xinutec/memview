@@ -1,7 +1,6 @@
 import {
   Component,
   DestroyRef,
-  ElementRef,
   Injector,
   OnDestroy,
   afterNextRender,
@@ -20,14 +19,13 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ConsoleApi } from './console-api';
 import { DiffSheet } from './diff-sheet';
 import { Dismiss } from './dismiss';
-import { EntryRow } from './entry-row';
 import { reason } from './errors';
 import { Folding } from './folding';
 import { Here, LIST } from './here';
 import { type Change, type Entry, type Timed, type ToolCall } from './models';
 import { ParseSheet } from './parse-sheet';
 import { Roster } from './roster';
-import { RunRow } from './run-row';
+import { TranscriptList } from './transcript-list';
 import { type Block, blocks, fold } from './transcript';
 import { REREAD_MS, going } from './workflow';
 
@@ -42,7 +40,7 @@ const NEAR_END_PX = 80;
   selector: 'app-agent-view',
   templateUrl: './agent-view.html',
   styleUrl: './agent-view.scss',
-  imports: [EntryRow, MatButtonModule, MatProgressBarModule, RunRow],
+  imports: [MatButtonModule, MatProgressBarModule, TranscriptList],
 })
 export class AgentView implements OnDestroy {
   readonly id = input.required<string>();
@@ -74,7 +72,8 @@ export class AgentView implements OnDestroy {
   protected readonly folding = new Folding();
   protected readonly pictureAt = (name: string): string => this.api.pictureAt(this.id(), name);
 
-  private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  private readonly list = viewChild(TranscriptList);
+  private readonly scroller = computed(() => this.list()?.host);
 
   constructor() {
     inject(DestroyRef).onDestroy(this.roster.follow());
@@ -115,11 +114,6 @@ export class AgentView implements OnDestroy {
   ngOnDestroy(): void {
     this.here.page.set(undefined);
     this.here.up.set(LIST);
-  }
-
-  protected shown(block: Block): readonly Entry[] {
-    if (block.kind === 'one') return [block.entry];
-    return this.folding.opensRun(block.key) ? block.entries : [];
   }
 
   /** What the agent has done since it was last read. */

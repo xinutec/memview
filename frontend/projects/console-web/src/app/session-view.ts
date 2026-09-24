@@ -24,7 +24,6 @@ import { Composer } from './composer';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { Drafts } from './drafts';
-import { EntryRow } from './entry-row';
 import { reason } from './errors';
 import { Folding } from './folding';
 import { Following, measure } from './following';
@@ -44,7 +43,7 @@ import { Roster } from './roster';
 import { Held, SessionStore } from './session-store';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
-import { RunRow } from './run-row';
+import { TranscriptList } from './transcript-list';
 import { Block, blocks } from './transcript';
 import { Updates } from './updates';
 
@@ -56,13 +55,12 @@ import { Updates } from './updates';
   host: { '(click)': 'tapped($event)' },
   imports: [
     Composer,
-    EntryRow,
     Lasted,
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
     NoticeBar,
-    RunRow,
+    TranscriptList,
   ],
 })
 export class SessionView implements OnDestroy {
@@ -162,7 +160,8 @@ export class SessionView implements OnDestroy {
   protected readonly pictureAt = (name: string): string => this.api.pictureAt(this.id(), name);
 
   // Scrolling: follow the end unless the reader has scrolled away.
-  private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  private readonly list = viewChild(TranscriptList);
+  private readonly scroller = computed(() => this.list()?.host);
   private readonly brink = viewChild<ElementRef<HTMLElement>>('brink');
   private readonly following = new Following();
   private readonly pages = signal(0);
@@ -280,11 +279,6 @@ export class SessionView implements OnDestroy {
     this.here.at.set(undefined);
     this.here.gist.set(undefined);
     this.here.tasks.set(undefined);
-  }
-
-  protected shown(block: Block): readonly Entry[] {
-    if (block.kind === 'one') return [block.entry];
-    return this.folding.opensRun(block.key) ? block.entries : [];
   }
 
   private follow(): void {

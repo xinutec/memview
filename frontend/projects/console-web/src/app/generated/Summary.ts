@@ -109,11 +109,11 @@ waiting: number,
 unread: number, 
 /**
  * How long it has been failing to read them, in seconds — present only when the
- * console is prepared to call it deaf. See [`Session::deaf`].
+ * console is prepared to call it deaf. See [`crate::session::Session::deaf`].
  */
 deaf?: number, 
 /**
- * Slash commands waiting for the turn to end, oldest first — see [`State::held`].
+ * Slash commands waiting for the turn to end, oldest first — see [`crate::session::state::State::held`].
  * The words themselves, because the client draws them and cancels by them.
  */
 held: Array<string>, };

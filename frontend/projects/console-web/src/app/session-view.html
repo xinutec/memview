@@ -74,8 +74,17 @@
   </div>
 }
 <ol
+  app-transcript
   class="transcript"
-  #scroller
+  [blocks]="blocks()"
+  [folding]="folding"
+  [pictureAt]="pictureAt"
+  [now]="now()"
+  [deaf]="!!session()?.deaf"
+  [full]="full()"
+  (parse)="parse($event)"
+  (diff)="diff($event)"
+  (enlarge)="enlarge($event)"
   (scroll)="onScroll()"
   (touchstart)="took()"
   (touchend)="released()"
@@ -85,25 +94,6 @@
     <li class="earlier" #brink aria-live="polite">
       {{ loading() ? 'reading earlier messages…' : '' }}
     </li>
-  }
-  @for (block of blocks(); track block.kind === 'one' ? block.entry : block.key) {
-    @if (block.kind === 'tools') {
-      <li app-run [block]="block" [folding]="folding" [now]="now()"></li>
-    }
-    @for (entry of shown(block); track entry) {
-      <li
-        app-entry
-        [entry]="entry"
-        [folding]="folding"
-        [deaf]="!!session()?.deaf"
-        [now]="now()"
-        [full]="full()"
-        [pictureAt]="pictureAt"
-        (parse)="parse($event)"
-        (diff)="diff($event)"
-        (enlarge)="enlarge($event)"
-      ></li>
-    }
   }
 </ol>
 @if (updateWaiting()) {
