@@ -541,7 +541,7 @@ fn detached(said: &str) -> Option<Option<String>> {
         opens: &'static str,
         before_id: &'static str,
     }
-    const SAYS: [Opening; 4] = [
+    const SAYS: [Opening; 5] = [
         // Bash, asked to detach.
         Opening {
             opens: "Command running in background with ID: ",
@@ -559,6 +559,11 @@ fn detached(said: &str) -> Option<Option<String>> {
         Opening {
             opens: "Async agent launched successfully",
             before_id: "\nagentId: ",
+        },
+        // Workflow, which has no foreground form.
+        Opening {
+            opens: "Workflow launched in background. Task ID: ",
+            before_id: "Workflow launched in background. Task ID: ",
         },
         // Monitor, the tool the whole rule came from.
         Opening {
@@ -1338,6 +1343,35 @@ pub struct Called {
 /// command, which ran to several hundred characters.
 const LABEL_MAX: usize = 60;
 
+/// The name a workflow goes by: a saved one's `name`, else the `name` its script's
+/// `meta` literal declares, else the script file's, which the harness writes as
+/// `<name>-<run id>.js`.
+pub fn workflow_name(input: &serde_json::Value) -> Option<String> {
+    let field = |key: &str| input.get(key).and_then(serde_json::Value::as_str);
+    if let Some(name) = field("name") {
+        return Some(name.to_owned());
+    }
+    if let Some(script) = field("script") {
+        let meta = &script[script.find("meta")?..];
+        let rest = meta[meta.find("name")? + "name".len()..].trim_start();
+        let rest = rest.strip_prefix(':')?.trim_start();
+        let quote = rest
+            .chars()
+            .next()
+            .filter(|c| matches!(c, '\'' | '"' | '`'))?;
+        let name = &rest[1..];
+        return Some(name[..name.find(quote)?].to_owned());
+    }
+    let file = std::path::Path::new(field("scriptPath")?)
+        .file_stem()?
+        .to_str()?;
+    Some(
+        file.rsplit_once("-wf_")
+            .map_or(file, |(name, _)| name)
+            .to_owned(),
+    )
+}
+
 /// Read a tool call for the name and label a person would use for it: the
 /// tool's own `description` where it has one, else the field that carries the
 /// work. Nothing is invented.
@@ -1350,6 +1384,13 @@ pub fn called(tool: &str, input: &serde_json::Value) -> Called {
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
     };
+    if tool == "Workflow" {
+        return Called {
+            tool: tool.to_owned(),
+            label: workflow_name(input),
+            task: None,
+        };
+    }
     // `description` first: it is the sentence the caller wrote about this call.
     let label = pick("description")
         .or_else(|| pick("command"))

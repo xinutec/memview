@@ -188,7 +188,8 @@ button[matIconButton] {
 
 // Each scoped to its own component rather than turned loose, so the generic
 // names inside cannot reach anything else on the page.
-app-session-view .entry .body {
+app-session-view .entry .body,
+app-agent-view .entry .body {
   @include rendered;
 }
 
@@ -316,10 +317,11 @@ app-root {
   }
 }
 
-// A tool call's argument that opens a sheet: a command to read, an edit to diff.
-// Here rather than in a component, since the row and the permission card both
-// draw one. Longhands only: the family comes from `.tool-arg`.
-button.opens {
+// A tool call's argument that opens something: a command to read, an edit to
+// diff, a workflow's agents. Here rather than in a component, since the row and
+// the permission card both draw one. Longhands only: the family comes from `.tool-arg`.
+button.opens,
+a.opens {
   appearance: none;
   background: none;
   border: none;

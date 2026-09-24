@@ -1,0 +1,59 @@
+@if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+}
+@if (got() === undefined) {
+  @if (!trouble()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+} @else {
+  <p class="lede">
+    @if (going()) {
+      Running.
+    } @else if (going() === false) {
+      Finished.
+    }
+  </p>
+  @for (phase of phases(); track phase.title) {
+    <section class="phase">
+      <h2>
+        <span class="title">{{ phase.title }}</span>
+        <span class="tally">{{ phase.done }}/{{ phase.agents.length }} done</span>
+      </h2>
+      <ul class="agents">
+        @for (row of phase.agents; track row.agent.id) {
+          <li>
+            <a
+              class="agent"
+              [attr.data-state]="row.state"
+              [routerLink]="['a', row.agent.id]"
+              [queryParams]="{ task: task(), label: row.agent.label ?? undefined }"
+            >
+              @switch (row.state) {
+                @case ('done') {
+                  <mat-icon aria-label="done">check_circle</mat-icon>
+                }
+                @case ('working') {
+                  <mat-spinner diameter="20" aria-label="working" />
+                }
+                @case ('stopped') {
+                  <mat-icon aria-label="stopped without a result">cancel</mat-icon>
+                }
+              }
+              <span class="what">
+                <span class="label">{{ row.agent.label ?? row.agent.id }}</span>
+                @if (row.doing; as call) {
+                  <span class="doing"
+                    ><span class="tool">{{ call.tool }}</span> {{ call.text }}</span
+                  >
+                }
+              </span>
+              <mat-icon class="opens">chevron_right</mat-icon>
+            </a>
+          </li>
+        }
+      </ul>
+    </section>
+  } @empty {
+    <p class="lede">No agent has started yet.</p>
+  }
+}

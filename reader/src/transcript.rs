@@ -150,9 +150,8 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// A line that describes the conversation from outside it, and never carries
 /// identity — no `uuid`, no `parentUuid`, anywhere in the corpus.
 ///
-/// Sixteen types exist, not fifteen. A survey that found fifteen missed `pr-link`
-/// entirely, and an unknown type is indistinguishable from a corrupt one, so the
-/// omission would have been reported as damage.
+/// An unknown type is indistinguishable from a corrupt one, so a type the harness
+/// starts writing reads as damage until it is named here.
 ///
 /// `atis-latch` is that same lesson a second time. The harness began writing
 /// `{type, atis, sessionId}` — no identity, like everything else here — and because
@@ -161,7 +160,7 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// failed for any session whose OWN transcript held one, which by then was every
 /// session. The nightly alone was exempt, having no session to call its own — the
 /// asymmetry #1546 built deliberately.
-pub const METADATA_TYPES: [&str; 13] = [
+pub const METADATA_TYPES: [&str; 14] = [
     "last-prompt",
     "permission-mode",
     "bridge-session",
@@ -175,6 +174,7 @@ pub const METADATA_TYPES: [&str; 13] = [
     "pr-link",
     "frame-link",
     "atis-latch",
+    "cost-state",
 ];
 
 /// Present on EVERY conversation line, whatever its type — 942,556 of 942,556.

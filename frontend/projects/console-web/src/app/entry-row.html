@@ -18,6 +18,13 @@
         <button type="button" class="tool-arg opens" (click)="parse.emit(entry)">
           {{ entry.text }}
         </button>
+      } @else if (entry.launched; as launched) {
+        <a
+          class="tool-arg opens"
+          [routerLink]="['w', launched.run]"
+          [queryParams]="{ task: launched.task, name: entry.text }"
+          >{{ entry.text }}</a
+        >
       } @else if (entry.change; as change) {
         <button type="button" class="tool-arg opens" (click)="diff.emit(change)">
           {{ entry.text }}
@@ -69,7 +76,7 @@
     }
   }
   @case ('asked') {
-    <span class="who">you</span>
+    <span class="who">{{ asker() }}</span>
     @if (entry.queued) {
       @if (deaf()) {
         <span class="queued unheard">

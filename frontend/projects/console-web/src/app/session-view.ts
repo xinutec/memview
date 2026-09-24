@@ -44,7 +44,8 @@ import { Roster } from './roster';
 import { Held, SessionStore } from './session-store';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
-import { Block, Ran, blocks, ran } from './transcript';
+import { RunRow } from './run-row';
+import { Block, blocks } from './transcript';
 import { Updates } from './updates';
 
 /** One conversation: its transcript, what it is doing, and the box to reply in. */
@@ -61,6 +62,7 @@ import { Updates } from './updates';
     MatIconModule,
     MatProgressBarModule,
     NoticeBar,
+    RunRow,
   ],
 })
 export class SessionView implements OnDestroy {
@@ -283,18 +285,6 @@ export class SessionView implements OnDestroy {
   protected shown(block: Block): readonly Entry[] {
     if (block.kind === 'one') return [block.entry];
     return this.folding.opensRun(block.key) ? block.entries : [];
-  }
-
-  protected counted(block: Block & { kind: 'tools' }): Ran {
-    return ran(block.entries);
-  }
-
-  protected runningFor(block: Block & { kind: 'tools' }): number | undefined {
-    const oldest = block.entries
-      .filter((entry) => entry.ok === undefined && !entry.unrecorded && entry.at !== undefined)
-      .map((entry) => entry.at ?? 0)
-      .sort((a, b) => a - b)[0];
-    return oldest === undefined ? undefined : this.now() - oldest;
   }
 
   private follow(): void {

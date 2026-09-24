@@ -1,0 +1,34 @@
+@if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+}
+@if (entries() === undefined) {
+  @if (!trouble()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+} @else {
+  <ol class="transcript" #scroller>
+    @if (more()) {
+      <li class="earlier">
+        <button matButton type="button" [disabled]="loading()" (click)="earlier()">
+          {{ loading() ? 'reading…' : 'earlier' }}
+        </button>
+      </li>
+    }
+    @for (block of blocks(); track block.kind === 'one' ? block.entry : block.key) {
+      @if (block.kind === 'tools') {
+        <li app-run [block]="block" [folding]="folding"></li>
+      }
+      @for (entry of shown(block); track entry) {
+        <li
+          app-entry
+          [entry]="entry"
+          [folding]="folding"
+          [pictureAt]="pictureAt"
+          asker="workflow"
+          (parse)="parse($event)"
+          (diff)="diff($event)"
+        ></li>
+      }
+    }
+  </ol>
+}

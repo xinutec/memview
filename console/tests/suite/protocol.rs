@@ -689,10 +689,10 @@ fn every_way_a_tool_says_it_left_something_running() {
     // decision about what counts is made from what a call *answers* rather than
     // from what it was asked to do, because `run_in_background` is a request only
     // `Bash` accepts — measured across 27,731 calls, it appears on nothing else.
-    // These four are the phrases the CLI actually emits; see `protocol::detached`
+    // These five are the phrases the CLI actually emits; see `protocol::detached`
     // for the precision and recall behind them.
     // Each also yields the task id, which is the name the *kill* speaks and the
-    // only one it speaks. All four openings carry one; it was readable on every
+    // only one it speaks. Every opening carry one; it was readable on every
     // one of the 7,405 launches measured.
     for (what, task, said) in [
         (
@@ -711,6 +711,11 @@ fn every_way_a_tool_says_it_left_something_running() {
             "a subagent, which detaches unless told not to",
             "a57ea009199806c73",
             "Async agent launched successfully. (This tool result is internal metadata\nagentId: a57ea009199806c73 (internal ID - do not mention to user.",
+        ),
+        (
+            "a workflow, which always runs in the background",
+            "wpzk9pgqb",
+            "Workflow launched in background. Task ID: wpzk9pgqb\nSummary: Rewrite long comment blocks\nRun ID: wf_0480c7f6-60f",
         ),
         (
             "a monitor, the tool this whole rule came from",
@@ -1156,4 +1161,21 @@ fn other_attachments_are_not_things_a_person_said() {
             "{kind} produced events on replay"
         );
     }
+}
+
+#[test]
+fn a_workflow_is_labelled_by_the_name_its_script_declares() {
+    let inline = console::protocol::called(
+        "Workflow",
+        &serde_json::json!({ "script": "export const meta = {\n  name: 'comment-pass-1721',\n  description: 'Rewrite comments',\n}\nawait agent('x')" }),
+    );
+    assert_eq!(inline.label.as_deref(), Some("comment-pass-1721"));
+    let saved =
+        console::protocol::called("Workflow", &serde_json::json!({ "name": "deep-research" }));
+    assert_eq!(saved.label.as_deref(), Some("deep-research"));
+    let resumed = console::protocol::called(
+        "Workflow",
+        &serde_json::json!({ "scriptPath": "/p/workflows/scripts/comment-pass-1721-wf_0480c7f6-60f.js" }),
+    );
+    assert_eq!(resumed.label.as_deref(), Some("comment-pass-1721"));
 }

@@ -1,6 +1,7 @@
 import { unhandled } from './exhaustive';
 import { type Asked, type Change, type Entry, type Timed, type ToolCall, asking } from './models';
 import { QUESTION_TOOL, questionsOf } from './questions';
+import { launched, workflowName } from './workflow';
 
 /**
  * Fold one event into the transcript so far.
@@ -77,6 +78,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         cut: event.cut ?? undefined,
         head: event.detail.split('\n', 1)[0],
         picture: event.image && call.text.startsWith('/') ? call.text : undefined,
+        launched: call.tool === 'Workflow' ? launched(event.detail) : undefined,
       };
       break;
     }
@@ -258,6 +260,7 @@ function changed(name: string, args: Readonly<Record<string, unknown>>): Change 
 
 /** The one argument worth showing for a call, else the argument names. */
 function describe(name: string, args: Readonly<Record<string, unknown>>): string {
+  if (name === 'Workflow') return workflowName(args) ?? name;
   for (const key of ['file_path', 'path', 'command', 'pattern', 'url', 'prompt', 'description']) {
     const value = args[key];
     if (typeof value === 'string' && value.trim()) return value.trim();

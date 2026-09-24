@@ -6,7 +6,9 @@
 import type { Question } from './questions';
 import type { Event } from './generated/Event';
 import type { Reply } from './generated/Reply';
+import type { Launched } from './workflow';
 
+export type { Agent } from './generated/Agent';
 export type { Called } from './generated/Called';
 export type { Conversation } from './generated/Conversation';
 export type { CorpusRead } from './generated/CorpusRead';
@@ -24,6 +26,7 @@ export type { Mode } from './generated/Mode';
 export type { Overview } from './generated/Overview';
 export type { Page } from './generated/Page';
 export type { Parsed } from './generated/Parsed';
+export type { Phase } from './generated/Phase';
 export type { Edited } from './generated/Edited';
 export type { Record as EditRecord } from './generated/Record';
 export type { Ranked } from './generated/Ranked';
@@ -31,9 +34,11 @@ export type { Reach } from './generated/Reach';
 export type { Reading } from './generated/Reading';
 export type { Renaming } from './generated/Renaming';
 export type { Reply } from './generated/Reply';
+export type { Run } from './generated/Run';
 export type { Scoped } from './generated/Scoped';
 export type { Shown } from './generated/Shown';
 export type { Start } from './generated/Start';
+export type { Stretched } from './generated/Stretched';
 export type { Summary } from './generated/Summary';
 export type { Sweep } from './generated/Sweep';
 export type { Task } from './generated/Task';
@@ -142,6 +147,8 @@ export interface ToolCall extends Stamped, Partial<Ask> {
   hunks?: readonly Change[];
   /** Its files did not end up as predicted: the evaluator was wrong about it. */
   diverged?: boolean;
+  /** The run a `Workflow` call launched. */
+  launched?: Launched;
 }
 
 /** One edit to a file: which file, the text replaced, what replaced it, and whether everywhere. */

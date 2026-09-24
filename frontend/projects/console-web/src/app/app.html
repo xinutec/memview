@@ -103,7 +103,12 @@
   } @else if (here.page(); as page) {
     <!-- A screen that is neither the list nor a session: the same shape as a session's
          bar, because it is the same kind of place. -->
-    <button matIconButton routerLink="/" aria-label="all sessions">
+    <button
+      matIconButton
+      [routerLink]="here.up().path"
+      [queryParams]="here.up().query"
+      [attr.aria-label]="here.up().path === '/' ? 'all sessions' : 'back'"
+    >
       <mat-icon>arrow_back</mat-icon>
     </button>
     <h1 class="name">{{ page }}</h1>

@@ -25,4 +25,5 @@ pub mod tasks;
 pub mod tls;
 pub mod trace;
 pub mod usage;
+pub mod workflows;
 pub mod zombies;

@@ -738,6 +738,39 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
     }
 }
 
+/// Where the last whole line of a transcript ends: a cursor that names no line
+/// still being written.
+pub fn written(path: &Path) -> u64 {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| bytes.iter().rposition(|byte| *byte == b'\n'))
+        .map_or(0, |at| at as u64 + 1)
+}
+
+/// What a transcript has gained since `from`, a cursor from [`written`] or from a
+/// previous call: the events of every whole line after it, and the cursor past them.
+pub fn since(path: &Path, from: u64) -> (Vec<crate::protocol::Timed>, u64) {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut buf = Vec::new();
+    let read = std::fs::File::open(path).and_then(|mut file| {
+        file.seek(SeekFrom::Start(from))?;
+        file.read_to_end(&mut buf)
+    });
+    if read.is_err() {
+        return (Vec::new(), from);
+    }
+    let whole = buf
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |at| at + 1);
+    let events = buf[..whole]
+        .split_inclusive(|byte| *byte == b'\n')
+        .flat_map(timed)
+        .collect();
+    (events, from + whole as u64)
+}
+
 fn read(path: &Path) -> Option<Conversation> {
     if !reader::transcript::is_transcript(path) {
         return None;

@@ -56,6 +56,11 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/landmarks", get(landmarks))
         .route("/api/sessions/{id}/parse", post(parse))
         .route("/api/sessions/{id}/edits", get(edits))
+        .route("/api/sessions/{id}/workflows/{run}", get(workflow))
+        .route(
+            "/api/sessions/{id}/workflows/{run}/agents/{agent}",
+            get(workflow_agent),
+        )
         .route("/api/hook", post(hook))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
@@ -952,6 +957,99 @@ async fn edits(
     Path(id): Path<String>,
 ) -> Json<crate::edits::Record> {
     Json(roster.edits().of(&id))
+}
+
+/// The directory of one workflow run launched by a session this console owns.
+fn run_dir(
+    roster: &Roster,
+    id: &str,
+    run: &str,
+) -> Result<std::path::PathBuf, (StatusCode, String)> {
+    roster
+        .get(id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    if !crate::workflows::is_run(run) {
+        return Err((StatusCode::BAD_REQUEST, format!("not a run id: {run}")));
+    }
+    let transcript = crate::past::transcript_of(&crate::past::projects_root(), id).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("no transcript on disk for {id}"),
+    ))?;
+    Ok(crate::workflows::dir(&transcript, run))
+}
+
+/// GET /api/sessions/{id}/workflows/{run} — the run's agents by phase, and what
+/// each working agent last called.
+async fn workflow(
+    State(roster): State<Arc<Roster>>,
+    Path((id, run)): Path<(String, String)>,
+) -> Result<Json<crate::workflows::Run>, (StatusCode, String)> {
+    let dir = run_dir(&roster, &id, &run)?;
+    tokio::task::spawn_blocking(move || crate::workflows::run(&dir))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, format!("no journal for {run}")))
+}
+
+/// Where in an agent's transcript to read: the page before `before`, what came
+/// after `after`, or with neither the newest page.
+#[derive(Debug, Deserialize)]
+struct Stretch {
+    before: Option<u64>,
+    after: Option<u64>,
+}
+
+/// A stretch of one agent's transcript, and the cursors on either side of it.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+struct Stretched {
+    events: Vec<console_protocol::Timed>,
+    /// The cursor for the page before this stretch. Zero means the start.
+    from: u64,
+    /// The cursor to ask `after` for what comes next.
+    to: u64,
+}
+
+/// GET /api/sessions/{id}/workflows/{run}/agents/{agent}
+async fn workflow_agent(
+    State(roster): State<Arc<Roster>>,
+    Path((id, run, agent)): Path<(String, String, String)>,
+    Query(asked): Query<Stretch>,
+) -> Result<Json<Stretched>, (StatusCode, String)> {
+    let dir = run_dir(&roster, &id, &run)?;
+    if !crate::workflows::is_agent(&agent) {
+        return Err((StatusCode::BAD_REQUEST, format!("not an agent id: {agent}")));
+    }
+    let path = crate::workflows::transcript(&dir, &agent);
+    if !path.is_file() {
+        return Err((StatusCode::NOT_FOUND, format!("no transcript for {agent}")));
+    }
+    let read = move || match (asked.before, asked.after) {
+        (_, Some(after)) => {
+            let (events, to) = crate::past::since(&path, after);
+            Stretched {
+                events,
+                from: after,
+                to,
+            }
+        }
+        (before, None) => {
+            let to = before.unwrap_or_else(|| crate::past::written(&path));
+            let page = crate::past::page(&path, Some(to));
+            Stretched {
+                events: page.events,
+                from: page.from,
+                to,
+            }
+        }
+    };
+    tokio::task::spawn_blocking(read)
+        .await
+        .map(Json)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
 /// What a Claude Code hook sends, as far as this reads it. Every field defaults: a

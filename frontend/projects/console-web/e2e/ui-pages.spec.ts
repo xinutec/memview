@@ -5334,3 +5334,122 @@ test('a message sent mid-answer does not cut the answer in half @ phone width', 
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
+
+test('a workflow opens on its agents by phase, and an agent on its transcript @ phone width', async ({
+  page,
+}, testInfo) => {
+  const run = 'wf_0480c7f6-60f';
+  const task = 'wpzk9pgqb';
+  const script =
+    "export const meta = {\n  name: 'comment-pass-1721',\n  phases: [{ title: 'Rewrite' }],\n}";
+  const working = 'a3ce095293b0f6627';
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: STATE.sessions.map((one) =>
+          one.id === RUNNING.id
+            ? {
+                ...one,
+                background: 1,
+                running: [{ tool: 'Workflow', label: 'comment-pass-1721', task }],
+              }
+            : one,
+        ),
+      },
+    }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'w1', name: 'Workflow', input: { script }, at: NEXT },
+        {
+          kind: 'tool_result',
+          id: 'w1',
+          ok: true,
+          detail: `Workflow launched in background. Task ID: ${task}\nSummary: Rewrite long comment blocks\nRun ID: ${run}`,
+          at: NEXT,
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  const command =
+    'cd /home/example/Code/xinutec-infra && cargo test --workspace --all-targets -- --test-threads=1 plan::runner::observe';
+  await page.route(`**/api/sessions/*/workflows/${run}`, (r) =>
+    r.fulfill({
+      json: {
+        phases: [
+          {
+            title: 'Rewrite',
+            agents: [
+              { id: 'af4359a23fcc0ae33', label: 'comments:core', done: true },
+              {
+                id: working,
+                label: 'comments:runner',
+                done: false,
+                latest: { kind: 'tool', id: 't9', name: 'Bash', input: { command }, at: NEXT },
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/api/sessions/*/workflows/${run}/agents/${working}*`, (r) =>
+    r.fulfill({
+      json: new URL(r.request().url()).searchParams.has('after')
+        ? { events: [], from: 900, to: 900 }
+        : {
+            events: [
+              { kind: 'prompt', text: 'You are doing part of a comment pass.', at: NEXT },
+              { kind: 'text', text: 'Reading the runner first.', at: NEXT },
+              {
+                kind: 'tool',
+                id: 't8',
+                name: 'Read',
+                input: { file_path: '/home/example/Code/xinutec-infra/plan/runner/src/act.rs' },
+                at: NEXT,
+              },
+              { kind: 'tool_result', id: 't8', ok: true, detail: 'fn act() {}', at: NEXT },
+              { kind: 'tool', id: 't9', name: 'Bash', input: { command }, at: NEXT },
+            ],
+            from: 0,
+            to: 900,
+          },
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  await page.locator('.entry.tool a.opens', { hasText: 'comment-pass-1721' }).click();
+  await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}/w/${run}\\?task=${task}`));
+  const view = page.locator('app-workflow-view');
+  await expect(view.locator('h2 .title')).toHaveText('Rewrite');
+  await expect(view.locator('h2 .tally')).toHaveText('1/2 done');
+  await expect(view.locator('.agent[data-state="done"] .label')).toHaveText('comments:core');
+  const busy = view.locator('.agent[data-state="working"]');
+  await expect(busy.locator('mat-spinner')).toBeVisible();
+  await expect(busy.locator('.doing')).toContainText('Bash');
+  await expect(page.locator('.bar .name')).toHaveText('comment-pass-1721');
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectNoClippedText(page, testInfo, 'app-workflow-view');
+  await page.screenshot({ path: testInfo.outputPath('workflow.png') });
+
+  await busy.click();
+  const agent = page.locator('app-agent-view');
+  await expect(agent.locator('.entry.asked .who')).toHaveText('workflow');
+  await expect(agent.locator('.entry.said')).toContainText('Reading the runner first.');
+  await expect(agent.locator('.entry.tools .count')).toContainText('2 tool calls');
+  await expect(agent.locator('.entry.tools .running')).toContainText('1 running');
+  await expect(page.locator('.bar .name')).toHaveText('comments:runner');
+  await expectNoHorizontalOverflow(page, testInfo);
+  await page.screenshot({ path: testInfo.outputPath('agent.png') });
+
+  await page.getByLabel('back').click();
+  await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}/w/${run}\\?task=${task}`));
+  await expect(view.locator('h2 .title')).toHaveText('Rewrite');
+});

@@ -88,33 +88,7 @@
   }
   @for (block of blocks(); track block.kind === 'one' ? block.entry : block.key) {
     @if (block.kind === 'tools') {
-      <li class="entry tools">
-        <button
-          type="button"
-          class="run"
-          [attr.aria-expanded]="folding.opensRun(block.key)"
-          (click)="folding.toggleRun(block.key)"
-        >
-          <mat-icon>{{ folding.opensRun(block.key) ? 'expand_less' : 'expand_more' }}</mat-icon>
-          <span class="count"
-            >{{ counted(block).calls }} tool calls
-            @if (counted(block).images; as images) {
-              ({{ images }} image{{ images === 1 ? '' : 's' }})
-            }
-          </span>
-          @if (counted(block).running) {
-            <span class="running">
-              {{ counted(block).running }} running {{ runningFor(block) | lasted }}
-            </span>
-          }
-          @if (counted(block).failed) {
-            <span class="bad">{{ counted(block).failed }} failed</span>
-          }
-          @if (counted(block).unrecorded) {
-            <span class="unrecorded">{{ counted(block).unrecorded }} unrecorded</span>
-          }
-        </button>
-      </li>
+      <li app-run [block]="block" [folding]="folding" [now]="now()"></li>
     }
     @for (entry of shown(block); track entry) {
       <li

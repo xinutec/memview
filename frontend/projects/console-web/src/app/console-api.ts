@@ -16,8 +16,10 @@ import {
   type Page,
   type Parsed,
   type Renaming,
+  type Run,
   type Shown,
   type Start,
+  type Stretched,
   type Summary,
   type Task,
   type Timed,
@@ -68,6 +70,27 @@ export class ConsoleApi {
   /** What each `Bash` call of a conversation was predicted to change, and which diverged. */
   edits(id: string): Observable<EditRecord> {
     return this.http.get<EditRecord>(`${session(id)}/edits`);
+  }
+
+  /** A workflow run the session launched: its agents by phase. */
+  workflow(id: string, run: string): Observable<Run> {
+    return this.http.get<Run>(`${session(id)}/workflows/${encodeURIComponent(run)}`);
+  }
+
+  /**
+   * A stretch of one workflow agent's transcript: the newest page, the page
+   * before `before`, or what came after `after`.
+   */
+  agent(
+    id: string,
+    run: string,
+    agent: string,
+    at: { before: number } | { after: number } | Record<string, never> = {},
+  ): Observable<Stretched> {
+    return this.http.get<Stretched>(
+      `${session(id)}/workflows/${encodeURIComponent(run)}/agents/${encodeURIComponent(agent)}`,
+      { params: at },
+    );
   }
 
   parse(id: string, command: string, ok?: boolean): Observable<Parsed> {

@@ -1,0 +1,31 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  --card-inset: 0.6rem;
+  --card-edge: 1px;
+}
+
+.trouble {
+  margin: 0.5rem 1rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-error);
+}
+
+.transcript {
+  list-style: none;
+  padding: 0 1rem 1rem;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.earlier {
+  align-self: center;
+}

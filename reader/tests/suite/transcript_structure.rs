@@ -274,3 +274,12 @@ fn a_complete_last_line_is_never_excused() {
     lines.push(r#"{"type":"user","broken"#.to_string());
     assert!(rules(&lines, Tail::MayBeIncomplete).contains(&Rule::Unparseable));
 }
+
+#[test]
+fn the_cost_line_the_harness_writes_is_metadata() {
+    let mut lines = healthy();
+    lines.push(format!(
+        r#"{{"type":"cost-state","sessionId":"{SESSION}","totalCostUSD":0.0263792,"totalAPIDuration":7255,"totalDuration":11174,"startTime":1790182734156,"modelUsage":{{}},"hasUnknownModelCost":false}}"#
+    ));
+    assert_eq!(rules(&lines, Tail::MustBeComplete), vec![]);
+}

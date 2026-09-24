@@ -1,0 +1,25 @@
+@let key = block().key;
+@let counted = this.counted();
+<button
+  type="button"
+  class="run"
+  [attr.aria-expanded]="folding().opensRun(key)"
+  (click)="folding().toggleRun(key)"
+>
+  <mat-icon>{{ folding().opensRun(key) ? 'expand_less' : 'expand_more' }}</mat-icon>
+  <span class="count"
+    >{{ counted.calls }} tool calls
+    @if (counted.images; as images) {
+      ({{ images }} image{{ images === 1 ? '' : 's' }})
+    }
+  </span>
+  @if (counted.running) {
+    <span class="running"> {{ counted.running }} running {{ runningFor() | lasted }} </span>
+  }
+  @if (counted.failed) {
+    <span class="bad">{{ counted.failed }} failed</span>
+  }
+  @if (counted.unrecorded) {
+    <span class="unrecorded">{{ counted.unrecorded }} unrecorded</span>
+  }
+</button>

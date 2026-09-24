@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { RouterLink } from '@angular/router';
 
 import { AskCard } from './ask-card';
 import { Clock } from './clock';
@@ -20,7 +21,7 @@ import { PICTURE, Rendered } from './rendered';
   templateUrl: './entry-row.html',
   styleUrl: './entry-row.scss',
   host: { '[class]': 'drawn()', class: 'entry' },
-  imports: [AskCard, Clock, Coloured, Lasted, MatButtonModule, MatIconModule, Rendered],
+  imports: [AskCard, Clock, Coloured, Lasted, MatButtonModule, MatIconModule, Rendered, RouterLink],
 })
 export class EntryRow {
   readonly entry = input.required<Entry>();
@@ -32,6 +33,8 @@ export class EntryRow {
   /** The picture currently shown full size, by name. */
   readonly full = input<string | undefined>(undefined);
   readonly pictureAt = input.required<(name: string) => string>();
+  /** Who a prompt came from, as its row says. */
+  readonly asker = input('you');
 
   readonly parse = output<ToolCall>();
   readonly diff = output<Change>();

@@ -789,6 +789,9 @@ themselves carry the reasoning.
 | `generated/`          | the wire types, written from the Rust ones by `scripts/gen-types.sh`; never edited      |
 | `models.ts`           | re-exports those, plus `Entry` — the transcript line as drawn — and the `KINDS` list   |
 | `entry-row.ts`        | one transcript line, typed by its kind                                                |
+| `run-row.ts`          | a run of tool calls folded into one row                                               |
+| `workflow-view.ts`    | one workflow run: its agents by phase                                                 |
+| `agent-view.ts`       | one workflow agent's transcript, read-only                                            |
 | `console-api.ts`      | HTTP, one method per route                                                            |
 | `host.ts`             | the interceptor: every failed request becomes a telemetry `fail`                      |
 | `updates.ts`          | notices a new bundle and decides _when_ to reload                                     |
@@ -1277,13 +1280,16 @@ field that reads like a measurement and is actually an aggregate.**
   Every tool that detaches says so in the first words it returns, and those words
   are the CLI's rather than ours. Measured against the same corpus — 13,858 calls
   whose result is known, 510 of them later followed by a task-notification: 495
-  carried one of the four phrases and were notified; 8 carried one with no
+  carried one of the phrases and were notified; 8 carried one with no
   notification yet, which is what a task still running looks like at the end of a
   file; 15 were notified with no phrase (13 `SendMessage` replies, whose result
   is JSON with nothing to match on); and 13,340 had neither. **Nothing matched a
   phrase without the work being real.**
 
-  One of the four is a category no rule about arguments could have reached: a
+  A `Workflow` launch is counted the same way: it has no foreground form, and its
+  result opens `Workflow launched in background. Task ID:`.
+
+  One of the phrases is a category no rule about arguments could have reached: a
   foreground command that outlives its timeout is moved to the background by the
   harness — thirteen of them in that transcript — while its input still says
   `run_in_background: false`, because that is what was asked for.
@@ -1294,7 +1300,7 @@ field that reads like a measurement and is actually an aggregate.**
   work that never started and leave the number stuck for the life of the session.
 
 - ⚠ **The phrase has to OPEN the result, or reading this page starts a task.**
-  The match was a `contains`, so any result that merely _quoted_ one of the four
+  The match was a `contains`, so any result that merely _quoted_ one of the
   openings counted as a launch — a grep for them, a read of the module that
   defines them, a read of the test that lists them verbatim. The console inflated
   its own count whenever anybody opened the rule behind it. Measured over this
@@ -1714,6 +1720,29 @@ buttons were.
 - **Not covered by a unit test: the inline recorder itself.** The spec sets
   `window.brokenAssets` directly, so it tests the draining and not the catching.
   Only a browser can show whether that script really runs before the `<link>`.
+
+### A workflow's agents
+
+A `Workflow` call's row is named by the workflow's name and opens the run. The run
+lives beside the launching session's transcript, in
+`<session>/subagents/workflows/<run>/`: `journal.jsonl` gets a line when each agent
+starts, carrying its label and phase, and another when it returns its result.
+Each agent keeps its own transcript there, with a meta file that names its label
+and phase where an older journal line does not.
+
+The run's screen lists the phases in the order they began, each with how many of
+its agents have returned, and under each phase its agents: returned, working (with
+the last tool call it made), or stopped without a result. The journal never marks
+the run finished. The run is over when its background task ends, which the
+session's running work already says, and an agent without a result after that
+stopped without one.
+
+An agent opens on its transcript, drawn with the same rows as a session's and
+read-only. It is read from its end, extended from where it was last read while
+the run is going, and paged back on request.
+
+Both screens are read through the session that launched the run, and only run
+and agent ids of the harness's shape become paths.
 
 ## What a command will change, before it runs
 
