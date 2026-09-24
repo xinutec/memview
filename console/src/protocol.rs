@@ -101,8 +101,7 @@ pub enum Event {
     Tool {
         id: String,
         name: String,
-        #[cfg_attr(feature = "ts", ts(type = "{ [key in string]: unknown }"))]
-        input: serde_json::Value,
+        does: crate::call::Call,
     },
     /// A background task the harness has finished with, named by whichever of the
     /// two ids the notification gave. Its own event rather than a prompt, since the
@@ -196,7 +195,12 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         detail: Option<String>,
-        #[cfg_attr(feature = "ts", ts(type = "{ [key in string]: unknown }"))]
+        does: crate::call::Call,
+        /// The arguments as the CLI sent them, kept for the answer, which echoes them
+        /// back with any answers written in. Never sent to a client, which reads
+        /// [`Self::Ask::does`].
+        #[serde(skip)]
+        #[cfg_attr(feature = "ts", ts(skip))]
         input: serde_json::Value,
     },
     /// A question that has been answered, so a second client stops offering a
@@ -700,9 +704,11 @@ pub fn read(line: &str) -> Vec<Event> {
                         .blocks()
                         .into_iter()
                         .filter_map(|block| match block {
-                            Block::ToolUse { id, name, input } => {
-                                Some(Event::Tool { id, name, input })
-                            }
+                            Block::ToolUse { id, name, input } => Some(Event::Tool {
+                                does: crate::call::Call::read(&name, &input),
+                                id,
+                                name,
+                            }),
                             Block::Text { text } if spoken && !text.trim().is_empty() => {
                                 Some(Event::Text { text })
                             }
@@ -753,6 +759,7 @@ pub fn read(line: &str) -> Vec<Event> {
         } => vec![Event::Ask {
             id: request_id,
             call: tool_use_id,
+            does: crate::call::Call::read(&tool_name, &input),
             tool: tool_name,
             title,
             detail: description,
@@ -1190,9 +1197,11 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                         .into_iter()
                         .filter_map(|block| match block {
                             Block::Text { text } => Some(Event::Text { text }),
-                            Block::ToolUse { id, name, input } => {
-                                Some(Event::Tool { id, name, input })
-                            }
+                            Block::ToolUse { id, name, input } => Some(Event::Tool {
+                                does: crate::call::Call::read(&name, &input),
+                                id,
+                                name,
+                            }),
                             _ => None,
                         }),
                 )
@@ -1343,68 +1352,18 @@ pub struct Called {
 /// command, which ran to several hundred characters.
 const LABEL_MAX: usize = 60;
 
-/// The name a workflow goes by: a saved one's `name`, else the `name` its script's
-/// `meta` literal declares, else the script file's, which the harness writes as
-/// `<name>-<run id>.js`.
-pub fn workflow_name(input: &serde_json::Value) -> Option<String> {
-    let field = |key: &str| input.get(key).and_then(serde_json::Value::as_str);
-    if let Some(name) = field("name") {
-        return Some(name.to_owned());
-    }
-    if let Some(script) = field("script") {
-        let meta = &script[script.find("meta")?..];
-        let rest = meta[meta.find("name")? + "name".len()..].trim_start();
-        let rest = rest.strip_prefix(':')?.trim_start();
-        let quote = rest
-            .chars()
-            .next()
-            .filter(|c| matches!(c, '\'' | '"' | '`'))?;
-        let name = &rest[1..];
-        return Some(name[..name.find(quote)?].to_owned());
-    }
-    let file = std::path::Path::new(field("scriptPath")?)
-        .file_stem()?
-        .to_str()?;
-    Some(
-        file.rsplit_once("-wf_")
-            .map_or(file, |(name, _)| name)
-            .to_owned(),
-    )
-}
-
-/// Read a tool call for the name and label a person would use for it: the
-/// tool's own `description` where it has one, else the field that carries the
-/// work. Nothing is invented.
-pub fn called(tool: &str, input: &serde_json::Value) -> Called {
-    let pick = |key: &str| {
-        input
-            .get(key)
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    };
-    if tool == "Workflow" {
-        return Called {
-            tool: tool.to_owned(),
-            label: workflow_name(input),
-            task: None,
-        };
-    }
-    // `description` first: it is the sentence the caller wrote about this call.
-    let label = pick("description")
-        .or_else(|| pick("command"))
-        .or_else(|| pick("prompt"))
-        .map(|text| {
-            // Collapse newlines: only the first line is legible in the strip anyway.
-            let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            if flat.chars().count() > LABEL_MAX {
-                let cut: String = flat.chars().take(LABEL_MAX).collect();
-                format!("{}…", cut.trim_end())
-            } else {
-                flat
-            }
-        });
+/// A call as the running strip names it: the tool, and [`crate::call::Call::label`]
+/// flattened to one line and cut to [`LABEL_MAX`].
+pub fn called(tool: &str, does: &crate::call::Call) -> Called {
+    let label = does.label().map(|text| {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if flat.chars().count() > LABEL_MAX {
+            let cut: String = flat.chars().take(LABEL_MAX).collect();
+            format!("{}…", cut.trim_end())
+        } else {
+            flat
+        }
+    });
     Called {
         tool: tool.to_owned(),
         label,

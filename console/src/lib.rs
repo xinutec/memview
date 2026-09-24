@@ -6,6 +6,7 @@
 
 pub mod api;
 pub mod attest;
+pub mod call;
 pub mod config;
 pub mod conversation;
 pub mod deaf;

@@ -396,6 +396,21 @@ pub struct Pending {
     pub detail: Option<String>,
 }
 
+impl Pending {
+    /// The question again, as the event a client is offered it by.
+    pub fn ask(self, id: String) -> Event {
+        Event::Ask {
+            id,
+            does: crate::call::Call::read(&self.tool, &self.input),
+            call: self.call,
+            tool: self.tool,
+            title: self.title,
+            detail: self.detail,
+            input: self.input,
+        }
+    }
+}
+
 /// The mutable half of a session, behind one lock.
 #[derive(Debug, Default)]
 struct State {
@@ -927,14 +942,7 @@ impl Session {
         // reconnecting client is offered the decision again and the session is
         // recorded as waiting for it.
         for (id, question) in pending {
-            session.push(Event::Ask {
-                id,
-                call: question.call,
-                tool: question.tool,
-                title: question.title,
-                detail: question.detail,
-                input: question.input,
-            });
+            session.push(question.ask(id));
         }
         // After the seed, because the seed ends with a `Joined`, which
         // `protocol::running` reads as `Running::Gone` — right for a resume, wrong for
@@ -1547,6 +1555,7 @@ impl Session {
                     input,
                     title,
                     detail,
+                    ..
                 } => {
                     state.pending.insert(
                         id.clone(),
@@ -1574,13 +1583,13 @@ impl Session {
                 _ => {}
             }
             // Remember what each call IS, so a detached one can be named — `State::called`.
-            if let Event::Tool { id, name, input } = &event {
+            if let Event::Tool { id, name, does } = &event {
                 if state.called.len() >= CALLED_RING {
                     state.called.pop_front();
                 }
                 state
                     .called
-                    .push_back((id.clone(), crate::protocol::called(name, input)));
+                    .push_back((id.clone(), crate::protocol::called(name, does)));
             }
             // Work left running is decided where the events are read — [`protocol::running`].
             match protocol::running(&event) {

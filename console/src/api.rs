@@ -749,17 +749,7 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     // to answer for ninety minutes. The same shape [`crate::session::Session::adopt`]
     // uses after ITS seed. Unnumbered: the real `Ask` is already at or below `through`.
     for (id, question) in session.asking() {
-        held.push(unnumbered(
-            ends,
-            Event::Ask {
-                id,
-                call: question.call,
-                tool: question.tool,
-                title: question.title,
-                detail: question.detail,
-                input: question.input,
-            },
-        ));
+        held.push(unnumbered(ends, question.ask(id)));
     }
     Some((held, through))
 }
@@ -1057,7 +1047,7 @@ async fn workflow_agent(
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Hooked {
-    hook_event_name: String,
+    hook_event_name: Hook,
     session_id: String,
     tool_name: String,
     tool_use_id: String,
@@ -1065,21 +1055,29 @@ struct Hooked {
     tool_input: serde_json::Value,
 }
 
+/// When in a call's life a hook fired. Only the two this answers are named.
+#[derive(Deserialize, Default, PartialEq)]
+enum Hook {
+    PreToolUse,
+    PostToolUse,
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
 /// POST /api/hook — a `Bash` call about to run, or just finished. Before: predict
 /// what it will change and tell the session's listeners. After: check the files
 /// against the prediction, and say when they diverge. The hook waits on this.
 async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> StatusCode {
-    if hooked.tool_name != "Bash" {
+    let crate::call::Call::Bash { command, .. } =
+        crate::call::Call::read(&hooked.tool_name, &hooked.tool_input)
+    else {
         return StatusCode::NO_CONTENT;
-    }
+    };
     let edits = roster.edits();
     let call = hooked.tool_use_id.clone();
-    match hooked.hook_event_name.as_str() {
-        "PreToolUse" => {
-            let command = hooked.tool_input["command"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
+    match hooked.hook_event_name {
+        Hook::PreToolUse => {
             let (session, cwd) = (hooked.session_id.clone(), hooked.cwd.clone());
             let predicted =
                 tokio::task::spawn_blocking(move || edits.before(&session, &call, &command, &cwd))
@@ -1090,7 +1088,7 @@ async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> 
                 held.edited(edited);
             }
         }
-        "PostToolUse" => {
+        Hook::PostToolUse => {
             let checked = tokio::task::spawn_blocking(move || edits.after(&call))
                 .await
                 .ok()
@@ -1102,7 +1100,7 @@ async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> 
                 held.diverged(diverged);
             }
         }
-        _ => {}
+        Hook::Other => {}
     }
     StatusCode::NO_CONTENT
 }

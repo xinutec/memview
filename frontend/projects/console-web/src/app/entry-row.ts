@@ -52,6 +52,6 @@ export class EntryRow {
   }
 
   protected parseable(entry: ToolCall): boolean {
-    return entry.tool === 'Bash' && !!entry.text.trim();
+    return entry.does?.kind === 'bash';
   }
 }

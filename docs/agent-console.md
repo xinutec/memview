@@ -829,10 +829,16 @@ already had, every time, for ever.
 
 ### Rules that are not obvious
 
+- **A client never reads a tool's arguments.** The runner reads them once into a
+  typed call (`console/src/call.rs`) — a shell command, an edit, questions, a
+  workflow, or anything else by the one argument worth showing — and a `tool` or
+  `ask` event carries that as `does`. A tool whose arguments change shape falls
+  to `other` in that one place, not to a blank field on the phone. The raw
+  arguments of a question stay on the Mac, where the answer is written into them.
 - **Component styles cannot reach `[innerHTML]` content.** Emulated encapsulation
   rewrites every selector with a scope attribute that injected nodes do not
   carry. Markdown styling therefore lives in the global `styles.scss`, scoped by
-  the element selector `app-session-view`.
+  the element selectors `app-session-view` and `app-agent-view`.
 - **Never `<details>` for folding.** Closed, its content stays in the DOM under
   `content-visibility: hidden` — still laid out, still measured — which the
   layout harness reported as 41 text overlaps.
@@ -1015,8 +1021,8 @@ Three decisions worth keeping:
   because one under every question is a screenful of card before it says
   anything.
 - **A question whose arguments cannot be read falls back to allow/refuse.**
-  Parsing is all-or-nothing: a half-read question would show fewer options than
-  were offered, and nobody choosing from a list can tell that an option is
+  The runner reads them all-or-nothing into the call's `question` shape: a
+  half-read question would show fewer options than were offered, and nobody choosing from a list can tell that an option is
   missing. Visibly less beats quietly wrong, and the fallback still lets the
   session move.
 

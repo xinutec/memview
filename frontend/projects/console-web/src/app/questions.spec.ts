@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { choiceOf, complete, questionsOf } from './questions';
-import { first } from './testing';
+import { type Question, choiceOf, complete } from './questions';
 
-/** The shape a real `AskUserQuestion` arrives in, captured off the wire. */
-const ASKED = {
+/** A real `AskUserQuestion`, as the runner reads it. */
+const ASKED: { questions: Question[] } = {
   questions: [
     {
       question: 'how far should the question UI go?',
@@ -17,62 +16,6 @@ const ASKED = {
     },
   ],
 };
-
-describe('questionsOf', () => {
-  it('reads a question the way it was asked', () => {
-    const question = first(questionsOf(ASKED) ?? []);
-    expect(question.question).toBe('how far should the question UI go?');
-    expect(question.header).toBe('Scope');
-    expect(question.multiSelect).toBe(false);
-    expect(question.options.map((o) => o.label)).toEqual(['options only', 'full parity']);
-    expect(first(question.options).description).toBe('render each option as a button');
-  });
-
-  it('says nothing about a tool call that asks no questions', () => {
-    // Every other `ask` takes this path, and it is what keeps the ordinary
-    // allow/refuse row for them.
-    expect(questionsOf({ command: 'rm -rf /tmp/x' })).toBeUndefined();
-    expect(questionsOf(undefined)).toBeUndefined();
-    expect(questionsOf({ questions: [] })).toBeUndefined();
-  });
-
-  it('drops the whole ask rather than showing part of a question', () => {
-    // The case this exists for. A person choosing from a list cannot tell that
-    // an option is missing, so a half-read question would be answered wrongly
-    // with no way to notice. Falling back to allow/refuse is visibly less, and
-    // wrong-looking beats wrong.
-    const damaged = {
-      questions: [
-        {
-          question: 'which way?',
-          options: [{ label: 'left' }, { description: 'no label at all' }],
-        },
-      ],
-    };
-    expect(questionsOf(damaged)).toBeUndefined();
-  });
-
-  it('drops an ask where one question of several is unreadable', () => {
-    const half = { questions: [ASKED.questions[0], { question: 'and?', options: [] }] };
-    expect(questionsOf(half)).toBeUndefined();
-  });
-
-  it('treats a missing multiSelect as a single choice', () => {
-    // The safe direction: guessing the other way would let one tap answer a
-    // question that wanted several, and send before the person had finished.
-    const question = first(
-      questionsOf({ questions: [{ ...first(ASKED.questions), multiSelect: 'yes' }] }) ?? [],
-    );
-    expect(question.multiSelect).toBe(false);
-  });
-
-  it('fills in a header that was not sent rather than dropping the question', () => {
-    const question = first(
-      questionsOf({ questions: [{ ...first(ASKED.questions), header: undefined }] }) ?? [],
-    );
-    expect(question.header).toBe('');
-  });
-});
 
 describe('choiceOf', () => {
   it('says the label that was picked', () => {
@@ -125,7 +68,7 @@ describe('choiceOf', () => {
 });
 
 describe('complete', () => {
-  const questions = questionsOf(ASKED) ?? [];
+  const questions = ASKED.questions;
 
   it('is not ready while nothing has been chosen', () => {
     expect(complete(questions, {})).toBe(false);

@@ -1,7 +1,14 @@
 import { unhandled } from './exhaustive';
-import { type Asked, type Change, type Entry, type Timed, type ToolCall, asking } from './models';
-import { QUESTION_TOOL, questionsOf } from './questions';
-import { launched, workflowName } from './workflow';
+import {
+  type Asked,
+  type Call,
+  type Change,
+  type Entry,
+  type Timed,
+  type ToolCall,
+  asking,
+} from './models';
+import { launched } from './workflow';
 
 /**
  * Fold one event into the transcript so far.
@@ -62,8 +69,9 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         kind: 'tool',
         call: event.id,
         tool: event.name,
-        text: describe(event.name, event.input),
-        change: changed(event.name, event.input),
+        does: event.does,
+        text: describe(event.name, event.does),
+        change: changed(event.does),
         at: at(event),
       });
       break;
@@ -78,12 +86,12 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         cut: event.cut ?? undefined,
         head: event.detail.split('\n', 1)[0],
         picture: event.image && call.text.startsWith('/') ? call.text : undefined,
-        launched: call.tool === 'Workflow' ? launched(event.detail) : undefined,
+        launched: call.does?.kind === 'workflow' ? launched(event.detail) : undefined,
       };
       break;
     }
     case 'ask': {
-      const questions = event.tool === QUESTION_TOOL ? questionsOf(event.input) : undefined;
+      const questions = event.does.kind === 'question' ? event.does.questions : undefined;
       const called = event.call ? callIn(out, event.call) : undefined;
       if (called) {
         out[out.indexOf(called)] = {
@@ -98,10 +106,11 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         kind: 'ask',
         ask: event.id,
         tool: event.tool,
-        text: event.title ?? describe(event.tool, event.input),
+        does: event.does,
+        text: event.title ?? describe(event.tool, event.does),
         at: at(event),
         questions,
-        change: changed(event.tool, event.input),
+        change: changed(event.does),
       });
       break;
     }
@@ -250,22 +259,30 @@ function date(at: number): string {
   });
 }
 
-/** What an `Edit` replaced, read off its arguments; nothing for any other call. */
-function changed(name: string, args: Readonly<Record<string, unknown>>): Change | undefined {
-  const { file_path: path, old_string: before, new_string: after, replace_all: all } = args;
-  if (name !== 'Edit' || typeof path !== 'string') return undefined;
-  if (typeof before !== 'string' || typeof after !== 'string') return undefined;
-  return { path, before, after, everywhere: all === true };
+/** What an `Edit` replaces; nothing for any other call. */
+function changed(does: Call): Change | undefined {
+  if (does.kind !== 'edit') return undefined;
+  const { path, before, after, everywhere } = does;
+  return { path, before, after, everywhere };
 }
 
-/** The one argument worth showing for a call, else the argument names. */
-function describe(name: string, args: Readonly<Record<string, unknown>>): string {
-  if (name === 'Workflow') return workflowName(args) ?? name;
-  for (const key of ['file_path', 'path', 'command', 'pattern', 'url', 'prompt', 'description']) {
-    const value = args[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
+/** The one thing worth showing for a call. */
+function describe(tool: string, does: Call): string {
+  switch (does.kind) {
+    case 'bash':
+      return does.command;
+    case 'edit':
+      return does.path;
+    case 'question':
+      return does.questions[0]?.question ?? tool;
+    case 'workflow':
+      return does.name ?? tool;
+    case 'other':
+      return does.shown;
+    default:
+      unhandled(does);
+      return tool;
   }
-  return Object.keys(args).join(', ') || name;
 }
 
 function count(n: number, thing: string): string {

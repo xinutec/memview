@@ -995,7 +995,7 @@ fn a_permission_request_without_a_call_is_still_a_question() {
 /// A count alone, *1 background task running*, cannot say which.
 #[test]
 fn a_call_is_named_by_its_description() {
-    let called = console::protocol::called(
+    let called = strip(
         "Bash",
         &serde_json::json!({ "command": "sleep 600", "description": "Wait for the build" }),
     );
@@ -1006,11 +1006,10 @@ fn a_call_is_named_by_its_description() {
 
 #[test]
 fn a_call_without_a_description_falls_back_to_the_work() {
-    let called =
-        console::protocol::called("Bash", &serde_json::json!({ "command": "cargo build" }));
+    let called = strip("Bash", &serde_json::json!({ "command": "cargo build" }));
     assert_eq!(called.label.as_deref(), Some("cargo build"));
 
-    let agent = console::protocol::called("Agent", &serde_json::json!({ "prompt": "find bugs" }));
+    let agent = strip("Agent", &serde_json::json!({ "prompt": "find bugs" }));
     assert_eq!(agent.label.as_deref(), Some("find bugs"));
 }
 
@@ -1018,12 +1017,12 @@ fn a_call_without_a_description_falls_back_to_the_work() {
 /// tool name alone — better unlabelled than a rendering of its JSON.
 #[test]
 fn a_call_with_nothing_readable_is_left_unlabelled() {
-    let called = console::protocol::called("Monitor", &serde_json::json!({ "timeout_ms": 1000 }));
+    let called = strip("Monitor", &serde_json::json!({ "timeout_ms": 1000 }));
     assert_eq!(called.tool, "Monitor");
     assert_eq!(called.label, None);
 
     // Whitespace is not a label either.
-    let blank = console::protocol::called("Bash", &serde_json::json!({ "description": "   " }));
+    let blank = strip("Bash", &serde_json::json!({ "description": "   " }));
     assert_eq!(blank.label, None);
 }
 
@@ -1032,7 +1031,7 @@ fn a_call_with_nothing_readable_is_left_unlabelled() {
 #[test]
 fn a_long_label_is_cut_and_flattened() {
     let long = "x".repeat(500);
-    let called = console::protocol::called("Bash", &serde_json::json!({ "command": long }));
+    let called = strip("Bash", &serde_json::json!({ "command": long }));
     let label = called.label.expect("a label");
     assert!(
         label.chars().count() <= 61,
@@ -1042,7 +1041,7 @@ fn a_long_label_is_cut_and_flattened() {
     assert!(label.ends_with('…'), "the cut is visible: {label}");
 
     // A heredoc would otherwise take the strip down the page.
-    let multi = console::protocol::called(
+    let multi = strip(
         "Bash",
         &serde_json::json!({ "command": "one\n  two\n\tthree" }),
     );
@@ -1165,17 +1164,22 @@ fn other_attachments_are_not_things_a_person_said() {
 
 #[test]
 fn a_workflow_is_labelled_by_the_name_its_script_declares() {
-    let inline = console::protocol::called(
+    let inline = strip(
         "Workflow",
         &serde_json::json!({ "script": "export const meta = {\n  name: 'comment-pass-1721',\n  description: 'Rewrite comments',\n}\nawait agent('x')" }),
     );
     assert_eq!(inline.label.as_deref(), Some("comment-pass-1721"));
-    let saved =
-        console::protocol::called("Workflow", &serde_json::json!({ "name": "deep-research" }));
+    let saved = strip("Workflow", &serde_json::json!({ "name": "deep-research" }));
     assert_eq!(saved.label.as_deref(), Some("deep-research"));
-    let resumed = console::protocol::called(
+    let resumed = strip(
         "Workflow",
         &serde_json::json!({ "scriptPath": "/p/workflows/scripts/comment-pass-1721-wf_0480c7f6-60f.js" }),
     );
     assert_eq!(resumed.label.as_deref(), Some("comment-pass-1721"));
+}
+
+/// The strip's name for a call, read from its raw arguments the way a transcript
+/// line arrives.
+fn strip(tool: &str, input: &serde_json::Value) -> console::protocol::Called {
+    console::protocol::called(tool, &console::call::Call::read(tool, input))
 }

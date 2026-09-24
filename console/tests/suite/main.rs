@@ -11,6 +11,7 @@
 //! `tests/*.rs` of its own, and with it its own process.
 
 mod attest;
+mod call;
 mod conversation;
 mod drafts;
 mod edits;

@@ -367,7 +367,7 @@ const TRANSCRIPT = [
     kind: 'tool',
     id: 'toolu_00',
     name: 'Bash',
-    input: { command: 'nix develop -c home-manager switch --flake .#pippijn' },
+    does: { kind: 'bash', command: 'nix develop -c home-manager switch --flake .#pippijn' },
     at: LATE,
   },
   // Carries an `at`, as a real `Joined` always does — the runner pushes it through `push()`, which
@@ -384,9 +384,9 @@ const TRANSCRIPT = [
     kind: 'tool',
     id: 'toolu_01',
     name: 'Read',
-    input: {
-      file_path:
-        '/home/example/Code/health/packages/health-sync-backend/src/decode/matcher-gate.ts',
+    does: {
+      kind: 'other',
+      shown: '/home/example/Code/health/packages/health-sync-backend/src/decode/matcher-gate.ts',
     },
     at: NEXT,
   },
@@ -397,7 +397,8 @@ const TRANSCRIPT = [
     kind: 'tool',
     id: 'toolu_02',
     name: 'Bash',
-    input: {
+    does: {
+      kind: 'bash',
       command:
         'nix develop -c lake build && ./verified_cli match --serve --timeout 30000ms | tee /tmp/lean-gate.log',
     },
@@ -441,7 +442,7 @@ const TRANSCRIPT = [
     id: '8ed3af09-323c-404b-8368-9682dca75d26',
     tool: 'Bash',
     title: 'Claude wants to run nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log',
-    input: { command: 'nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log' },
+    does: { kind: 'bash', command: 'nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log' },
     at: NEXT,
   },
 ];
@@ -461,7 +462,8 @@ const QUESTION_TRANSCRIPT = [
     kind: 'ask',
     id: 'c9f0a1b2-0000-4000-8000-00000000000a',
     tool: 'AskUserQuestion',
-    input: {
+    does: {
+      kind: 'question',
       questions: [
         {
           question: 'How far should the question UI go?',
@@ -1487,15 +1489,27 @@ test('a picture can be put down again without being sent @ phone width', async (
  */
 const DECIDING = [
   { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code/memview', tools: 14 },
-  { kind: 'tool', id: 'toolu_a1', name: 'Bash', input: { command: 'git status' }, at: NEXT },
+  {
+    kind: 'tool',
+    id: 'toolu_a1',
+    name: 'Bash',
+    does: { kind: 'bash', command: 'git status' },
+    at: NEXT,
+  },
   { kind: 'tool_result', id: 'toolu_a1', ok: true, detail: 'nothing to commit' },
-  { kind: 'tool', id: 'toolu_a2', name: 'Bash', input: { command: 'git diff --stat' }, at: NEXT },
+  {
+    kind: 'tool',
+    id: 'toolu_a2',
+    name: 'Bash',
+    does: { kind: 'bash', command: 'git diff --stat' },
+    at: NEXT,
+  },
   { kind: 'tool_result', id: 'toolu_a2', ok: true, detail: '2 files changed' },
   {
     kind: 'tool',
     id: 'toolu_a3',
     name: 'Write',
-    input: { file_path: '/home/example/Code/memview/notes.md', content: 'hi\n' },
+    does: { kind: 'other', shown: '/home/example/Code/memview/notes.md' },
     at: NEXT,
   },
   {
@@ -1504,7 +1518,7 @@ const DECIDING = [
     call: 'toolu_a3',
     tool: 'Write',
     title: 'Claude wants to write /home/example/Code/memview/notes.md',
-    input: { file_path: '/home/example/Code/memview/notes.md', content: 'hi\n' },
+    does: { kind: 'other', shown: '/home/example/Code/memview/notes.md' },
     at: NEXT,
   },
 ];
@@ -1775,7 +1789,10 @@ test('a lone single-choice question answers on the tap @ phone width', async ({ 
   const asking = last(QUESTION_TRANSCRIPT);
   const alone = {
     ...asking,
-    input: { questions: [first((asking.input as { questions: unknown[] }).questions)] },
+    does: {
+      kind: 'question',
+      questions: [first((asking.does as { questions: unknown[] }).questions)],
+    },
   };
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
@@ -3744,7 +3761,12 @@ test('a tool call on its own says which tool it was @ phone width', async ({ pag
   await say(page, { kind: 'said', text: 'Let me look at the gate.' }, ++seq);
   await say(
     page,
-    { kind: 'tool', id: 'lone', name: 'Read', input: { file_path: '/home/example/gate.ts' } },
+    {
+      kind: 'tool',
+      id: 'lone',
+      name: 'Read',
+      does: { kind: 'other', shown: '/home/example/gate.ts' },
+    },
     ++seq,
   );
   await say(page, { kind: 'said', text: 'That is the one.' }, ++seq);
@@ -3784,7 +3806,13 @@ test('a running thing says how long it has been running @ phone width', async ({
   await say(page, { kind: 'busy', status: 'requesting', at: began }, ++seq);
   await say(
     page,
-    { kind: 'tool', id: 'slow', name: 'Bash', input: { command: 'cargo build' }, at: began },
+    {
+      kind: 'tool',
+      id: 'slow',
+      name: 'Bash',
+      does: { kind: 'bash', command: 'cargo build' },
+      at: began,
+    },
     ++seq,
   );
 
@@ -3818,8 +3846,18 @@ test('a run stays folded while it works, and says it is working @ phone width', 
   await page.locator('.transcript').waitFor();
   let seq = 0;
   for (const event of [
-    { kind: 'tool', id: 'run_a', name: 'Bash', input: { command: 'cargo build --workspace' } },
-    { kind: 'tool', id: 'run_b', name: 'Bash', input: { command: 'cargo test --all-features' } },
+    {
+      kind: 'tool',
+      id: 'run_a',
+      name: 'Bash',
+      does: { kind: 'bash', command: 'cargo build --workspace' },
+    },
+    {
+      kind: 'tool',
+      id: 'run_b',
+      name: 'Bash',
+      does: { kind: 'bash', command: 'cargo test --all-features' },
+    },
   ]) {
     await say(page, event, ++seq);
   }
@@ -4187,7 +4225,12 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
           allowed: true,
           reply: { answers: { 'How far should the question UI go?': 'options only' } },
         },
-        { kind: 'tool', id: 'toolu_after', name: 'Bash', input: { command: 'echo taken up' } },
+        {
+          kind: 'tool',
+          id: 'toolu_after',
+          name: 'Bash',
+          does: { kind: 'bash', command: 'echo taken up' },
+        },
       ]
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -4753,11 +4796,13 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
           kind: 'tool',
           id: 'e1',
           name: 'Edit',
-          input: {
-            file_path: '/home/example/Code/xinutec-infra/plan/core/src/intent.rs',
-            old_string:
+          does: {
+            kind: 'edit',
+            path: '/home/example/Code/xinutec-infra/plan/core/src/intent.rs',
+            before:
               "/// Only this fact's probes are dropped, on the assumption that an effect closing one\n/// fact does not disturb another.\nfn dropped() {}",
-            new_string: "/// Only this fact's probes are dropped.\nfn dropped() {}",
+            after: "/// Only this fact's probes are dropped.\nfn dropped() {}",
+            everywhere: false,
           },
           at: NEXT,
         },
@@ -4795,7 +4840,7 @@ test('what a command is predicted to change is marked on its row and drawn in it
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', input: { command }, at: NEXT },
+        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
         { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
         {
           kind: 'edited',
@@ -4844,13 +4889,20 @@ test('a command waiting for permission shows what it will change @ phone width',
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', input: { command }, at: NEXT },
+        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
         {
           kind: 'edited',
           call: 'b1',
           hunks: [{ path: '/home/example/Code/notes.txt', before: 'old\n', after: 'new\n' }],
         },
-        { kind: 'ask', id: 'q1', call: 'b1', tool: 'Bash', input: { command }, at: NEXT },
+        {
+          kind: 'ask',
+          id: 'q1',
+          call: 'b1',
+          tool: 'Bash',
+          does: { kind: 'bash', command },
+          at: NEXT,
+        },
       ]
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -4881,7 +4933,13 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', input: { command: 'echo x > a' }, at: NEXT },
+        {
+          kind: 'tool',
+          id: 'b1',
+          name: 'Bash',
+          does: { kind: 'bash', command: 'echo x > a' },
+          at: NEXT,
+        },
         {
           kind: 'edited',
           call: 'b1',
@@ -4910,10 +4968,12 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
   page,
 }, testInfo) => {
-  const input = {
-    file_path: '/home/example/Code/memview/console/src/usage.rs',
-    old_string: 'const EVERY: Duration = Duration::from_secs(300);',
-    new_string: 'const EVERY: Duration = Duration::from_secs(60);',
+  const does = {
+    kind: 'edit',
+    path: '/home/example/Code/memview/console/src/usage.rs',
+    before: 'const EVERY: Duration = Duration::from_secs(300);',
+    after: 'const EVERY: Duration = Duration::from_secs(60);',
+    everywhere: false,
   };
   await mockRunner(page);
   await page.route('**/api/sessions/*/events', (r) =>
@@ -4921,13 +4981,13 @@ test('an edit waiting for permission can be read before it is allowed @ phone wi
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'e1', name: 'Edit', input, at: NEXT },
+        { kind: 'tool', id: 'e1', name: 'Edit', does, at: NEXT },
         {
           kind: 'ask',
           id: 'q1',
           call: 'e1',
           tool: 'Edit',
-          input,
+          does,
           title: 'Edit usage.rs',
           at: NEXT,
         },
@@ -4961,7 +5021,7 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'r1', name: 'Read', input: { file_path: SHOT }, at: NEXT },
+        { kind: 'tool', id: 'r1', name: 'Read', does: { kind: 'other', shown: SHOT }, at: NEXT },
         { kind: 'tool_result', id: 'r1', ok: true, detail: '[an image]', image: true, at: NEXT },
       ]
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
@@ -5340,8 +5400,6 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
 }, testInfo) => {
   const run = 'wf_0480c7f6-60f';
   const task = 'wpzk9pgqb';
-  const script =
-    "export const meta = {\n  name: 'comment-pass-1721',\n  phases: [{ title: 'Rewrite' }],\n}";
   const working = 'a3ce095293b0f6627';
   await mockRunner(page);
   await page.route('**/api/state', (r) =>
@@ -5365,7 +5423,13 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
       contentType: 'text/event-stream',
       body: [
         { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'w1', name: 'Workflow', input: { script }, at: NEXT },
+        {
+          kind: 'tool',
+          id: 'w1',
+          name: 'Workflow',
+          does: { kind: 'workflow', name: 'comment-pass-1721' },
+          at: NEXT,
+        },
         {
           kind: 'tool_result',
           id: 'w1',
@@ -5392,7 +5456,13 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
                 id: working,
                 label: 'comments:runner',
                 done: false,
-                latest: { kind: 'tool', id: 't9', name: 'Bash', input: { command }, at: NEXT },
+                latest: {
+                  kind: 'tool',
+                  id: 't9',
+                  name: 'Bash',
+                  does: { kind: 'bash', command },
+                  at: NEXT,
+                },
               },
             ],
           },
@@ -5412,11 +5482,14 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
                 kind: 'tool',
                 id: 't8',
                 name: 'Read',
-                input: { file_path: '/home/example/Code/xinutec-infra/plan/runner/src/act.rs' },
+                does: {
+                  kind: 'other',
+                  shown: '/home/example/Code/xinutec-infra/plan/runner/src/act.rs',
+                },
                 at: NEXT,
               },
               { kind: 'tool_result', id: 't8', ok: true, detail: 'fn act() {}', at: NEXT },
-              { kind: 'tool', id: 't9', name: 'Bash', input: { command }, at: NEXT },
+              { kind: 'tool', id: 't9', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
             ],
             from: 0,
             to: 900,

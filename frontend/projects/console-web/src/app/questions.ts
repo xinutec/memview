@@ -5,77 +5,17 @@
  * input it has written the choice into (`updatedInput`).
  */
 import type { Answer } from './generated/Answer';
+import type { Question } from './generated/Question';
 import type { Reply } from './generated/Reply';
 
-export const QUESTION_TOOL = 'AskUserQuestion';
-
-/** One thing that could be picked. */
-export interface Choice {
-  readonly label: string;
-  /** What picking it would mean. Often the only part worth reading. */
-  readonly description: string;
-}
-
-/** One question, as the tool asked it. */
-export interface Question {
-  readonly question: string;
-  /** A word or two naming the decision, for the chip above it. May be empty. */
-  readonly header: string;
-  readonly multiSelect: boolean;
-  readonly options: readonly Choice[];
-}
+export type { Choice } from './generated/Choice';
+export type { Question } from './generated/Question';
 
 /**
  * What was chosen: the question's own text against the label, or labels,
  * picked — verbatim, since the CLI matches them against what it offered.
  */
 export type Answers = Record<string, Answer>;
-
-/**
- * The questions in a tool call's arguments, or nothing if they cannot be read.
- * All or nothing: a half-read question would show fewer options than were
- * offered. A caller that gets nothing falls to the ordinary allow/refuse row.
- */
-export function questionsOf(input: unknown): readonly Question[] | undefined {
-  if (!isRecord(input)) return undefined;
-  const raw = input['questions'];
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const read = raw.map(question).filter((q): q is Question => q !== undefined);
-  return read.length === raw.length ? read : undefined;
-}
-
-function question(value: unknown): Question | undefined {
-  if (!isRecord(value)) return undefined;
-  const raw = value;
-  const asked = raw['question'];
-  const options = raw['options'];
-  if (typeof asked !== 'string' || asked === '' || !Array.isArray(options)) return undefined;
-  const read = options.map(choice).filter((c): c is Choice => c !== undefined);
-  if (read.length === 0 || read.length !== options.length) return undefined;
-  return {
-    question: asked,
-    header: typeof raw['header'] === 'string' ? raw['header'] : '',
-    // Anything other than an explicit `true` is a single choice.
-    multiSelect: raw['multiSelect'] === true,
-    options: read,
-  };
-}
-
-function choice(value: unknown): Choice | undefined {
-  if (!isRecord(value)) return undefined;
-  const raw = value;
-  const label = raw['label'];
-  if (typeof label !== 'string' || label === '') return undefined;
-  return {
-    label,
-    description: typeof raw['description'] === 'string' ? raw['description'] : '',
-  };
-}
-
-/** A narrowing rather than an assertion: everything here arrives as JSON off a socket. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /** Notes against questions, by the question's own text. */
 export type Notes = Record<string, string>;

@@ -3,12 +3,14 @@
  * `scripts/gen-types.sh` — plus the one shape the client builds for itself.
  */
 
-import type { Question } from './questions';
+import type { Question } from './generated/Question';
+import type { Call } from './generated/Call';
 import type { Event } from './generated/Event';
 import type { Reply } from './generated/Reply';
 import type { Launched } from './workflow';
 
 export type { Agent } from './generated/Agent';
+export type { Call } from './generated/Call';
 export type { Called } from './generated/Called';
 export type { Conversation } from './generated/Conversation';
 export type { CorpusRead } from './generated/CorpusRead';
@@ -83,6 +85,19 @@ type Unlisted = Exclude<Kind, (typeof KINDS)[number]>;
 const everyKindIsListed: Unlisted extends never ? true : never = true;
 void everyKindIsListed;
 
+/** Every kind of call the runner reads a tool's arguments into, checked both ways as [[KINDS]] is. */
+export const CALLS = [
+  'bash',
+  'edit',
+  'question',
+  'workflow',
+  'other',
+] as const satisfies readonly Call['kind'][];
+
+type UnlistedCall = Exclude<Call['kind'], (typeof CALLS)[number]>;
+const everyCallIsListed: UnlistedCall extends never ? true : never = true;
+void everyCallIsListed;
+
 /** One line of the transcript as drawn: what the fold makes of the events. */
 export type Entry = Said | Asked | Sent | ToolCall | Asking | Noted;
 
@@ -116,8 +131,10 @@ export interface Ask {
   ask: string;
   /** Undefined until decided; then the verdict. */
   allowed?: boolean;
-  /** Present when the tool was AskUserQuestion and its input could be read. */
+  /** Present when the tool was AskUserQuestion and every question could be read. */
   questions?: readonly Question[];
+  /** What the call does, as the runner read its arguments. */
+  does?: Call;
   reply?: Reply;
   /** Decided here, not yet taken up by the runner. */
   settling?: boolean;
