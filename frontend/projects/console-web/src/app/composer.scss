@@ -1,6 +1,6 @@
 // In flow at the end of a column that fills the screen — under your thumb
 // wherever you are, without covering the last message as `position: fixed`
-// did. The host is the flex item, so it is `display: block`.
+// would. The host is the flex item, so it is `display: block`.
 :host {
   flex: 0 0 auto;
   display: block;
@@ -15,7 +15,7 @@
   padding: 0.5rem 1rem;
   background: var(--mat-sys-surface-container);
   // No width cap and no centring: `.page` above already stops at 60rem, and a
-  // second cap here only ever made the box narrower than the screen.
+  // second cap here only makes the box narrower than the screen.
 }
 
 .box {

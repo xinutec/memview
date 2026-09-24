@@ -1,7 +1,7 @@
 <!-- The address first, ellipsised from the left: renders differ at the end of the path. -->
 <header class="what">
   <!-- `<bdi>`, not bare text: the span is `direction: rtl` so the cut falls at the
-       START, and without an isolate the bidi algorithm moves a leading `/` to the
+       start, and without an isolate the bidi algorithm moves a leading `/` to the
        other end. -->
   <span class="where" [title]="url"
     ><bdi>{{ url }}</bdi></span

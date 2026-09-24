@@ -29,7 +29,7 @@ import {
 
 /**
  * How far a finger may wander before the gesture stops being a tap: at zero
- * every tap was a one-pixel drag.
+ * every tap is a one-pixel drag.
  */
 const SLIP = 8;
 
@@ -87,7 +87,7 @@ export class PictureSheet implements OnDestroy {
   /**
    * The fingers currently on the picture, by the id the browser gives each. A
    * `Map`: a third finger mid-pinch, or a pointer whose `up` never arrives, are
-   * ordinary, and two fields left a stale one behind.
+   * ordinary, and two fields would leave a stale one behind.
    */
   private readonly fingers = new Map<number, Point>();
   /** Whether this gesture has moved far enough to be a drag rather than a tap. */
@@ -157,7 +157,7 @@ export class PictureSheet implements OnDestroy {
   /**
    * A finger moved: pinch if there is another one down, pan if not. The two
    * positions of the pair come from the map either side of this update — only one
-   * finger moves per event. A separate copy of the pair lost the first increment
+   * finger moves per event. A separate copy of the pair loses the first increment
    * of every pinch.
    */
   protected drew(event: PointerEvent): void {

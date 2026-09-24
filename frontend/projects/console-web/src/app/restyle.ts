@@ -32,7 +32,7 @@ export class Restyle implements OnDestroy {
 
   /**
    * Called once from the app shell; idempotent. A second listener retries twice
-   * PER FAILURE and exhausts the bound in half the rounds.
+   * per failure and exhausts the bound in half the rounds.
    */
   init(): void {
     if (this.started) return;

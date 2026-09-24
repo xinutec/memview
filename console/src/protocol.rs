@@ -4,9 +4,9 @@
 //! Deliberately partial, and safe about it: every enum has an `Other` catch-all,
 //! so a line the CLI grows tomorrow is ignored rather than fatal.
 //!
-//! The same content arrives twice — text as `stream_event` deltas AND in the
+//! The same content arrives twice — text as `stream_event` deltas and in the
 //! complete `assistant` message; tool calls in `content_block_start` with partial
-//! arguments AND whole in the complete message. Text comes from the deltas, tool
+//! arguments and whole in the complete message. Text comes from the deltas, tool
 //! calls from the completed message, nothing from both.
 //!
 //! Verified against CLI 2.1.220; `tests/fixtures/turn.jsonl` is a real capture.
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-/// How much of what a tool returned is carried to the client. The HEAD, because
+/// How much of what a tool returned is carried to the client. The head, because
 /// failures are short and a message hiding at the end is the case almost never cut.
 const RESULT_SNIPPET: usize = 2000;
 
@@ -48,7 +48,7 @@ pub enum Event {
         /// Where in the transcript the seed began, as a byte offset — the cursor for
         /// asking what came before. Zero means nothing older.
         from: u64,
-        /// Whether the conversation was picked up by a NEW process, so a tool call above
+        /// Whether the conversation was picked up by a new process, so a tool call above
         /// this line that never finished never will. The client marks those dead, and
         /// must not do it blindly: `Joined` is also emitted per reader at the end of a
         /// seed, where the last call in the page is the one running right now. `true`
@@ -64,9 +64,8 @@ pub enum Event {
     },
     /// A message this console has written to the session's stdin, before the CLI has
     /// read it. The gap to [`Event::Prompt`] is minutes when input arrives mid-turn,
-    /// and with only the echo to go on a sent message looked like one that never
-    /// arrived — so it got sent again. This says *the runner has it*; `Prompt` says
-    /// *the session has read it*.
+    /// and with only the echo to go on a sent message looks like one that never
+    /// arrived. This says *the runner has it*; `Prompt` says *the session has read it*.
     Accepted {
         text: String,
     },
@@ -92,8 +91,8 @@ pub enum Event {
     Text {
         text: String,
     },
-    /// How many tokens one request's prompt came to. Per MESSAGE, not per turn: the
-    /// result line's `usage` sums every request the turn made — 1.6M against a 1M
+    /// How many tokens one request's prompt came to. Per message, not per turn: the
+    /// result line's `usage` sums every request the turn made, and can exceed the
     /// window.
     Context {
         tokens: u64,
@@ -120,8 +119,8 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         status: Option<Ended>,
     },
-    /// A tool call came back, with what it returned cut to [`RESULT_SNIPPET`] — the
-    /// verdict alone showed a `grep` had succeeded and not one word of what it found.
+    /// A tool call came back, with what it returned cut to [`RESULT_SNIPPET`]: a
+    /// verdict alone says a `grep` succeeded, not what it found.
     ToolResult {
         id: String,
         ok: bool,
@@ -270,7 +269,7 @@ enum Line {
         #[serde(default)]
         content: Content,
     },
-    /// A message the CLI parked and has now handed to the running turn — the ONLY
+    /// A message the CLI parked and has now handed to the running turn — the only
     /// record of a message sent to a busy session; the CLI writes no `user` line
     /// for one. Only `queued_command`: `task_reminder` attachments would bury the
     /// conversation in machinery.
@@ -503,10 +502,9 @@ pub enum Named {
 ///
 /// `Joined` means "forget what you were counting": the replay is full of calls
 /// backgrounded hours ago, and a re-seed replays that history and then joins.
-/// `Started` is NOT that — the CLI emits an init line at the head of every turn.
+/// `Started` is not that — the CLI emits an init line at the head of every turn.
 ///
-/// A killed task is never reported finished, so the kill has to be read here:
-/// 162 kills over this machine's transcripts, not one of them notified.
+/// A killed task is never reported finished, so the kill has to be read here.
 pub fn running(event: &Event) -> Running {
     match event {
         Event::ToolResult { id, detail, .. } => match (detached(detail), stopped(detail)) {
@@ -531,13 +529,13 @@ pub fn running(event: &Event) -> Running {
 
 /// What a tool says when it has left work running.
 ///
-/// The call's ANSWER, not its arguments: only `Bash` accepts `run_in_background`,
+/// The call's answer, not its arguments: only `Bash` accepts `run_in_background`,
 /// and a foreground command outliving its timeout is moved to the background with
 /// its input still saying `false`. Every tool that detaches says so in the first
-/// words it returns. A reworded CLI UNDERCOUNTS, which is the safe direction.
+/// words it returns. A reworded CLI undercounts, which is the safe direction.
 ///
-/// The phrase must OPEN the result: a `contains` counted every result that quoted
-/// one of these sentences — a grep, a `Read` of this module.
+/// The phrase must open the result: a `contains` would count every result that
+/// quotes one of these sentences — a grep, a `Read` of this module.
 ///
 /// Returns the task id the harness gave the work; `Some(None)` is a detach whose
 /// id could not be read.
@@ -572,7 +570,7 @@ fn detached(said: &str) -> Option<Option<String>> {
             opens: "Workflow launched in background. Task ID: ",
             before_id: "Workflow launched in background. Task ID: ",
         },
-        // Monitor, the tool the whole rule came from.
+        // Monitor.
         Opening {
             opens: "Monitor started (task ",
             before_id: "Monitor started (task ",
@@ -695,7 +693,7 @@ pub fn read(line: &str) -> Vec<Event> {
         // they cannot carry whole — unless nothing generated it, in which case there
         // were no deltas and this is the only copy. See [`SYNTHETIC`].
         Line::Assistant { message } => {
-            // The context as it stood for THIS request, ahead of the blocks.
+            // The context as it stood for this request, ahead of the blocks.
             let context = message.usage.as_ref().map(|usage| Event::Context {
                 tokens: usage.prompt(),
             });
@@ -821,7 +819,7 @@ pub struct Reply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub response: Option<String>,
-    /// Notes beside the choices — see [`Annotation`]. These travel WITH `answers`.
+    /// Notes beside the choices — see [`Annotation`]. These travel with `answers`.
     #[serde(default, skip_serializing_if = "Annotations::is_empty")]
     pub annotations: Annotations,
 }
@@ -896,7 +894,7 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
     input
 }
 
-/// Rename a conversation, over the CONTROL channel — the only way to rename a
+/// Rename a conversation, over the control channel — the only way to rename a
 /// session that is working. `/rename` is input, and input arriving mid-turn is
 /// parked and released as a prompt the model reads as words. A control request
 /// is out-of-band: `success` comes back at once and the transcript gains
@@ -927,7 +925,7 @@ pub const SET_MODE: &str = "set-mode-";
 /// How a session answered a mode change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModeReply {
-    /// The mode the CLI says it is now in — NOT the one asked for.
+    /// The mode the CLI says it is now in, not the one asked for.
     Now(crate::modes::Mode),
     /// The CLI refused, in its own words, which are better than any of ours.
     Refused(String),
@@ -987,7 +985,7 @@ pub fn get_usage(request_id: &str) -> String {
 ///
 /// Read field by field: the CLI warns the shape may change, and a moved shape
 /// yields no reading rather than a wrong one. A model's own allowance is not a
-/// key beside the others — `model_scoped` is an ARRAY of `{display_name,
+/// key beside the others — `model_scoped` is an array of `{display_name,
 /// utilization, resets_at}`.
 /// Not matched on a request id: any response carrying rate limits is an answer.
 pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
@@ -1055,7 +1053,7 @@ pub fn prompt(text: &str) -> String {
 }
 
 /// Everything one user message says, live or read back off the disk — one
-/// function, since two copies drifted apart once. Read ACROSS the blocks: a sent
+/// function, so the two readings cannot drift apart. Read across the blocks: a sent
 /// picture is an image block and a text block, and neither says enough alone.
 fn from_user(content: Content) -> Vec<Event> {
     let blocks = content.blocks();
@@ -1105,9 +1103,9 @@ fn from_user(content: Content) -> Vec<Event> {
 ///
 /// Both happen: a prompt reaching the CLI twice inside a millisecond is recorded
 /// as one message of two identical blocks, and messages queued to a busy session
-/// are handed over as ONE message with a block each. Joining every pair fixed the
-/// first at the price of the second, which is the common one — and a joined echo
-/// matched neither waiting message, so both stayed *waiting to be read*.
+/// are handed over as one message with a block each — the common case. Joining the
+/// blocks would break that: a joined echo matches neither waiting message, so both
+/// stay *waiting to be read*.
 ///
 /// The words are the only thing to tell them apart by. The one case this gets
 /// wrong — the same words genuinely typed twice into a busy session — loses a
@@ -1178,7 +1176,7 @@ pub fn prompt_with_image(
     .to_string()
 }
 
-/// One line of a transcript ON DISK, which is not quite one line of the stream: a
+/// One line of a transcript on disk, which is not quite one line of the stream: a
 /// transcript has no deltas, so the completed messages are the only source and
 /// there is nothing to double.
 pub fn read_recorded(line: &str) -> Vec<Event> {
@@ -1213,7 +1211,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         }
         Line::User { message } => from_user(message.content),
         // The replay path needs this more than the live one: a message sent to a busy
-        // session exists in the transcript ONLY as this attachment.
+        // session exists in the transcript only as this attachment.
         Line::Attachment {
             attachment: Attached::QueuedCommand { prompt },
         } => from_user(prompt),
@@ -1309,8 +1307,8 @@ fn ends_without_naming_the_call(text: &str) -> bool {
 
 /// Whether this text is the harness reporting on a background task at all —
 /// separate from parsing it, since one that cannot be parsed still must not
-/// become a prompt. The block has to END the message: a bare `contains` ate the
-/// compact summary. Both ends, because the harness sometimes prefixes a banner.
+/// become a prompt. The block must end the message, or a compact summary quoting
+/// one matches. Both ends, because the harness sometimes prefixes a banner.
 fn is_notification(text: &str) -> bool {
     text.contains("<task-notification>") && text.trim_end().ends_with("</task-notification>")
 }
@@ -1338,8 +1336,7 @@ pub fn is_command(text: &str) -> bool {
 
 /// The command a recorded message is the expansion of, put back the way it was
 /// typed: `<command-name>` and `<command-args>` together, since `/loop check` and
-/// `/loop` are different messages. Both openings occur — 1,369 lead with the
-/// name, 95 with the message.
+/// `/loop` are different messages. Either tag can open the message.
 fn commanded(text: &str) -> Option<String> {
     let head = text.trim_start();
     if !head.starts_with("<command-name>") && !head.starts_with("<command-message>") {
@@ -1388,7 +1385,7 @@ pub struct Called {
 }
 
 /// How long a label may be before it is cut: a `Bash` label falls back to the
-/// command, which ran to several hundred characters.
+/// command, which can run to several hundred characters.
 const LABEL_MAX: usize = 60;
 
 /// A call as the running strip names it: the tool, and [`crate::call::Call::label`]

@@ -30,7 +30,7 @@
 } @else if (parsed()?.error; as where) {
   <!-- A command the grammar could not read. An answer, not a failure. -->
   <!-- Two flex items, not five: this row is a flex container, and each inline child
-       became a column of its own. The words are one item. -->
+       becomes a column of its own. The words are one item. -->
   <p class="unread">
     <mat-icon>report</mat-icon>
     <span>
@@ -59,7 +59,7 @@
       <li class="step" [attr.data-indent]="row.indent">
         <div class="head">
           <!-- Styled by `key`, labelled by `kind`: as one field, improving a label
-               silently dropped its colour. -->
+               would silently drop its colour. -->
           <span class="kind" [attr.data-kind]="row.step.key">{{ row.step.kind }}</span>
           @if (row.step.host; as host) {
             <!-- The machine, on the step and again on every path it named: a path that looks
@@ -71,7 +71,7 @@
           }
         </div>
 
-        <!-- What it is FOR, above the words: approval reads argv, which is spelling, and
+        <!-- What it is for, above the words: approval reads argv, which is spelling, and
              every payload trap is a spelling that hides the act. Absent where no lens
              covers the command — a counted leaf, never a catch-all. -->
         @if (row.step.concept; as concept) {
@@ -104,8 +104,8 @@
         @for (used of row.step.uses; track $index) {
           <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
             <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
-            <!-- Path and marker in ONE column: a 78-character path wraps to three lines, and
-                 as siblings the icon and marker stranded themselves beside different lines. -->
+            <!-- Path and marker in one column: a long path wraps to several lines, and as
+                 siblings the icon and marker strand themselves beside different lines. -->
             <span class="what">
               <span class="path">{{ used.path }}</span>
               @if (used.host) {
@@ -122,8 +122,8 @@
     }
   </ol>
 
-  <!-- Below the parse, not above: three lines of absolute path at phone width put
-       the first step 15px off the bottom of the screen. -->
+  <!-- Below the parse, not above: three lines of absolute path at phone width push
+       the first step off the bottom of the screen. -->
   @if (against(); as dir) {
     <p class="against">
       relative paths resolved against <code>{{ dir }}</code>

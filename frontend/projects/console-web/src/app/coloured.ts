@@ -3,7 +3,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 
 /**
  * Tool output as the terminal would have drawn it. Much of what the fleet runs
- * prints in colour, and with nothing reading the codes a test summary arrived
+ * prints in colour, and with nothing reading the codes a test summary arrives
  * as `[2m Test Files [22m [1m[32m22 passed[39m` — unreadable on a phone.
  *
  * Classes, not inline styles: Angular's sanitiser strips `style`, and the
@@ -93,7 +93,7 @@ function restyled(active: string[], parameters: string): string[] {
   let next = [...active];
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i] ?? 0;
-    // Skipped WHOLE: `38;5;196` is one instruction, and read a number at a time it
+    // Skipped whole: `38;5;196` is one instruction, and read a number at a time it
     // sets a different colour and an unrelated attribute. Extended colour is not
     // drawn here.
     if (code === 38 || code === 48) {

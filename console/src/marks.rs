@@ -2,7 +2,7 @@
 //!
 //! The walk is the wait, not the payload, so only an incremental walk moves it.
 //! Append-only is what makes the cache correct — [`crate::past::counted`] already
-//! trusts everything before a stored offset — and a file that SHRANK (compaction
+//! trusts everything before a stored offset — and a file that shrank (compaction
 //! rewrites history) is re-walked, not extended.
 
 use parking_lot::RwLock;
@@ -41,7 +41,7 @@ impl Marks {
         let known = self.held.read().get(id).cloned().unwrap_or_default();
 
         // Nothing complete has arrived since the last walk. `through` is where the walk
-        // STOPPED, so a half-written tail line is re-read until it is finished — bounded
+        // stopped, so a half-written tail line is re-read until it is finished — bounded
         // by one line.
         if len == known.through {
             return known.found;

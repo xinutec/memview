@@ -7,7 +7,7 @@ import type { Mark } from "./Mark";
  */
 export type Landmark = { 
 /**
- * Where to ask for it, as a byte offset — the END of the line carrying it, since
+ * Where to ask for it, as a byte offset — the end of the line carrying it, since
  * `page` reads backwards from a cursor and a cursor at the start would return the
  * page that stops just short. The same cursor `/api/sessions/{id}/earlier`
  * takes; not a position anybody can be shown, since one picture is kilobytes on

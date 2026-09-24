@@ -10,7 +10,7 @@
   flex: 1;
 }
 
-// The bar's LEADING icon button, whichever it is, pulled back into the toolbar's
+// The bar's leading icon button, whichever it is, pulled back into the toolbar's
 // own padding so the two screens start in the same place. 12, not the 8
 // Material's padding suggests: `styles.scss` raises every icon button to a 48px
 // target with `padding: 0`, and 12 is what is left. Keyed on position rather
@@ -35,8 +35,7 @@
 .name {
   // One line, cut with an ellipsis; a name is one long unbreakable word.
   // `overflow: hidden` is also what lets it shrink — it removes a flex item's
-  // content floor — so there is no `min-width: 0` beside it; ablating that
-  // changed nothing.
+  // content floor — so it needs no `min-width: 0` beside it.
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -49,10 +48,9 @@
 
 .page {
   // A column that fills what is left below the toolbar, so a view can scroll a
-  // region inside it and pin its own controls beneath. This replaced
-  // `padding-bottom` under a `position: fixed` composer, which covered the last
-  // entry's buttons by 66px. Sized by the column, not `calc(100dvh - toolbar)`,
-  // which guessed the toolbar's height.
+  // region inside it and pin its own controls beneath, rather than a fixed
+  // composer covering the last entry. Sized by the column, not
+  // `calc(100dvh - toolbar)`, which would guess the toolbar's height.
   display: flex;
   flex-direction: column;
   flex: 1;

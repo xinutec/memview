@@ -3,7 +3,7 @@
 /**
  * One draft on the wire: the merged document, and the text it reads as.
  *
- * `ulid` is the SESSION id — a draft is one per conversation, and the
+ * `ulid` is the session id — a draft is one per conversation, and the
  * conversation already has a stable identity.
  */
 export type DraftDoc = { ulid: string, 

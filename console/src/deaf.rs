@@ -19,7 +19,7 @@ const TAIL: u64 = 64 * 1024;
 /// to write them out.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Where captures go. Overridable because this WRITES, and a test has no home
+/// Where captures go. Overridable because this writes, and a test has no home
 /// directory worth writing to.
 pub fn evidence_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_DEAF_DIR") {

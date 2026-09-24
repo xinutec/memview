@@ -6,7 +6,7 @@
  * like a slippery screen. Everything here is a pure function of a [[View]] and a
  * gesture.
  *
- * The picture is laid out FITTED — as large as it goes with its whole self
+ * The picture is laid out fitted — as large as it goes with its whole self
  * showing — and a [[View]] is what CSS does to that: `translate(x, y)
  * scale(scale)` about the centre. `FIT` is the identity.
  */

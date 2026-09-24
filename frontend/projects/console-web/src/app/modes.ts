@@ -15,7 +15,7 @@ export type Known = Exclude<Mode, { unknown: string }>;
  * 2.1.220 binary's label table; `rank` is its ordering, `plan` lowest.
  *
  * The icons are ours — the CLI's are terminal glyphs, two of them the same ⏵⏵
- * — and each says what the mode DOES: a raised hand asks, an open padlock does not.
+ * — and each says what the mode does: a raised hand asks, an open padlock does not.
  */
 export const MODES = {
   plan: { title: 'Plan', rank: 0, icon: 'map' },

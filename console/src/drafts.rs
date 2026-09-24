@@ -29,7 +29,7 @@ pub const TEXT: &str = "text";
 
 /// One conversation's unsent words, as the roster reports them.
 ///
-/// A VIEW of the document, not the document: what the session list draws is the
+/// A view of the document, not the document: what the session list draws is the
 /// sentence, and handing it the encoded state would put a CRDT somewhere that
 /// only wants a string.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,8 +38,8 @@ pub const TEXT: &str = "text";
 pub struct Draft {
     /// What is being typed, read out of the merged document.
     pub text: String,
-    /// Bumped on every merge, and used for ONE thing: ordering a pull. It counts
-    /// across the WHOLE store, not per conversation — see [`Drafts::merge`].
+    /// Bumped on every merge, and used for one thing: ordering a pull. It counts
+    /// across the whole store, not per conversation — see [`Drafts::merge`].
     pub rev: u64,
     /// Unix milliseconds of the last merge that changed the text.
     pub at: u64,
@@ -47,7 +47,7 @@ pub struct Draft {
 
 /// One draft on the wire: the merged document, and the text it reads as.
 ///
-/// `ulid` is the SESSION id — a draft is one per conversation, and the
+/// `ulid` is the session id — a draft is one per conversation, and the
 /// conversation already has a stable identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -180,7 +180,7 @@ pub fn document_of(text: &str) -> Vec<u8> {
 impl Drafts {
     /// Read what the last run wrote. An unreadable file is an empty set and a loud
     /// line, as in [`crate::modes::Modes::load`]: the cost is a draft missing from the
-    /// OTHER device, which still holds its own copy.
+    /// other device, which still holds its own copy.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str::<BTreeMap<String, Stored>>(&text) {
@@ -251,9 +251,9 @@ impl Drafts {
             };
             doc.transact_mut().apply_update(update).ok()?;
             let text = reads_as(&doc);
-            // One counter for the whole STORE: the pull cursor is one number across the
-            // collection, and a per-document counter left a fresh conversation at rev 1
-            // behind a client already at 3 — never synced, and random-looking from outside.
+            // One counter for the whole store: the pull cursor is one number across the
+            // collection, so a per-document counter would leave a fresh conversation at
+            // rev 1 behind a client already at 3, never synced.
             let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
             // A merge that changed no character does not move the clock the list dates a
             // draft by: a device can contribute history without anybody having typed.

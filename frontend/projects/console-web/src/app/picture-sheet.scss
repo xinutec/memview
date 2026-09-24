@@ -22,7 +22,7 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  // `rtl` puts the cut at the START of the line, where the least is lost; the
+  // `rtl` puts the cut at the start of the line, where the least is lost; the
   // ellipsis is what makes the cut visible at all.
   direction: rtl;
   text-align: left;
@@ -71,7 +71,7 @@
     // No transition: the transform is set every frame of a gesture, and one turns
     // a pinch into the picture chasing the fingers.
     transform-origin: center;
-    // Dragging a picture is the gesture; dragging the FILE is the browser's own
+    // Dragging a picture is the gesture; dragging the file is the browser's own
     // idea about images and it fires instead of ours.
     user-select: none;
     -webkit-user-drag: none;

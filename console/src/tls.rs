@@ -40,7 +40,7 @@ fn hex(bytes: &[u8]) -> String {
 #[derive(Debug)]
 struct Pinned {
     allowed: BTreeSet<Pin>,
-    /// Handshake signature verification is rustls's; the pin decides WHOSE key, not
+    /// Handshake signature verification is rustls's; the pin decides whose key, not
     /// whether the maths is right.
     supported: rustls::crypto::WebPkiSupportedAlgorithms,
 }

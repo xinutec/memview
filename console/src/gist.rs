@@ -1,5 +1,5 @@
 //! One sentence about what each conversation is currently about, since a name
-//! and a warmth say nothing about what it is FOR.
+//! and a warmth say nothing about what it is for.
 //!
 //! This is inference — Haiku guessing from a few thousand characters — and the
 //! client marks it as such, with the moment it was written.
@@ -223,9 +223,8 @@ fn prompt(material: &crate::past::Material) -> String {
 /// behind.
 ///
 /// Every call is a conversation, and a conversation is a file that outlives it —
-/// filed under `~/.claude/projects/` and hidden from the list, which is how 2,299
-/// of them went unnoticed. So the id is named here and the file removed the moment
-/// the answer is in hand — see [`discard`].
+/// filed under `~/.claude/projects/` and hidden from the list. So the id is named
+/// here and the file removed the moment the answer is in hand — see [`discard`].
 async fn ask(binary: &str, prompt: &str) -> Option<(String, Option<String>)> {
     let named = uuid::Uuid::new_v4().to_string();
     let said = call(binary, prompt, &named).await;
@@ -324,10 +323,10 @@ pub fn answer(said: &str) -> Option<(String, Option<String>)> {
 
 /// One line of an answer, with what a model puts round it taken off.
 fn tidy(line: &str) -> Option<String> {
-    // Quotes get returned about a third of the time despite being asked not to.
+    // Models return quotes despite being asked not to.
     let line = line.trim_matches(|c| c == '"' || c == '\'').trim();
-    // And the marks, because the card draws this as text and rendering one line
-    // that can emit a code fence is a layout defect waiting for its sentence.
+    // And the marks: the card draws this as plain text, where they would show as
+    // punctuation.
     // Backticks and asterisks only: an underscore is likelier part of a name.
     let line: String = line.chars().filter(|c| *c != '`' && *c != '*').collect();
     let line = line.trim();

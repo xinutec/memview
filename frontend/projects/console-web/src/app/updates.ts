@@ -23,7 +23,7 @@ export class Updates {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && this.pending()) this.reload();
     });
-    // A restored page is a boot: a reload replaces the CURRENT history entry's
+    // A restored page is a boot: a reload replaces the current history entry's
     // document, and going back resurrects a live old bundle — this console pushes
     // an entry per sheet, so there is usually one to land on.
     window.addEventListener('pageshow', (event: PageTransitionEvent) => {

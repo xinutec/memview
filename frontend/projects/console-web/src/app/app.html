@@ -2,12 +2,12 @@
   <!-- Two screens, two bars: the list is where you are, a session is somewhere you
        went. The name is the headline, not a control — the details sheet is the
        first item in the ⋮ menu. -->
-  <!-- Which branch, from the ROUTE: `here.open()` arrives a round trip later, and
-       a cold launch into a conversation drew the list's bar first. See `here.ts`. -->
+  <!-- Which branch, from the route: `here.open()` arrives a round trip later, so a
+       cold launch into a conversation would draw the list's bar first. See `here.ts`. -->
   @if (!here.at() && !here.page()) {
     <!-- The root: a menu of things that are about the whole corpus rather than a session. -->
-    <!-- `Menu`, and NOT a word containing another test's locator: Playwright's
-         `getByLabel` matches a substring, and `elsewhere` broke `getByLabel('where')`. -->
+    <!-- `Menu`, not a word containing another test's locator: Playwright's
+         `getByLabel` matches a substring, so `elsewhere` would match `getByLabel('where')`. -->
     <button matIconButton [matMenuTriggerFor]="elsewhere" aria-label="Menu">
       <mat-icon>menu</mat-icon>
     </button>
@@ -39,8 +39,8 @@
       >
         <mat-icon>more_vert</mat-icon>
       </button>
-      <!-- The count rides the poll — the runner counts every session in 1.4 ms of
-           stats (`console/src/tasks.rs`) — where this menu once fetched 63 kB on open. -->
+      <!-- The count rides the poll, which is cheap (`console/src/tasks.rs`), rather
+           than a fetch when the menu opens. -->
       <mat-menu #menu="matMenu" class="session-menu">
         <!-- First, because it is the only item here that reads rather than acts. -->
         <button mat-menu-item aria-haspopup="dialog" (click)="details(open)">
@@ -131,8 +131,8 @@
     >
       <!-- A moon the screen may sleep under, struck through while it may not — two
            glyphs, since a tint on a coloured toolbar is not readable in daylight. Not
-           `lightbulb_outline`: it is in the codepoints and NOT in the bundled ligature
-           font (DL-ANGULAR-ICON-EXISTS caught it). -->
+           `lightbulb_outline`: it is in the codepoints but not in the bundled ligature
+           font (DL-ANGULAR-ICON-EXISTS). -->
       <mat-icon>{{ awake.lit() ? 'bedtime_off' : 'bedtime' }}</mat-icon>
     </button>
   }

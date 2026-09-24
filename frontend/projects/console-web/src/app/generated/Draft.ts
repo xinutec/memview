@@ -3,7 +3,7 @@
 /**
  * One conversation's unsent words, as the roster reports them.
  *
- * A VIEW of the document, not the document: what the session list draws is the
+ * A view of the document, not the document: what the session list draws is the
  * sentence, and handing it the encoded state would put a CRDT somewhere that
  * only wants a string.
  */
@@ -13,8 +13,8 @@ export type Draft = {
  */
 text: string, 
 /**
- * Bumped on every merge, and used for ONE thing: ordering a pull. It counts
- * across the WHOLE store, not per conversation — see [`Drafts::merge`].
+ * Bumped on every merge, and used for one thing: ordering a pull. It counts
+ * across the whole store, not per conversation — see [`Drafts::merge`].
  */
 rev: number, 
 /**

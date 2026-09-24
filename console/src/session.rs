@@ -56,7 +56,7 @@ pub struct Tally {
     /// See [`Summary::mode`]. Carried because the console is the only thing that knows it.
     pub mode: Option<crate::modes::Mode>,
     /// The first thing this session was asked to do — see [`Summary::asked`]. A
-    /// fallback: [`crate::past::opening`] reads it from the HEAD of the transcript and
+    /// fallback: [`crate::past::opening`] reads it from the head of the transcript and
     /// overwrites this, which is used only for a session with no transcript.
     #[serde(default)]
     pub asked: Option<String>,
@@ -87,7 +87,7 @@ pub struct Tally {
     pub counted: crate::past::Counted,
 }
 
-/// When a rate-limit window turns over, in epoch SECONDS — the CLI's unit. It
+/// When a rate-limit window turns over, in epoch seconds — the CLI's unit. It
 /// names which instance of the window a figure belongs to. A type rather than an
 /// `i64` because it sits beside [`Heard`] and the two are neither the same clock
 /// nor the same unit; see [`crate::usage::fresher`].
@@ -103,7 +103,7 @@ impl ResetsAt {
     }
 }
 
-/// When this console heard a reading, in epoch MILLISECONDS, by this machine's
+/// When this console heard a reading, in epoch milliseconds, by this machine's
 /// clock. Arrival, not freshness: a session answers from cached headers.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -130,7 +130,7 @@ pub struct Seen {
 /// adopted session has no [`Child`] to wait on, so without this each one that ends
 /// stays `<defunct>`.
 ///
-/// A blocking `waitpid`, one thread per adopted session. NOT `SIGCHLD` =
+/// A blocking `waitpid`, one thread per adopted session. Not `SIGCHLD` =
 /// `SIG_IGN`: that reaps every child and takes the exit status [`Session::reap`]
 /// reads, so a clean exit would arrive as `code: None` — this file has a test
 /// against it. The status is dropped: end-of-file has already declared an
@@ -177,7 +177,7 @@ pub fn names_session(ps_output: &str, id: &str) -> bool {
 
 /// Kill a stopped session's process, after checking it is still that process: a
 /// pid is not a handle, this one is up to thirty seconds old, and a late SIGKILL
-/// at a reused pid is a fault nothing can trace. Anything unreadable is NOT a
+/// at a reused pid is a fault nothing can trace. Anything unreadable is not a
 /// kill — leaving a process alive is the recoverable half.
 pub fn finish(pid: u32, id: &str) {
     let Ok(output) = std::process::Command::new("ps")
@@ -226,14 +226,14 @@ pub struct Summary {
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
-    /// When anything last happened, in MILLISECONDS, from the transcript — not
+    /// When anything last happened, in milliseconds, from the transcript — not
     /// `started`, which is when this console picked the process up. Filled by the
     /// roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub touched: Option<u64>,
     /// How much the transcript weighs, in bytes. Not [`Self::context`], which is the
-    /// LAST request's prompt in tokens.
+    /// last request's prompt in tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bytes: Option<u64>,
@@ -246,7 +246,7 @@ pub struct Summary {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub busy: Option<String>,
     /// Whether a turn is running — observed by the runner, not narrated by the CLI.
-    /// [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
+    /// [`Self::busy`] cannot answer this: a status is announced when it changes, so
     /// a long stretch of one activity leaves nothing standing.
     /// Deliberately not a timeout: a turn can legitimately be quiet for minutes.
     pub working: bool,
@@ -258,7 +258,7 @@ pub struct Summary {
     /// account has stopped being all-you-can-eat.
     pub cost_usd: f64,
     /// How many tokens the last request's prompt came to, and the window it went
-    /// into. Per MESSAGE, not per turn — the result line sums every request the turn
+    /// into. Per message, not per turn — the result line sums every request the turn
     /// made. Input + cache-creation + cache-read: the cached part is almost all of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -271,7 +271,7 @@ pub struct Summary {
     /// by the runner so the list can rank on it without opening anything.
     #[serde(skip_serializing_if = "none")]
     pub background: usize,
-    /// WHICH background calls are still running. `background` is kept beside this:
+    /// Which background calls are still running. `background` is kept beside this:
     /// the list wants a number, the strip wants the name.
     #[serde(default)]
     pub running: Vec<crate::protocol::Called>,
@@ -291,7 +291,7 @@ pub struct Summary {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
 
-    /// What the OTHER sessions on this machine call this one — the name
+    /// What the other sessions on this machine call this one — the name
     /// `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
     /// the title in the transcript: only `-n` at spawn writes this one, so a
     /// conversation renamed while it runs keeps the name its peers already knew
@@ -302,7 +302,7 @@ pub struct Summary {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub peer_name: Option<String>,
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
-    /// `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
+    /// `acceptEdits`, `auto`, `bypassPermissions`. What the console set, not what the
     /// transcript says — a resumed session carries the previous session's mode
     /// lines.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,7 +318,7 @@ pub struct Summary {
     pub waiting: usize,
     /// How many messages have been written to this session and not read back.
     pub unread: usize,
-    /// How long it has been failing to read them, in SECONDS — present only when the
+    /// How long it has been failing to read them, in seconds — present only when the
     /// console is prepared to call it deaf. See [`Session::deaf`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -369,7 +369,7 @@ pub struct Backlog {
 /// Whether a client holding everything through `after` can be sent only what it
 /// missed, given a log holding `held_from..=issued`. Older than the log's front
 /// means the scrollback dropped the difference; newer than anything issued means
-/// another session's numbering. `after + 1` on the left: the NEXT event is what
+/// another session's numbering. `after + 1` on the left: the next event is what
 /// has to be reachable, so an exactly-caught-up client resumes against an empty log.
 pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
     after + 1 >= held_from && after <= issued
@@ -445,7 +445,7 @@ struct State {
     /// Background tool calls started and not yet ended, keyed by the call (what a
     /// notification names), carrying the task (what a kill names).
     background: std::collections::BTreeMap<String, crate::protocol::Called>,
-    /// The last few tool calls seen, by call id, so a background one can be NAMED
+    /// The last few tool calls seen, by call id, so a background one can be named
     /// when its result arrives. A ring: an unbounded map would hold every call of a
     /// session that runs for days.
     called: std::collections::VecDeque<(String, crate::protocol::Called)>,
@@ -464,7 +464,7 @@ struct State {
     unread: VecDeque<Unread>,
     /// Whether the session has spoken since its last turn ended — [`Summary::working`].
     /// A positive fact, not `idle_since.is_none()`, which is true for a session that
-    /// has said nothing at all and reported a still-loading one as working.
+    /// has said nothing at all and so reports a still-loading one as working.
     working: bool,
     /// When the last turn ended, in epoch milliseconds — `None` whenever the session
     /// is working. See [`Session::deaf`].
@@ -477,7 +477,7 @@ struct State {
     decided: Option<i64>,
     /// Slash commands written while a turn was running, oldest first. A command sent
     /// mid-turn does not run: the CLI parks it as a `queued_command` with
-    /// `commandMode: "prompt"` and hands it to the MODEL as words. Held here rather
+    /// `commandMode: "prompt"` and hands it to the model as words. Held here rather
     /// than in the client, which stops holding it when the phone is put away. See
     /// [`Session::send`] and [`Session::release_held`].
     held: VecDeque<String>,
@@ -488,13 +488,13 @@ struct State {
 
 /// How long a message may sit unread, between turns and with the session
 /// otherwise silent, before the session is called deaf. The legitimate wait is
-/// seconds; the failures stayed silent for tens of minutes. Ninety seconds sits
+/// seconds; a deaf session stays silent for tens of minutes. Ninety seconds sits
 /// an order of magnitude clear of each.
 const DEAF_AFTER_MS: i64 = 90_000;
 
 /// The same wait while a compaction is outstanding, which freezes the transcript
-/// for minutes. Longer rather than suppressed: a session can go deaf AROUND a
-/// compaction, and one of the two known episodes did.
+/// for minutes. Longer rather than suppressed: a session can go deaf around a
+/// compaction.
 const DEAF_AFTER_COMPACT_MS: i64 = 15 * 60_000;
 
 /// Drop one piece of background work from the count, by whichever name the thing
@@ -528,7 +528,7 @@ fn in_flight(state: &mut State, event: &Event) {
         }
         // A turn ended, so from here the session owes us a read.
         Event::Turn { .. } => state.idle_since = Some(now()),
-        // Nothing is running as of now. `Joined` matters most: pushed AFTER the seeded
+        // Nothing is running as of now. `Joined` matters most: pushed after the seeded
         // transcript, it stops a file ending mid-turn from reading as a turn still
         // going in a process that has only just started.
         Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now()),
@@ -537,7 +537,7 @@ fn in_flight(state: &mut State, event: &Event) {
     state.working = working_after(state.working, event);
     match event {
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
-        // A decision written down the pipe of a session that ASKED for it. Its own
+        // A decision written down the pipe of a session that asked for it. Its own
         // clock: a session blocked on a question is mid-turn, so the message test
         // cannot fire. Silence after this is not work.
         Event::Answered { .. } => state.decided = state.decided.or(Some(now())),
@@ -616,10 +616,10 @@ pub fn deaf_after(
     compacting: bool,
     now: i64,
 ) -> Option<i64> {
-    // The LATER of the two: only once the turn has ended AND the message has
+    // The later of the two: only once the turn has ended and the message has
     // arrived has the session had the chance this measures.
     let unread_since = idle_since.zip(oldest).map(|(idle, at)| idle.max(at));
-    // The EARLIER of the two cases, so a long wait is not hidden by a short one.
+    // The earlier of the two cases, so a long wait is not hidden by a short one.
     let since = [unread_since, decided].into_iter().flatten().min()?;
     let allowed = if compacting {
         DEAF_AFTER_COMPACT_MS
@@ -672,17 +672,17 @@ impl std::fmt::Debug for Session {
 pub struct Spawn {
     pub binary: String,
     pub model: Option<String>,
-    /// What this session is called to its PEERS — `-n`, which is the only thing that
+    /// What this session is called to its peers — `-n`, which is the only thing that
     /// writes a chosen name into `~/.claude/sessions/<pid>.json`, the file
     /// `ListAgents` reads and `SendMessage` addresses. Without it every session in
     /// one directory derives the same name from that directory and is told apart
     /// only by a hash, so a session asked to reach `memview` finds no such peer.
-    /// `rename_session` does NOT do this: the CLI calls it the user-facing title and
+    /// `rename_session` does not do this: the CLI calls it the user-facing title and
     /// it goes no further than the transcript. See [`crate::roster::Roster::resume`],
     /// which is where a conversation's own name becomes this argument.
     pub name: Option<String>,
     /// What the session may do without being asked. In headless mode there is nobody
-    /// to answer a prompt, so under the CLI's default EVERY tool call needing
+    /// to answer a prompt, so under the CLI's default every tool call needing
     /// permission is refused.
     pub permission_mode: Option<crate::modes::Mode>,
 }
@@ -700,10 +700,10 @@ impl Session {
     pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
         // Nothing recorded here about the file's date: resuming appends `mode`,
         // `permission-mode` and `bridge-session` lines, so a floor taken from the file
-        // said `just now` about a conversation opened after two days. See
+        // would say `just now` about a conversation opened after two days. See
         // [`crate::past::last_moved`].
         let session = Self::spawn(id, dir, spawn, true)?;
-        // A NEW `claude` on an old conversation: whatever the transcript shows still
+        // A new `claude` on an old conversation: whatever the transcript shows still
         // running was written by a process that is gone.
         session.seed(true);
         Ok(session)
@@ -711,7 +711,7 @@ impl Session {
 
     /// Put what was already said in front of what happens next. `--resume` restores
     /// the CLI's context and replays none of it on stdout, so without this a resumed
-    /// session opened empty. The same vocabulary the stream uses, read the other way
+    /// session opens empty. The same vocabulary the stream uses, read the other way
     /// — [`crate::protocol::read_recorded`]. Silent when there is no transcript.
     fn seed(self: &Arc<Self>, restarted: bool) {
         let root = crate::past::projects_root();
@@ -741,7 +741,7 @@ impl Session {
             restarted,
         });
         // From the head of the file, overriding whatever the page set: the replay is
-        // the LAST page and full of prompts. Set unconditionally, including to `None`;
+        // the last page and full of prompts. Set unconditionally, including to `None`;
         // `origin_read` is what makes `None` stick. See [`crate::past::opening`].
         {
             let mut state = self.state.lock();
@@ -752,7 +752,7 @@ impl Session {
     }
 
     /// Count the exchanges the transcript has gained — [`crate::past::counted`].
-    /// Reads the file OUTSIDE the lock, which is why this is a method and not a line
+    /// Reads the file outside the lock, which is why this is a method and not a line
     /// in `push_at`. Safe from the reading task only: it reads the offset, then the
     /// file, then writes both back.
     fn recount(&self) {
@@ -878,7 +878,7 @@ impl Session {
         let pending = std::mem::take(&mut tally.pending);
         // Taken out for the same reason as `pending`, and put back after the seed.
         let background = std::mem::take(&mut tally.background);
-        // The scrollback did NOT survive the exec, so an adopted session reseeds from
+        // The scrollback does not survive the exec, so an adopted session reseeds from
         // the transcript exactly as a resumed one does — see [`Self::seed`].
         // SAFETY: these descriptors were handed over by the image that exec'd, which
         // cleared close-on-exec so they would survive.
@@ -930,7 +930,7 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
-        // The SAME child across the exec, so nothing above the boundary is dead on
+        // The same child across the exec, so nothing above the boundary is dead on
         // account of the upgrade — see [`crate::protocol::Event::Joined`].
         session.seed(false);
         // After the seed, so the question lands at the end of the conversation, where
@@ -942,7 +942,7 @@ impl Session {
         }
         // After the seed, because the seed ends with a `Joined`, which
         // `protocol::running` reads as `Running::Gone` — right for a resume, wrong for
-        // an adoption whose children are still running. `tests/cold.rs` caught it.
+        // an adoption whose children are still running.
         if !background.is_empty() {
             tracing::info!(
                 "{}: {} background task(s) carried across the upgrade",
@@ -1003,7 +1003,7 @@ impl Session {
     /// Read the child's streams until they end. `ends_on_eof` decides who declares
     /// the session over: for an adopted session end of file is the only signal; for
     /// a spawned one [`Self::reap`] must say so, because only it knows the exit code,
-    /// and letting the reader win turned every clean exit into `code: None`.
+    /// and letting the reader win turns every clean exit into `code: None`.
     fn read_from<O, E>(self: Arc<Self>, stdout: Option<O>, stderr: Option<E>, ends_on_eof: bool)
     where
         O: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -1020,15 +1020,15 @@ impl Session {
                     let line = tokio::select! {
                         line = lines.next_line() => line,
                         // The transcript changes when the process says nothing: a compaction is written
-                        // to the file and announced on no stream, so a read tied to `Turn` left `home`
-                        // showing a stale fullness for ninety minutes.
+                        // to the file and announced on no stream, so a read tied to `Turn` alone leaves
+                        // a stale fullness on screen.
                         _ = beat.tick() => {
                             session.recount();
                             continue;
                         }
                     };
                     let Ok(Some(line)) = line else { break };
-                    // Every line, whatever it is: the record of when the PROCESS last spoke, which
+                    // Every line, whatever it is: the record of when the process last spoke, which
                     // is how the roster decides who to ask for usage. See [`Session::heard`].
                     session.heard();
                     // Before the events and separately: a control response is an answer to
@@ -1045,7 +1045,7 @@ impl Session {
                     for event in protocol::read(&line) {
                         // The end of a turn is the one moment the exchange count can have changed, and
                         // the CLI has written the whole exchange by then. Here rather than in `push_at`,
-                        // which holds the state lock and must not read files; the count is wanted NOW.
+                        // which holds the state lock and must not read files; the count is wanted now.
                         let counted = matches!(event, Event::Turn { .. });
                         session.push(event);
                         if counted {
@@ -1105,7 +1105,7 @@ impl Session {
         self.push(Event::Exited { code });
     }
 
-    /// Send a message to the session. A slash command sent mid-turn is HELD, not
+    /// Send a message to the session. A slash command sent mid-turn is held, not
     /// written — see [`State::held`] — under the same lock [`in_flight`] takes to
     /// clear `working`, so a turn ending beside this either drains what was parked
     /// or lets this write straight through.
@@ -1260,11 +1260,11 @@ impl Session {
     }
 
     /// Rename the conversation — a control request, not `/rename`, which a working
-    /// session hands to the MODEL as words. See [`protocol::rename`]. Nothing is
+    /// session hands to the model as words. See [`protocol::rename`]. Nothing is
     /// recorded on the way out: the CLI writes a `custom-title` line and the roster
     /// reads names from there ([`crate::past::about`]).
     ///
-    /// This is the TITLE, and it does not reach the session's peers. The CLI
+    /// This is the title, and it does not reach the session's peers. The CLI
     /// keeps the name other sessions address separately, and no control subtype
     /// writes it — only `-n` at spawn does, so a rename becomes visible to the rest
     /// of the fleet at the conversation's next resume and not before. See
@@ -1430,7 +1430,7 @@ impl Session {
         self.push_at(event, Some(now()));
     }
 
-    /// Note that the process said something, whatever it was. About the PROCESS,
+    /// Note that the process said something, whatever it was. About the process,
     /// not the conversation: which one holds a current answer to `get_usage`. See
     /// [`crate::roster::Roster::ask_usage`].
     fn heard(&self) {
@@ -1509,8 +1509,7 @@ impl Session {
                         state.window = *window;
                     }
                     state.busy = None;
-                    // Assigned, not added: `total_cost_usd` is the running total, and `+=` reached
-                    // $59.32 against a true $12.35.
+                    // Assigned, not added: `total_cost_usd` is already the running total.
                     state.cost_usd = *cost_usd;
                     // `num_turns` is deliberately not read: it counts assistant messages, not
                     // exchanges. [`Self::recount`] answers that from the file.
@@ -1572,13 +1571,13 @@ impl Session {
                     // Nothing can be approved for a process that has gone, and a question left
                     // standing would keep saying the session is waiting.
                     state.pending.clear();
-                    // Nor can a command be written to it: a chip promising one is about to run is
-                    // the lie this mechanism exists to stop.
+                    // Nor can a command be written to it, so no chip may promise one is about
+                    // to run.
                     state.held.clear();
                 }
                 _ => {}
             }
-            // Remember what each call IS, so a detached one can be named — `State::called`.
+            // Remember what each call is, so a detached one can be named — `State::called`.
             if let Event::Tool { id, name, does } = &event {
                 if state.called.len() >= CALLED_RING {
                     state.called.pop_front();
@@ -1705,7 +1704,7 @@ impl Session {
         self.state.lock().alive
     }
 
-    /// Whether a turn is running right now — [`Summary::working`], and NOT
+    /// Whether a turn is running right now — [`Summary::working`], and not
     /// [`Summary::busy`], which cannot answer this.
     pub fn working(&self) -> bool {
         self.state.lock().working

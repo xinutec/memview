@@ -58,7 +58,7 @@ export class App {
   readonly awake = inject(Awake);
 
   /** What the open session may do without asking, for the one menu row that
-   *  now stands in for the whole list. See [[ModesSheet]]. */
+   *  stands in for the whole list. See [[ModesSheet]]. */
   protected readonly mode = computed(() => modeTitle(this.here.open()?.mode));
   protected readonly modeIcon = computed(() => modeIcon(this.here.open()?.mode));
   protected readonly loud = computed(() => modeIsLoud(this.here.open()?.mode));
@@ -85,7 +85,7 @@ export class App {
   // Instrumented once, from the shell, so no new control can be missed.
   /**
    * Which build this page is, stamped into the bundle: a page cached in the
-   * WebView must show its OWN age. `+` means an uncommitted tree.
+   * WebView must show its own age. `+` means an uncommitted tree.
    */
   protected readonly build = BUILD_INFO;
   protected readonly builtAt = new Date(BUILD_INFO.builtAt).toLocaleString();
@@ -111,7 +111,7 @@ export class App {
       this.said = why;
       this.telemetry.note('mode-refused', why);
       // At the top: the bottom of a session is the composer, and the default position
-      // covered the text field and the send button for ten seconds.
+      // covers the text field and the send button.
       this.snack.open(why, 'ok', { duration: 10_000, verticalPosition: 'top' });
     });
     this.telemetry.init();
@@ -143,7 +143,7 @@ export class App {
 
   /**
    * Everything about this session that the screen has no room for. Handed the
-   * summary as it is NOW: the sheet is a still, and text that moves while it is
+   * summary as it is now: the sheet is a still, and text that moves while it is
    * read is worse than text a second old.
    */
   protected details(session: Summary): void {
@@ -157,9 +157,9 @@ export class App {
   }
 
   /**
-   * How many of this session's tasks are still open, read off the poll. It used
-   * to fetch the whole list when the menu opened — 63 kB for one session — and
-   * could only answer for the conversation on screen. See `console/src/tasks.rs`.
+   * How many of this session's tasks are still open, read off the poll rather
+   * than fetching the list, which is large and answers only for the conversation
+   * on screen. See `console/src/tasks.rs`.
    */
   protected readonly taskCount = this.here.tasks;
 

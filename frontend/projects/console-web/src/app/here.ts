@@ -20,7 +20,7 @@ export class Here {
   readonly open = signal<Summary | undefined>(undefined);
 
   /**
-   * The session the ROUTE names. [open] waits on `/api/state`, so which screen
+   * The session the route names. [open] waits on `/api/state`, so which screen
    * you are on is a fact about the URL.
    */
   readonly at = signal<string | undefined>(undefined);

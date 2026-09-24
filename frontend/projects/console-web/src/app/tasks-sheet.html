@@ -54,7 +54,7 @@
             <span class="rank" [class.above]="above(task)">{{ rank }}</span>
           }
           <!-- Icons, not the words, and nothing when neither is set: spelling the date out
-               pushed a long subject from 9 wrapped lines to 12. The words are on the label. -->
+               adds wrapped lines to a long subject. The words are on the label. -->
           @if (dueLabel(task); as when) {
             <mat-icon
               class="when"

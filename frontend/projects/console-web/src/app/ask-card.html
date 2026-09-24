@@ -62,14 +62,14 @@
               (click)="addNote(question)"
             >
               <!-- In a span so the rule underlines the words and not the whitespace the
-                   formatter puts around them: measured, `textContent` is `" add a note "`. -->
+                   formatter puts around them: `textContent` is `" add a note "`. -->
               <span>add a note</span>
             </button>
           }
         </div>
       }
       <!-- Words instead of a choice. Typing takes the card over, because the CLI reads
-           `response` INSTEAD of `answers`; clearing it hands the options back. -->
+           `response` instead of `answers`; clearing it hands the options back. -->
       <textarea
         #spoken
         class="say"

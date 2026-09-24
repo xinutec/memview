@@ -74,7 +74,7 @@ pub fn conversation(bytes: &[u8]) -> Vec<Line> {
         }
     }
     // ISO-8601 in a fixed zone sorts as text. A queued turn is stamped when it was
-    // ENQUEUED, so it can sort before the reply to the message ahead of it — that is
+    // enqueued, so it can sort before the reply to the message ahead of it — that is
     // when it was typed, not a bug.
     lines.sort_by(|a, b| a.at.cmp(&b.at));
     lines

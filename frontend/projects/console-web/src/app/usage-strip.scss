@@ -53,7 +53,7 @@
   display: block;
 }
 
-// A day boundary. Drawn OVER the fill rather than under it, so the day you are
+// A day boundary. Drawn over the fill rather than under it, so the day you are
 // in stays readable once the bar has passed it.
 .day {
   position: absolute;
@@ -63,8 +63,8 @@
   // The tick marks a boundary, and a boundary has no width — centring it keeps
   // it honest at both ends of the bar.
   transform: translateX(-0.5px);
-  // A tick has to read against BOTH halves of the bar, and no single colour does;
-  // `difference` inverts whatever is behind it. White is the OPERAND of the
+  // A tick has to read against both halves of the bar, and no single colour does;
+  // `difference` inverts whatever is behind it. White is the operand of the
   // blend, not a colour: the identity for inversion.
   // dev-lint: allow-hardcoded-color the operand of `difference`, not a colour
   background: #fff;
@@ -73,7 +73,7 @@
 }
 
 // Where the clock is. Taller than the bar and in the foreground: it is a
-// different KIND of fact from the fill, and reading it as a second fill would
+// different kind of fact from the fill, and reading it as a second fill would
 // invert the meaning.
 .clock {
   position: absolute;

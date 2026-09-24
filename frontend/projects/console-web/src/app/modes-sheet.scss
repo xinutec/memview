@@ -36,8 +36,8 @@
     color: var(--mat-sys-on-secondary-container);
   }
 
-  // The one setting that lets a session do anything it likes without asking.
-  // Named loudly wherever it appears; see `modes.ts`.
+  // The two modes the CLI itself colours as errors: one acts unasked, the other
+  // quietly refuses. See `modeIsLoud`.
   .loud {
     color: var(--mat-sys-error);
   }

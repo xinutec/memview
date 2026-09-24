@@ -8,7 +8,7 @@ import { type Answers, type Notes, type Question, complete } from './questions';
 
 /**
  * What has been tapped, typed and noted against the questions on screen.
- * Keyed by ASK ID, which is why this is not in the card: a re-seed builds new
+ * Keyed by ask id, which is why this is not in the card: a re-seed builds new
  * entries and destroys every card, and the answers at risk are exactly the ones
  * tapped while the tunnel was dropping. The card reads its own ask out of this.
  */

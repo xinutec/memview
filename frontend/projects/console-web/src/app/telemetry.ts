@@ -28,8 +28,8 @@ export class Telemetry {
       capture: true,
     });
 
-    // Anything that threw. Without this a page that broke on its own left no mark,
-    // and the failure looked like somebody losing interest.
+    // Anything that threw. Without this a page that breaks on its own leaves no mark,
+    // and the failure looks like somebody losing interest.
     const view = this.doc.defaultView;
     view?.addEventListener(
       'error',
@@ -74,7 +74,7 @@ export class Telemetry {
   /**
    * A number the page measured about itself, for the faults that only happen on
    * the device — a layout that settles wrongly on a phone and correctly in the
-   * harness, where the timing IS the bug.
+   * harness, where the timing is the bug.
    */
   measured(what: string, detail: string): void {
     this.core.record('measured', what, detail);

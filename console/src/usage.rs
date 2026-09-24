@@ -5,7 +5,7 @@
 //! anything working knows the account's position within seconds. See
 //! [`crate::protocol::Event::Limit`].
 //!
-//! The home dashboard is still read, and JUDGED against the live reading rather
+//! The home dashboard is still read, and judged against the live reading rather
 //! than fallen back on: both go to [`fresher`], which asks of two readings of one
 //! window which is later. The age and the host travel with whichever won, and a
 //! window that has already reset reports no countdown.
@@ -116,7 +116,7 @@ impl Usage {
     }
 
     /// What to show, given what the sessions have heard. See [`merged`]. Ages and
-    /// countdowns are computed against THIS machine's clock rather than sent as
+    /// countdowns are computed against this machine's clock rather than sent as
     /// instants: a phone's clock drifts, and "has this window turned over?" would
     /// then differ between screens.
     pub async fn reading(&self, seen: &BTreeMap<String, Seen>) -> Option<Reading> {
@@ -162,14 +162,14 @@ impl Usage {
 ///
 /// Which of two readings of one window is current, in order:
 ///
-/// - A LATER window instance wins outright.
-/// - Within one instance the figure only RISES, so the higher reading is later.
-/// - A FALL is believed only from a `measured` reading — a real request, or the
+/// - A later window instance wins outright.
+/// - Within one instance the figure only rises, so the higher reading is later.
+/// - A fall is believed only from a `measured` reading — a real request, or the
 ///   dashboard. A `get_usage` reply is a cache of unknowable age: it may raise the
 ///   figure, never lower it.
 /// - A higher reading wins whatever its source, or the figure stops tracking your
 ///   own messages.
-/// - An EQUAL reading still wins, on arrival time: `at` is when this was last
+/// - An equal reading still wins, on arrival time: `at` is when this was last
 ///   confirmed.
 ///
 /// `resets_at` drifts between two readings of one instance, so it is compared
@@ -183,7 +183,7 @@ pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
         // Rose: believed from any source — the arm a fresh `get_usage` wins on as you work.
         (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
         // Fell within one window: only a measurement at least as recent may say so.
-        // An echo falling is the flap.
+        // An echo that falls is a stale cache, not a drop.
         (Some(_), Some(_)) if candidate.utilization < held.utilization => {
             candidate.measured && candidate.at >= held.at
         }
@@ -273,7 +273,7 @@ pub fn merged(
     let five_hour = live(chosen_five.as_ref().map(|it| &it.0), now_ms);
     let seven_day = live(chosen_seven.as_ref().map(|it| &it.0), now_ms);
     // The console's own hearing only: the dashboard's copy of a model's window comes
-    // FROM here, so there is nothing to judge it against.
+    // from here, so there is nothing to judge it against.
     let models: Vec<Scoped> = seen
         .iter()
         .filter_map(|(window, heard)| Some((window.strip_prefix(MODEL_PREFIX)?, heard)))
@@ -287,7 +287,7 @@ pub fn merged(
     // Nothing known about either plan window is nothing to show; a lone scoped bar
     // over no context is not a reading anybody could act on.
     five_hour.as_ref().or(seven_day.as_ref())?;
-    // The age and host of what is ON SCREEN: the newer of the two chosen readings.
+    // The age and host of what is on screen: the newer of the two chosen readings.
     let newest = [chosen_five.as_ref(), chosen_seven.as_ref()]
         .into_iter()
         .flatten()
@@ -325,7 +325,7 @@ pub fn model_key(display_name: &str) -> String {
 
 /// The machine this console runs on, for a reading it took itself. A real name
 /// rather than "this console": home's `claude_usage` table is keyed by host and
-/// serves the freshest row ACROSS hosts, so a constant would win every comparison
+/// serves the freshest row across hosts, so a constant would win every comparison
 /// under a name no machine answers to. Resolved once.
 static HERE: LazyLock<String> = LazyLock::new(|| short_name(&hostname()));
 

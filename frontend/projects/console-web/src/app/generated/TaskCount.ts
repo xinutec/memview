@@ -2,7 +2,7 @@
 
 /**
  * How much a conversation is holding, for a row drawn without opening it. `total`
- * is what is assigned NOW, not what ever was, so finishing work does not make the
+ * is what is assigned now, not what ever was, so finishing work does not make the
  * fraction worse.
  */
 export type TaskCount = { 
@@ -16,6 +16,6 @@ open: number,
  */
 total: number, 
 /**
- * How many are still in the built-in store this replaced — see [`strays`].
+ * How many are still in the CLI's built-in store — see [`strays`].
  */
 stray: number, };

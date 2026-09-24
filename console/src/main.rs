@@ -136,8 +136,8 @@ async fn main() -> Result<()> {
     if let Some(dir) = &static_dir {
         // The SPA owns its routes, so a navigation the API did not answer gets the
         // index. `fallback`, not `not_found_service`, which never sees a deep link.
-        // Only for a navigation: serving index.html for a missing font once broke the
-        // icons with nothing logged anywhere.
+        // Only for a navigation: index.html served for a missing font breaks the icons
+        // with nothing logged.
         let index = format!("{dir}/index.html");
         app = app.fallback_service(ServeDir::new(dir).fallback(axum::routing::any(
             move |uri: axum::http::Uri| {

@@ -101,12 +101,12 @@ pub struct Line {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub cwd: Option<String>,
-    /// What the command was FOR, as a sentence — the L4 concept, when a lens can say
+    /// What the command was for, as a sentence — the L4 concept, when a lens can say
     /// ([`reader::concept::describe`], `docs/concept-model.md`).
     ///
     /// Absent is the honest miss: a command no lens covers stays a counted leaf with
     /// the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
-    /// unit is the ROW a person approves, not the step; the two rates differ fivefold.
+    /// unit is the row a person approves, not the step.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub concept: Option<String>,
@@ -261,7 +261,7 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
         // The script itself is not repeated: its commands are the steps below
         // this one, which is a better answer than the text they came from.
         Op::Nested { .. } | Op::Python { .. } | Op::JavaScript { .. } => String::new(),
-        // Names the TABLES: for every other verb the subject is a path, and "sql" alone
+        // Names the tables: for every other verb the subject is a path, and "sql" alone
         // would leave the one interesting fact off the screen.
         Op::Sql { source, .. } => {
             let queried = reader::sql::read(source);
@@ -275,7 +275,7 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             named.join(", ")
         }
         // The same line for both payload shapes: whether the far side had a shell is a
-        // fact about how the payload was READ, not about what happened.
+        // fact about how the payload was read, not about what happened.
         Op::Remote { host, .. } | Op::RemoteRun { host, .. } => host.clone(),
         Op::ChangeDir { to } => to
             .clone()

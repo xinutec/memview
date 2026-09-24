@@ -53,7 +53,7 @@
   display: flex;
   // Centres, not baselines: a 14px name beside an 11px pill has its optical middle
   // lower on a shared baseline, and the pill is a filled shape whose rectangle
-  // hung 2px low.
+  // then hangs low.
   align-items: center;
   gap: 0.75rem;
   // Wraps rather than overflowing: a full head is more than one line on a
@@ -136,8 +136,8 @@
 }
 
 // The task count, quiet by default and coloured only when something is left.
-// Laid out inline, NOT as a flex box: an inline-flex box takes its baseline from
-// its first item — the icon — and the digits rode 3.8px above the line.
+// Laid out inline, not as a flex box: an inline-flex box takes its baseline from
+// its first item — the icon — and the digits ride above the line.
 .list {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface-variant);
@@ -217,7 +217,7 @@
 
 // The age and its clock travel together. `--warm` and `--hot` (0..1 from
 // [[cacheStops]]) drive two nested mixes `in oklch`, whose hue interpolation
-// supplies the orange between yellow and red; both on the SPAN so the time
+// supplies the orange between yellow and red; both on the span so the time
 // colours with the clock.
 .since {
   --warm: 0;
@@ -250,7 +250,7 @@
 }
 
 .mode.loud {
-  // Colour alone now it is an icon: a filled pill around a 1.1rem glyph reads
+  // Colour alone, as it is an icon: a filled pill around a 1.1rem glyph reads
   // as a badge with something in it rather than as the glyph itself.
   color: var(--mat-sys-error);
 }
@@ -259,8 +259,8 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// Who is holding tasks who is not a conversation. Quiet, and below the cards:
-// it is context for them, not a row of its own.
+// Who is holding tasks who is not a conversation. Quiet: it is context for the
+// cards, not a row of its own.
 .elsewhere {
   margin: 0.5rem 0 0.75rem;
   color: var(--mat-sys-on-surface-variant);
@@ -308,17 +308,14 @@
 $add-size: 3.5rem;
 $add-bottom: 2.5rem;
 
-// The list pads its own reading column, now that `.page` supplies only vertical
+// The list pads its own reading column, since `.page` supplies only vertical
 // room — and a custom element is `display: inline` until something says
-// otherwise, so the block it looks like was never there either.
+// otherwise, so the block it looks like does not exist without this.
 :host {
   display: block;
   // Room for the last card to clear the button below. `.add` is `fixed`, so
-  // it covers whatever the list scrolls under it — measured at 56×56 of the last
-  // card, with `elementFromPoint` at that corner returning the button's own touch
-  // target, so it took the tap as well as the view. The same shape as the
-  // composer covering the last entry's buttons by 66px, which `app.scss` records.
-  // The room is the button's own offset, its height, and a gap.
+  // it covers whatever the list scrolls under it, and takes the tap there as
+  // well as the view. The room is the button's own offset, its height, and a gap.
   padding: 0 1rem calc(#{$add-bottom} + #{$add-size} + 0.75rem);
 }
 
@@ -336,7 +333,7 @@ $add-bottom: 2.5rem;
 
 // Something written and not sent. Neutral, which puts it with the task tally
 // rather than the state words: `.tasks` is primary and `.unread` tertiary, both
-// green here, and a third green was swallowed by the run.
+// green here, and a third green is lost in the run.
 // Outlined, where the row's other markers are filled or bare: a filled pill is
 // the session's state, bare text is its history, and this is neither.
 //

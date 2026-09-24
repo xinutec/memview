@@ -28,17 +28,16 @@ export interface Standing {
 /**
  * How the statuses sort, and how they read. Underway above merely open — the
  * answer to "what is this session actually on"; the closed ones last and
- * hidden by default. `open` is a field rather than `status !== 'done'`: the
- * service grew `dropped`, closed without being done, and "not done" showed five
- * of them among the open work. `Status::is_open` is a method there for the same
- * reason.
+ * hidden by default. `open` is a field rather than `status !== 'done'`:
+ * `dropped` is closed without being done, and "not done" would list it among
+ * the open work. `Status::is_open` is a method there for the same reason.
  */
 const STATUS: Record<Exclude<Status, { unknown: string }>, Standing> = {
   doing: { rank: 0, title: 'underway', icon: 'pending', open: true },
   open: { rank: 1, title: 'open', icon: 'radio_button_unchecked', open: true },
   done: { rank: 2, title: 'done', icon: 'check_circle', open: false },
   // Not the done mark's colour and not a tick: dropped is "decided against". The
-  // OUTLINE cross — the filled `cancel` renders as a solid disc, the loudest mark
+  // outline cross — the filled `cancel` renders as a solid disc, the loudest mark
   // on the screen for the least important row.
   dropped: { rank: 3, title: 'dropped', icon: 'highlight_off', open: false },
 };
@@ -72,8 +71,7 @@ export function above(priority: string | undefined): boolean {
 
 /**
  * What a deadline says, spelled out for the label rather than the row: the row
- * gets an icon, since the date pushed a long subject from 9 wrapped lines to
- * 12 at phone width. Empty when there is no deadline, which is almost every task.
+ * gets an icon, since at phone width the date wraps a long subject further. Empty when there is no deadline, which is almost every task.
  */
 export function dueLabel(task: Task): string {
   if (!task.due) return '';
@@ -139,7 +137,7 @@ export class TasksSheet {
   protected readonly said = signal<Record<string, string>>({});
   /**
    * Why one task's write-up could not be fetched, per task. Separate from [said]:
-   * kept as the text, a failure became the description for the life of the sheet.
+   * kept as the text, a failure would become the description for the life of the sheet.
    */
   protected readonly failed = signal<Record<string, string>>({});
 

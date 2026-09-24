@@ -6,8 +6,8 @@
  * stops; nothing ever scrolls you back.
  *
  * Never re-decide after a change whether the reader is still at the end — the
- * change itself moves the end. Compensating for that took two thresholds and
- * 300px of slack and still yanked the view; the one piece kept is [`wrote`].
+ * change itself moves the end, and no amount of slack compensates for that. The
+ * one exception is [`wrote`].
  *
  * Pure and separate from the view: jsdom has no layout, so as a state machine
  * fed positions these rules are arithmetic the tests can replay.
@@ -60,7 +60,7 @@ export class Following {
   private at = true;
 
   /**
-   * Whether a finger is on the transcript right now. A hold SUSPENDS following
+   * Whether a finger is on the transcript right now. A hold suspends following
    * rather than ending it: nothing is written while the finger is down, and
    * letting go catches up. A tap is a hold that lasts a moment.
    */
@@ -78,7 +78,7 @@ export class Following {
   /**
    * The last position this engine asked for, or -1 for none outstanding. The
    * view is set to the bottom, more renders before the queued scroll event is
-   * delivered, and the handler then runs against the NEW height and the OLD
+   * delivered, and the handler then runs against the new height and the old
    * position. The event carrying exactly this position is the engine's own. Kept
    * rather than cleared: the race can follow any write.
    */
@@ -145,7 +145,7 @@ export class Following {
   /**
    * The reader said something, and the page is about to move under them.
    *
-   * This PROTECTS following; it does not restore it. Sending from halfway up the
+   * This protects following; it does not restore it. Sending from halfway up the
    * morning is not a request to be taken to the bottom. What it settles is
    * a race: sending collapses the composer, and the browser moves the position
    * while it does, unasked, which from outside is
@@ -163,7 +163,7 @@ export class Following {
 
   /**
    * And came off it. A hold that moved nothing leaves everything as it was; a
-   * hold that SCROLLED is a decision, answered from where they let go against the
+   * hold that scrolled is a decision, answered from where they let go against the
    * end as it stood when they took hold. See [`heldAt`].
    */
   released(box: Box): void {
@@ -187,7 +187,7 @@ export class Following {
     // written position is them coming back. A finger on the glass suspends the
     // question: a resting thumb clears [`SLACK`], and what the gesture adds up to is
     // known only when it lifts. The window is learned before every guard: it is
-    // bookkeeping, and written after them the reshape looked like a first event.
+    // bookkeeping, and written after them the reshape reads as a first event.
     const reshaped = this.view >= 0 && box.view !== this.view;
     this.view = box.view;
     if (this.holding) return;

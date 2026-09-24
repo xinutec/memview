@@ -9,9 +9,8 @@ import { Injectable } from '@angular/core';
  * conveniences. Losing them costs a reader the offline copy; taking the app down
  * with them would cost the reader everything.
  *
- * Deliberately not a database library. What is wanted is `get`, `set` and
- * `delete` over a handful of keys, and an RxDB collection with a replication
- * protocol was what this replaced — see the note at the top of [[Drafts]].
+ * Deliberately not a database library: what is wanted is `get`, `set` and
+ * `delete` over a handful of keys, and nothing here replicates.
  */
 
 const DATABASE = 'console-local';

@@ -94,7 +94,7 @@ export class Drafts {
   private readonly kept = new Map<string, Kept>();
   private timer?: ReturnType<typeof setInterval>;
   private since = 0;
-  /** Conversations whose document has changed HERE since the last push. */
+  /** Conversations whose document has changed here since the last push. */
   private readonly dirty = new Set<string>();
   private sending?: Promise<void>;
   private soon?: ReturnType<typeof setTimeout>;
@@ -127,7 +127,7 @@ export class Drafts {
   /**
    * Put `text` in the box.
    *
-   * Written as a DIFF against what is there, not as a replacement. A
+   * Written as a diff against what is there, not as a replacement. A
    * wholesale replace deletes every character and inserts the string again, which
    * merges with a concurrent edit as two people retyping the sentence at once —
    * the very mess this design exists to avoid. The common edit, a keystroke at
@@ -205,7 +205,7 @@ export class Drafts {
    * One round: push what has changed here, then take everything the runner has
    * past our cursor.
    *
-   * Both directions apply the SAME operation — merge these bytes into that
+   * Both directions apply the same operation — merge these bytes into that
    * document — so there is no order in which this goes wrong, and no answer the
    * runner can give that has to be refused.
    */
@@ -244,7 +244,7 @@ export class Drafts {
       const body: unknown = await res.json();
       if (typeof body !== 'object' || body === null) return;
       if ('documents' in body) await this.take(body.documents);
-      // A missing or malformed cursor is LEFT ALONE rather than reset. Taking it
+      // A missing or malformed cursor is left alone rather than reset. Taking it
       // as zero would rewind the pull for ever and re-deliver the whole store every
       // five seconds.
       if ('checkpoint' in body) {
@@ -296,7 +296,7 @@ export class Drafts {
     const doc = new Y.Doc();
     const kept: Kept = { doc, text: doc.getText(TEXT), loaded: this.restore(id, doc) };
     doc.on('update', (_update: Uint8Array, origin: unknown) => {
-      // Anything written HERE is ours to send; anything merged in came from there.
+      // Anything written here is ours to send; anything merged in came from there.
       if (origin !== 'theirs') {
         this.dirty.add(id);
         this.push();
@@ -321,7 +321,7 @@ export class Drafts {
  * The one span that changed between two strings: where it starts, how much to
  * remove, and what to put there.
  *
- * The point is the COMMON case, which is typing. Adding a character at the
+ * The point is the common case, which is typing. Adding a character at the
  * end must be one insert of one character, not a delete of the whole sentence
  * and an insert of a longer one — the second merges with a concurrent edit as
  * two people retyping at once, which is how a merging design can still lose

@@ -3,7 +3,7 @@
 //! Nothing else records it: the mode goes to the CLI on the command line, and the
 //! transcript's mode lines belong to whichever session was resumed (see
 //! [`crate::session::Summary::mode`]). Without this file a session left in `auto`
-//! came back Manual after a restart and stopped at its first approval, with
+//! resumes Manual after a restart and stops at its first approval, with
 //! nothing saying why.
 
 use parking_lot::RwLock;

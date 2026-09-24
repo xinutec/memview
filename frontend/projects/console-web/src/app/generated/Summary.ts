@@ -12,14 +12,14 @@ export type Summary = { id: string, dir: string,
  */
 started: number, 
 /**
- * When anything last happened, in MILLISECONDS, from the transcript — not
+ * When anything last happened, in milliseconds, from the transcript — not
  * `started`, which is when this console picked the process up. Filled by the
  * roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
  */
 touched?: number, 
 /**
  * How much the transcript weighs, in bytes. Not [`Self::context`], which is the
- * LAST request's prompt in tokens.
+ * last request's prompt in tokens.
  */
 bytes?: number, alive: boolean, model?: string, 
 /**
@@ -28,7 +28,7 @@ bytes?: number, alive: boolean, model?: string,
 busy?: string, 
 /**
  * Whether a turn is running — observed by the runner, not narrated by the CLI.
- * [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
+ * [`Self::busy`] cannot answer this: a status is announced when it changes, so
  * a long stretch of one activity leaves nothing standing.
  * Deliberately not a timeout: a turn can legitimately be quiet for minutes.
  */
@@ -46,7 +46,7 @@ interactions: number,
 cost_usd: number, 
 /**
  * How many tokens the last request's prompt came to, and the window it went
- * into. Per MESSAGE, not per turn — the result line sums every request the turn
+ * into. Per message, not per turn — the result line sums every request the turn
  * made. Input + cache-creation + cache-read: the cached part is almost all of it.
  */
 context?: number, window?: number, 
@@ -57,7 +57,7 @@ context?: number, window?: number,
  */
 background: number, 
 /**
- * WHICH background calls are still running. `background` is kept beside this:
+ * Which background calls are still running. `background` is kept beside this:
  * the list wants a number, the strip wants the name.
  */
 running: Array<Called>, 
@@ -77,7 +77,7 @@ asked?: string,
  */
 name?: string, 
 /**
- * What the OTHER sessions on this machine call this one — the name
+ * What the other sessions on this machine call this one — the name
  * `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
  * the title in the transcript: only `-n` at spawn writes this one, so a
  * conversation renamed while it runs keeps the name its peers already knew
@@ -88,7 +88,7 @@ name?: string,
 peer_name?: string, 
 /**
  * What the session may do without asking: `default`, `plan`, `dontAsk`,
- * `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
+ * `acceptEdits`, `auto`, `bypassPermissions`. What the console set, not what the
  * transcript says — a resumed session carries the previous session's mode
  * lines.
  */
@@ -108,7 +108,7 @@ waiting: number,
  */
 unread: number, 
 /**
- * How long it has been failing to read them, in SECONDS — present only when the
+ * How long it has been failing to read them, in seconds — present only when the
  * console is prepared to call it deaf. See [`Session::deaf`].
  */
 deaf?: number, 

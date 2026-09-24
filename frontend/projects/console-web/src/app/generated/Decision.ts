@@ -15,6 +15,6 @@ id: string, allow: boolean,
  */
 why?: string, answers?: { [key in string]: Answer }, response?: string, 
 /**
- * Notes beside the choices — see [`Annotation`]. These travel WITH `answers`.
+ * Notes beside the choices — see [`Annotation`]. These travel with `answers`.
  */
 annotations?: { [key in string]: Annotation }, };

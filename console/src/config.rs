@@ -72,7 +72,7 @@ impl Config {
                 cert_file,
                 key_file,
                 // The file wins over the variable: an upgrade is an `execve`, which inherits the
-                // pin list `console.sh` exported at the ORIGINAL launch, so a key enrolled since
+                // pin list `console.sh` exported at the original launch, so a key enrolled since
                 // would be refused until a full restart.
                 pins: pinned_clients(&home)
                     .unwrap_or_else(|| pins.split(',').map(|p| p.trim().to_string()).collect()),
@@ -180,7 +180,7 @@ impl Config {
 /// The pinned client keys, read from the file a person edits: one pin per line,
 /// `#` comments and blank lines ignored — what `scripts/console.sh` parses and
 /// `scripts/enrol.sh` appends to. `None` when there is no such file, leaving the
-/// variable in charge; and `None` for an EMPTY file too, since trusting nobody looks
+/// variable in charge; and `None` for an empty file too, since trusting nobody looks
 /// exactly like a wrong certificate and is far more likely to be a mistake.
 fn pinned_clients(home: &str) -> Option<Vec<String>> {
     let dir =

@@ -25,12 +25,12 @@ reached: Reach,
  */
 scope: Array<number>, cwd?: string, 
 /**
- * What the command was FOR, as a sentence — the L4 concept, when a lens can say
+ * What the command was for, as a sentence — the L4 concept, when a lens can say
  * ([`reader::concept::describe`], `docs/concept-model.md`).
  *
  * Absent is the honest miss: a command no lens covers stays a counted leaf with
  * the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
- * unit is the ROW a person approves, not the step; the two rates differ fivefold.
+ * unit is the row a person approves, not the step.
  */
 concept?: string, 
 /**

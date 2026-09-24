@@ -87,7 +87,7 @@ export interface Held {
  * The transcripts being read, and the streams that fill them.
  *
  * Root-provided because the person is the reader, not the component: held in the
- * component, every page scrolled back to was thrown away by a navigation. The
+ * component, every page scrolled back to is thrown away by a navigation. The
  * stream is closed on the way out — browsers allow a handful of connections to
  * one host, and abandoned streams would starve the state poll — and re-opening
  * resumes. Deliberately not kept: the scroll position, which means nothing
@@ -273,9 +273,8 @@ export class SessionStore {
     if (seq > held.seen) held.seen = seq;
     // Activity is state, kept beside the transcript. A turn ending is what says the
     // work stopped. Live events only: a seed ends with the `turn` that closed the
-    // previous work, and applied as news it cleared `doing` and switched off the
-    // fallback to the runner's flag — twelve minutes of `idle` over a session
-    // running tools throughout.
+    // previous work, and applied as news it clears `doing` and switches off the
+    // fallback to the runner's flag, showing `idle` over a session running tools.
     if (held.live()) {
       if (event.kind === 'busy') {
         // Only the first one starts the clock — see [Held.since].
@@ -305,8 +304,8 @@ export class SessionStore {
   /**
    * Drop everything held about a conversation: the entries, where the page
    * begins, and how far the transcript had got. What it was doing goes too — a
-   * turn that ended while this client was disconnected cleared nothing, and the
-   * page showed a timer running for as long as it was left open.
+   * turn that ends while this client is disconnected clears nothing, and the
+   * timer would run for as long as the page stays open.
    */
   private forget(held: Held): void {
     held.link.right();

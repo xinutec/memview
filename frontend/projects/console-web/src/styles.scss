@@ -50,18 +50,15 @@ body {
   color: var(--mat-sys-on-surface);
 }
 
-// Every control in this app is operated by a thumb, usually one-handed, often on
-// a moving train — the phone is why the console exists, not a second target it
-// also has to work on. 48px is the Material guideline and Material's own buttons
-// come out at 40, so they are raised app-wide rather than page by page: the
-// layout harness checks the rendered box, and it found the toolbar link at 28px
-// on a screen nobody had thought to measure.
+// Every control in this app is operated by a thumb, usually one-handed — the
+// phone is why the console exists. 48px is the Material guideline and Material's
+// own buttons come out at 40, so they are raised app-wide rather than page by
+// page, where a screen nobody measured keeps the small size.
 //
 // `min-height`, so it beats the `height` Material sets from its own tokens.
 //
 // Both axes: Material's icon button is 40px square, so a height-only floor makes
-// a control 48 tall and 40 wide, which passes a glance and fails a thumb. Here
-// rather than per button, so every button gets it.
+// a control 48 tall and 40 wide, which passes a glance and fails a thumb.
 button {
   min-height: 3rem;
   min-width: 3rem;
@@ -72,17 +69,15 @@ button {
 //
 // Material's icon button is 40px square with 8px of padding, and that
 // padding is in its structural CSS rather than read from the size token. So a
-// box raised to 48 keeps 8px above the glyph and gets 16 below it, and the ⋮
-// rides high in its own bubble — measured at a glyph centred on y=25 inside a
-// state layer centred on y=28. Nothing was clipped, nothing overflowed and the
-// target was the right size; it just looked wrong, which is the only symptom
-// this class of fault has.
+// box raised to 48 keeps 8px above the glyph and gets 16 below it, and the glyph
+// rides high in its own bubble. Nothing clips or overflows, so only a render
+// shows it.
 //
 // Centred here instead of resized there: setting `state-layer-size` grows the
 // circle and leaves the same padding, so the glyph stays off-centre in a bigger
 // bubble.
 //
-// `button[matIconButton]` is OUR markup — the directive written in the template —
+// `button[matIconButton]` is our markup — the directive written in the template —
 // rather than `.mat-mdc-icon-button`, which is Material's private DOM and breaks
 // silently on upgrades (DL-SCSS-INTERNAL-OVERRIDE).
 button[matIconButton] {
@@ -107,14 +102,10 @@ button[matIconButton] {
   // `white-space: normal`, because this is HTML and not text. `.entry`
   // sets `pre-wrap` so a plain message keeps the line breaks somebody typed —
   // and that is inherited here, where the content is markup. `marked` puts a
-  // newline between every block it emits (`</h2>\n<p>`), so each one rendered as
-  // a real line break *on top of* that block's own margin.
-  //
-  // Measured on a message of two headings, two paragraphs and a list: the gaps
-  // were 44.8px, 52.8px, 44.8px and 40.0px against the 16px the margins ask for,
-  // and the answer stood 390px tall where it should be 224 — 74% of a phone
-  // screen given away to nothing. `pre` sets its own `pre-wrap` below, so code
-  // blocks keep every line break they came with.
+  // newline between every block it emits (`</h2>\n<p>`), and under `pre-wrap`
+  // each renders as a real line break on top of that block's own margin, roughly
+  // tripling every gap. `pre` sets its own `pre-wrap` below, so code blocks keep
+  // every line break they came with.
   white-space: normal;
 
   // Markdown brings its own block elements, and their default margins double up
@@ -194,7 +185,7 @@ app-agent-view .entry .body {
 }
 
 // A task's write-up. Written as markdown by the session that filed it — headings,
-// bold and fenced code — and shown raw it was a wall of asterisks and backticks.
+// bold and fenced code — which shown raw is a wall of asterisks and backticks.
 app-tasks-sheet .said {
   @include rendered;
 }
@@ -253,7 +244,7 @@ app-tasks-sheet .said {
 // Material sets `overflow: hidden` on `mat-icon`, and a flex item whose overflow
 // is not `visible` loses the `min-width: auto` floor that would stop it
 // collapsing below its content — so a crowded row does not scale the glyph, it
-// CLIPS it, and shows a fragment. Unconditionally true, so it lives here rather
+// clips it, and shows a fragment. Unconditionally true, so it lives here rather
 // than in each component that happens to put an icon in a flex row
 // (DL-ANGULAR-ICON-SHRINK).
 mat-icon {
@@ -265,13 +256,9 @@ mat-icon {
 // A custom element is `display: inline` until something says otherwise, so
 // without this the column it looks like exists does not.
 //
-// This replaced three stacked guesses — `.page` sized itself with
-// `calc(100dvh - var(--toolbar-height, 64px))` and the stamp below it was pulled
-// back into view with `margin-top: -5rem`, a number tuned to how tall the
-// composer happened to be. The composer grows from one row to six as an
-// instruction is typed, so that number was right at exactly one size and the
-// stamp rendered *through* the text box at every other. Letting flex do the
-// arithmetic removes all three numbers at once.
+// Flex does the arithmetic rather than a `calc()` or margin tuned to the
+// toolbar's or composer's height: the composer grows from one row to six as an
+// instruction is typed, so any fixed number is right at exactly one size.
 app-root {
   display: flex;
   flex-direction: column;
@@ -283,12 +270,10 @@ app-root {
 // A picture opened from a link fills the screen, where every other sheet takes
 // the bottom of it.
 //
-// `panelClass` lands on the overlay PANE, not on the container, which the
-// first cut of this got wrong: `.picture-panel.mat-bottom-sheet-container`
-// matched nothing at all, and the sheet came up at Material's own 80vh with the
-// render squeezed into the bottom half of the phone. Measured off the DOM —
-// `DIV.cdk-overlay-pane picture-panel` with `MAT-BOTTOM-SHEET-CONTAINER` inside
-// it. So the pane is opened out and the container told to fill it.
+// `panelClass` lands on the overlay pane, not on the container:
+// `.picture-panel.mat-bottom-sheet-container` matches nothing, and the sheet
+// stays at Material's own 80vh. So the pane is opened out and the container,
+// inside it, told to fill it.
 //
 // Global because both of those elements are Material's own, outside the
 // component and so out of reach of its scoped styles — the same reason the ANSI

@@ -12,8 +12,8 @@ export interface Choosing {
 }
 
 /**
- * What a session may do without asking. Its own sheet rather than six rows in
- * the ⋮ menu, which they were most of. Still the one place the escalation order
+ * What a session may do without asking. Its own sheet rather than six rows that
+ * would be most of the ⋮ menu. Still the one place the escalation order
  * and the icons are shown together.
  */
 @Component({
@@ -31,7 +31,7 @@ export class ModesSheet {
   protected readonly chosen = signal(this.given.mode);
 
   protected pick(mode: Known): void {
-    // Dismissed WITH the choice rather than calling the API here: the toolbar owns
+    // Dismissed with the choice rather than calling the API here: the toolbar owns
     // the optimistic set and the rollback.
     this.sheet.dismiss(mode);
   }

@@ -20,8 +20,7 @@ export interface StartWhere {
 
 /**
  * Start a session, from behind the one control that offers it. A sheet: the
- * list is what the console is opened for and starting is rare, yet the form
- * was the first thing on the page. It carries its own trouble, since a refusal
+ * list is what the console is opened for and starting is rare. It carries its own trouble, since a refusal
  * — a directory outside the allow list — is answered by editing the field.
  */
 @Component({
@@ -42,15 +41,15 @@ export class StartSheet {
   private sheet = inject(MatBottomSheetRef<StartSheet>);
 
   /**
-   * Prefilled with the directory conversations are actually started in. It used
-   * to be `repos[0]`, alphabetically first — plausible-looking and wrong.
+   * Prefilled with the directory conversations are actually started in, not
+   * `repos[0]`: alphabetically first is plausible-looking and wrong.
    */
   protected readonly dir = signal(this.given.common ?? this.repos[0] ?? '');
 
   /**
    * The repositories worth offering for what has been typed so far, matched on
    * the last path element: every repository lives under `~/Code`, which is what
-   * the field opens on, so a whole-value match offered all of them at once.
+   * the field opens on, so a whole-value match offers all of them at once.
    */
   protected readonly suggestions = computed(() => {
     const whole = this.dir().trim();

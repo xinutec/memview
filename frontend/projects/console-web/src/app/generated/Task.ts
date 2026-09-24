@@ -27,7 +27,7 @@ priority?: string,
  */
 due?: string, 
 /**
- * Whether that day has passed. Server-decided, from the database's clock, and NOT
+ * Whether that day has passed. Server-decided, from the database's clock, and not
  * recomputed from [`Self::due`] on a phone in another timezone.
  */
 overdue: boolean, 
@@ -36,7 +36,7 @@ overdue: boolean,
  */
 blocked_on: Array<string>, 
 /**
- * Whether it is actually still waiting. Server-decided, and NOT `blocked_on`
+ * Whether it is actually still waiting. Server-decided, and not `blocked_on`
  * being non-empty: the link survives its blocker closing, as a record.
  */
 blocked: boolean, };

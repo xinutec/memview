@@ -1,9 +1,9 @@
 //! The work a conversation is holding, read from the tasks service.
 //!
-//! Not `~/.claude/tasks/`, which is deliberately empty: the CLI re-sent that
-//! store's whole contents with every message, so the lists moved to a service.
+//! Not `~/.claude/tasks/`, which stays empty: the CLI re-sends that store's
+//! whole contents with every message.
 //!
-//! "This session's tasks" means the ones ASSIGNED to it, not the ones its prompt
+//! "This session's tasks" means the ones assigned to it, not the ones its prompt
 //! sees. And reading is not being: the service makes writers name the conversation
 //! they speak for, but this only reads, so it names itself — see [`IDENTITY`].
 
@@ -94,14 +94,14 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub due: Option<String>,
-    /// Whether that day has passed. Server-decided, from the database's clock, and NOT
+    /// Whether that day has passed. Server-decided, from the database's clock, and not
     /// recomputed from [`Self::due`] on a phone in another timezone.
     #[serde(default)]
     pub overdue: bool,
     /// Which tasks this one is waiting for, by number. Absent when empty.
     #[serde(default, deserialize_with = "as_texts")]
     pub blocked_on: Vec<String>,
-    /// Whether it is actually still waiting. Server-decided, and NOT `blocked_on`
+    /// Whether it is actually still waiting. Server-decided, and not `blocked_on`
     /// being non-empty: the link survives its blocker closing, as a record.
     #[serde(default)]
     pub blocked: bool,
@@ -127,7 +127,7 @@ fn as_text<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error
 }
 
 /// How much a conversation is holding, for a row drawn without opening it. `total`
-/// is what is assigned NOW, not what ever was, so finishing work does not make the
+/// is what is assigned now, not what ever was, so finishing work does not make the
 /// fraction worse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -138,7 +138,7 @@ pub struct TaskCount {
     pub open: usize,
     /// Open and finished together. Never smaller than [`Self::open`].
     pub total: usize,
-    /// How many are still in the built-in store this replaced — see [`strays`].
+    /// How many are still in the CLI's built-in store — see [`strays`].
     #[serde(default)]
     pub stray: usize,
 }
@@ -166,10 +166,9 @@ pub struct Sweep {
     pub elsewhere: Vec<Holder>,
 }
 
-/// What each conversation has left in `~/.claude/tasks/<session-id>/`, the
-/// built-in store the service replaced. Every file there is re-sent to its session
-/// with every message, so a number here says a migration was never cleaned up, or
-/// something is still filing into the expensive store.
+/// What each conversation has left in `~/.claude/tasks/<session-id>/`, the CLI's
+/// built-in store. Every file there is re-sent to its session with every message,
+/// so any count here is cost: leftovers, or something still filing there.
 ///
 /// Counts files rather than reading them; `.lock` and `.highwatermark` are the
 /// CLI's. Unreadable is nothing rather than an error: a console running anywhere
@@ -241,7 +240,7 @@ impl Tasks {
     }
 
     /// A reader pointed at one service. The address is an argument, not the
-    /// environment: tests setting `TASKS_URL` clobbered each other's stub.
+    /// environment: parallel tests setting `TASKS_URL` would clobber each other's stub.
     pub fn at(base: impl Into<String>) -> Self {
         // Here and not only in `main`: building a TLS client with no process-wide crypto
         // provider panics inside reqwest, and a test that builds a Roster has run no
@@ -276,7 +275,7 @@ impl Tasks {
     }
 
     /// Everybody holding something, and how much. One request for the whole page. A
-    /// conversation holding nothing is ABSENT rather than zero, which is the rule the
+    /// conversation holding nothing is absent rather than zero, which is the rule the
     /// client draws by.
     ///
     /// `/api/holders`, not `/api/sessions`: the tally is its own endpoint so the two
@@ -334,7 +333,7 @@ impl Tasks {
             match (row.kind.as_str(), row.id) {
                 ("session", Some(id)) => {
                     let stray = left.remove(&id).unwrap_or(0);
-                    // Nothing ever assigned, rather than nothing open: `0/366` is a good day, and
+                    // Nothing ever assigned, rather than nothing open: `0/n` is all done, and
                     // no row at all is a different fact.
                     if total == 0 && stray == 0 {
                         continue;

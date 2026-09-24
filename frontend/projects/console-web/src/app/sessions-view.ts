@@ -27,7 +27,7 @@ import { StartSheet } from './start-sheet';
 
 /**
  * One line of the list — a session this console is running, or a conversation
- * on disk that could be picked up. One list: two of them hid a dozen
+ * on disk that could be picked up. One list: two would hide
  * conversations behind a count, and the answer to "is it on" is carried by the
  * row.
  */
@@ -67,7 +67,7 @@ interface Row {
    */
   readonly tasks?: TaskCount;
   /**
-   * Whether something is written here and not sent — whether there is TEXT, not
+   * Whether something is written here and not sent — whether there is text, not
    * an entry: a cleared draft stays as a tombstone.
    */
   readonly draft: boolean;
@@ -81,8 +81,8 @@ interface Row {
  * The order the list is read in. Working first, because that is the question
  * the page is opened to answer; blocked second — it needs an answer but is not
  * going anywhere. Work left running is its own rank above idle: a session with
- * two background tasks is silent until they finish, and sank like one that had
- * stopped for the day. Within a rank, last activity.
+ * two background tasks is silent until they finish, and would sink like one that
+ * has stopped for the day. Within a rank, last activity.
  */
 const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
 
@@ -200,8 +200,8 @@ export class SessionsView {
               : session.background
                 ? RANK.background
                 : RANK.idle,
-        // Last activity, not when the process started: a conversation that ran all day
-        // reported `13h ago` with a transcript four seconds old. `started` (seconds)
+        // Last activity, not when the process started: a conversation that runs all day
+        // would read `13h ago` with a transcript seconds old. `started` (seconds)
         // only for a session with no transcript yet.
         at: session.touched ?? session.started * 1000,
       });
@@ -238,7 +238,7 @@ export class SessionsView {
     this.until.onDestroy(this.roster.follow());
     // The conversations on disk are this page's alone, so it keeps its own timer.
     // Stopped when the page goes: rebuilt on every navigation back, a poll left
-    // running accumulated a timer per visit, each walking every transcript on the Mac.
+    // running accumulates a timer per visit, each walking every transcript on the Mac.
     const poll = setInterval(() => this.pastStore.load(), 5000);
     this.until.onDestroy(() => clearInterval(poll));
     this.pastStore.load();
@@ -337,7 +337,7 @@ export class SessionsView {
   /** What the reddening clock means, for a title and a screen reader. */
   cacheSays(at: number): string {
     const left = Math.max(0, Math.round(60 - (Date.now() - at) / 60000));
-    // What is LEFT, which is the number the reader acts on.
+    // What is left, which is the number the reader acts on.
     return `${left}m left of the hour the prompt cache lasts`;
   }
 

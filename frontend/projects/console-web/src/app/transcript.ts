@@ -21,12 +21,12 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
   const out = SPOKE.has(event.kind) ? entries.map(settled) : [...entries];
   switch (event.kind) {
     case 'text': {
-      // Past anything QUEUED, and nothing else. A message sent while the
+      // Past anything queued, and nothing else. A message sent while the
       // model is typing is shown the moment it is sent, but the CLI parks it and
-      // reads it when the turn ends — so it interrupted nothing, and letting it
-      // end the model's block split one message into two. On screen that is a
+      // reads it when the turn ends — so it interrupts nothing, and letting it
+      // end the model's block splits one message into two. On screen that is a
       // paragraph break mid-sentence, and a list or code fence cut in half
-      // renders as broken markdown on BOTH sides.
+      // renders as broken markdown on both sides.
       //
       // A tool call is the opposite: it really did interrupt, and the text after
       // it is a new block. So this steps back over queued messages only.

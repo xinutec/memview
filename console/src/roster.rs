@@ -18,8 +18,8 @@ use crate::config::Config;
 use crate::session::{Session, Summary};
 
 /// How long [`Roster::revive`] will wait for a stopped session to actually go. A
-/// stop kills only after a grace period, and one session took thirty seconds to
-/// leave the process table, where the resume guard can still see it.
+/// stop kills only after a grace period, and a session can take thirty seconds to
+/// leave the process table, where the resume guard still sees it.
 const REVIVE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(90);
 
 pub struct Roster {
@@ -119,7 +119,7 @@ impl Roster {
         self.modes.set(id, mode);
     }
 
-    /// Who is holding what, for the front page. Over the network now, cached for
+    /// Who is holding what, for the front page. Over the network, cached for
     /// thirty seconds — see [`crate::tasks::Tasks`] — so an ordinary await.
     pub async fn tasks(&self) -> crate::tasks::Sweep {
         self.tasks.sweep().await
@@ -234,9 +234,9 @@ impl Roster {
 
     /// Send the kills the image before this one promised and could not deliver.
     ///
-    /// The deadline is the old image's: a session stopped twenty-nine seconds before
-    /// an upgrade gets one second, or enough upgrades in a row are the leak this
-    /// fixes. Each waits on its own task; the log is where this reports.
+    /// The deadline is the old image's, not a fresh grace period, or enough upgrades
+    /// in a row postpone the kill forever. Each waits on its own task; the log is
+    /// where this reports.
     pub fn finish_stopping(&self) -> usize {
         let Ok(handed) = std::env::var(STOPPING) else {
             return 0;
@@ -322,8 +322,8 @@ impl Roster {
             tracing::info!("refused {id}: this console already has it open");
             return Err(format!("{id} is already open here"));
         }
-        // And refused when anything ELSE appears to be using it; as a warning in the UI
-        // it let a second process onto a transcript. `busy` is inferred — see
+        // And refused when anything else appears to be using it: a warning would let a
+        // second process onto a transcript. `busy` is inferred — see
         // `past::in_use`.
         if crate::past::conversations(&crate::past::projects_root())
             .iter()
@@ -340,7 +340,7 @@ impl Roster {
         }
         // The conversation's own name becomes `-n`, because that is the only route by
         // which it reaches the peer registry: renaming a running session writes a title
-        // to the transcript and nothing else, so a name given through this console was
+        // to the transcript and nothing else, so a name given through this console stays
         // invisible to every other session until its next resume. See [`Spawn::name`].
         let spawn = crate::session::Spawn {
             permission_mode: mode
@@ -394,8 +394,8 @@ impl Roster {
         if old.alive() {
             old.stop().await;
         }
-        // Bounded, generously: a stop kills only after a grace period, and a session has
-        // taken thirty seconds to go, passing through `Z` where the resume guard sees it.
+        // Bounded, generously: a stop kills only after a grace period, and a session
+        // passes through `Z`, where the resume guard sees it.
         let gone = std::time::Instant::now();
         while old.alive() && gone.elapsed() < REVIVE_PATIENCE {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -445,7 +445,7 @@ impl Roster {
     /// numbers travel as JSON in [`HANDOVER`]; the listening sockets deliberately do
     /// not, so the port is free at once and clients reconnect on `Last-Event-ID`.
     ///
-    /// If this RETURNS, the upgrade failed and this is still the old build, holding
+    /// If this returns, the upgrade failed and this is still the old build, holding
     /// everything it held. A session being stopped travels in [`STOPPING`]: it fails
     /// the descriptor test by construction, and its kill lives in a task `execve`
     /// discards.
@@ -508,7 +508,7 @@ impl Roster {
     }
 
     /// Ask a live session what the account has spent. One session — the figure is
-    /// account-wide — and the freshest IDLE one: a busy CLI answers no control request
+    /// account-wide — and the freshest idle one: a busy CLI answers no control request
     /// until its turn ends, and "spoke most recently" nearly defines "working now".
     /// `(not working, last heard)` falls back to the freshest working one. Nothing is
     /// returned; the answer lands in that session's tally, where [`Self::spent`] finds it.

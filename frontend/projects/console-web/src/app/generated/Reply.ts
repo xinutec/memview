@@ -10,6 +10,6 @@ import type { Answer } from "./Answer";
  */
 export type Reply = { answers?: { [key in string]: Answer }, response?: string, 
 /**
- * Notes beside the choices — see [`Annotation`]. These travel WITH `answers`.
+ * Notes beside the choices — see [`Annotation`]. These travel with `answers`.
  */
 annotations?: { [key in string]: Annotation }, };

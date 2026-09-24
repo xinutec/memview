@@ -1,4 +1,4 @@
-//! What a session is called to the OTHER sessions on this machine.
+//! What a session is called to the other sessions on this machine.
 //!
 //! A conversation has two names and they are not the same thing. The title is
 //! what a person renamed it to, lives in the transcript, and is what this console
@@ -8,8 +8,7 @@
 //!
 //! They drift because only `-n` at spawn writes this one — a rename reaches the
 //! transcript and stops. A console showing the title alone therefore cannot say
-//! whether a session is reachable under the name on its card, which is how
-//! eighteen sessions all answering to `code-` and a hash went unnoticed.
+//! whether a session is reachable under the name on its card.
 
 use std::path::{Path, PathBuf};
 

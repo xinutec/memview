@@ -212,11 +212,10 @@ export function asking(entry: Entry): entry is Questioned {
 /**
  * A question still open — the only thing that can be answered.
  *
- * A separate type because "already decided" was four runtime guards.
- * Every method that sends a verdict re-checked `allowed !== undefined` and
- * returned early, which is an invariant kept by remembering rather than by the
- * compiler: a fifth path would have answered a question twice. Taking this type
- * instead moves the check to the one place a `Questioned` becomes answerable.
+ * A separate type so "already decided" is held by the compiler, not by a
+ * runtime guard in every method that sends a verdict — an invariant kept by
+ * remembering, where one forgotten path answers a question twice. Taking this
+ * type moves the check to the one place a `Questioned` becomes answerable.
  */
 export type Unanswered = Questioned & { allowed?: undefined };
 

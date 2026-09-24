@@ -83,7 +83,7 @@ export class ParseSheet {
       step,
       indent: Math.min(step.depth, DEEPEST_INDENT),
       /**
-       * The words, rejoined: what is shown is the argv AFTER expansion, which exists
+       * The words, rejoined: what is shown is the argv after expansion, which exists
        * as text nowhere else.
        */
       words: step.argv.join(' '),
@@ -119,7 +119,7 @@ export class ParseSheet {
    * phrase, and the path is already carried by the use row and the footer. A
    * token at a time, so a greedy match cannot eat the words between subjects.
    *
-   * This would be WRONG for a locus — `under /var/log` cut to `under log` loses
+   * This would be wrong for a locus — `under /var/log` cut to `under log` loses
    * the claim — and is safe only because `Subject::Located` and `Subject::Bounded`
    * cannot reach `describe` today (`subjects_or_refuse` refuses both). Lift that
    * refusal and this must learn the difference first.

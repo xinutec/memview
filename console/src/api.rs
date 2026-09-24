@@ -75,8 +75,8 @@ pub fn router(roster: Arc<Roster>) -> Router {
 }
 
 /// GET /api/reading — the corpus survey, as the nightly mined it. Read per request:
-/// the artefact is 7 kB. Not computed here — that is 13 seconds over 146k
-/// commands, a mining job (`reader --bin reading-json`).
+/// the artefact is small. Not computed here — a pass over the whole corpus is a
+/// mining job (`reader --bin reading-json`).
 async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
     let path = std::env::var("READING_FILE").unwrap_or(
         reader::home::cache("reading.json")
@@ -91,11 +91,12 @@ async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
         .map_err(|_| StatusCode::NOT_FOUND)
 }
 
+/// Below this many bytes a response goes uncompressed.
+const SMALL: u64 = 1024;
+
 /// How large a request carrying an image may be: [`crate::images::LIMIT`] plus
 /// base64's third again plus the JSON, generous so the refusal that names the size
 /// can still be given.
-const SMALL: u64 = 1024;
-
 const BODY_LIMIT: usize = crate::images::LIMIT * 2;
 
 /// Everything a client needs to draw the front page in one request.
@@ -217,8 +218,8 @@ async fn input(
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    // A receipt, because a message arriving twice leaves no other trace — one did,
-    // merged by the CLI into a single message carrying the words twice. The length,
+    // A receipt, because a message arriving twice leaves no other trace: the CLI
+    // merges it into a single message carrying the words twice. The length,
     // not the words: a log is not where a conversation belongs.
     tracing::info!(
         "{id}: accepted {} characters to send",
@@ -251,8 +252,8 @@ async fn pull_drafts(
 
 /// Apply a batch of edits, and answer with the ones that lost. A conflict is a
 /// 200 carrying the current master, not a 409: a batch can both land and lose in
-/// one request. The per-session PUT that sat beside this was removed — two ways
-/// to write one map is how the draft bugs got in.
+/// one request. This is the only way to write drafts: two ways to write one map
+/// let them disagree.
 async fn push_drafts(
     State(roster): State<Arc<Roster>>,
     Json(entries): Json<Vec<crate::drafts::PushEntry>>,
@@ -687,7 +688,7 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
 /// What a client that holds nothing is sent: the end of the transcript.
 ///
 /// Not the log: that is the resume window, hours of it on a session watched all
-/// day. This is [`crate::session::Session::seed`] applied when a READER joins.
+/// day. This is [`crate::session::Session::seed`] applied when a reader joins.
 ///
 /// The page is read before the number is taken: number first lets an event
 /// pushed in between arrive twice, and a duplicated paragraph no client can undo.
@@ -708,7 +709,7 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     }
     let through = session.issued();
     let earlier = page.events.len();
-    // The end of the page, NOT the clock: stamped `now()` this became a fact about
+    // The end of the page, not the clock: stamped `now()` this would be a fact about
     // the connection, re-dated on every open. `None` when the last line carried no
     // time.
     let ends = page.events.last().and_then(|timed| timed.at);
@@ -732,9 +733,9 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     }));
     // After the marker, and not optional: a question is a control request no
     // transcript holds, so a seed cannot carry it — while `Summary::asked` says
-    // *waiting for you* regardless; without this a blocked session showed nothing
-    // to answer for ninety minutes. The same shape [`crate::session::Session::adopt`]
-    // uses after ITS seed. Unnumbered: the real `Ask` is already at or below `through`.
+    // *waiting for you* regardless; without this a blocked session shows nothing
+    // to answer. The same shape [`crate::session::Session::adopt`]
+    // uses after its seed. Unnumbered: the real `Ask` is already at or below `through`.
     for (id, question) in session.asking() {
         held.push(unnumbered(ends, question.ask(id)));
     }
@@ -763,7 +764,7 @@ async fn events(
 
     let after = resume_from(&headers, asked.after.as_deref());
 
-    // Subscribe BEFORE reading the backlog, so an event landing between the two is
+    // Subscribe before reading the backlog, so an event landing between the two is
     // delivered late rather than lost; it then arrives twice, and `through` is what
     // makes the second copy recognisable.
     let live = BroadcastStream::new(session.listen());
@@ -804,8 +805,8 @@ async fn events(
 
     // Where the past stops, per connection: everything above is replay, everything
     // below is happening, and a replayed `turn` looks exactly like one that just
-    // ended — the page read `idle` over twelve minutes of work. Named, like `reset`,
-    // and deliberately NOT the `Joined` event, which lives in the log and can be
+    // ended, so the page would read `idle` over work in progress. Named, like `reset`,
+    // and deliberately not the `Joined` event, which lives in the log and can be
     // trimmed out from under a late client; this is emitted on every connection.
     let caught_up = tokio_stream::iter([Sse::default()
         .event("caught-up")
@@ -885,7 +886,7 @@ async fn tasks(
 async fn task(
     State(roster): State<Arc<Roster>>,
     // The session is in the route and deliberately unused: a task belongs to the
-    // service now and its number is unique. The path keeps it so bookmarks survive.
+    // service and its number is unique. The path keeps it so bookmarks survive.
     Path((_session, task)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match roster.task_detail(&task).await {
@@ -902,8 +903,8 @@ struct Described {
 }
 
 /// The app itself for a route the app owns, or a plain 404 for a file that is
-/// not there. Answering the index for a missing font once broke the icons with
-/// nothing logged anywhere.
+/// not there. Answering the index for a missing font breaks the icons with
+/// nothing logged.
 ///
 /// "Looks like a file" is the last path segment carrying a dot: every asset is
 /// hashed (`main-JLBKO2QH.js`) and every SPA route is a word or an id.

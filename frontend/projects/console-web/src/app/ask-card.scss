@@ -18,18 +18,16 @@
   align-items: baseline;
 }
 
-// The card's own copy, because `entry-row.scss`'s cannot reach in here.
-// These two spans are the same markup a tool row carries, and they were left to
-// inherit a rule that Angular's emulated encapsulation scopes to the row's own
-// template — so on a card they had no styling at all, and `Bash` wrapped one
-// letter per line beside the command. Found by looking at the render: the word
-// neither overflowed nor overlapped anything, so no phone-width check saw it.
+// The card's own copy, because `entry-row.scss`'s cannot reach in here:
+// emulated encapsulation scopes it to the row's template. Without it the tool
+// name wraps one letter per line beside the command, which overflows nothing,
+// so only a render shows it.
 .tool-name {
   font-weight: 500;
   white-space: nowrap;
 }
 
-// Wrapped in full, NOT truncated like the row's. A row is a summary and an
+// Wrapped in full, not truncated like the row's. A row is a summary and an
 // ellipsis is right there; this is the text somebody is about to approve, and a
 // command whose tail is hidden is the one thing an approval card may not show.
 .tool-arg {
@@ -145,7 +143,7 @@ input.note:disabled {
   cursor: pointer;
 
   // On the span, not the button: the button's text node carries the whitespace
-  // the formatter leaves around the words, and an underline on it ran past the
+  // the formatter leaves around the words, and an underline on it runs past the
   // last letter.
   span {
     text-decoration: underline;
@@ -190,12 +188,8 @@ input.note:disabled {
   white-space: nowrap;
 }
 
-// The send button is square and full-height: the most-pressed control in the
-// app and the only one that has to work with no keyboard. Its size comes from
-// the icon-button rules in `styles.scss`.
-
-// Two decisions, each half the screen: they were the smallest targets on the
-// page attached to the only irreversible choice on it.
+// Two decisions, each half the screen: the only irreversible choice on the page
+// must not have its smallest targets.
 .choose button {
   flex: 1;
 }

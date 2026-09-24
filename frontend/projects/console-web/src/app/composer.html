@@ -22,7 +22,7 @@
 }
 <form class="composer" (submit)="$event.preventDefault(); send.emit()">
   <!-- `subscriptSizing="dynamic"` is load-bearing: a form field otherwise reserves an
-       invisible hint row, and the send button, aligned to `flex-end`, sat a line
+       invisible hint row, and the send button, aligned to `flex-end`, sits a line
        below the visible box. -->
   <!-- The input is the control; the button only presses it — a bare file input
        cannot be made 48px. `accept="image/*"` is what makes Android offer the
@@ -39,8 +39,7 @@
   />
   <mat-form-field appearance="outline" class="box" subscriptSizing="dynamic">
     <mat-label>say something</mat-label>
-    <!-- Grows with what is typed; `rows="1"` was a one-line slit. Capped at a third of
-         the screen. `Ctrl+Enter` stays for the desk and is not the way in: a soft
+    <!-- Grows with what is typed, capped at a third of the screen. `Ctrl+Enter` stays for the desk and is not the way in: a soft
          keyboard has no Ctrl, and Enter is a newline. -->
     <textarea
       matInput

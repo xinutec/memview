@@ -4,12 +4,12 @@ import { Local } from './local';
 import type { Entry } from './models';
 
 /**
- * The last transcript this phone saw, so a session can be READ when the Mac
+ * The last transcript this phone saw, so a session can be read when the Mac
  * cannot be reached — read, and nothing else. No message is queued to go when
  * the connection returns: a message is an instruction, and one delivered minutes
  * later is not what was meant.
  *
- * A LOCAL document, so replication cannot carry it. No service worker: the
+ * A local document, so replication cannot carry it. No service worker: the
  * console sits behind a client-certificate gate, and ngsw's `navigationUrls`
  * and auth are a known source of trouble there. The app itself still loads
  * from the network.
@@ -91,7 +91,7 @@ const DRAWABLE = {
 } satisfies Record<Entry['kind'], (value: object) => boolean>;
 
 /**
- * The same table under the type a WIRE key needs: any string, and a miss.
+ * The same table under the type a wire key needs: any string, and a miss.
  * An alias rather than an assertion — the assignment is checked, so the table
  * stays the thing that decides which kinds exist.
  */

@@ -1,6 +1,6 @@
 //! Checking a phone's claim about the key it just made.
 //!
-//! Whatever key is pinned is thereafter THE credential for code execution on this
+//! Whatever key is pinned is thereafter the credential for code execution on this
 //! machine, and a key that is a file on the phone looks exactly like one in a
 //! secure element. Android Key Attestation tells them apart: the keystore signs a
 //! record describing the key under a chain rooted in a certificate Google
@@ -8,7 +8,7 @@
 //!
 //! ## Verified
 //!
-//! - Every signature in the chain, and that its root is a Google root HELD HERE.
+//! - Every signature in the chain, and that its root is a Google root held here.
 //! - That no certificate is in Google's revocation list.
 //! - That the challenge is this enrolment's, so the chain is an answer, not a recording.
 //! - StrongBox; key GENERATED rather than imported; user authentication with a time limit.
@@ -139,7 +139,7 @@ impl Examination {
 /// Check a chain against a challenge, and against Google's revocation list.
 ///
 /// `status` is the body of <https://android.googleapis.com/attestation/status>, or
-/// `None` — which FAILS: a revocation check that silently passes with the network
+/// `None` — which fails: a revocation check that silently passes with the network
 /// down reads as having been done.
 pub fn examine(chain_pem: &str, challenge: &[u8], status: Option<&str>) -> Result<Examination> {
     let ders: Vec<Vec<u8>> = rustls_pemfile::certs(&mut chain_pem.as_bytes())

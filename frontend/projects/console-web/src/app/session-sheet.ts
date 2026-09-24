@@ -26,8 +26,8 @@ export interface Details {
 
 /**
  * Everything about a session that has nowhere else to be said. The header is
- * chosen for a glance, and three of these facts were only reachable as a
- * `title=` tooltip — a phone has no hover. Absent facts are left out rather
+ * chosen for a glance, and a `title=` tooltip is no home for a fact — a phone
+ * has no hover. Absent facts are left out rather
  * than shown blank: "not known yet" is not "missing".
  */
 export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
@@ -76,7 +76,7 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   // of itself.
   const full = fullness(session.context, session.window);
   if (full) facts.push({ label: 'context', value: full });
-  // Looked up rather than scanned: four facts in the card's row wrapped it.
+  // Looked up rather than scanned: four facts in the card's row wrap it.
   if (session.bytes) facts.push({ label: 'history', value: megabytes(session.bytes) });
   // Named for what it is, and not on the card: it is not a bill, since the
   // sessions run on the subscription. The usage strip answers "have I got room".

@@ -6,7 +6,7 @@ import { fetchable, fetchedAt, pictorial } from './picture';
 
 /**
  * A checked and an unchecked task, as characters: the sanitiser strips the
- * `<input>` GFM emits, which left the two states indistinguishable. Characters
+ * `<input>` GFM emits, which leaves the two states indistinguishable. Characters
  * survive being copied out of the page, which a CSS box does not.
  */
 const TICKED = '☑';
@@ -45,7 +45,7 @@ const renderer = new Marked({
 
     /**
      * A link to a picture points at the console; every other link is untouched.
-     * GFM already made these anchors, and tapping one handed the address to a
+     * GFM already made these anchors, and tapping one hands the address to a
      * browser that cannot reach the LAN it names — see [[pictorial]]. The `href` is
      * rewritten so the tap has somewhere to go if the handler misses it; the text
      * is left as written.

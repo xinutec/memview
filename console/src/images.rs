@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Where the copies go. Overridable because this WRITES, and a test has no home
+/// Where the copies go. Overridable because this writes, and a test has no home
 /// directory worth writing to.
 pub fn images_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_IMAGE_DIR") {
@@ -187,14 +187,14 @@ impl std::fmt::Display for Reason {
 /// for what the path half may open.
 ///
 /// An open fetch is not a new privilege — a session already runs shell here — but
-/// the sniff restrains the RESPONSE: only PNG, JPEG, GIF or WebP come back, so this
+/// the sniff restrains the response: only PNG, JPEG, GIF or WebP come back, so this
 /// cannot proxy somebody else's HTML onto the console's origin. SVG is excluded
 /// for the same reason; it carries script.
 ///
 /// Nothing is written to disk.
 pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
     // A path is the commoner shape: a session writing about what it just rendered
-    // has the FILE, and a bare path resolves against the console's own origin, where
+    // has the file, and a bare path resolves against the console's own origin, where
     // it falls through to the single-page app.
     if url.starts_with('/') {
         return from_disk(std::path::Path::new(url));
@@ -271,13 +271,13 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
 
 /// A picture the session named by where it is on this disk.
 ///
-/// This will hand out any file on the Mac that IS a picture, and that is
+/// This will hand out any file on the Mac that is a picture, and that is
 /// deliberate. What bounds it: the sniff (no key or transcript comes back), who
 /// can ask (a phone whose TLS terminates here against a pinned key), and who it
 /// reaches (the person holding that phone could open the file anyway, and a
-/// session that could plant a path already runs shell here). Restricting to the
-/// session's working directory was rejected: sessions render into `/tmp`
-/// constantly, and a `cp` defeats it regardless.
+/// session that could plant a path already runs shell here). It is not confined
+/// to the session's working directory: sessions render into `/tmp`, and a `cp`
+/// would defeat that anyway.
 ///
 /// The size is read from the metadata before the bytes, so a video linked by
 /// mistake is refused at its size rather than after being loaded.
@@ -302,7 +302,7 @@ fn from_disk(path: &std::path::Path) -> Result<Fetched, Reason> {
     let (media_type, _) = sniff(&bytes).ok_or_else(|| {
         // Not a word of what is in it — unlike the fetched half, which quotes an error
         // page's first line. A refusal quoting the head would read the first eighty bytes
-        // of ANY file on the Mac. The test hands it an ssh key.
+        // of any file on the Mac. The test hands it an ssh key.
         Reason::Answered(format!(
             "{} is not a PNG, JPEG, GIF or WebP — {} bytes of something else",
             path.display(),
@@ -354,8 +354,8 @@ fn client() -> &'static reqwest::Client {
 /// no conversations and when it could not read the directory); only names this
 /// module could have written ([`plain`]); only directories directly under `root`.
 ///
-/// A conversation that is still there keeps ALL of its pictures: forty
-/// screenshots are forty pieces of evidence, dropped when the conversation goes.
+/// A conversation that is still there keeps all of its pictures; they go when
+/// the conversation does.
 pub fn tidy(root: &Path, keep: &std::collections::BTreeSet<String>) -> usize {
     if keep.is_empty() {
         return 0;

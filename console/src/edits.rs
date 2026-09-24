@@ -74,7 +74,7 @@ const LARGEST: u64 = 2 * 1024 * 1024;
 /// Lines of unchanged text kept either side of a change.
 const CONTEXT: usize = 3;
 
-/// Where predictions and findings go. Overridable because this WRITES.
+/// Where predictions and findings go. Overridable because this writes.
 pub fn edits_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_EDIT_DIR") {
         return PathBuf::from(set);

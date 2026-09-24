@@ -18,7 +18,7 @@ export type Timed = { at?: number, } & ({ "kind": "joined", earlier: number,
  */
 from: number, 
 /**
- * Whether the conversation was picked up by a NEW process, so a tool call above
+ * Whether the conversation was picked up by a new process, so a tool call above
  * this line that never finished never will. The client marks those dead, and
  * must not do it blindly: `Joined` is also emitted per reader at the end of a
  * seed, where the last call in the page is the one running right now. `true`

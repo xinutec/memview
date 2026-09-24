@@ -28,11 +28,11 @@ declare global {
 
 /**
  * When nothing answers, ask the phone whether it is holding the key back.
- * Status 0 is the ABSENCE of evidence, and a refused client certificate
+ * Status 0 is the absence of evidence, and a refused client certificate
  * produces the same nothing as an unreachable server; the app checks before
  * prompting, so an ordinary outage asks nobody. Every failure is traced on the
- * way past: without that, an evening of the app failing left a log showing a
- * person browsing contentedly.
+ * way past: without that, a failing app leaves a log that reads as a person
+ * browsing contentedly.
  */
 export const traceAndRenew: HttpInterceptorFn = (req, next) => {
   const telemetry = inject(Telemetry);
