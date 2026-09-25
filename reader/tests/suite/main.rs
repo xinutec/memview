@@ -14,6 +14,7 @@ mod activity;
 mod concept;
 mod doing;
 mod effects;
+mod embed;
 mod javascript;
 mod leaf;
 mod naming;

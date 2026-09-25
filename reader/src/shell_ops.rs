@@ -848,6 +848,63 @@ enum Verb {
     NoFiles,
 }
 
+/// Where a command's Python program is, for a reader that has to point at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PythonFrom {
+    /// The word at this position in `argv`: `python3 -c '…'`.
+    Argument(usize),
+    /// Its standard input: `python3 - <<'PY'`, or `python3` with no operand.
+    Stdin,
+}
+
+impl PythonFrom {
+    fn shifted(self, by: usize) -> Self {
+        match self {
+            PythonFrom::Argument(at) => PythonFrom::Argument(at + by),
+            PythonFrom::Stdin => PythonFrom::Stdin,
+        }
+    }
+}
+
+/// Where `argv` finds the Python program it runs, looking through the wrappers
+/// [`classify`] looks through. `None` when it runs a script file, a module
+/// (`-m`), or no Python at all.
+///
+/// A program handed to another shell (`bash -c`, `nix-shell --run`) or another
+/// machine is a layer below this one: its text is parsed and asked in turn.
+pub fn python_program(argv: &[String]) -> Option<PythonFrom> {
+    let inner = unwrap_command(argv);
+    let offset = argv.len() - inner.len();
+    match verb(basename(inner.first()?))? {
+        Verb::Python => {
+            let mut at = 1;
+            while let Some(word) = inner.get(at) {
+                match word.as_str() {
+                    "-c" => {
+                        return inner
+                            .get(at + 1)
+                            .map(|_| PythonFrom::Argument(at + 1).shifted(offset));
+                    }
+                    "-m" => return None,
+                    "-" | "/dev/stdin" => return Some(PythonFrom::Stdin),
+                    "-W" | "-X" => at += 2,
+                    flag if flag.starts_with('-') => at += 1,
+                    _ => return None,
+                }
+            }
+            Some(PythonFrom::Stdin)
+        }
+        Verb::Carries(flags) => {
+            let at = inner
+                .iter()
+                .position(|word| flags.contains(&word.as_str()))?
+                + 1;
+            python_program(&inner[at..]).map(|from| from.shifted(at + offset))
+        }
+        _ => None,
+    }
+}
+
 /// Whether a command name is a Python interpreter: `python`, `python3`,
 /// `python3.12`.
 ///

@@ -306,6 +306,19 @@ execution site: `python3 -c`, a heredoc fed to an interpreter, a
   literal it is a token, across a token boundary it is not. Which shapes occur is
   a corpus question, not one to answer in advance.
 
+**Built: Python one layer down.** `reader/src/syntax/embed.rs` walks a finished
+shell tree and points at each Python program by its node: a `-c` word, a heredoc
+or a here-string on the interpreter's standard input. Which command runs Python,
+through which wrappers, is `shell_ops::python_program`, the same tables the flat
+chain classifies with. A word or unquoted body holding an expansion is `Expands`,
+not text; an unquoted body is read as the shell hands it over, so `\\` there is
+one backslash. `python-embed-report` compares it with the flat chain over the
+corpus: on 2026-09-25, 34,264 sites, 97.8% read by the Python tree, and no
+program the tree found that the flat chain did not. The 1,682 found only by the
+flat chain are the layers below, a script handed to `nix-shell --run`, `ssh` or
+`bash -c`, and shell run from inside Python, which this pass does not descend
+into yet.
+
 ## Measurement
 
 Four numbers, reported apart — **per command**, **per byte**, **per node**, and

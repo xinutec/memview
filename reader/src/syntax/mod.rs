@@ -42,11 +42,13 @@
 //! the parser can be wrong about what is in it.
 
 pub mod ast;
+pub mod embed;
 pub mod law;
 pub mod parse;
 pub mod print;
 pub mod python;
 pub mod survey;
+pub mod visit;
 
 pub use ast::{
     AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Parameter, Pipeline, Redirect,
