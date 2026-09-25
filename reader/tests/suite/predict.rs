@@ -610,3 +610,40 @@ fn a_scripts_main_block_is_followed() {
     );
     assert_eq!(found.written, vec![written("/repo/o.txt", "main")]);
 }
+
+/// The corpus's splice: positions from `index`, a slice either side.
+#[test]
+fn a_splice_between_two_positions_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\ns = open('a.txt').read()\ni = s.index('B')\nj = s.index('D')\ns = s[:i] + 'X' + s[j:]\nopen('a.txt', 'w').write(s)\nPY",
+        &known(&[("/repo/a.txt", Some("ABCDE"))]),
+    );
+    assert_eq!(found.written, vec![written("/repo/a.txt", "AXDE")]);
+}
+
+/// Positions are code points, as Python counts them, not bytes.
+#[test]
+fn positions_count_code_points() {
+    let found = run(
+        "python3 - <<'PY'\ns = 'h\u{e9}llo'\nopen('o.txt', 'w').write(s[-3:] + str(s.find('z')) + s[1] + str(s.index('l') - 1))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "llo-1\u{e9}1")]);
+}
+
+/// `index` of what is not there raises, and nothing after it runs — unless a
+/// handler catches it, in which case the program goes on.
+#[test]
+fn a_failed_index_raises() {
+    let raised = run(
+        "python3 - <<'PY'\ns = 'abc'\ns.index('z')\nopen('o.txt', 'w').write('x')\nPY",
+        &nothing_known(),
+    );
+    assert!(raised.written.is_empty(), "{:?}", raised.written);
+
+    let caught = run(
+        "python3 - <<'PY'\ns = 'abc'\ntry:\n    i = s.index('z')\nexcept ValueError:\n    i = 0\nopen('o.txt', 'w').write('x')\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(caught.written, vec![written("/repo/o.txt", "x")]);
+}

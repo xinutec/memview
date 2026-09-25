@@ -323,15 +323,26 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 body,
                 decorators,
             } => self.define(name, params, body, decorators),
-            // Each call succeeds, so the handlers never run.
+            // A raise the handlers may catch ends the body there; what the
+            // handlers then do is not followed.
             StmtKind::Try {
                 body,
+                handlers,
                 orelse,
                 finalbody,
-                ..
             } => {
-                self.block(body)?;
-                self.block(orelse)?;
+                match self.block(body) {
+                    Ok(()) => self.block(orelse)?,
+                    Err(Stop::Ended) if !handlers.is_empty() => {
+                        for handler in handlers {
+                            self.forget(&handler.body, &construct("except"), 0);
+                        }
+                    }
+                    Err(stop) => {
+                        self.block(finalbody)?;
+                        return Err(stop);
+                    }
+                }
                 self.block(finalbody)?;
             }
             StmtKind::Global(names) => {
@@ -488,7 +499,37 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 Value::Tuple(values)
             }
-            Expr::Subscript { .. } => Value::Unknown(construct("subscript")),
+            Expr::Subscript { value, index } => {
+                let value = self.expr(value)?;
+                match &**index {
+                    Expr::Slice {
+                        lower,
+                        upper,
+                        step: None,
+                    } => {
+                        let mut side =
+                            |part: &'m Option<Box<Expr>>| -> Result<Option<Value>, Stop> {
+                                part.as_deref().map(|part| self.expr(part)).transpose()
+                            };
+                        let (lower, upper) = (side(lower)?, side(upper)?);
+                        slice(value, lower, upper)
+                    }
+                    index => {
+                        let index = self.expr(index)?;
+                        item(value, index)?
+                    }
+                }
+            }
+            Expr::UnaryOp {
+                op: UnaryOp::USub,
+                operand,
+            } => match self.expr(operand)? {
+                Value::Int(n) => n
+                    .checked_neg()
+                    .map_or(Value::Unknown(construct("int")), Value::Int),
+                Value::Unknown(why) => Value::Unknown(why),
+                _ => Value::Unknown(construct("operator -")),
+            },
             Expr::Lambda { .. } => Value::Unknown(construct("lambda")),
             Expr::Bytes(_) => Value::Unknown(construct("bytes")),
             Expr::ListComp { .. }
@@ -566,6 +607,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             let receiver = self.expr(value)?;
             if !matches!(receiver, Value::Name(_)) {
                 let (positional, keyword) = self.args(args)?;
+                if let Value::Str(text) = &receiver {
+                    return string_method(text, attr, &positional);
+                }
                 return Ok(self.method(receiver, attr, positional, &keyword));
             }
         }
@@ -719,7 +763,6 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             return Value::Unknown(why);
         }
         match receiver {
-            Value::Str(text) => string_method(&text, method, &args),
             Value::Path(path) => self.path_method(&path, method, args, keyword),
             Value::File { path, mode } => match (method, mode) {
                 ("read", Mode::Read) if args.is_empty() => self.read_value(&path),
@@ -1247,9 +1290,14 @@ fn truth(value: Value) -> Value {
 fn binary(left: Value, op: BinOp, right: Value) -> Value {
     match (left, op, right) {
         (Value::Str(a), BinOp::Add, Value::Str(b)) => Value::Str(a + &b),
-        (Value::Int(a), BinOp::Add, Value::Int(b)) => a
-            .checked_add(b)
-            .map_or(Value::Unknown(construct("int")), Value::Int),
+        (Value::Int(a), op @ (BinOp::Add | BinOp::Sub | BinOp::Mult), Value::Int(b)) => {
+            let n = match op {
+                BinOp::Add => a.checked_add(b),
+                BinOp::Sub => a.checked_sub(b),
+                _ => a.checked_mul(b),
+            };
+            n.map_or(Value::Unknown(construct("int")), Value::Int)
+        }
         (Value::Path(a), BinOp::Div, Value::Str(b) | Value::Path(b)) => Value::Path(join(&a, &b)),
         (Value::Unknown(why), _, _) | (_, _, Value::Unknown(why)) => Value::Unknown(why),
         (_, op, _) => Value::Unknown(Why::Python(format!("operator {}", op.symbol()))),
@@ -1269,8 +1317,16 @@ fn compare(left: &Value, op: CmpOp, right: &Value) -> Value {
     }
 }
 
-fn string_method(text: &str, method: &str, args: &[Value]) -> Value {
-    match (method, args) {
+/// A method on a string. `Err` where Python raises: `index` of what is not there.
+fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop> {
+    let found = |at: Option<usize>| Value::Int(at.map_or(-1, |at| at as i64));
+    Ok(match (method, args) {
+        ("find", [Value::Str(needle)]) => found(char_find(text, needle)),
+        ("rfind", [Value::Str(needle)]) => found(char_rfind(text, needle)),
+        ("index", [Value::Str(needle)]) => found(Some(char_find(text, needle).ok_or(Stop::Ended)?)),
+        ("rindex", [Value::Str(needle)]) => {
+            found(Some(char_rfind(text, needle).ok_or(Stop::Ended)?))
+        }
         ("replace", [Value::Str(old), Value::Str(new)]) => {
             Value::Str(text.replace(old.as_str(), new))
         }
@@ -1298,7 +1354,71 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Value {
             Some(why) => Value::Unknown(why),
             None => Value::Unknown(Why::Python(format!("str.{method}"))),
         },
+    })
+}
+
+/// Where `needle` first occurs in `text`, counted in code points as Python counts.
+fn char_find(text: &str, needle: &str) -> Option<usize> {
+    text.find(needle).map(|at| text[..at].chars().count())
+}
+
+fn char_rfind(text: &str, needle: &str) -> Option<usize> {
+    text.rfind(needle).map(|at| text[..at].chars().count())
+}
+
+/// A slice bound as Python resolves it: absent is the end it stands for, a
+/// negative one counts from the end, and either is clamped to the sequence.
+fn bound(value: Option<Value>, len: usize, absent: usize) -> Result<usize, Why> {
+    let len = len as i64;
+    let at = match value {
+        None | Some(Value::None) => return Ok(absent),
+        Some(Value::Int(at)) if at < 0 => at + len,
+        Some(Value::Int(at)) => at,
+        Some(Value::Unknown(why)) => return Err(why),
+        Some(_) => return Err(construct("slice")),
+    };
+    Ok(at.clamp(0, len) as usize)
+}
+
+fn slice(value: Value, lower: Option<Value>, upper: Option<Value>) -> Value {
+    let len = match &value {
+        Value::Str(text) => text.chars().count(),
+        Value::Tuple(items) => items.len(),
+        Value::Unknown(why) => return Value::Unknown(why.clone()),
+        _ => return Value::Unknown(construct("slice")),
+    };
+    let (from, to) = match (bound(lower, len, 0), bound(upper, len, len)) {
+        (Ok(from), Ok(to)) => (from, to.max(from)),
+        (Err(why), _) | (_, Err(why)) => return Value::Unknown(why),
+    };
+    match value {
+        Value::Str(text) => Value::Str(text.chars().skip(from).take(to - from).collect()),
+        Value::Tuple(items) => Value::Tuple(items[from..to].to_vec()),
+        _ => Value::Unknown(construct("slice")),
     }
+}
+
+/// `value[index]`. `Err` where Python raises: an index past either end.
+fn item(value: Value, index: Value) -> Result<Value, Stop> {
+    let at = |len: usize, index: i64| -> Result<usize, Stop> {
+        let at = if index < 0 { index + len as i64 } else { index };
+        usize::try_from(at)
+            .ok()
+            .filter(|at| *at < len)
+            .ok_or(Stop::Ended)
+    };
+    Ok(match (value, index) {
+        (Value::Str(text), Value::Int(index)) => {
+            let at = at(text.chars().count(), index)?;
+            Value::Str(text.chars().nth(at).map(String::from).unwrap_or_default())
+        }
+        (Value::Tuple(mut items), Value::Int(index)) => {
+            let at = at(items.len(), index)?;
+            items.swap_remove(at)
+        }
+        (Value::Unknown(why), _) | (_, Value::Unknown(why)) => Value::Unknown(why),
+        _ => Value::Unknown(construct("subscript")),
+    })
 }
 
 /// Names a block assigns, anywhere in it: after a block that is not followed,
