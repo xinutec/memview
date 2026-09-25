@@ -16,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if [ -f console.env ]; then
-  # shellcheck disable=SC1091
+  # shellcheck disable=SC1091 # console.env is local and gitignored
   set -a; . ./console.env; set +a
 fi
 if [ -z "${CONSOLE_URL:-}" ] || [ -z "${CONSOLE_SERVER_PIN:-}" ]; then

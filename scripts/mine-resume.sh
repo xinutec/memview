@@ -23,7 +23,7 @@ set -euo pipefail
 #
 # Unconditional and non-fatal: an interactive run already has nix, and a missing
 # profile should fail at the `nix` call with a real message rather than here.
-# shellcheck disable=SC1091
+# shellcheck disable=SC1091 # the nix profile lives where the machine put it
 . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
 
 MEMVIEW="${MEMVIEW_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"

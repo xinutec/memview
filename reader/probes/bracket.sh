@@ -49,7 +49,7 @@ section() { printf '\n=== %s\n' "$1"; }
 # unmatched pattern expands to its own text.
 expand() {
   local pattern=$1 out
-  # shellcheck disable=SC2206
+  # shellcheck disable=SC2206 # the split is the expansion under test
   out=($pattern)
   if [[ ${#out[@]} -eq 1 && ${out[0]} == "$pattern" ]]; then
     printf 'LITERAL (expanded to itself)'

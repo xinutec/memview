@@ -752,7 +752,10 @@ pub fn trace(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
 /// relative path is read against, and whether a word may be a path at all. Both
 /// readers go through this one function so the two languages cannot drift apart on
 /// either question.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "every question both readers ask, in one signature so they cannot drift"
+)]
 fn carried(
     program: &crate::program::Program,
     label: &str,

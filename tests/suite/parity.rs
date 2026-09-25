@@ -283,7 +283,10 @@ fn dimensions(a: &Agents) -> Vec<(&'static str, String)> {
 }
 
 /// Everything the artefacts say, as one comparable value.
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "everything the artefacts say; not every field is asserted on"
+)]
 fn shape(a: &Agents) -> String {
     serde_json::to_string(&(
         &a.agents,

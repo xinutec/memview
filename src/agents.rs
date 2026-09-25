@@ -1236,7 +1236,10 @@ pub fn is_prompt(line: &[u8]) -> bool {
 }
 
 /// Count one transcript's tool calls into `agent`, and note the days.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one transcript's counters, threaded through rather than boxed"
+)]
 fn scan_transcript(
     text: &[u8],
     code_root: &str,

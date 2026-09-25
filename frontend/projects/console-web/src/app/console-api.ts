@@ -215,6 +215,6 @@ function parse(data: unknown): Timed | undefined {
   if (!kind) return undefined;
   if ('does' in value && !isCall(value.does)) return undefined;
   // The trust boundary: the kind is checked above, the fields are the runner's word.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the kind is checked above; the fields are the runner's word
   return { ...value, kind } as Timed;
 }
