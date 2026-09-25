@@ -22,6 +22,8 @@
 
 use std::collections::BTreeMap;
 
+mod python;
+
 use crate::shell::Reached;
 use crate::shell_files::files_of;
 use crate::shell_ops::{basename, classify, resolve, unwrap_command};
@@ -29,6 +31,7 @@ use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
     Script, SegmentKind, Simple, Tilde, Word,
 };
+use crate::syntax::embed::{Program, python_of};
 use crate::syntax::print::print_value;
 
 /// What is known of the files a prediction may depend on, by absolute path:
@@ -77,6 +80,8 @@ pub enum Why {
     Descriptor,
     /// A relative path after a `cd` this could not follow.
     Directory,
+    /// A Python construct the evaluator does not follow, by name.
+    Python(String),
 }
 
 /// What a command will write, and what it writes that could not be followed.
@@ -184,7 +189,7 @@ impl<'a> Run<'a> {
 
     fn command(&mut self, command: &Command) {
         match &command.kind {
-            CommandKind::Simple(simple) => self.simple(simple, &command.redirects),
+            CommandKind::Simple(simple) => self.simple(command, simple),
             _ => {
                 self.forget_command(command, Why::Compound);
                 // A `cd` in a compound that runs in this shell moves it somewhere
@@ -196,7 +201,8 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn simple(&mut self, simple: &Simple, redirects: &[Redirect]) {
+    fn simple(&mut self, command: &Command, simple: &Simple) {
+        let redirects = command.redirects.as_slice();
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
         let name = argv.first().cloned().flatten();
         if name.as_deref() == Some("cd") {
@@ -210,6 +216,8 @@ impl<'a> Run<'a> {
         // `tee` writes its input to the files it names, as well as to stdout.
         if name.as_deref() == Some("tee") {
             self.tee(&argv, redirects);
+        } else if let Some(embedded) = python_of(command) {
+            self.python(embedded.program, None);
         } else {
             self.forget_program_writes(simple, redirects, None);
         }
@@ -487,9 +495,65 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// A Python program, followed where it runs in order, and otherwise every file
+    /// it writes refused for `why`. One the Python tree cannot read has its files
+    /// named by the flat Python reader, so that none goes unmentioned.
+    fn python(&mut self, program: Program, why: Option<Why>) {
+        match (program, why) {
+            (
+                Program::Text {
+                    tree: Ok(module), ..
+                },
+                None,
+            ) => python::run(self, &module),
+            (
+                Program::Text {
+                    tree: Ok(module), ..
+                },
+                Some(why),
+            ) => {
+                python::forget(self, &module, &why);
+            }
+            (
+                Program::Text {
+                    source,
+                    tree: Err(_),
+                },
+                why,
+            ) => {
+                self.forget_flat_python(&source, why.unwrap_or(Why::Python("unread".to_string())));
+            }
+            (Program::Expands { written }, why) => {
+                self.forget_flat_python(&written, why.unwrap_or(Why::Expansion));
+            }
+        }
+    }
+
+    fn forget_flat_python(&mut self, source: &str, why: Why) {
+        for used in crate::python::read(source)
+            .uses
+            .into_iter()
+            .filter(|u| u.write)
+        {
+            let path = (!used.path.starts_with('~'))
+                .then(|| self.resolve(&used.path))
+                .flatten();
+            match path {
+                Some(path) => self.write(&path, false, Err(why.clone())),
+                None => self.unfollowed.push(Unfollowed {
+                    path: None,
+                    why: why.clone(),
+                }),
+            }
+        }
+    }
+
     fn forget_command(&mut self, command: &Command, why: Why) {
         if let CommandKind::Simple(simple) = &command.kind {
-            self.forget_program_writes(simple, &command.redirects, Some(why.clone()));
+            match python_of(command) {
+                Some(embedded) => self.python(embedded.program, Some(why.clone())),
+                None => self.forget_program_writes(simple, &command.redirects, Some(why.clone())),
+            }
         }
         for target in self.outputs(&command.redirects).unwrap_or_default() {
             match target {

@@ -271,3 +271,150 @@ fn a_named_destination_survives_an_expanded_source() {
         }]
     );
 }
+
+/// The corpus's commonest Python edit: read, replace, write back. Given the
+/// file's text it is predicted; the file is what `needs` asks for.
+#[test]
+fn a_python_edit_is_predicted_from_the_file_it_reads() {
+    let script = "python3 - <<'PY'\np = 'a.txt'\ns = open(p).read()\ns = s.replace('x', 'y', 1)\nopen(p, 'w').write(s)\nPY";
+    let parsed = reader::syntax::parse(script).expect("parses");
+    assert_eq!(needs(&parsed, CWD, HOME), vec!["/repo/a.txt".to_string()]);
+    let found = run(script, &known(&[("/repo/a.txt", Some("x x\n"))]));
+    assert_eq!(found.written, vec![written("/repo/a.txt", "y x\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+}
+
+/// From history the file is not given, so the write depends on text nobody
+/// has: refused, with the file named.
+#[test]
+fn a_python_edit_from_history_is_not_read() {
+    let found = run(
+        "python3 - <<'PY'\ns = open('a.txt').read()\nopen('a.txt', 'w').write(s + 'z')\nPY",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/a.txt".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+}
+
+#[test]
+fn pathlib_reads_and_writes_are_followed() {
+    let found = run(
+        "python3 - <<'PY'\nfrom pathlib import Path\np = Path('src') / 'm.rs'\np.write_text(p.read_text().replace('a', 'b'))\nPY",
+        &known(&[("/repo/src/m.rs", Some("aa\n"))]),
+    );
+    assert_eq!(found.written, vec![written("/repo/src/m.rs", "bb\n")]);
+}
+
+/// A failed `assert` raises, and nothing after it runs. The control is the same
+/// program with the assertion holding.
+#[test]
+fn a_failing_assert_ends_the_program() {
+    let program = |needle: &str| {
+        format!(
+            "python3 - <<'PY'\ns = open('a.txt').read()\nassert '{needle}' in s\nopen('a.txt', 'w').write('new')\nPY"
+        )
+    };
+    let given = known(&[("/repo/a.txt", Some("old\n"))]);
+    let failed = run(&program("zz"), &given);
+    assert!(failed.written.is_empty());
+    assert!(failed.unfollowed.is_empty(), "{:?}", failed.unfollowed);
+
+    let held = run(&program("old"), &given);
+    assert_eq!(held.written, vec![written("/repo/a.txt", "new")]);
+}
+
+#[test]
+fn writes_through_a_with_block_accumulate() {
+    let found = run(
+        "python3 -c \"with open('o.txt', 'w') as f:\n    f.write('a')\n    f.write('b')\"",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "ab")]);
+}
+
+/// A shell command after the program sees what the program wrote.
+#[test]
+fn the_shell_reads_what_python_wrote() {
+    let found = run(
+        "python3 -c \"open('a.txt', 'w').write('hi\\n')\" && cat a.txt > b.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "hi\n"),
+            written("/repo/b.txt", "hi\n")
+        ]
+    );
+}
+
+/// A write under a condition the text does not decide is refused and the file
+/// forgotten, the way a shell `if` is.
+#[test]
+fn a_write_under_an_undecided_if_is_refused() {
+    let found = run(
+        "python3 - <<'PY'\nimport sys\nif sys.argv:\n    open('b.txt', 'w').write('x')\nPY",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/b.txt".to_string()),
+            why: Why::Python("if".to_string()),
+        }]
+    );
+}
+
+#[test]
+fn a_deletion_is_refused_by_the_call_that_made_it() {
+    let found = run(
+        "python3 -c \"import os; os.remove('a.txt')\"",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/a.txt".to_string()),
+            why: Why::Python("os.remove".to_string()),
+        }]
+    );
+}
+
+/// Python does not expand `~`; `expanduser` does.
+#[test]
+fn a_home_path_needs_expanduser() {
+    let expanded = run(
+        "python3 -c \"import os; open(os.path.expanduser('~/x.txt'), 'w').write('a')\"",
+        &nothing_known(),
+    );
+    assert_eq!(expanded.written, vec![written("/home/me/x.txt", "a")]);
+
+    let literal = run(
+        "python3 -c \"open('~/x.txt', 'w').write('a')\"",
+        &nothing_known(),
+    );
+    assert!(literal.written.is_empty());
+}
+
+/// A library object saving itself names the file it writes, whatever the object.
+#[test]
+fn an_object_saved_to_a_path_writes_that_path() {
+    let found = run(
+        "python3 -c \"from PIL import Image; Image.open('a.png').crop((0,0,9,9)).save('b.png')\"",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/b.png".to_string()),
+            why: Why::Python("method save".to_string()),
+        }]
+    );
+}

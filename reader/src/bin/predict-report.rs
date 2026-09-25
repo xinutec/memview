@@ -29,6 +29,13 @@ fn main() -> anyhow::Result<()> {
         ))
     });
     let home = std::env::var("HOME").unwrap_or_default();
+    // `--only <text>`: just the commands containing it.
+    let filter = args
+        .iter()
+        .position(|a| a == "--only")
+        .and_then(|at| args.get(at + 1))
+        .cloned()
+        .unwrap_or_default();
 
     let mut commands = 0usize;
     let mut unparsed = 0usize;
@@ -100,6 +107,19 @@ fn main() -> anyhow::Result<()> {
         if found.written.is_empty() && found.unfollowed.is_empty() {
             continue;
         }
+        if let Some((wanted, n)) = &show
+            && wanted == "predicted"
+            && shown < *n
+            && !found.written.is_empty()
+            && cmd.contains(filter.as_str())
+        {
+            shown += 1;
+            println!("--- predicted:\n{cmd}");
+            for file in &found.written {
+                println!("  {} ⇒\n{}", file.path, file.text);
+            }
+            println!();
+        }
         writing += 1;
         files += found.written.len();
         refused += found.unfollowed.len();
@@ -148,6 +168,7 @@ fn name(why: &Why) -> String {
     match why {
         Why::Program(program) => format!("program {program}"),
         Why::Option(option) => format!("option {option}"),
+        Why::Python(construct) => format!("python {construct}"),
         other => format!("{other:?}").to_lowercase(),
     }
 }

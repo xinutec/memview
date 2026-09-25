@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     tree.insert(source);
                 }
-                Program::Expands => {
+                Program::Expands { .. } => {
                     expands += 1;
                     tree_expands += 1;
                 }

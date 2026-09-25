@@ -44,30 +44,40 @@ pub enum Program {
         tree: Result<python::ast::Module, python::Refusal>,
     },
     /// The text holds a shell expansion, so what Python receives depends on
-    /// values the text does not give.
-    Expands,
+    /// values the text does not give. `written` is the text as written, with the
+    /// expansions still in it.
+    Expands { written: String },
 }
 
 /// Every Python program `script` runs directly, outer before inner.
 pub fn python(script: &Script) -> Vec<Embedded<'_>> {
     let mut out = Vec::new();
     super::visit::commands(&script.items, &mut |command| {
-        if let Some(site) = site(command) {
-            let program = match text(site) {
-                Some(source) => Program::Text {
-                    tree: python::parse(&source),
-                    source,
-                },
-                None => Program::Expands,
-            };
-            out.push(Embedded {
-                command,
-                site,
-                program,
-            });
-        }
+        out.extend(python_of(command));
     });
     out
+}
+
+/// The Python program `command` itself runs, if it runs one.
+pub fn python_of(command: &Command) -> Option<Embedded<'_>> {
+    let site = site(command)?;
+    let program = match text(site) {
+        Some(source) => Program::Text {
+            tree: python::parse(&source),
+            source,
+        },
+        None => Program::Expands {
+            written: match site {
+                Site::Argument(word) | Site::HereString(word) => super::print::print_value(word),
+                Site::Heredoc(heredoc) => heredoc.body.clone(),
+            },
+        },
+    };
+    Some(Embedded {
+        command,
+        site,
+        program,
+    })
 }
 
 fn site(command: &Command) -> Option<Site<'_>> {

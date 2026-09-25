@@ -21,7 +21,7 @@ fn found(text: &str) -> Vec<(&'static str, String)> {
                 Program::Text {
                     tree: Err(refusal), ..
                 } => format!("refused {:?}", refusal.reason),
-                Program::Expands => "expands".to_string(),
+                Program::Expands { .. } => "expands".to_string(),
             };
             (site, program)
         })

@@ -73,6 +73,16 @@ a heredoc into a file carries its whole new text, then `echo`/`printf` into a
 file, then `sed -i`. Python, the largest share by far, follows once it has a tree
 of its own — see Scope.
 
+**Every write is predicted or refused, never left out.** A program that writes
+files itself (`cp`, `rm`, `sed -i`) has them named by the shell tables and
+refused. Python is followed by `reader/src/predict/python.rs`, on the program's
+tree, against the same files as the shell around it: straight-line, each call
+assumed to succeed, strings, paths and open files interpreted, and a block it
+does not follow (an undecided `if`, a loop, a function it would have to call)
+refused and forgotten as a shell loop is. `predict-report` lists what the
+reconstruction knows is written and the evaluator never mentions, which is what
+is still out of its sight.
+
 ### What the flat reader knows
 
 The existing reader answers a weak form of the second, and what it *knows* is
