@@ -528,3 +528,25 @@ fn a_cd_inside_a_forgotten_region_resolves_its_paths() {
     let sometimes = run("false || cd sub; echo y > b.txt", &nothing_known());
     assert!(sometimes.written.is_empty(), "{:?}", sometimes.written);
 }
+
+/// A `Path` handed to a function this does not know may be written by it — a
+/// helper brought in with `exec` restamped a file the heredoc had just appended
+/// to. The control: the same function given a plain string predicts as before.
+#[test]
+fn a_path_given_to_an_unknown_function_is_forgotten() {
+    let found = run(
+        "echo x > a.md && python3 - <<'PY'\nfrom pathlib import Path\nexec(open('/tmp/lib.py').read())\nstamp(Path('a.md'))\nPY",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/a.md".to_string()),
+        why: Why::Python("call stamp".to_string()),
+    }));
+
+    let text = run(
+        "echo x > a.md && python3 -c \"print('a.md')\"",
+        &nothing_known(),
+    );
+    assert_eq!(text.written, vec![written("/repo/a.md", "x\n")]);
+}

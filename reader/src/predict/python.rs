@@ -567,18 +567,16 @@ impl<'m> Eval<'_, '_, 'm> {
                 }
                 Value::None
             }
-            // A library call: what it returns is not known, and a file handed to it
-            // open for writing may be written.
+            // A library call: what it returns is not known, and a path or a file
+            // open for writing handed to it may be written.
             None => {
+                let why = Why::Python(format!("call {name}"));
                 for value in positional.iter().chain(keyword.values()) {
-                    if let Value::File {
-                        mode: Mode::Write, ..
-                    } = value
-                    {
-                        self.forget_value(value, &Why::Python(format!("call {name}")));
+                    if written_by_a_stranger(value) {
+                        self.forget_value(value, &why);
                     }
                 }
-                Value::Unknown(Why::Python(format!("call {name}")))
+                Value::Unknown(why)
             }
         })
     }
@@ -617,8 +615,19 @@ impl<'m> Eval<'_, '_, 'm> {
                 }
                 _ => Value::Unknown(Why::Python(format!("file.{method}"))),
             },
-            Value::Unknown(why) => Value::Unknown(why),
-            _ => Value::Unknown(Why::Python(format!("method {method}"))),
+            // An object this does not know may write a path handed to it.
+            other => {
+                let why = Why::Python(format!("method {method}"));
+                for value in args.iter().chain(keyword.values()) {
+                    if written_by_a_stranger(value) {
+                        self.forget_value(value, &why);
+                    }
+                }
+                match other {
+                    Value::Unknown(unknown) => Value::Unknown(unknown),
+                    _ => Value::Unknown(why),
+                }
+            }
         }
     }
 
@@ -965,6 +974,17 @@ impl<'m> Eval<'_, '_, 'm> {
                 self.unnamed(construct("subprocess"));
                 vec![]
             }
+            None => {
+                for arg in args {
+                    if let Arg::Positional(expr) | Arg::Keyword(_, expr) = arg {
+                        let value = self.static_value(expr);
+                        if written_by_a_stranger(&value) {
+                            self.forget_value(&value, why);
+                        }
+                    }
+                }
+                vec![]
+            }
             _ => vec![],
         };
         for target in targets {
@@ -1035,6 +1055,19 @@ impl<'m> Eval<'_, '_, 'm> {
             _ => Value::Unknown(construct("value")),
         }
     }
+}
+
+/// Whether a function this does not know may write what it is handed: a `Path`,
+/// or a file open for writing. A plain string is usually text, not a file.
+fn written_by_a_stranger(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Path(_)
+            | Value::File {
+                mode: Mode::Write,
+                ..
+            }
+    )
 }
 
 /// A value as the text of a path or a string, when it is one.
