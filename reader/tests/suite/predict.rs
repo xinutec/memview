@@ -647,3 +647,30 @@ fn a_failed_index_raises() {
     );
     assert_eq!(caught.written, vec![written("/repo/o.txt", "x")]);
 }
+
+/// A recorded divergence's shape: a helper taking a path and a list of
+/// replacements, each asserted to occur once.
+#[test]
+fn a_helper_looping_over_replacements_it_was_given_is_followed() {
+    let found = run(
+        "python3 - <<'EOF'\ndef edit(p,R):\n    s=open(p).read()\n    for a,b in R:\n        assert s.count(a)==1,(p,a[:70])\n        s=s.replace(a,b)\n    open(p,'w').write(s)\nedit('k.kt',[\n(\"\"\"one\"\"\",\"\"\"1\"\"\"),\n('two', '2'),\n])\nEOF",
+        &known(&[("/repo/k.kt", Some("one two\n"))]),
+    );
+    assert_eq!(found.written, vec![written("/repo/k.kt", "1 2\n")]);
+}
+
+/// A helper from a module this cannot read, handed a path as a plain string —
+/// another recorded divergence. The path is refused; the directory handed to
+/// `sys.path` forgets only itself, not every file under it.
+#[test]
+fn a_path_like_string_given_to_an_unknown_function_is_forgotten() {
+    let found = run(
+        "echo x > /tmp/kept.txt && echo y > a.ts && python3 - <<'PY'\nimport sys; sys.path.insert(0, '/tmp'); from ed import edit\nedit('a.ts', [('y', 'z')])\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/tmp/kept.txt", "x\n")]);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/a.ts".to_string()),
+        why: Why::Python("call ed.edit".to_string()),
+    }));
+}

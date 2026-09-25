@@ -414,21 +414,6 @@ impl<'a> Run<'a> {
                 self.now.insert(path.to_string(), Held::Text(text));
             }
             Err(why) => {
-                let under = format!("{path}/");
-                let inside: Vec<String> = self
-                    .now
-                    .keys()
-                    .filter(|known| known.starts_with(&under))
-                    .cloned()
-                    .collect();
-                for known in inside {
-                    self.now.insert(known.clone(), Held::Unknown);
-                    self.unfollowed.push(Unfollowed {
-                        path: Some(known),
-                        why: why.clone(),
-                    });
-                }
-                self.gone.push(path.to_string());
                 self.now.insert(path.to_string(), Held::Unknown);
                 self.unfollowed.push(Unfollowed {
                     path: Some(path.to_string()),
@@ -436,6 +421,27 @@ impl<'a> Run<'a> {
                 });
             }
         }
+    }
+
+    /// A write this does not follow to `path` and to everything under it — a
+    /// formatter given a directory, `rm -r`.
+    fn forget_tree(&mut self, path: &str, why: Why) {
+        let under = format!("{path}/");
+        let inside: Vec<String> = self
+            .now
+            .keys()
+            .filter(|known| known.starts_with(&under))
+            .cloned()
+            .collect();
+        for known in inside {
+            self.now.insert(known.clone(), Held::Unknown);
+            self.unfollowed.push(Unfollowed {
+                path: Some(known),
+                why: why.clone(),
+            });
+        }
+        self.gone.push(path.to_string());
+        self.write(path, false, Err(why));
     }
 
     /// A file's text as this run has left it, or as it was given.
@@ -532,7 +538,7 @@ impl<'a> Run<'a> {
             .collect();
         for path in written {
             if determined || named.contains(&path) {
-                self.write(&path, false, Err(why.clone()));
+                self.forget_tree(&path, why.clone());
             } else {
                 self.unfollowed.push(Unfollowed {
                     path: None,

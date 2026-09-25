@@ -61,8 +61,12 @@ enum Function {
     Command,
     /// Deletes its first argument.
     Delete,
+    /// Deletes its first argument and everything under it.
+    DeleteTree,
     /// Reads its first argument and writes its second.
     Transfer,
+    /// A library that reads the file it is given: `Image.open(p)`.
+    Reads,
 }
 
 impl Function {
@@ -86,7 +90,9 @@ impl Function {
             | "subprocess.Popen"
             | "os.system"
             | "os.popen" => Function::Command,
-            "os.remove" | "os.unlink" | "shutil.rmtree" => Function::Delete,
+            "os.remove" | "os.unlink" => Function::Delete,
+            "shutil.rmtree" => Function::DeleteTree,
+            "Image.open" | "PIL.Image.open" | "wave.open" => Function::Reads,
             "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
             | "shutil.copyfile" => Function::Transfer,
             _ => return None,
@@ -681,6 +687,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 self.forget_value(first.as_ref().unwrap_or(&Value::None), &Why::Python(name));
                 Value::None
             }
+            Some(Function::DeleteTree) => {
+                self.forget_tree(first.as_ref().unwrap_or(&Value::None), &Why::Python(name));
+                Value::None
+            }
+            Some(Function::Reads) => Value::Unknown(Why::Python(format!("call {name}"))),
             Some(Function::Transfer) => {
                 for path in positional.iter().take(2) {
                     self.forget_value(path, &Why::Python(name.clone()));
@@ -963,6 +974,15 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// A directory a value names is removed in a way this does not follow, with
+    /// everything under it.
+    fn forget_tree(&mut self, value: &Value, why: &Why) {
+        match text(value).and_then(|path| self.resolve(&path)) {
+            Some(path) => self.shell.forget_tree(&path, why.clone()),
+            None => self.unnamed(why.clone()),
+        }
+    }
+
     /// Every file `body` could write is refused for `why` and forgotten, and every
     /// name it assigns becomes unknown — a block that is not followed.
     fn forget(&mut self, body: &'m [Stmt], why: &Why, depth: usize) {
@@ -1140,6 +1160,13 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     .collect()
             }
             Some(Function::Delete) => positional.first().copied().into_iter().collect(),
+            Some(Function::DeleteTree) => {
+                if let Some(target) = positional.first() {
+                    let value = self.static_value(target);
+                    self.forget_tree(&value, why);
+                }
+                vec![]
+            }
             Some(Function::Transfer) => positional.iter().take(2).copied().collect(),
             Some(Function::Command) => {
                 self.unnamed(construct("subprocess"));
@@ -1229,16 +1256,16 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
 }
 
 /// Whether a function this does not know may write what it is handed: a `Path`,
-/// or a file open for writing. A plain string is usually text, not a file.
+/// a file open for writing, or a string shaped like a path. Other strings are text.
 fn written_by_a_stranger(value: &Value) -> bool {
-    matches!(
-        value,
+    match value {
         Value::Path(_)
-            | Value::File {
-                mode: Mode::Write,
-                ..
-            }
-    )
+        | Value::File {
+            mode: Mode::Write, ..
+        } => true,
+        Value::Str(text) => crate::shell_ops::looks_like_path(text),
+        _ => false,
+    }
 }
 
 /// A value as the text of a path or a string, when it is one.
