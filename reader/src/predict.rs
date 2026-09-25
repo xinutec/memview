@@ -12,7 +12,9 @@
 //! cannot follow — a program whose output is not modelled, a pipeline, a loop, a
 //! word with an expansion in it — yields no prediction for the files it writes,
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
-//! then on, so a later append to it is not guessed at either.
+//! then on, so a later append to it is not guessed at either. A program that
+//! writes files itself — `sed -i`, `cp`, `rm` — has them named by the shell
+//! tables and refused, so no write it knows of goes unmentioned.
 //!
 //! **The prediction assumes each command succeeds.** A write after `||` is only
 //! sometimes made, and is not followed. Whether the call really went that way is
@@ -20,11 +22,14 @@
 
 use std::collections::BTreeMap;
 
-use crate::shell_ops::resolve;
+use crate::shell::Reached;
+use crate::shell_files::files_of;
+use crate::shell_ops::{basename, classify, resolve, unwrap_command};
 use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
     Script, SegmentKind, Simple, Tilde, Word,
 };
+use crate::syntax::print::print_value;
 
 /// What is known of the files a prediction may depend on, by absolute path:
 /// `Some(text)`, or `None` for a file that does not exist. A path with no entry is
@@ -205,6 +210,8 @@ impl<'a> Run<'a> {
         // `tee` writes its input to the files it names, as well as to stdout.
         if name.as_deref() == Some("tee") {
             self.tee(&argv, redirects);
+        } else {
+            self.forget_program_writes(simple, redirects, None);
         }
         let Some(out) = self.outputs(redirects) else {
             return;
@@ -428,7 +435,62 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// The files a command writes by running rather than through a redirect —
+    /// `sed -i`, `cp`, `rm` — as the shell tables read it. None is followed yet, so
+    /// each is refused, for `why` or else by the program's name.
+    fn forget_program_writes(&mut self, simple: &Simple, redirects: &[Redirect], why: Option<Why>) {
+        let literal: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
+        let argv: Vec<String> = simple
+            .words
+            .iter()
+            .zip(&literal)
+            .map(|(word, literal)| literal.clone().unwrap_or_else(|| print_value(word)))
+            .collect();
+        let heredocs: Vec<String> = redirects
+            .iter()
+            .filter_map(|redirect| match &redirect.target {
+                RedirectTarget::Here(heredoc) => Some(heredoc.body.clone()),
+                _ => None,
+            })
+            .collect();
+        let op = classify(&argv, &heredocs, self.cwd.as_deref(), self.home);
+        let written: Vec<String> = files_of(&op, Reached::Always)
+            .into_iter()
+            .filter(|file| file.write)
+            .map(|file| file.path)
+            .collect();
+        if written.is_empty() {
+            return;
+        }
+        let why = why.unwrap_or_else(|| {
+            let program = unwrap_command(&argv)
+                .first()
+                .map_or("", |head| basename(head));
+            Why::Program(program.to_string())
+        });
+        // A path the text names is forgotten; one that came out of an expansion
+        // could be any file, so it is refused without one.
+        let named: Vec<String> = literal
+            .iter()
+            .flatten()
+            .filter_map(|word| self.resolve(word))
+            .collect();
+        for path in written {
+            if named.contains(&path) {
+                self.write(&path, false, Err(why.clone()));
+            } else {
+                self.unfollowed.push(Unfollowed {
+                    path: None,
+                    why: Why::Expansion,
+                });
+            }
+        }
+    }
+
     fn forget_command(&mut self, command: &Command, why: Why) {
+        if let CommandKind::Simple(simple) = &command.kind {
+            self.forget_program_writes(simple, &command.redirects, Some(why.clone()));
+        }
         for target in self.outputs(&command.redirects).unwrap_or_default() {
             match target {
                 Target::File { path, .. } | Target::Other(path) => {

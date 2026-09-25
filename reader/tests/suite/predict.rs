@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use reader::predict::{Files, Prediction, Unfollowed, Written, needs, predict};
+use reader::predict::{Files, Prediction, Unfollowed, Why, Written, needs, predict};
 
 const HOME: &str = "/home/me";
 const CWD: &str = "/repo";
@@ -211,4 +211,63 @@ mod checking {
         let after = known(&[("/repo/a", None)]);
         assert_eq!(check(&[written("/repo/a", "x\n")], &after).len(), 1);
     }
+}
+
+/// A program that writes a file without a redirect is refused by name, with the
+/// file it writes: a write the evaluator never mentions is neither a prediction
+/// nor a refusal.
+#[test]
+fn a_program_that_writes_a_file_is_refused_with_its_path() {
+    let found = run("sed -i 's/a/b/' notes.txt", &nothing_known());
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/notes.txt".to_string()),
+            why: Why::Program("sed".to_string()),
+        }]
+    );
+}
+
+/// What a program wrote is unknown from then on, so a later read of it predicts
+/// nothing. The control is the same read with no program between.
+#[test]
+fn a_file_a_program_wrote_is_forgotten() {
+    let copied = run(
+        "echo x > a.txt && cp src.txt a.txt && cat a.txt > b.txt",
+        &nothing_known(),
+    );
+    assert!(copied.written.iter().all(|w| w.path != "/repo/b.txt"));
+    assert!(copied.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/b.txt".to_string()),
+        why: Why::NotRead,
+    }));
+
+    let plain = run("echo x > a.txt && cat a.txt > b.txt", &nothing_known());
+    assert!(plain.written.contains(&written("/repo/b.txt", "x\n")));
+}
+
+#[test]
+fn a_program_write_inside_a_loop_is_refused_as_a_compound() {
+    let found = run("for f in x; do rm gone.txt; done", &nothing_known());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/gone.txt".to_string()),
+            why: Why::Compound,
+        }]
+    );
+}
+
+/// A destination the text names is still named when a source is a variable.
+#[test]
+fn a_named_destination_survives_an_expanded_source() {
+    let found = run("cp \"$src\" dest.txt", &nothing_known());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/dest.txt".to_string()),
+            why: Why::Program("cp".to_string()),
+        }]
+    );
 }

@@ -6,8 +6,12 @@
 //! The history setting: each command is given its text and nothing else, so a
 //! write that depends on a file's old contents counts as `not read`. Before a live
 //! call the console supplies those, and the same evaluator follows more.
+//!
+//! Beside the census, the writes the reconstruction (`shell_files`) knows of that
+//! the evaluator neither predicted nor refused: the part of the denominator it
+//! cannot see yet. `--show unseen <n>` prints them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use reader::predict::{Files, Why, predict};
 
@@ -34,6 +38,8 @@ fn main() -> anyhow::Result<()> {
     let mut refused = 0usize;
     let mut why: BTreeMap<String, usize> = BTreeMap::new();
     let mut shown = 0usize;
+    let (mut unseen, mut unseen_commands) = (0usize, 0usize);
+    let mut unseen_by: BTreeMap<String, usize> = BTreeMap::new();
     for line in std::fs::read_to_string(path)?.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
@@ -50,6 +56,47 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         let found = predict(&script, cwd, &home, &Files::new());
+        // What the reconstruction says the command writes, which the evaluator must
+        // either predict or refuse by name. A write it never mentions is neither.
+        let mut unseen_here: BTreeSet<String> = BTreeSet::new();
+        let mut writers: BTreeSet<String> = BTreeSet::new();
+        if let Ok(parsed) = reader::project::read(cmd) {
+            let recon = reader::shell_files::extract_knowing(&parsed, Some(cwd), &home, &[]);
+            let seen: BTreeSet<&str> = found
+                .written
+                .iter()
+                .map(|w| w.path.as_str())
+                .chain(found.unfollowed.iter().filter_map(|u| u.path.as_deref()))
+                .collect();
+            unseen_here = recon
+                .files
+                .iter()
+                .filter(|f| f.write && !seen.contains(f.path.as_str()))
+                .map(|f| f.path.clone())
+                .collect();
+            writers = recon
+                .by_command
+                .iter()
+                .filter(|(_, (_, w))| *w > 0)
+                .map(|(name, _)| name.clone())
+                .collect();
+        }
+        // A refusal without a path — a glob, a variable — may be any of them.
+        let unnamed = found.unfollowed.iter().filter(|u| u.path.is_none()).count();
+        let unseen_here: Vec<String> = unseen_here.into_iter().skip(unnamed).collect();
+        if !unseen_here.is_empty() {
+            unseen_commands += 1;
+            unseen += unseen_here.len();
+            let by = writers.into_iter().collect::<Vec<_>>().join(" ");
+            *unseen_by.entry(by.clone()).or_insert(0) += unseen_here.len();
+            if let Some((wanted, n)) = &show
+                && wanted == "unseen"
+                && shown < *n
+            {
+                shown += 1;
+                println!("--- unseen, written by {by}: {unseen_here:?}\n{cmd}\n");
+            }
+        }
         if found.written.is_empty() && found.unfollowed.is_empty() {
             continue;
         }
@@ -80,6 +127,14 @@ fn main() -> anyhow::Result<()> {
     println!("files predicted              {files}");
     println!("writes not followed          {refused}, by why:");
     let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    for (name, n) in ranked.iter().take(40) {
+        println!("  {n:7}  {name}");
+    }
+    println!(
+        "writes never mentioned        {unseen} in {unseen_commands} commands, by the commands writing:"
+    );
+    let mut ranked: Vec<(String, usize)> = unseen_by.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     for (name, n) in ranked.iter().take(40) {
         println!("  {n:7}  {name}");
