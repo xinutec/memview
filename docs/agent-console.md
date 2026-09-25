@@ -1777,7 +1777,9 @@ on permission, that is the change being asked about.
 **After.** The console reads the same files again and compares them with what was
 predicted. Agreement is silent. A divergence is kept as a finding — the command,
 the prediction and what the file actually holds — and shown on the row as what it
-is: the evaluator was wrong about this call.
+is: the evaluator was wrong about this call. A call sent to the background has
+only started when its hook fires, so its files are read when its task ends, and
+not at all if the task failed or was killed.
 
 **It fails closed.** A console that cannot be reached is a fault to see, so the
 hook exits 2, which blocks the call and hands the session the reason. It keeps

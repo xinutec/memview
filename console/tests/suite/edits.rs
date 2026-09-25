@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use console::edits::{Edits, Hunk, hunks};
+use console::protocol::Ended;
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("console-edits-{name}-{}", std::process::id()));
@@ -82,7 +83,9 @@ fn a_call_that_did_what_was_predicted_agrees() {
         .expect("predicted");
     // What the command does; nothing here runs it.
     std::fs::write(dir.join("a.txt"), "x\n").expect("write");
-    let (session, diverged) = edits.after("c1").expect("checked");
+    let (session, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
     assert_eq!(session, "s1");
     assert!(diverged.paths.is_empty());
     assert!(edits.of("s1").diverged.is_empty());
@@ -96,7 +99,9 @@ fn a_call_that_left_something_else_is_a_finding() {
         .before("s1", "c1", "echo x > a.txt", at(&dir))
         .expect("predicted");
     std::fs::write(dir.join("a.txt"), "not x\n").expect("write");
-    let (_, diverged) = edits.after("c1").expect("checked");
+    let (_, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
     assert_eq!(
         diverged.paths,
         vec![dir.join("a.txt").display().to_string()]
@@ -114,5 +119,51 @@ fn a_command_the_reader_cannot_follow_predicts_nothing() {
     let dir = scratch("unfollowed");
     let edits = Edits::new(dir.join("store"));
     assert!(edits.before("s1", "c1", "make > a.txt", at(&dir)).is_none());
-    assert!(edits.after("c1").is_none());
+    assert!(edits.finished("c1", &serde_json::json!({})).is_none());
+}
+
+/// A call sent to the background has only started when its hook says it is done:
+/// checking then compares the prediction with the files before it ran. The
+/// check waits for the task to end, and a task that failed is not held to it.
+#[test]
+fn a_backgrounded_call_is_checked_when_its_task_ends() {
+    let dir = scratch("background");
+    std::fs::write(dir.join("a.txt"), "old\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    let command = "cat > a.txt <<'EOF'\nnew\nEOF";
+    let backgrounded = serde_json::json!({ "stdout": "", "backgroundTaskId": "b1" });
+
+    edits
+        .before("s1", "c1", command, at(&dir))
+        .expect("predicted");
+    assert!(
+        edits.finished("c1", &backgrounded).is_none(),
+        "not checked yet"
+    );
+    std::fs::write(dir.join("a.txt"), "new\n").expect("the task ran");
+    let (_, diverged) = edits
+        .ended("c1", Some(&Ended::Completed))
+        .expect("checked when it ended");
+    assert!(diverged.paths.is_empty(), "{diverged:?}");
+
+    // The control: the same call checked at once sees the file before it ran.
+    std::fs::write(dir.join("a.txt"), "old\n").expect("reset");
+    edits
+        .before("s1", "c2", command, at(&dir))
+        .expect("predicted");
+    let (_, diverged) = edits
+        .finished("c2", &serde_json::json!({ "stdout": "" }))
+        .expect("checked at once");
+    assert_eq!(diverged.paths.len(), 1);
+
+    // A task that failed did not do what its text says, so nothing is checked.
+    edits
+        .before("s1", "c3", command, at(&dir))
+        .expect("predicted");
+    assert!(edits.finished("c3", &backgrounded).is_none());
+    assert!(edits.ended("c3", Some(&Ended::Failed)).is_none());
+    assert!(
+        edits.ended("c3", Some(&Ended::Completed)).is_none(),
+        "dropped"
+    );
 }

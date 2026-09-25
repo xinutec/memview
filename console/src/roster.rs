@@ -15,7 +15,9 @@ use parking_lot::{Mutex, RwLock};
 use anyhow::Result;
 
 use crate::config::Config;
-use crate::session::{Session, Summary};
+use crate::protocol::Event;
+use crate::session::{Session, Stamped, Summary};
+use tokio::sync::broadcast;
 
 /// How long [`Roster::revive`] will wait for a stopped session to actually go. A
 /// stop kills only after a grace period, and a session can take thirty seconds to
@@ -221,6 +223,7 @@ impl Roster {
             ) {
                 Ok(session) => {
                     tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
+                    self.follow_edits(&session);
                     self.sessions.write().insert(one.id, session);
                     taken += 1;
                 }
@@ -424,8 +427,46 @@ impl Roster {
         let session = started
             .inspect_err(|err| tracing::error!("could not start {id}: {err:#}"))
             .map_err(|err| format!("{err:#}"))?;
+        self.follow_edits(&session);
         self.sessions.write().insert(id, session.clone());
         Ok(session)
+    }
+
+    /// Checks a backgrounded call's files once its task ends: its hook saw only
+    /// the start. See [`crate::edits::Edits::ended`].
+    fn follow_edits(&self, session: &Arc<Session>) {
+        let edits = self.edits();
+        let mut events = session.listen();
+        let held = Arc::downgrade(session);
+        tokio::spawn(async move {
+            loop {
+                let (call, status) = match events.recv().await {
+                    Ok(Stamped {
+                        event:
+                            Event::Background {
+                                tool: Some(call),
+                                status,
+                                ..
+                            },
+                        ..
+                    }) => (call, status),
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
+                let edits = Arc::clone(&edits);
+                let checked =
+                    tokio::task::spawn_blocking(move || edits.ended(&call, status.as_ref()))
+                        .await
+                        .ok()
+                        .flatten();
+                if let Some((_, diverged)) = checked
+                    && !diverged.paths.is_empty()
+                    && let Some(session) = held.upgrade()
+                {
+                    session.diverged(diverged);
+                }
+            }
+        });
     }
 
     /// Kill every session this console owns, for shutdown. Kill, not a polite stop:

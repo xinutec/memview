@@ -1041,6 +1041,7 @@ struct Hooked {
     tool_use_id: String,
     cwd: String,
     tool_input: serde_json::Value,
+    tool_response: serde_json::Value,
 }
 
 /// When in a call's life a hook fired. Only the two this answers are named.
@@ -1077,7 +1078,8 @@ async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> 
             }
         }
         Hook::PostToolUse => {
-            let checked = tokio::task::spawn_blocking(move || edits.after(&call))
+            let response = hooked.tool_response;
+            let checked = tokio::task::spawn_blocking(move || edits.finished(&call, &response))
                 .await
                 .ok()
                 .flatten();

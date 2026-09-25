@@ -4,8 +4,9 @@
 //! The IO edges of [`reader::predict`]. A `PreToolUse` hook hands every command to
 //! [`Edits::before`]: the files the prediction depends on are read and passed in,
 //! and what comes back is drawn at once as hunks. The `PostToolUse` hook calls
-//! [`Edits::after`], which reads the predicted files again and asks
-//! [`reader::predict::check`] whether they hold what was predicted. A divergence
+//! [`Edits::finished`], which reads the predicted files again and asks
+//! [`reader::predict::check`] whether they hold what was predicted — or, for a
+//! call sent to the background, leaves that to [`Edits::ended`]. A divergence
 //! is a defect in the evaluator, kept in full so it can become a test — see
 //! `docs/execution-model.md`, "Two settings, one evaluator".
 //!
@@ -89,7 +90,12 @@ struct Pending {
     session: String,
     command: String,
     written: Vec<Written>,
+    since: std::time::Instant,
 }
+
+/// How long a prediction waits for its call to end. A backgrounded call in a
+/// session the console does not run never reports its end here.
+const HELD: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 #[derive(Default)]
 pub struct Edits {
@@ -131,23 +137,55 @@ impl Edits {
             call: call.to_string(),
             hunks,
         };
-        self.pending.lock().insert(
+        let mut pending = self.pending.lock();
+        pending.retain(|_, waiting| waiting.since.elapsed() < HELD);
+        pending.insert(
             call.to_string(),
             Pending {
                 session: session.to_string(),
                 command: command.to_string(),
                 written: prediction.written,
+                since: std::time::Instant::now(),
             },
         );
+        drop(pending);
         if let Err(why) = self.keep(&self.file(session), &edited) {
             tracing::warn!("could not keep the prediction of {call}: {why}");
         }
         Some(edited)
     }
 
+    /// The call's hook says it is done. A call sent to the background has only
+    /// started, so its check waits for [`Self::ended`]; any other is checked now.
+    pub fn finished(&self, call: &str, response: &serde_json::Value) -> Option<(String, Diverged)> {
+        if response
+            .get("backgroundTaskId")
+            .is_some_and(serde_json::Value::is_string)
+        {
+            return None;
+        }
+        self.check(call)
+    }
+
+    /// A backgrounded call's task ended. One that did not complete did not do
+    /// what its text says, so its prediction is dropped unchecked.
+    pub fn ended(
+        &self,
+        call: &str,
+        status: Option<&crate::protocol::Ended>,
+    ) -> Option<(String, Diverged)> {
+        match status {
+            Some(crate::protocol::Ended::Completed) => self.check(call),
+            _ => {
+                self.pending.lock().remove(call);
+                None
+            }
+        }
+    }
+
     /// Whether the call left its files as predicted: the files that did not, each
     /// kept as a finding. `None` when there was no prediction for the call.
-    pub fn after(&self, call: &str) -> Option<(String, Diverged)> {
+    fn check(&self, call: &str) -> Option<(String, Diverged)> {
         let pending = self.pending.lock().remove(call)?;
         let now: Files = pending
             .written
