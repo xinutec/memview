@@ -14,7 +14,8 @@
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
 //! then on, so a later append to it is not guessed at either. A program that
 //! writes files itself — `sed -i`, `cp`, `rm` — has them named by the shell
-//! tables and refused, so no write it knows of goes unmentioned.
+//! tables and refused, so no write it knows of goes unmentioned. A script handed
+//! to another shell — `bash -c`, `nix-shell --run` — is followed in place.
 //!
 //! **The prediction assumes each command succeeds.** A write after `||` is only
 //! sometimes made, and is not followed. Whether the call really went that way is
@@ -26,7 +27,7 @@ mod python;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
-use crate::shell_ops::{basename, classify, resolve, unwrap_command};
+use crate::shell_ops::{Op, basename, classify, resolve, unwrap_command};
 use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
     Script, SegmentKind, Simple, Tilde, Word,
@@ -462,6 +463,11 @@ impl<'a> Run<'a> {
             })
             .collect();
         let op = classify(&argv, &heredocs, self.cwd.as_deref(), self.home);
+        if let Op::Nested { script } = &op {
+            let literal = literal.iter().all(Option::is_some);
+            self.nested(script, &argv, literal, why);
+            return;
+        }
         let written: Vec<String> = files_of(&op, Reached::Always)
             .into_iter()
             .filter(|file| file.write)
@@ -544,6 +550,37 @@ impl<'a> Run<'a> {
                     path: None,
                     why: why.clone(),
                 }),
+            }
+        }
+    }
+
+    /// A script handed to another shell: `bash -c`, `nix-shell --run`. The same
+    /// language against the same files, so it is followed in place, in a child
+    /// whose `cd` does not reach back out. Text the outer shell expands first is
+    /// not known, and what it writes is refused.
+    fn nested(&mut self, script: &str, argv: &[String], literal: bool, why: Option<Why>) {
+        let Ok(tree) = crate::syntax::parse(script) else {
+            let program = unwrap_command(argv)
+                .first()
+                .map_or("", |head| basename(head));
+            self.unfollowed.push(Unfollowed {
+                path: None,
+                why: why.unwrap_or_else(|| Why::Program(program.to_string())),
+            });
+            return;
+        };
+        match why.or_else(|| (!literal).then_some(Why::Expansion)) {
+            None => {
+                let cwd = self.cwd.clone();
+                self.items(&tree.items);
+                self.cwd = cwd;
+            }
+            Some(why) => {
+                for item in &tree.items {
+                    if let Item::List(list) = item {
+                        self.forget_list(list, why.clone());
+                    }
+                }
             }
         }
     }

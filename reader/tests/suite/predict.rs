@@ -418,3 +418,57 @@ fn an_object_saved_to_a_path_writes_that_path() {
         }]
     );
 }
+
+/// A script handed to another shell is the same language, run against the same
+/// files, and followed the same way.
+#[test]
+fn a_nested_shell_is_followed() {
+    let found = run(
+        "nix develop -c bash -c 'echo hi > a.txt' && cat a.txt > b.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "hi\n"),
+            written("/repo/b.txt", "hi\n")
+        ]
+    );
+}
+
+/// A program inside the nested shell that rewrites a file the outer one wrote
+/// makes it unknown — the shape of a heredoc followed by a formatter.
+#[test]
+fn a_rewrite_inside_a_nested_shell_forgets_the_file() {
+    let found = run(
+        "echo x > a.txt && bash -c 'sed -i s/x/y/ a.txt'",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/a.txt".to_string()),
+        why: Why::Program("sed".to_string()),
+    }));
+}
+
+/// The inner shell is a child: its `cd` does not move the outer one.
+#[test]
+fn a_nested_cd_stays_inside() {
+    let found = run("bash -c 'cd sub' && echo x > a.txt", &nothing_known());
+    assert_eq!(found.written, vec![written("/repo/a.txt", "x\n")]);
+}
+
+/// A script whose text the outer shell expands first is not known; every file
+/// it writes is refused.
+#[test]
+fn an_expanded_nested_script_is_refused() {
+    let found = run("bash -c \"echo $X > a.txt\"", &nothing_known());
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/a.txt".to_string()),
+            why: Why::Expansion,
+        }]
+    );
+}
