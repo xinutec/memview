@@ -46,7 +46,10 @@ fi
 
 if [[ ${1:-} == --prune ]]; then
     for dir in "${silted[@]}"; do
-        mv "$dir" "$dir.stale-$(date +%F)"
+        to="$dir.stale-$(date +%F)"
+        # A second prune the same day would move the tree INTO the first copy.
+        [[ -e $to ]] && to="$dir.stale-$(date +%F-%H%M%S)"
+        mv "$dir" "$to"
         echo "moved $dir aside; cargo will rebuild"
     done
     exit 0
