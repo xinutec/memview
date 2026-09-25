@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Held, Run, Unfollowed, Why};
 use crate::syntax::python::ast::{
-    Arg, BinOp, BoolOp, CmpOp, Expr, FPart, Module, Singleton, Stmt, StmtKind, UnaryOp,
+    Arg, BinOp, BoolOp, CmpOp, Expr, FPart, Module, Params, Singleton, Stmt, StmtKind, UnaryOp,
 };
 
 /// Methods that write their object to the path they are given: `img.save(p)`.
@@ -117,49 +117,96 @@ enum Mode {
     Write,
 }
 
-/// Why a program stopped before its end.
+/// Why a block stopped before its end.
 enum Stop {
     /// It raised, or exited: nothing after this runs.
     Ended,
+    Return(Value),
+    Break,
+    Continue,
 }
 
+/// How many values a loop over a written-out list is run for, the backstop
+/// [`crate::project`] uses for the shell's.
+const MAX_UNROLL: usize = 256;
+
 pub(super) fn run(shell: &mut Run<'_>, module: &Module) {
-    let cwd = shell.cwd.clone();
-    let mut eval = Eval {
-        shell,
-        cwd,
-        names: BTreeMap::new(),
-        functions: BTreeMap::new(),
-    };
-    let _ = eval.block(&module.body);
+    let _ = Eval::new(shell).block(&module.body);
 }
 
 /// Every file `module` could write is refused for `why`: it runs in a place the
 /// shell around it does not follow.
 pub(super) fn forget(shell: &mut Run<'_>, module: &Module, why: &Why) {
-    let cwd = shell.cwd.clone();
-    let mut eval = Eval {
-        shell,
-        cwd,
-        names: BTreeMap::new(),
-        functions: BTreeMap::new(),
-    };
-    eval.forget(&module.body, why, 0);
+    Eval::new(shell).forget(&module.body, why, 0);
 }
 
 struct Eval<'r, 'a, 'm> {
     shell: &'r mut Run<'a>,
     /// Python's own directory: `os.chdir` moves it and not the shell's.
     cwd: Option<String>,
+    /// The module's names.
     names: BTreeMap<String, Value>,
-    functions: BTreeMap<String, &'m [Stmt]>,
+    /// The calls being followed, innermost last.
+    frames: Vec<Frame>,
+    functions: BTreeMap<String, Def<'m>>,
+}
+
+/// One call's names, and the ones it declared `global`.
+#[derive(Default)]
+struct Frame {
+    locals: BTreeMap<String, Value>,
+    globals: BTreeSet<String>,
+}
+
+/// A function the program defines.
+#[derive(Clone, Copy)]
+struct Def<'m> {
+    params: &'m Params,
+    body: &'m [Stmt],
+    /// A decorator may change what a call does, so such a call is not followed.
+    decorated: bool,
 }
 
 fn construct(name: &str) -> Why {
     Why::Python(name.to_string())
 }
 
-impl<'m> Eval<'_, '_, 'm> {
+impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
+    fn new(shell: &'r mut Run<'a>) -> Self {
+        let cwd = shell.cwd.clone();
+        Self {
+            shell,
+            cwd,
+            names: BTreeMap::from([("__name__".to_string(), Value::Str("__main__".to_string()))]),
+            frames: Vec::new(),
+            functions: BTreeMap::new(),
+        }
+    }
+
+    /// Binds `name` where Python would: in the call being followed unless it
+    /// declared the name `global`, else in the module.
+    fn set(&mut self, name: &str, value: Value) {
+        match self.frames.last_mut() {
+            Some(frame) if !frame.globals.contains(name) => {
+                frame.locals.insert(name.to_string(), value);
+            }
+            _ => {
+                self.names.insert(name.to_string(), value);
+            }
+        }
+    }
+
+    fn unset(&mut self, name: &str) {
+        match self.frames.last_mut() {
+            Some(frame) if !frame.globals.contains(name) => {
+                frame.locals.remove(name);
+            }
+            _ => {
+                self.names.remove(name);
+            }
+        }
+    }
+
     fn block(&mut self, body: &'m [Stmt]) -> Result<(), Stop> {
         for stmt in body {
             self.stmt(stmt)?;
@@ -183,20 +230,18 @@ impl<'m> Eval<'_, '_, 'm> {
                 if let Expr::Name(name) = target {
                     let left = self.name(name);
                     let joined = binary(left, *op, right);
-                    self.names.insert(name.clone(), joined);
+                    self.set(name, joined);
                 }
             }
             StmtKind::Import(aliases) => {
                 for alias in aliases {
                     match &alias.asname {
                         Some(asname) => {
-                            self.names
-                                .insert(asname.clone(), Value::Name(alias.name.clone()));
+                            self.set(asname, Value::Name(alias.name.clone()));
                         }
                         None => {
                             let head = alias.name.split('.').next().unwrap_or(&alias.name);
-                            self.names
-                                .insert(head.to_string(), Value::Name(head.to_string()));
+                            self.set(head, Value::Name(head.to_string()));
                         }
                     }
                 }
@@ -212,7 +257,7 @@ impl<'m> Eval<'_, '_, 'm> {
                         _ => alias.name.clone(),
                     };
                     let bound = alias.asname.as_ref().unwrap_or(&alias.name);
-                    self.names.insert(bound.clone(), Value::Name(dotted));
+                    self.set(bound, Value::Name(dotted));
                 }
             }
             StmtKind::Assert { test, .. } => {
@@ -224,7 +269,7 @@ impl<'m> Eval<'_, '_, 'm> {
             StmtKind::Delete(targets) => {
                 for target in targets {
                     if let Expr::Name(name) = target {
-                        self.names.remove(name);
+                        self.unset(name);
                     }
                 }
             }
@@ -241,12 +286,24 @@ impl<'m> Eval<'_, '_, 'm> {
                 orelse,
                 target,
                 iter,
-            } => {
-                self.forget_expr(iter, &construct("for"), 0);
-                self.unbind(target, &construct("for"));
-                self.forget(body, &construct("for"), 0);
-                self.forget(orelse, &construct("for"), 0);
-            }
+            } => match self.expr(iter)? {
+                Value::Tuple(values) if values.len() <= MAX_UNROLL => {
+                    for value in values {
+                        self.bind(target, value);
+                        match self.block(body) {
+                            Ok(()) | Err(Stop::Continue) => {}
+                            Err(Stop::Break) => return Ok(()),
+                            Err(stop) => return Err(stop),
+                        }
+                    }
+                    self.block(orelse)?;
+                }
+                _ => {
+                    self.unbind(target, &construct("for"));
+                    self.forget(body, &construct("for"), 0);
+                    self.forget(orelse, &construct("for"), 0);
+                }
+            },
             StmtKind::While { body, orelse, .. } => {
                 self.forget(body, &construct("while"), 0);
                 self.forget(orelse, &construct("while"), 0);
@@ -260,11 +317,12 @@ impl<'m> Eval<'_, '_, 'm> {
                 }
                 self.block(body)?;
             }
-            StmtKind::FunctionDef { name, body, .. } => {
-                self.functions.insert(name.clone(), body);
-                self.names
-                    .insert(name.clone(), Value::Defined(name.clone()));
-            }
+            StmtKind::FunctionDef {
+                name,
+                params,
+                body,
+                decorators,
+            } => self.define(name, params, body, decorators),
             // Each call succeeds, so the handlers never run.
             StmtKind::Try {
                 body,
@@ -276,13 +334,21 @@ impl<'m> Eval<'_, '_, 'm> {
                 self.block(orelse)?;
                 self.block(finalbody)?;
             }
-            StmtKind::Comment(_)
-            | StmtKind::Pass
-            | StmtKind::Global(_)
-            | StmtKind::Nonlocal(_)
-            | StmtKind::Break
-            | StmtKind::Continue
-            | StmtKind::Return(_) => {}
+            StmtKind::Global(names) => {
+                if let Some(frame) = self.frames.last_mut() {
+                    frame.globals.extend(names.iter().cloned());
+                }
+            }
+            StmtKind::Return(value) => {
+                let value = match value {
+                    Some(value) => self.expr(value)?,
+                    None => Value::None,
+                };
+                return Err(Stop::Return(value));
+            }
+            StmtKind::Break => return Err(Stop::Break),
+            StmtKind::Continue => return Err(Stop::Continue),
+            StmtKind::Comment(_) | StmtKind::Pass | StmtKind::Nonlocal(_) => {}
         }
         Ok(())
     }
@@ -290,7 +356,7 @@ impl<'m> Eval<'_, '_, 'm> {
     fn bind(&mut self, target: &Expr, value: Value) {
         match (target, value) {
             (Expr::Name(name), value) => {
-                self.names.insert(name.clone(), value);
+                self.set(name, value);
             }
             (Expr::Tuple(targets) | Expr::List(targets), Value::Tuple(values))
                 if targets.len() == values.len() =>
@@ -312,7 +378,7 @@ impl<'m> Eval<'_, '_, 'm> {
     fn unbind(&mut self, target: &Expr, why: &Why) {
         match target {
             Expr::Name(name) => {
-                self.names.insert(name.clone(), Value::Unknown(why.clone()));
+                self.set(name, Value::Unknown(why.clone()));
             }
             Expr::Tuple(targets) | Expr::List(targets) => {
                 for target in targets {
@@ -324,10 +390,27 @@ impl<'m> Eval<'_, '_, 'm> {
     }
 
     fn name(&self, name: &str) -> Value {
-        match self.names.get(name) {
+        let local = self
+            .frames
+            .last()
+            .filter(|frame| !frame.globals.contains(name))
+            .and_then(|frame| frame.locals.get(name));
+        match local.or_else(|| self.names.get(name)) {
             Some(value) => value.clone(),
             None => Value::Name(name.to_string()),
         }
+    }
+
+    fn define(&mut self, name: &str, params: &'m Params, body: &'m [Stmt], decorators: &[Expr]) {
+        self.functions.insert(
+            name.to_string(),
+            Def {
+                params,
+                body,
+                decorated: !decorators.is_empty(),
+            },
+        );
+        self.set(name, Value::Defined(name.to_string()));
     }
 
     fn expr(&mut self, expr: &'m Expr) -> Result<Value, Stop> {
@@ -395,10 +478,10 @@ impl<'m> Eval<'_, '_, 'm> {
             },
             Expr::NamedExpr { target, value } => {
                 let value = self.expr(value)?;
-                self.names.insert(target.clone(), value.clone());
+                self.set(target, value.clone());
                 value
             }
-            Expr::Tuple(items) => {
+            Expr::Tuple(items) | Expr::List(items) => {
                 let mut values = Vec::with_capacity(items.len());
                 for item in items {
                     values.push(self.expr(item)?);
@@ -418,7 +501,6 @@ impl<'m> Eval<'_, '_, 'm> {
             Expr::Singleton(Singleton::Ellipsis)
             | Expr::UnaryOp { .. }
             | Expr::Slice { .. }
-            | Expr::List(_)
             | Expr::Set(_)
             | Expr::Dict(_)
             | Expr::Starred(_) => Value::Unknown(construct("value")),
@@ -491,13 +573,7 @@ impl<'m> Eval<'_, '_, 'm> {
         let (positional, keyword) = self.args(args)?;
         let name = match callee {
             Value::Name(name) => name,
-            Value::Defined(defined) => {
-                let why = Why::Python(format!("function {defined}"));
-                if let Some(body) = self.functions.get(&defined).copied() {
-                    self.forget(body, &why, 0);
-                }
-                return Ok(Value::Unknown(why));
-            }
+            Value::Defined(defined) => return self.call_defined(&defined, positional, keyword),
             _ => return Ok(Value::Unknown(construct("call"))),
         };
         let first = positional.first().cloned();
@@ -579,6 +655,55 @@ impl<'m> Eval<'_, '_, 'm> {
                 Value::Unknown(why)
             }
         })
+    }
+
+    /// A call to a function the program defines, followed in a frame of its own
+    /// with its parameters bound.
+    fn call_defined(
+        &mut self,
+        name: &str,
+        positional: Vec<Value>,
+        keyword: BTreeMap<&str, Value>,
+    ) -> Result<Value, Stop> {
+        let why = Why::Python(format!("function {name}"));
+        let Some(def) = self.functions.get(name).copied() else {
+            return Ok(Value::Unknown(why));
+        };
+        if def.decorated || self.frames.len() >= DEPTH {
+            self.forget(def.body, &why, 0);
+            return Ok(Value::Unknown(why));
+        }
+        let mut frame = Frame::default();
+        let mut positional = positional.into_iter();
+        for param in def.params.args.iter().chain(&def.params.kwonly) {
+            let value = match (
+                positional.next(),
+                keyword.get(param.name.as_str()),
+                &param.default,
+            ) {
+                (Some(value), _, _) => value,
+                (None, Some(value), _) => value.clone(),
+                (None, None, Some(default)) => self.expr(default)?,
+                (None, None, None) => Value::Unknown(why.clone()),
+            };
+            frame.locals.insert(param.name.clone(), value);
+        }
+        for rest in [&def.params.vararg, &def.params.kwarg]
+            .into_iter()
+            .flatten()
+        {
+            frame
+                .locals
+                .insert(rest.clone(), Value::Unknown(why.clone()));
+        }
+        self.frames.push(frame);
+        let result = self.block(def.body);
+        self.frames.pop();
+        match result {
+            Ok(()) | Err(Stop::Break | Stop::Continue) => Ok(Value::None),
+            Err(Stop::Return(value)) => Ok(value),
+            Err(Stop::Ended) => Err(Stop::Ended),
+        }
     }
 
     fn method(
@@ -799,7 +924,7 @@ impl<'m> Eval<'_, '_, 'm> {
     /// name it assigns becomes unknown — a block that is not followed.
     fn forget(&mut self, body: &'m [Stmt], why: &Why, depth: usize) {
         for name in assigned(body) {
-            self.names.insert(name, Value::Unknown(why.clone()));
+            self.set(&name, Value::Unknown(why.clone()));
         }
         for stmt in body {
             self.forget_stmt(stmt, why, depth);
@@ -845,10 +970,13 @@ impl<'m> Eval<'_, '_, 'm> {
                 (vec![], blocks)
             }
             // A definition runs nothing; a call to it is forgotten where it is made.
-            StmtKind::FunctionDef { name, body, .. } => {
-                self.functions.insert(name.clone(), body);
-                self.names
-                    .insert(name.clone(), Value::Defined(name.clone()));
+            StmtKind::FunctionDef {
+                name,
+                params,
+                body,
+                decorators,
+            } => {
+                self.define(name, params, body, decorators);
                 (vec![], vec![])
             }
             StmtKind::Delete(_)
@@ -925,9 +1053,9 @@ impl<'m> Eval<'_, '_, 'm> {
                 Expr::Name(name) => match self.name(name) {
                     Value::Defined(defined) => {
                         if depth < DEPTH
-                            && let Some(body) = self.functions.get(&defined).copied()
+                            && let Some(def) = self.functions.get(&defined).copied()
                         {
-                            for stmt in body {
+                            for stmt in def.body {
                                 self.forget_stmt(stmt, why, depth + 1);
                             }
                         }

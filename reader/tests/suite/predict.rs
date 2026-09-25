@@ -550,3 +550,63 @@ fn a_path_given_to_an_unknown_function_is_forgotten() {
     );
     assert_eq!(text.written, vec![written("/repo/a.md", "x\n")]);
 }
+
+/// The corpus's helper: a function that edits a global string in place. Each
+/// call is followed with its arguments.
+#[test]
+fn a_helper_function_editing_a_global_is_followed() {
+    let program = "python3 - <<'PY'\np = 'a.txt'\ns = open(p).read()\ndef sub(old, new):\n    global s\n    assert old in s, old\n    s = s.replace(old, new, 1)\nsub('x', 'y')\nsub('b', 'c')\nopen(p, 'w').write(s)\nPY";
+    let found = run(program, &known(&[("/repo/a.txt", Some("x b\n"))]));
+    assert_eq!(found.written, vec![written("/repo/a.txt", "y c\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    // The same helper whose assertion fails ends the program before the write.
+    let failed = run(program, &known(&[("/repo/a.txt", Some("q b\n"))]));
+    assert!(failed.written.is_empty(), "{:?}", failed.written);
+}
+
+#[test]
+fn a_function_with_locals_and_a_return_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nfrom pathlib import Path\ndef edit(path, old, new='r'):\n    p = Path(path)\n    t = p.read_text()\n    p.write_text(t.replace(old, new))\n    return len(t)\nn = edit('a.txt', 'q')\nPY",
+        &known(&[("/repo/a.txt", Some("qq"))]),
+    );
+    assert_eq!(found.written, vec![written("/repo/a.txt", "rr")]);
+}
+
+/// A local stays in its frame: the outer `s` is written unchanged.
+#[test]
+fn a_functions_local_does_not_leak() {
+    let found = run(
+        "python3 - <<'PY'\ns = 'kept'\ndef f():\n    s = 'lost'\nf()\nopen('o.txt', 'w').write(s)\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "kept")]);
+}
+
+#[test]
+fn a_loop_over_a_written_out_list_runs_once_per_element() {
+    let found = run(
+        "python3 - <<'PY'\ns = open('a.txt').read()\nfor old, new in [('a', 'b'), ('c', 'd')]:\n    s = s.replace(old, new)\nopen('a.txt', 'w').write(s)\nPY",
+        &known(&[("/repo/a.txt", Some("ac"))]),
+    );
+    assert_eq!(found.written, vec![written("/repo/a.txt", "bd")]);
+}
+
+#[test]
+fn break_continue_and_else_in_a_loop() {
+    let found = run(
+        "python3 - <<'PY'\nout = ''\nfor x in ['a', 'skip', 'b', 'stop', 'c']:\n    if x == 'skip':\n        continue\n    if x == 'stop':\n        break\n    out += x\nelse:\n    out += 'never'\nopen('o.txt', 'w').write(out)\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "ab")]);
+}
+
+#[test]
+fn a_scripts_main_block_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nif __name__ == '__main__':\n    open('o.txt', 'w').write('main')\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "main")]);
+}

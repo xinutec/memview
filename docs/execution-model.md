@@ -78,10 +78,11 @@ files itself (`cp`, `rm`, `sed -i`) has them named by the shell tables and
 refused. A script handed to another shell (`bash -c`, `nix-shell --run`) is the
 same language against the same files, so it is followed in place, its `cd`
 kept inside it. Python is followed by `reader/src/predict/python.rs`, on the program's
-tree, against the same files as the shell around it: straight-line, each call
-assumed to succeed, strings, paths and open files interpreted, and a block it
-does not follow (an undecided `if`, a loop, a function it would have to call)
-refused and forgotten as a shell loop is. `predict-report` lists what the
+tree, against the same files as the shell around it: each call assumed to
+succeed, strings, paths and open files interpreted, a function the program
+defines followed in its own frame, a loop over a written-out list run once per
+element, and a block it does not follow (an undecided `if`, a loop over values
+it cannot list, a decorated function) refused and forgotten as a shell loop is. `predict-report` lists what the
 reconstruction knows is written and the evaluator never mentions, which is what
 is still out of its sight.
 
