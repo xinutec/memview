@@ -206,6 +206,14 @@ top of it:
     ⚠ **And it is deliberately NOT part of breadth**: 8 agents grep the whole
     corpus, so scoring it would lift the LEAST-read memories most and compress
     exactly the bottom of the list where every demotion is decided.
+
+    **An audit is not a find.** An agent that opened more than 50 distinct
+    memories in a day was sweeping the corpus, and its opens that day say
+    nothing about whether it would have found any one of them. `memory-tiers`
+    shows, beside each admission, how many of its agents reached it outside a
+    sweep. On 2026-09-25, 32 of 35 admissions fell below the bar on that count
+    (memview#1735). It is shown, not scored: undercounting use is safe for
+    admission and costly for demotion, so it may drive ADMIT and never DEMOTE.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
     under-measure the best-compressed rules, which is why tripwires are reported

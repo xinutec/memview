@@ -1,8 +1,8 @@
 //! What the tiering must get right about the root's two populations (#1210).
 
 use memview::tiers::{
-    Entry, Held, HeldEntry, Role, Thresholds, Tier, breadth, census, expired, median_entry_cost,
-    propose,
+    Breadth, Entry, Held, HeldEntry, Role, Thresholds, Tier, breadth, census, expired,
+    median_entry_cost, propose,
 };
 
 /// Day 100 is "now" in every test here, so an age is `100 - created`.
@@ -332,15 +332,70 @@ fn one_agents_opens_can_be_subtracted_from_breadth() {
     let agents = [read("health"), read("memory"), read("memview")];
     let name = "reference_looked_at_while_being_judged";
 
-    assert_eq!(breadth(&agents, name, None), (3, 0));
+    assert_eq!(
+        breadth(&agents, name, None),
+        Breadth {
+            proven: 3,
+            unprovable: 0,
+            unswept: 3
+        }
+    );
     assert_eq!(
         breadth(&agents, name, Some("memview")),
-        (2, 0),
+        Breadth {
+            proven: 2,
+            unprovable: 0,
+            unswept: 2
+        },
         "the judging session's own open was still counted"
     );
     // The control: subtracting an agent that never read it changes nothing, so the
     // assertion above is about `memview` and not about the arity of the list.
-    assert_eq!(breadth(&agents, name, Some("nobody")), (3, 0));
+    assert_eq!(
+        breadth(&agents, name, Some("nobody")),
+        Breadth {
+            proven: 3,
+            unprovable: 0,
+            unswept: 3
+        }
+    );
+}
+
+/// An agent that reached a memory only during a sweep still counts in `proven`,
+/// and not in `unswept`: the audit is shown beside the finds, not merged (#1735).
+#[test]
+fn an_agent_that_only_swept_a_memory_is_not_an_independent_find() {
+    let name = "reference_reached_by_an_audit";
+    let read = |agent: &str, swept: bool| {
+        let mut agent = memview::agents::Agent {
+            name: agent.to_string(),
+            ..Default::default()
+        };
+        agent.memories.insert(
+            name.to_string(),
+            memview::agents::MemoryUse {
+                reads: 1,
+                ..Default::default()
+            },
+        );
+        if swept {
+            agent.swept.insert(name.to_string());
+        }
+        agent
+    };
+    let agents = [
+        read("recall", false),
+        read("hardware", true),
+        read("home", true),
+    ];
+    assert_eq!(
+        breadth(&agents, name, None),
+        Breadth {
+            proven: 3,
+            unprovable: 0,
+            unswept: 1
+        }
+    );
 }
 
 /// Unprovable opens stay apart when an agent is subtracted: they are shown and
@@ -361,11 +416,19 @@ fn subtracting_an_agent_keeps_provable_and_unprovable_opens_apart() {
     let agents = [shell];
     assert_eq!(
         breadth(&agents, "reference_read_after_an_and", None),
-        (0, 1)
+        Breadth {
+            proven: 0,
+            unprovable: 1,
+            unswept: 0
+        }
     );
     assert_eq!(
         breadth(&agents, "reference_read_after_an_and", Some("recall")),
-        (0, 0)
+        Breadth {
+            proven: 0,
+            unprovable: 0,
+            unswept: 0
+        }
     );
 }
 

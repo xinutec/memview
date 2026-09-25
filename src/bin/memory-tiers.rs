@@ -144,8 +144,7 @@ fn main() -> Result<()> {
         .docs
         .keys()
         .map(|name| {
-            let (breadth, maybe_breadth) =
-                memview::tiers::breadth(&mined.agents, name, excluding.as_deref());
+            let breadth = memview::tiers::breadth(&mined.agents, name, excluding.as_deref());
             Entry {
                 // The memory's own frontmatter first, the sidecar as a fallback: once every
                 // memory carries `created:` the sidecar can go (#1240). `get`, not `[]`: a
@@ -162,8 +161,9 @@ fn main() -> Result<()> {
                             .and_then(|v| v["first"].as_str())
                             .and_then(day_number)
                     }),
-                breadth,
-                maybe_breadth,
+                breadth: breadth.proven,
+                maybe_breadth: breadth.unprovable,
+                unswept_breadth: breadth.unswept,
                 last_open: days
                     .get(name)
                     .and_then(|d| d.reads.iter().max())
@@ -312,9 +312,10 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
     // and from four are different traversal costs. Printed rather than scored (#822).
     for (i, entry) in trade.admit.iter().take(15).enumerate() {
         println!(
-            "    {:<52} {:>3} agents  {:>3} maybe  {:>4}  {:<4} {}",
+            "    {:<52} {:>3} agents {:>3} unswept  {:>3} maybe  {:>4}  {:<4} {}",
             entry.name,
             entry.breadth,
+            entry.unswept_breadth,
             entry.maybe_breadth,
             entry
                 .depth
@@ -326,6 +327,21 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
     }
     if trade.admit.is_empty() {
         println!("    (nothing outside the root has been opened by that many agents)");
+    }
+    // Shown, not yet scored (#1735): an agent whose only opens were in a sweep
+    // audited the corpus rather than finding the memory.
+    let swept = trade
+        .admit
+        .iter()
+        .filter(|e| e.unswept_breadth < at.tenure_breadth)
+        .count();
+    if swept > 0 {
+        println!(
+            "    ⚠ {swept} of {} clear the bar only through agents that reached them in a sweep \
+             (more than {} memories opened in a day).",
+            trade.admit.len(),
+            memview::agents::SWEEP
+        );
     }
     if trade.unproven_admissions > 0 {
         // Named rather than admitted: 43.7% of opens arrive through the shell, and

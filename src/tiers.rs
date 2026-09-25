@@ -82,6 +82,9 @@ pub struct Entry {
     /// Distinct agents whose only evidence is an open that cannot be proved. Shown,
     /// never scored (#1214).
     pub maybe_breadth: usize,
+    /// Of [`Self::breadth`], the agents that opened it outside a sweep — see
+    /// [`Breadth::unswept`].
+    pub unswept_breadth: usize,
     /// Days since it was last opened, or `None` if never.
     pub last_open: Option<i64>,
     /// Bytes its index line spends, which is what demoting it recovers. Zero
@@ -167,8 +170,20 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
     costs[costs.len() / 2]
 }
 
-/// Distinct agents that have opened `memory`, as `(proven, unprovable)`. Forty
-/// opens by one agent count once: breadth is how widely a memory travelled.
+/// Distinct agents that have opened a memory. Forty opens by one agent count
+/// once: breadth is how widely a memory travelled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Breadth {
+    /// Agents with a proven open.
+    pub proven: usize,
+    /// Agents whose only evidence is an open that cannot be proved.
+    pub unprovable: usize,
+    /// Of `proven`, the agents that opened it outside a sweep
+    /// ([`crate::agents::Agent::swept`]). Shown, not yet scored (#1735).
+    pub unswept: usize,
+}
+
+/// The [`Breadth`] of `memory`.
 ///
 /// `excluding` is for the session judging a candidate, which is one of its
 /// readers — reading a memory to decide whether to demote it can lift it out of
@@ -177,24 +192,25 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
 /// Not filtered by default: the mine cannot tell an adjudication from a genuine
 /// consultation, and guessing wrong understates use, which pushes toward
 /// demotion — the direction that loses a rule.
-pub fn breadth(
-    agents: &[crate::agents::Agent],
-    memory: &str,
-    excluding: Option<&str>,
-) -> (usize, usize) {
-    let (mut proven, mut unprovable) = (0, 0);
-    for use_ in agents
+pub fn breadth(agents: &[crate::agents::Agent], memory: &str, excluding: Option<&str>) -> Breadth {
+    let mut out = Breadth::default();
+    for agent in agents
         .iter()
         .filter(|agent| excluding != Some(agent.name.as_str()))
-        .filter_map(|agent| agent.memories.get(memory))
     {
+        let Some(use_) = agent.memories.get(memory) else {
+            continue;
+        };
         if use_.reads > 0 {
-            proven += 1;
+            out.proven += 1;
+            if !agent.swept.contains(memory) {
+                out.unswept += 1;
+            }
         } else if use_.maybe_reads > 0 {
-            unprovable += 1;
+            out.unprovable += 1;
         }
     }
-    (proven, unprovable)
+    out
 }
 
 /// Why a demotion the evidence would offer is not being offered. Checked in this

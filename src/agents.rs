@@ -69,6 +69,11 @@ pub struct Agent {
     /// CONSULTED, where `reads`/`writes` say where it is responsible.
     #[serde(default)]
     pub memories: BTreeMap<String, MemoryUse>,
+    /// Memories this agent opened only on days it opened more than [`SWEEP`]
+    /// distinct ones: reached by an audit, not found (#1735). Derived from the day
+    /// sets on every run, never accumulated.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub swept: BTreeSet<String>,
     /// Recency-weighted days present, per project — the ordering signal. See
     /// [`recency`] for why this is days rather than files.
     #[serde(default)]
@@ -79,6 +84,11 @@ pub struct Agent {
     pub first: String,
     pub last: String,
 }
+
+/// Distinct memories an agent may open in a day before the day counts as a sweep.
+/// Measured 2026-09-25 over 659 agent-days: the median opens 4 and the 95th
+/// percentile 30, while whole-corpus audits open 100 to 700.
+pub const SWEEP: usize = 50;
 
 /// How one agent uses one memory: the times it deliberately opened or changed
 /// the file. Counted from the tool call's `file_path`, not from the memory being
@@ -1848,6 +1858,9 @@ pub fn scan_resumed(
     type DaySet = std::collections::BTreeSet<i64>;
     let mut memory_read_days: BTreeMap<String, DaySet> = BTreeMap::new();
     let mut memory_edit_days: BTreeMap<String, DaySet> = BTreeMap::new();
+    for agent in by_name.values_mut() {
+        agent.swept.clear();
+    }
     for (name, seen) in &days {
         // Sets, because two agents opening one memory on the same day is one day
         // of it being live — appending to a list would count it twice and make
@@ -1878,6 +1891,16 @@ pub fn scan_resumed(
                 .recent_writes
                 .insert(project.clone(), recency(when, today));
         }
+        let mut opened: BTreeMap<i64, usize> = BTreeMap::new();
+        for day in seen.memory_reads.values().flatten() {
+            *opened.entry(*day).or_default() += 1;
+        }
+        agent.swept = seen
+            .memory_reads
+            .iter()
+            .filter(|(_, when)| when.iter().all(|day| opened[day] > SWEEP))
+            .map(|(memory, _)| memory.clone())
+            .collect();
     }
 
     // Every transcript has been read, so "who saw this hash first" has an answer;

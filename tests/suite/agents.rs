@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use memview::agents::{Agent, Agents, scan};
+use memview::agents::{Agent, Agents, SWEEP, scan};
 
 /// A tool whose calls the miner counts.
 #[derive(Clone, Copy)]
@@ -666,6 +666,55 @@ fn opening_a_memory_is_attributed_to_that_memory_not_to_a_project() {
     // the repositories as though it were one.
     assert_eq!(a.writes.get("thing"), Some(&1));
     assert_eq!(a.reads.len(), 0);
+}
+
+/// A day on which an agent opened more than [`SWEEP`] distinct memories is an
+/// audit, not a find (#1735). A memory it opened only on such days is swept; one
+/// it also opened on an ordinary day is not, and another agent's ordinary open of
+/// the same memory is unaffected.
+#[test]
+fn a_memory_opened_only_during_a_sweep_is_marked_swept() {
+    let mut audit: Vec<String> = (0..=SWEEP)
+        .map(|i| {
+            call(
+                Tool::Read,
+                &format!("/mem/reference_{i}.md"),
+                "2026-07-30T10:00:00Z",
+            )
+        })
+        .collect();
+    audit.push(call(
+        Tool::Read,
+        "/mem/reference_1.md",
+        "2026-07-31T10:00:00Z",
+    ));
+    let agents = mine_corpus(
+        &[
+            ("s1", audit),
+            (
+                "s2",
+                vec![call(
+                    Tool::Read,
+                    "/mem/reference_0.md",
+                    "2026-07-30T11:00:00Z",
+                )],
+            ),
+        ],
+        &[],
+        &[
+            ("100", r#"{"pid":100,"sessionId":"s1","name":"auditor"}"#),
+            ("200", r#"{"pid":200,"sessionId":"s2","name":"worker"}"#),
+        ],
+    );
+    let named = |name: &str| agents.iter().find(|a| a.name == name).expect(name);
+    let auditor = named("auditor");
+    assert!(auditor.swept.contains("reference_0"));
+    assert!(
+        !auditor.swept.contains("reference_1"),
+        "also opened on an ordinary day"
+    );
+    assert_eq!(auditor.swept.len(), SWEEP);
+    assert!(named("worker").swept.is_empty());
 }
 
 #[test]
