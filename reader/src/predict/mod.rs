@@ -140,6 +140,9 @@ struct Run<'a> {
     order: Vec<String>,
     /// Paths whose given text was asked for and not there.
     asked: Vec<String>,
+    /// Paths rewritten in a way this does not follow. Whatever lies under one —
+    /// a formatter's directory — is unknown too.
+    gone: Vec<String>,
     unfollowed: Vec<Unfollowed>,
 }
 
@@ -152,6 +155,7 @@ impl<'a> Run<'a> {
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
+            gone: Vec::new(),
             unfollowed: Vec::new(),
         }
     }
@@ -165,8 +169,11 @@ impl<'a> Run<'a> {
     }
 
     fn list(&mut self, list: &AndOr) {
+        // A background job is a child: its `cd` stays with it.
         if list.background {
+            let cwd = self.cwd.clone();
             self.forget_list(list, Why::Background);
+            self.cwd = cwd;
             return;
         }
         self.pipeline(&list.first);
@@ -174,7 +181,12 @@ impl<'a> Run<'a> {
         for link in &list.rest {
             sometimes |= link.connector == Connector::Or;
             if sometimes {
+                // A `cd` that only sometimes ran leaves the shell somewhere unknown.
+                let cwd = self.cwd.clone();
                 self.forget_pipeline(&link.pipeline, Why::Sometimes);
+                if self.cwd != cwd {
+                    self.cwd = None;
+                }
             } else {
                 self.pipeline(&link.pipeline);
             }
@@ -192,10 +204,13 @@ impl<'a> Run<'a> {
         match &command.kind {
             CommandKind::Simple(simple) => self.simple(command, simple),
             _ => {
+                let cwd = self.cwd.clone();
                 self.forget_command(command, Why::Compound);
-                // A `cd` in a compound that runs in this shell moves it somewhere
-                // this did not follow.
-                if !matches!(command.kind, CommandKind::Subshell(_)) && moves(command) {
+                // A subshell keeps its `cd`; a compound in this shell moves it
+                // somewhere this did not follow.
+                if matches!(command.kind, CommandKind::Subshell(_)) {
+                    self.cwd = cwd;
+                } else if moves(command) {
                     self.cwd = None;
                 }
             }
@@ -206,12 +221,7 @@ impl<'a> Run<'a> {
         let redirects = command.redirects.as_slice();
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
         let name = argv.first().cloned().flatten();
-        if name.as_deref() == Some("cd") {
-            self.cwd = match argv.get(1) {
-                Some(Some(to)) => self.resolve(to),
-                None => Some(self.home.to_string()),
-                Some(None) => None,
-            };
+        if self.change_dir(&argv) {
             return;
         }
         // `tee` writes its input to the files it names, as well as to stdout.
@@ -404,6 +414,21 @@ impl<'a> Run<'a> {
                 self.now.insert(path.to_string(), Held::Text(text));
             }
             Err(why) => {
+                let under = format!("{path}/");
+                let inside: Vec<String> = self
+                    .now
+                    .keys()
+                    .filter(|known| known.starts_with(&under))
+                    .cloned()
+                    .collect();
+                for known in inside {
+                    self.now.insert(known.clone(), Held::Unknown);
+                    self.unfollowed.push(Unfollowed {
+                        path: Some(known),
+                        why: why.clone(),
+                    });
+                }
+                self.gone.push(path.to_string());
                 self.now.insert(path.to_string(), Held::Unknown);
                 self.unfollowed.push(Unfollowed {
                     path: Some(path.to_string()),
@@ -417,6 +442,13 @@ impl<'a> Run<'a> {
     fn read(&mut self, path: &str) -> Held {
         if let Some(held) = self.now.get(path) {
             return held.clone();
+        }
+        if self
+            .gone
+            .iter()
+            .any(|gone| path.starts_with(gone.as_str()) && path[gone.len()..].starts_with('/'))
+        {
+            return Held::Unknown;
         }
         match self.given.get(path) {
             Some(Some(text)) => Held::Text(text.clone()),
@@ -438,9 +470,16 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// Each command of a longer pipeline runs in a subshell, so a `cd` in one
+    /// reaches no other.
     fn forget_pipeline(&mut self, pipeline: &Pipeline, why: Why) {
+        let alone = pipeline.commands.len() == 1;
         for command in &pipeline.commands {
+            let cwd = self.cwd.clone();
             self.forget_command(command, why.clone());
+            if !alone {
+                self.cwd = cwd;
+            }
         }
     }
 
@@ -482,15 +521,17 @@ impl<'a> Run<'a> {
                 .map_or("", |head| basename(head));
             Why::Program(program.to_string())
         });
-        // A path the text names is forgotten; one that came out of an expansion
-        // could be any file, so it is refused without one.
+        // With every word literal the text determines every path, implied ones
+        // too. Otherwise a path not among the words may have come out of an
+        // expansion and could be any file, so it is refused without one.
+        let determined = literal.iter().all(Option::is_some);
         let named: Vec<String> = literal
             .iter()
             .flatten()
             .filter_map(|word| self.resolve(word))
             .collect();
         for path in written {
-            if named.contains(&path) {
+            if determined || named.contains(&path) {
                 self.write(&path, false, Err(why.clone()));
             } else {
                 self.unfollowed.push(Unfollowed {
@@ -576,17 +617,37 @@ impl<'a> Run<'a> {
                 self.cwd = cwd;
             }
             Some(why) => {
+                let cwd = self.cwd.clone();
                 for item in &tree.items {
                     if let Item::List(list) = item {
                         self.forget_list(list, why.clone());
                     }
                 }
+                self.cwd = cwd;
             }
         }
     }
 
+    /// Follows a `cd`, which says where every path after it resolves. `false` for
+    /// any other command.
+    fn change_dir(&mut self, argv: &[Option<String>]) -> bool {
+        if argv.first().and_then(Option::as_deref) != Some("cd") {
+            return false;
+        }
+        self.cwd = match argv.get(1) {
+            Some(Some(to)) => self.resolve(to),
+            None => Some(self.home.to_string()),
+            Some(None) => None,
+        };
+        true
+    }
+
     fn forget_command(&mut self, command: &Command, why: Why) {
         if let CommandKind::Simple(simple) = &command.kind {
+            let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
+            if self.change_dir(&argv) {
+                return;
+            }
             match python_of(command) {
                 Some(embedded) => self.python(embedded.program, Some(why.clone())),
                 None => self.forget_program_writes(simple, &command.redirects, Some(why.clone())),

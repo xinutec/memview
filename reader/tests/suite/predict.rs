@@ -472,3 +472,59 @@ fn an_expanded_nested_script_is_refused() {
         }]
     );
 }
+
+/// A formatter over a directory makes every file under it unknown: the ones the
+/// command wrote and the ones it was given.
+#[test]
+fn a_rewrite_of_a_directory_forgets_the_files_under_it() {
+    let found = run(
+        "cat > src/a.py <<'EOF'\nx=1\nEOF\nruff format src && cat src/b.py > c.txt",
+        &known(&[("/repo/src/b.py", Some("y\n"))]),
+    );
+    assert!(found.written.iter().all(|w| w.path != "/repo/src/a.py"));
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/src/a.py".to_string()),
+        why: Why::Program("ruff".to_string()),
+    }));
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/c.txt".to_string()),
+        why: Why::NotRead,
+    }));
+}
+
+/// A path the command implies rather than names — `cargo fmt` rewrites where it
+/// stands — is still determined by the text.
+#[test]
+fn an_implied_directory_is_named_when_the_text_determines_it() {
+    let found = run(
+        "echo x > src/m.rs && nix develop -c bash -c 'cargo fmt -p m'",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/src/m.rs".to_string()),
+        why: Why::Program("cargo".to_string()),
+    }));
+}
+
+/// A `cd` inside a region that is not followed still decides where its paths
+/// resolve. After it, a pipeline's `cd` is gone with its subshell; one that only
+/// sometimes ran leaves the directory unknown.
+#[test]
+fn a_cd_inside_a_forgotten_region_resolves_its_paths() {
+    let found = run(
+        "echo x > sub/a.ts && bash -c 'cd sub && prettier --write a.ts' | cat",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/sub/a.ts".to_string()),
+        why: Why::Pipeline,
+    }));
+
+    let piped = run("cd sub | cat; echo y > b.txt", &nothing_known());
+    assert_eq!(piped.written, vec![written("/repo/b.txt", "y\n")]);
+
+    let sometimes = run("false || cd sub; echo y > b.txt", &nothing_known());
+    assert!(sometimes.written.is_empty(), "{:?}", sometimes.written);
+}

@@ -2116,3 +2116,76 @@ fn scope_cannot_tell_a_loop_body_from_a_top_level_command() {
     // FOR rather than only what it is not.
     assert_eq!(scopes("( cd /tmp && ls x )"), vec![vec![1], vec![1]]);
 }
+
+/// `black` rewrites unless told to check. The table's comment said so and the
+/// code read an empty flag list as "never", so no `black` ever counted.
+#[test]
+fn a_formatter_that_rewrites_by_default_writes_its_operands() {
+    assert_eq!(
+        uses("black src/a.py"),
+        [("/home/example/Code/health/src/a.py".to_string(), true)]
+    );
+    assert_eq!(
+        uses("black --check src/a.py"),
+        [("/home/example/Code/health/src/a.py".to_string(), false)]
+    );
+}
+
+/// A formatter's operands are paths even when bare — `src` is a directory to
+/// it, not a pattern — and with none it formats where it stands. Its
+/// subcommand is not one of them.
+#[test]
+fn a_formatter_subcommand_decides_and_is_not_a_path() {
+    assert_eq!(
+        uses("ruff format src tests"),
+        [
+            ("/home/example/Code/health/src".to_string(), true),
+            ("/home/example/Code/health/tests".to_string(), true),
+        ]
+    );
+    assert_eq!(
+        uses("ruff format"),
+        [("/home/example/Code/health".to_string(), true)]
+    );
+    assert_eq!(
+        uses("ruff check src/a.py"),
+        [("/home/example/Code/health/src/a.py".to_string(), false)]
+    );
+    assert_eq!(
+        uses("ruff check --fix src/a.py"),
+        [("/home/example/Code/health/src/a.py".to_string(), true)]
+    );
+    assert_eq!(
+        uses("biome format --write src/a.ts"),
+        [("/home/example/Code/health/src/a.ts".to_string(), true)]
+    );
+}
+
+/// `cargo fmt` rewrites the tree it runs in and names none of it.
+#[test]
+fn cargo_fmt_rewrites_the_tree_it_runs_in() {
+    assert_eq!(
+        uses("cargo fmt -p console"),
+        [("/home/example/Code/health".to_string(), true)]
+    );
+    assert!(uses("cargo fmt --check").is_empty());
+    assert!(uses("cargo clippy").is_empty());
+    assert_eq!(
+        uses("cargo clippy --fix"),
+        [("/home/example/Code/health".to_string(), true)]
+    );
+}
+
+/// A package manager's runner stands in front of the real tool.
+#[test]
+fn a_package_runner_is_looked_through() {
+    assert_eq!(
+        uses("pnpm exec prettier --write e2e/a.spec.ts"),
+        [("/home/example/Code/health/e2e/a.spec.ts".to_string(), true)]
+    );
+    assert_eq!(
+        uses("uv run black a.py"),
+        [("/home/example/Code/health/a.py".to_string(), true)]
+    );
+    assert!(uses("pnpm install").is_empty());
+}

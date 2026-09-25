@@ -806,15 +806,19 @@ enum Verb {
     /// Looked in its first operand; everything after is an expression.
     Walk(Flags),
     /// A checker over path operands — a linter, a formatter, a type checker. Reads
-    /// them, unless one of `writes` is given, in which case it rewrites them in place:
-    /// `biome check --write x.ts`, `ktlint -F`.
+    /// them, or rewrites them in place as `writes` says: `biome check --write x.ts`,
+    /// `ktlint -F`, `black x.py`. A subcommand that decides is not an operand.
     ///
     /// These were invisible until the devshell wrappers were read, and then they were
     /// the whole top of the unknown list.
     Check {
         flags: Flags,
-        writes: &'static [&'static str],
+        writes: Writes,
+        subcommands: &'static [(&'static str, Writes)],
     },
+    /// A build tool whose subcommand may rewrite the tree it runs in, naming none
+    /// of it: `cargo fmt`, `cargo clippy --fix`. Any other subcommand names no file.
+    Tree(&'static [(&'static str, Writes)]),
     /// Fetches from the network, and names a local file only where a flag says to save
     /// into one: `curl -o x.json`, `wget -O x.json`.
     ///
@@ -905,6 +909,27 @@ pub fn python_program(argv: &[String]) -> Option<PythonFrom> {
     }
 }
 
+/// When a checker or formatter rewrites what it is given.
+#[derive(Debug, Clone, Copy)]
+enum Writes {
+    /// Only reads: `mypy`, `pytest`.
+    Never,
+    /// Rewrites when one of these flags is given: `eslint --fix`.
+    With(&'static [&'static str]),
+    /// Rewrites unless one of these flags is given: `black --check` only reads.
+    Unless(&'static [&'static str]),
+}
+
+impl Writes {
+    fn rewrites(self, argv: &[String]) -> bool {
+        match self {
+            Writes::Never => false,
+            Writes::With(flags) => has_flag(argv, flags),
+            Writes::Unless(flags) => !has_flag(argv, flags),
+        }
+    }
+}
+
 /// Whether a command name is a Python interpreter: `python`, `python3`,
 /// `python3.12`.
 ///
@@ -964,6 +989,7 @@ pub fn verb_kind(name: &str) -> Option<&'static str> {
         Verb::Carries(_) => "carries",
         Verb::Walk(_) => "walk",
         Verb::Check { .. } => "check",
+        Verb::Tree(_) => "tree",
         Verb::Fetch { .. } => "fetch",
         Verb::ChangeDir => "change directory",
         Verb::Git => "git",
@@ -1173,27 +1199,50 @@ fn verb(name: &str) -> Option<Verb> {
         // between reading a file and rewriting it, exactly as `-i` is for sed.
         "ruff" => Verb::Check {
             flags: Flags::valued(&["--config", "--select", "--ignore"]),
-            writes: &["--fix", "--fix-only"],
+            writes: Writes::With(&["--fix", "--fix-only"]),
+            subcommands: &[
+                ("format", Writes::Unless(&["--check", "--diff"])),
+                ("check", Writes::With(&["--fix", "--fix-only"])),
+            ],
         },
-        "biome" | "prettier" | "eslint" | "stylelint" => Verb::Check {
-            flags: Flags::valued(&["--config", "--config-path", "--ext"]),
-            writes: &["--write", "--fix"],
+        "biome" => Verb::Check {
+            flags: Flags::valued(&["--config-path"]),
+            writes: Writes::With(&["--write", "--fix", "--apply"]),
+            subcommands: &[
+                ("format", Writes::With(&["--write", "--fix", "--apply"])),
+                ("check", Writes::With(&["--write", "--fix", "--apply"])),
+                ("lint", Writes::With(&["--write", "--fix", "--apply"])),
+            ],
+        },
+        "prettier" | "eslint" | "stylelint" => Verb::Check {
+            flags: Flags::valued(&["--config", "--ext"]),
+            writes: Writes::With(&["--write", "--fix"]),
+            subcommands: &[],
         },
         "ktlint" => Verb::Check {
             flags: Flags::NONE,
-            writes: &["-F", "--format"],
+            writes: Writes::With(&["-F", "--format"]),
+            subcommands: &[],
         },
         "black" | "isort" => Verb::Check {
             flags: Flags::valued(&["--line-length"]),
-            // These rewrite by default; `--check`/`--diff` is what makes them
-            // read-only, so the absence of a flag means a write. Stated as the
-            // exception it is rather than folded in with the others.
-            writes: &[],
+            writes: Writes::Unless(&["--check", "--diff"]),
+            subcommands: &[],
         },
         "mypy" | "pytest" | "shellcheck" | "pyright" | "clang-format" | "tsc" => Verb::Check {
             flags: Flags::valued(&["--config-file", "-p", "--project", "-k", "--python-version"]),
-            writes: &[],
+            writes: Writes::Never,
+            subcommands: &[],
         },
+        "cargo" => Verb::Tree(&[
+            ("fmt", Writes::Unless(&["--check"])),
+            ("fix", Writes::Unless(&[])),
+            ("clippy", Writes::With(&["--fix"])),
+        ]),
+        // A package manager's runner stands in front of the real tool, which is
+        // the one worth classifying; anything else it does names no file.
+        "pnpm" | "npm" | "yarn" => Verb::Carries(&["exec", "dlx"]),
+        "uv" | "poetry" => Verb::Carries(&["run"]),
         // The JavaScript test runners, high on the unread list. Their operands
         // are spec files and nothing more — neither needs a grammar, which is why
         // they went unread for so long behind the assumption that JavaScript
@@ -1203,11 +1252,16 @@ fn verb(name: &str) -> Option<Verb> {
         // file, and it is the only way either of them writes anything.
         "vitest" => Verb::Check {
             flags: Flags::valued(&["--config", "-c", "--reporter", "-t", "--testNamePattern"]),
-            writes: &["-u", "--update"],
+            writes: Writes::With(&["-u", "--update"]),
+            subcommands: &[
+                ("run", Writes::With(&["-u", "--update"])),
+                ("watch", Writes::With(&["-u", "--update"])),
+            ],
         },
         "playwright" => Verb::Check {
             flags: Flags::valued(&["--config", "-c", "--project", "--reporter", "--grep", "-g"]),
-            writes: &["-u", "--update-snapshots"],
+            writes: Writes::With(&["-u", "--update-snapshots"]),
+            subcommands: &[("test", Writes::With(&["-u", "--update-snapshots"]))],
         },
         // Runs a TypeScript file the way `node` runs a JavaScript one. An
         // interpreter rather than a checker: its operand is a program, not a
@@ -1269,8 +1323,8 @@ fn verb(name: &str) -> Option<Verb> {
         // than by argument, so its operands are targets, never paths.
         // Attributing a repository to whoever ran `cargo test` in it would make
         // every session an owner of everything it built.
-        | "cargo" | "rustc" | "npm" | "pnpm" | "yarn" | "make" | "cmake" | "gradle"
-        | "gradlew" | "mvn" | "pip" | "pip3" | "uv" | "poetry" | "go" | "ng"
+        | "rustc" | "make" | "cmake" | "gradle"
+        | "gradlew" | "mvn" | "pip" | "pip3" | "go" | "ng"
         | "nix-build" | "nix-env" | "nixos-rebuild" | "direnv" | "brew"
         | "flutter" | "dart" | "swift" | "javac" | "kotlinc"
         // Build tools that take targets rather than paths, like cargo.
@@ -1699,20 +1753,43 @@ fn act(
                 to: Some(home.to_string()),
             },
         },
-        Verb::Check { writes, .. } => {
-            let paths = paths(unnamed, &words, cwd, home);
-            // `black`/`isort` rewrite unless told to check, which is why an
-            // empty `writes` means "writes by default" for them alone — the
-            // list says which flag turns writing ON, and they have none.
-            let rewrites = if writes.is_empty() {
-                false
-            } else {
-                has_flag(argv, writes)
+        Verb::Check {
+            writes,
+            subcommands,
+            ..
+        } => {
+            let (writes, words) = match words
+                .first()
+                .and_then(|first| subcommands.iter().find(|(name, _)| name == first))
+            {
+                Some((_, decides)) => (*decides, &words[1..]),
+                None => (writes, &words[..]),
             };
-            if rewrites {
-                Op::Write { paths }
-            } else {
-                Op::Read { paths }
+            if !writes.rewrites(argv) {
+                return Op::Read {
+                    paths: paths(unnamed, words, cwd, home),
+                };
+            }
+            // To a formatter every operand is a path, bare directories too, and
+            // with none it formats where it stands.
+            let mut written: Vec<String> = words
+                .iter()
+                .filter_map(|word| resolve(word, cwd, home))
+                .collect();
+            if words.is_empty() {
+                written.extend(cwd.map(str::to_string));
+            }
+            Op::Write { paths: written }
+        }
+        Verb::Tree(subcommands) => {
+            let decides = words
+                .first()
+                .and_then(|first| subcommands.iter().find(|(name, _)| name == first));
+            match (decides, cwd) {
+                (Some((_, writes)), Some(cwd)) if writes.rewrites(argv) => Op::Write {
+                    paths: vec![cwd.to_string()],
+                },
+                _ => Op::Nothing,
             }
         }
         // Only the saved-into file. The URL is not a path, and the far end is
