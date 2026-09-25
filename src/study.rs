@@ -38,6 +38,15 @@ pub fn states_a_claim(label: &str) -> bool {
     label.contains("**") || label.split_whitespace().count() >= 4
 }
 
+/// Whether an index line is only a topic word (`gods`, `SMTP`), which names a
+/// subject and warns nobody. Stricter than `!states_a_claim`: short tripwires
+/// like `no CoA` and `absence≠evid` do their job (memview#1734).
+pub fn names_only_a_topic(label: &str) -> bool {
+    let mut words = label.split_whitespace();
+    matches!((words.next(), words.next()), (Some(word), None)
+        if !word.contains("**") && !word.contains(['≠', '=', '→', '<', '>', '!', '?']))
+}
+
 /// The vocabulary itself. Anything unrecognised is `None`, never a third kind.
 pub fn named_role(text: Option<&str>) -> Option<Role> {
     match text {

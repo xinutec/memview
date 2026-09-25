@@ -75,13 +75,12 @@ const RULES: &[(&str, Severity, &str)] = &[
          only grow (memview#1537)",
     ),
     (
-        // A WARNING while violations remain. It may NEVER be promoted by writing
-        // longer index lines: the index is near its ceiling. Zero comes from demoting
-        // (memview#822).
+        // A warning while violations remain. Zero comes from re-judging or demoting,
+        // never from longer lines: the index is near its ceiling (memview#822).
         "mute-tripwire",
         Severity::Warning,
-        "a memory judged TRIPWIRE whose index line states no claim — it reminds \
-         a reader who already knows it and warns nobody else",
+        "a memory judged TRIPWIRE whose index line is only a topic word — it \
+         warns nobody, so either the line or the judgement is wrong",
     ),
     (
         // A warning until the count has held at zero: a rule that flips to error
@@ -546,17 +545,19 @@ pub fn check(
                     );
                     continue;
                 };
-                // A bare label is right for a pointer and mute for a tripwire, so the
-                // shape test accuses each role in the opposite direction.
-                let claims = crate::study::states_a_claim(&entry.label);
-                if role == crate::study::Role::Pointer && claims {
+                // Each role is accused from its own side: a pointer that states a
+                // claim, a tripwire that states nothing.
+                if role == crate::study::Role::Pointer && crate::study::states_a_claim(&entry.label)
+                {
                     push(
                         "loud-pointer",
                         &entry.name,
                         format!("line reads {:?}", entry.label),
                     );
                 }
-                if role == crate::study::Role::Tripwire && !claims {
+                if role == crate::study::Role::Tripwire
+                    && crate::study::names_only_a_topic(&entry.label)
+                {
                     push(
                         "mute-tripwire",
                         &entry.name,

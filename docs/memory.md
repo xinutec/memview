@@ -233,20 +233,16 @@ top of it:
     be re-run without becoming a different experiment and it cannot grow with
     the corpus. The frontmatter is the half that keeps up (memview#1537).
 
-    ⚠ **And most tripwire lines do not state a claim, so the index is largely a
-    REMINDER device.** Measured 2026-09-11: of 290 indexed tripwires, 130 state
-    a claim and 160 do not — `cd`, `ng`, `rel`, `std`, `TDD`. The control is
-    what makes that mean something: 47 of 56 indexed POINTERS are also bare
-    labels, which is CORRECT for a pointer. A bare label is a MNEMONIC — it
-    recalls the rule to somebody who has already read the file — and cannot
-    warn a reader who has not, which is the one thing a tripwire is for.
-    `memory-lint`'s `mute-tripwire` counts them. ⚠ It can NEVER be promoted to
-    an error by writing longer lines: taking them to a claim costs ~4,000 bytes
-    against 148 of headroom, so zero is reached by demoting or by the corpus
-    shrinking (memview#822).
+    **A tripwire line can be short; it cannot be only a topic.** `no CoA`,
+    `never up` and `absence≠evid` state a rule in a few characters, and a
+    tripwire is a role, not a length. A lone word like `gods` or `SMTP` names a
+    subject and warns nobody. `memory-lint`'s `mute-tripwire` reports those: the
+    fix is re-judging the memory as a pointer or demoting it, never a longer
+    line, since the index is near its ceiling (memview#822, #1734). The word
+    count in `states_a_claim` is only for the other direction, below.
 
-    ⚠ **The other nine are the dangerous direction, and `loud-pointer` counts
-    them.** A judgement of POINTER on a line that states a claim is the record
+    ⚠ **A pointer whose line states a claim is the dangerous direction, and
+    `loud-pointer` counts them.** A judgement of POINTER on a line that states a claim is the record
     disagreeing with what a reader meets — and `memory-tiers` demotes on the
     record, so the disagreement costs that claim its only firing place. The
     record is one model's 2026-08 classification and cannot keep up with the
