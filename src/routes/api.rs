@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use crate::access::Owner;
 use crate::error::AppError;
@@ -43,15 +42,24 @@ pub async fn me(State(app): State<AppState>, Owner(user): Owner) -> Json<Me> {
     })
 }
 
+/// `MEMORY.md` rendered, and how many memories the corpus holds.
+#[derive(Serialize)]
+pub struct IndexPage {
+    html: String,
+    count: usize,
+}
+
 /// GET /api/index — MEMORY.md rendered, links rewritten to /m/<name>.
-pub async fn index(State(app): State<AppState>, Owner(_): Owner) -> Result<Json<Value>, AppError> {
+pub async fn index(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Result<Json<IndexPage>, AppError> {
     let corpus = load_corpus(&app)?;
     let md = corpus.index_md.ok_or(AppError::NotFound)?;
-    // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE): give this handler a Serialize response struct when the route is next touched
-    Ok(Json(json!({
-        "html": render_markdown(&md)?,
-        "count": corpus.docs.len(),
-    })))
+    Ok(Json(IndexPage {
+        html: render_markdown(&md)?,
+        count: corpus.docs.len(),
+    }))
 }
 
 /// GET /api/memories — every memory's metadata.

@@ -350,3 +350,28 @@ async fn a_failed_sign_in_answers_the_browser_in_html_not_json() {
     );
     assert!(!page.contains("\"error\""), "still JSON-shaped: {page}");
 }
+
+/// The index as the client reads it: the rendered page and the corpus size.
+#[tokio::test]
+async fn the_index_answers_its_page_and_the_corpus_size() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    corpus_with_an_origin(dir.path());
+    let state = app(dir.path());
+    let secret = state
+        .cfg
+        .auth
+        .as_ref()
+        .expect("auth")
+        .session_secret
+        .clone();
+
+    let body = body_of(&state, "/api/index", ("cookie", owner_cookie(&secret))).await;
+    let page: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(
+        page["html"]
+            .as_str()
+            .is_some_and(|h| h.contains("Memory index")),
+        "{body}"
+    );
+    assert_eq!(page["count"], 1, "{body}");
+}
