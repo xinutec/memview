@@ -62,7 +62,6 @@ export class AgentView implements OnDestroy {
   private to = 0;
   protected readonly more = signal(false);
   protected readonly loading = signal(false);
-  /** dev-lint: allow-sticky-error cleared by the next read that succeeds. */
   protected readonly trouble = signal<string | undefined>(undefined);
 
   protected readonly entries = computed<Entry[] | undefined>(() =>

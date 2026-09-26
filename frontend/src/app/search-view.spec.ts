@@ -101,14 +101,14 @@ describe('SearchView — who works on this', () => {
   });
 
   /** Run a query, answering the memory search and the work search in turn. */
-  async function search(workers: WorkMatch[] | 'forbidden'): Promise<HTMLElement> {
+  async function search(workers: WorkMatch[] | 'failed'): Promise<HTMLElement> {
     fixture.componentRef.instance.query.set('dhall');
     fixture.componentRef.instance.submit();
     await fixture.whenStable();
     http.expectOne((r) => r.url === '/api/search').flush({ hits: [], relaxed: false });
     const work = http.expectOne((r) => r.url === '/api/work');
-    if (workers === 'forbidden') {
-      work.flush({ error: 'forbidden' }, { status: 403, statusText: 'Forbidden' });
+    if (workers === 'failed') {
+      work.flush({ error: 'failed' }, { status: 500, statusText: 'Internal Server Error' });
     } else {
       work.flush(workers);
     }
@@ -230,10 +230,10 @@ describe('SearchView — who works on this', () => {
     expect(hosts).toEqual(['odin:']);
   });
 
-  it('shows no panel to a share-link recipient, and no error either', async () => {
-    // 403 is the intended answer for a share token, not a failure: the roster is
-    // owner-only. It must read as "not yours to see", never as a broken search.
-    const el = await search('forbidden');
+  it('shows no panel when the roster cannot be read, and no error either', async () => {
+    // The panel is an extra beside the hits; its failure must not read as a
+    // broken search, nor claim that nobody works on this.
+    const el = await search('failed');
     expect(el.querySelector('.workers')).toBeNull();
     expect(el.textContent).not.toContain('Who works on this');
   });

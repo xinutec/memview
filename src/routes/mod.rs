@@ -6,7 +6,7 @@ pub mod telemetry;
 
 use axum::Router;
 use axum::http::{HeaderValue, Response, header};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use tower::ServiceBuilder;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
@@ -95,9 +95,6 @@ pub fn router(state: AppState) -> Router {
         .route("/doing", get(api::doing))
         .route("/effects", get(api::effects))
         .route("/reading", get(api::reading))
-        .route("/share", get(api::share_get))
-        .route("/share", post(api::share_rotate))
-        .route("/share", delete(api::share_revoke))
         .route("/telemetry", post(telemetry::record));
 
     let app = Router::new()
@@ -107,7 +104,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/api", api);
 
     // Serve the built Angular bundle (single origin), SPA-fallback to
-    // index.html so deep links (/m/<name>, /share/<token>) load the shell.
+    // index.html so deep links (/m/<name>) load the shell.
     // API-only when STATIC_DIR is unset (dev: `ng serve` proxies).
     let app = if let Some(dir) = state.cfg.static_dir.clone() {
         let index = format!("{dir}/index.html");

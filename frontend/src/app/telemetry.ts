@@ -2,7 +2,6 @@ import { DOCUMENT, Injectable, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { TelemetryCore } from '@xinutec/ui-harness/telemetry';
 import { filter } from 'rxjs';
-import { getShareToken } from './share-token';
 
 /**
  * The Angular binding for the fleet's activity trace.
@@ -23,16 +22,7 @@ import { getShareToken } from './share-token';
 export class Telemetry {
   private readonly router = inject(Router);
   private readonly doc = inject(DOCUMENT);
-  private readonly core = new TelemetryCore(this.doc, {
-    // A share link is read without a session, so the trace has to carry the
-    // same token the rest of the app does. Resolved per send: the token can
-    // appear after init(), and sendBeacon cannot carry headers, so a final
-    // flush falls back to fetch rather than sending one that is refused.
-    headers: (): Record<string, string> => {
-      const t = getShareToken();
-      return t ? { 'X-Share-Token': t } : {};
-    },
-  });
+  private readonly core = new TelemetryCore(this.doc);
 
   /** Wire the two capture points. Called once from the app shell; idempotent. */
   init(): void {

@@ -90,8 +90,7 @@ export class TimelineView {
 
   readonly timeline = signal<Timeline | undefined>(undefined);
   readonly loading = signal(true);
-  /** Owner-only behind the API; a share token gets 403 and this says so. */
-  readonly denied = signal(false);
+  readonly failed = signal(false);
   readonly filter = signal<Filter>({});
   readonly opened = signal<Opened | undefined>(undefined);
 
@@ -101,14 +100,14 @@ export class TimelineView {
 
   private load(): void {
     this.loading.set(true);
-    // Withdrawn before every attempt. Set once and never cleared, a 403 from
-    // one load would keep saying "owner-only" over the next load's real data.
-    this.denied.set(false);
+    // Withdrawn before every attempt, or one failed load would stay on screen
+    // over the next load's real data.
+    this.failed.set(false);
     this.api
       .doing(this.filter())
       .pipe(
         catchError(() => {
-          this.denied.set(true);
+          this.failed.set(true);
           return of(undefined);
         }),
         takeUntilDestroyed(this.destroyRef),

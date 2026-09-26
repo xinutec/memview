@@ -46,7 +46,6 @@ export class WorkflowView implements OnDestroy {
   private readonly roster = inject(Roster);
 
   protected readonly got = signal<Run | undefined>(undefined);
-  /** dev-lint: allow-sticky-error cleared by the next read that succeeds. */
   protected readonly trouble = signal<string | undefined>(undefined);
   protected readonly going = computed(() => going(this.roster.state(), this.id(), this.task()));
 

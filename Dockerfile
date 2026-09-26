@@ -95,8 +95,7 @@ COPY --from=backend /app/target/release/memview /usr/local/bin/memview
 COPY --from=frontend /fe/dist/memview-web/browser ./public
 ENV STATIC_DIR=/app/public \
     BIND_ADDR=0.0.0.0:8091 \
-    MEMORY_DIR=/corpus \
-    SHARE_STATE=/state/share-state.json
+    MEMORY_DIR=/corpus
 USER memview
 EXPOSE 8091
 CMD ["memview"]

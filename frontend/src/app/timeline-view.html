@@ -1,10 +1,7 @@
 @if (loading()) {
   <mat-progress-bar mode="indeterminate" />
-} @else if (denied()) {
-  <p class="empty">
-    The timeline is owner-only. A share link shows the memories, not what the sessions did to get
-    them.
-  </p>
+} @else if (failed()) {
+  <p class="empty">The timeline could not be loaded.</p>
 } @else if (!timeline()?.moments?.length) {
   <p class="empty">
     @if (filtered()) {

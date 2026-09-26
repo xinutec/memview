@@ -146,10 +146,6 @@ const KNOWS_SHOWN = 5;
  * an agent writes says which repository it owns; which memories it opens and
  * maintains says what it knows, which is the better evidence when a task is
  * unfamiliar ground for everyone.
- *
- * Owner-only, and the server enforces it. These are counts rather than text,
- * but they describe the shape of the work — which projects exist and who is
- * doing what in them — and a share link is a deliberately public surface.
  */
 @Component({
   selector: 'app-agents-view',
@@ -161,11 +157,9 @@ export class AgentsView {
   private api = inject(MemviewApi);
 
   readonly data = signal<AgentsResult | null>(null);
-  /** dev-lint: allow-sticky-error — not a failure to withdraw. A 403 here is the
-   *  settled answer for a share-token viewer: the request is made once, nothing
-   *  retries it, and the page renders this as a real state rather than an error.
-   *  Clearing it would blank a correct page. */
-  readonly denied = signal(false);
+  /** dev-lint: allow-sticky-error — the roster is requested once and nothing
+   *  retries it, so there is no later success for this to be withdrawn by. */
+  readonly failed = signal(false);
   readonly loading = signal(true);
 
   readonly rows = computed<AgentRow[]>(() => (this.data()?.agents ?? []).map((a) => this.row(a)));
@@ -177,10 +171,8 @@ export class AgentsView {
       .agents()
       .pipe(
         catchError(() => {
-          // 403 is the expected answer for a share-token viewer, and a real
-          // state to render rather than an error to swallow into an empty page
-          // that reads as "nothing has been mined".
-          this.denied.set(true);
+          // Said, not swallowed: an empty page would read as "nothing mined".
+          this.failed.set(true);
           return of(null);
         }),
         takeUntilDestroyed(),

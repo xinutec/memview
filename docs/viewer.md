@@ -24,8 +24,7 @@ snippet was reported as a link. Do not add a fourth.
 | `/all` | every memory, grouped by type |
 | `/search` | substring search with snippets |
 | `/graph` | the corpus as a 3D link graph |
-| `/agents` | which named session works where — owner only |
-| `/sharing` | owner-only share-link management |
+| `/agents` | which named session works where |
 
 Search hits render inline-only, so a snippet cut from a list yields words and no
 stray `<li>`, and links are unwrapped to their text — one hit, one destination,
@@ -54,9 +53,8 @@ zoom, tap to walk a neighbourhood 1–5 hops; the section legend filters.
 
 ## Auth
 
-Nextcloud OAuth2 identity, stateless HMAC session cookie (no database in this
-app), plus a share token — `/share/<token>`, read-only, rotate kills the old
-link.
+Nextcloud OAuth2 identity and a stateless HMAC session cookie (no database in
+this app). The signed-in owner is the only reader; there is no public link.
 
 **Inert unless configured**: without `SESSION_SECRET` it serves open, which is
 dev mode. Configured, `ALLOWED_USERS` is the real gate and fails closed — any
@@ -73,8 +71,6 @@ secretKeyRefs: a pod refusing to start beats one starting unguarded.
 | `AGENTS_FILE` | unset | mined roster; unset = `/agents` serves nothing |
 | `DOING_FILE` | unset | mined timeline; the one cached artefact, on mtime |
 | `COUSE_FILE` | unset | mined co-use counts |
-| `SHARE_STATE` | `share-state.json` | share-token persistence |
-| `PUBLIC_BASE_URL` | unset | base for composed share links |
 | `SESSION_SECRET` | unset | enables auth; HMAC key for cookies |
 | `NC_BASE_URL` / `NC_CLIENT_ID` / `NC_CLIENT_SECRET` / `NC_REDIRECT_URI` | — | NC OAuth2 client, required once auth is on |
 | `NC_INTERNAL_URL` | unset | server-side NC base (cluster Service DNS, sends `Host:` of `NC_BASE_URL`) — the isis hairpin fix |

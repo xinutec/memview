@@ -1,9 +1,8 @@
 /** API shapes — mirror the Rust serde structs. */
 
 export interface Me {
-  user_id?: string;
-  display_name?: string;
-  shared: boolean;
+  user_id: string;
+  display_name: string;
   auth_enabled: boolean;
 }
 
@@ -41,9 +40,6 @@ export interface MemoryMeta {
 /**
  * Which session wrote a memory, from its `originSessionId` frontmatter, and
  * the agent that session belongs to.
- *
- * Owner-only: the server omits it entirely for a share-link recipient, so its
- * presence is the permission check — there is nothing for the template to gate.
  */
 export interface Origin {
   session: string;
@@ -57,7 +53,7 @@ export interface MemoryPage extends MemoryMeta {
   outlinks: MemoryMeta[];
   /** Wikilink targets not written yet. */
   dangling: string[];
-  /** Owner-only; absent for a share-link recipient. */
+  /** Absent when the memory names no session. */
   origin?: Origin;
 }
 
@@ -166,14 +162,6 @@ export interface TelemetryEvent {
   /** The client's clock, epoch milliseconds — a batch arrives all at once, so
    *  the server's receive time cannot order the events inside it. */
   at: number;
-}
-
-export interface ShareInfo {
-  active: boolean;
-  token?: string;
-  url?: string | null;
-  created_at?: string;
-  last_accessed_at?: string | null;
 }
 
 /**
@@ -492,7 +480,7 @@ export interface Effect {
   /** A glob or search pattern, where the subject was a set and not a file. */
   pattern?: string;
   host?: string;
-  /** Verbatim. Owner-only for this reason, and never behind a share token. */
+  /** Verbatim. */
   command: string;
   /**
    * What the TEXT required for this command to run — mirrors `shell::Reached`.

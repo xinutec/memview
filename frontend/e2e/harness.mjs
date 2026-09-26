@@ -11,7 +11,7 @@ export default {
   // backend. Signed-in owner + an empty corpus, so an un-mocked run still
   // renders.
   api: {
-    '/api/me': { user_id: 'test', display_name: 'Test', shared: false, auth_enabled: false },
+    '/api/me': { user_id: 'test', display_name: 'Test', auth_enabled: false },
     '/api/index': { html: '<p>index</p>', count: 0 },
     '/api/memories': [],
   },

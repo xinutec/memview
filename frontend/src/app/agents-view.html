@@ -1,9 +1,7 @@
 @if (loading()) {
   <mat-progress-bar mode="indeterminate" />
-} @else if (denied()) {
-  <p class="empty">
-    Agents are owner-only. A share link shows the memories, not the shape of the work behind them.
-  </p>
+} @else if (failed()) {
+  <p class="empty">The agents could not be loaded.</p>
 } @else if (!rows().length) {
   <p class="empty">Nothing mined yet — run <code>cargo run --release --bin agents</code>.</p>
 } @else {

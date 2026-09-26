@@ -1,32 +1,20 @@
-//! Who may reach what, exercised through the real router.
-//!
-//! The share endpoints are `OwnerOnly` while the corpus is `ReadAccess`, and
-//! the difference is what makes a share link safe to hand out: it shows
-//! somebody the memories without also letting them rotate or revoke the link
-//! they were given, or read the token out of the API. That is a claim about
-//! behaviour, so it is tested against the router rather than asserted from the
-//! extractor's name.
+//! Who may reach what, exercised through the real router: the signed-in owner,
+//! and nobody else.
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use memview::access::SHARE_HEADER;
 use memview::config::{AuthConfig, Config};
-use memview::share::ShareStore;
 use memview::state::AppState;
 use tower::ServiceExt;
 
 /// A server with auth ON — without it every request is the local owner and the
 /// distinction under test does not exist.
-fn app(dir: &std::path::Path) -> (AppState, String) {
-    let share = ShareStore::load(dir.join("share-state.json")).expect("share store");
-    let token = share.rotate().expect("rotate").token;
+fn app(dir: &std::path::Path) -> AppState {
     let cfg = Config {
         doing_file: None,
         effects_file: None,
         reading_file: None,
         memory_dir: dir.join("corpus").to_string_lossy().into_owned(),
         bind_addr: "127.0.0.1:0".into(),
-        share_state_file: dir.join("share-state.json").to_string_lossy().into_owned(),
-        public_base_url: None,
         auth: Some(AuthConfig {
             session_secret: "test-secret-not-a-real-key".into(),
             nc_base_url: "https://nextcloud.example".into(),
@@ -40,61 +28,19 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
         couse_file: None,
         agents_file: None,
     };
-    let state = AppState::new(cfg, reqwest::Client::new(), share);
-    (state, token)
+    AppState::new(cfg, reqwest::Client::new())
 }
 
-async fn status(state: &AppState, path: &str, token: Option<&str>) -> StatusCode {
+async fn status(state: &AppState, path: &str, header: Option<(&str, &str)>) -> StatusCode {
     let mut req = Request::builder().uri(path);
-    if let Some(t) = token {
-        req = req.header(SHARE_HEADER, t);
+    if let Some((name, value)) = header {
+        req = req.header(name, value);
     }
     memview::routes::router(state.clone())
         .oneshot(req.body(Body::empty()).unwrap())
         .await
         .expect("response")
         .status()
-}
-
-#[tokio::test]
-async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
-    std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
-    let (state, token) = app(dir.path());
-
-    // The corpus is what a share link is FOR.
-    assert_eq!(
-        status(&state, "/api/graph", Some(&token)).await,
-        StatusCode::OK,
-    );
-
-    // The link's own management is not. A share recipient must be refused even
-    // though their token is perfectly valid — otherwise the person you sent a
-    // link to could revoke it, or mint themselves a fresh one after you did.
-    assert_eq!(
-        status(&state, "/api/share", Some(&token)).await,
-        StatusCode::FORBIDDEN,
-    );
-    // Nor is the agent roster: a link to one memory must not also disclose the
-    // shape of the work — which projects exist, and who is doing what in them.
-    assert_eq!(
-        status(&state, "/api/agents", Some(&token)).await,
-        StatusCode::FORBIDDEN,
-    );
-    // /work is the roster sliced by a query, so it discloses the same thing one
-    // answer at a time — and a query is exactly how someone would go looking.
-    assert_eq!(
-        status(&state, "/api/work?q=dhall", Some(&token)).await,
-        StatusCode::FORBIDDEN,
-    );
-    // And least of all the effects, which carry the command text
-    // verbatim. A link to one memory that also served `sed -i … /Users/…` would
-    // disclose more than the roster does, not less.
-    assert_eq!(
-        status(&state, "/api/effects", Some(&token)).await,
-        StatusCode::FORBIDDEN,
-    );
 }
 
 #[tokio::test]
@@ -152,7 +98,7 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
         .save(&effects_file)
         .expect("effects");
 
-    let (mut state, _) = app(dir.path());
+    let mut state = app(dir.path());
     let mut cfg = (*state.cfg).clone();
     cfg.effects_file = Some(effects_file.to_string_lossy().into_owned());
     let secret = cfg.auth.as_ref().expect("auth").session_secret.clone();
@@ -262,10 +208,10 @@ async fn body_of(state: &AppState, path: &str, header: (&str, String)) -> String
 }
 
 #[tokio::test]
-async fn the_owner_sees_which_agent_wrote_a_memory_and_a_share_recipient_does_not() {
+async fn the_owner_sees_which_agent_wrote_a_memory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let agents_file = corpus_with_an_origin(dir.path());
-    let (mut state, token) = app(dir.path());
+    let mut state = app(dir.path());
     // `app` builds a config with no roster; this test is about resolving one.
     let mut cfg = (*state.cfg).clone();
     cfg.agents_file = Some(agents_file);
@@ -280,21 +226,6 @@ async fn the_owner_sees_which_agent_wrote_a_memory_and_a_share_recipient_does_no
     .await;
     // The name is the whole point: a uuid says which session, not which agent.
     assert!(owner.contains(r#""agent":"builder""#), "{owner}");
-
-    // Same memory, same body, through a valid share link — the roster must not
-    // arrive attached to a memory just because the memory itself is shareable.
-    let shared = body_of(
-        &state,
-        "/api/memory/project_alpha",
-        (SHARE_HEADER, token.clone()),
-    )
-    .await;
-    assert!(
-        shared.contains("Body."),
-        "share link still reads the memory"
-    );
-    assert!(!shared.contains("builder"), "{shared}");
-    assert!(!shared.contains(r#""origin""#), "{shared}");
 }
 
 #[tokio::test]
@@ -309,7 +240,7 @@ async fn an_origin_whose_session_was_pruned_keeps_its_id() {
         "---\nname: project_alpha\nmetadata:\n  originSessionId: s-pruned\n---\n\nBody.\n",
     )
     .expect("memory");
-    let (mut state, _token) = app(dir.path());
+    let mut state = app(dir.path());
     let mut cfg = (*state.cfg).clone();
     cfg.agents_file = Some(
         dir.path()
@@ -335,12 +266,11 @@ async fn no_credential_reaches_nothing() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
-    let (state, _token) = app(dir.path());
+    let state = app(dir.path());
 
     for path in [
         "/api/graph",
         "/api/search?q=x",
-        "/api/share",
         "/api/agents",
         "/api/work?q=x",
     ] {
@@ -352,16 +282,23 @@ async fn no_credential_reaches_nothing() {
     }
 }
 
+/// There is no public share link any more. A link handed out before it went
+/// still sends its token, and the token opens nothing.
 #[tokio::test]
-async fn a_wrong_share_token_is_not_a_viewer() {
+async fn a_share_token_is_no_credential() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
-    let (state, _token) = app(dir.path());
+    let state = app(dir.path());
 
     assert_eq!(
-        status(&state, "/api/graph", Some("not-the-token")).await,
+        status(&state, "/api/graph", Some(("X-Share-Token", "a-token"))).await,
         StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        status(&state, "/api/share", None).await,
+        StatusCode::NOT_FOUND,
+        "the management endpoint is gone, not merely guarded"
     );
 }
 
@@ -377,7 +314,7 @@ async fn a_failed_sign_in_answers_the_browser_in_html_not_json() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
-    let (state, _) = app(dir.path());
+    let state = app(dir.path());
 
     // Neither a URL state nor a pending cookie: the flow cannot be identified,
     // which is exactly what Nextcloud produces when it loses the state and the

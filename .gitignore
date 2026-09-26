@@ -1,5 +1,4 @@
 /target
-/share-state.json
 /frontend/dist
 /frontend/.angular
 /logs

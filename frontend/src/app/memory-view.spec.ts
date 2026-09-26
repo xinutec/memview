@@ -69,7 +69,7 @@ describe('MemoryView origin', () => {
   });
 
   it('shows nothing at all when the server withheld the origin', async () => {
-    // What a share-link recipient gets: the field is absent, and absence must
+    // A memory that names no session: the field is absent, and absence must
     // render as absence rather than as "written by undefined".
     const el = await load(page());
     expect(el.querySelector('.origin')).toBeNull();

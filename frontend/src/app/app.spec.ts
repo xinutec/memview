@@ -34,7 +34,7 @@ describe('App', () => {
     const http = TestBed.inject(HttpTestingController);
     http
       .expectOne('/api/me')
-      .flush({ user_id: 'local', display_name: 'Local', shared: false, auth_enabled: false });
+      .flush({ user_id: 'local', display_name: 'Local', auth_enabled: false });
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.brand')?.textContent).toContain('memory');
@@ -53,13 +53,14 @@ describe('App', () => {
     expect(el.querySelector('.signin a')?.getAttribute('href')).toContain('/login');
   });
 
-  it('sends the stored share token on API requests', async () => {
+  it('sends no share token, even one an old link left behind', async () => {
     localStorage.setItem('memview_share_token', 'tok123');
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const http = TestBed.inject(HttpTestingController);
     const req = http.expectOne('/api/me');
-    expect(req.request.headers.get('X-Share-Token')).toBe('tok123');
-    req.flush({ shared: true, auth_enabled: true });
+    expect(req.request.headers.has('X-Share-Token')).toBe(false);
+    req.flush({ user_id: 'local', display_name: 'Local', auth_enabled: false });
+    localStorage.removeItem('memview_share_token');
   });
 });

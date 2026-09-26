@@ -47,8 +47,8 @@ edition = "2024"
 
 # Read-only web viewer for the Claude memory markdown corpus (frontmatter +
 # [[wikilink]] cross-references). Auth is Nextcloud OAuth2 (identity-only,
-# copied from the `messages` app) with a health-style public share token;
-# both are inert unless configured so local dev serves open. See README.md.
+# copied from the `messages` app), inert unless configured so local dev serves
+# open. See README.md.
 
 [dependencies]
 # ⚠ **The locks, and not `std::sync`'s.** A std lock poisons when a thread panics
@@ -89,8 +89,8 @@ reader = { path = "reader" }
 
 [dev-dependencies]
 tempfile = "3"
-# Drives the router in-process for the access-control tests: the owner/share
-# split is a security property and should not rest on reading the code.
+# Drives the router in-process for the access-control tests: who may read is a
+# security property and should not rest on reading the code.
 tower = { version = "0.5", features = ["util"] }
 
 # The fleet's `[lints]` baseline (dev-lint docs/standards.md §7): every member

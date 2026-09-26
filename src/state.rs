@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use rand::Rng;
 
 use crate::config::Config;
-use crate::share::ShareStore;
 use reader::doing::Doing;
 use reader::effects::Effects;
 use reader::reading::CorpusRead;
@@ -56,7 +55,6 @@ struct CachedReading {
 pub struct AppState {
     pub cfg: Arc<Config>,
     pub http: reqwest::Client,
-    pub share: Arc<ShareStore>,
     oauth: Arc<Mutex<HashMap<String, PendingOauth>>>,
     timeline: Arc<Mutex<Option<Cached>>>,
     effects: Arc<Mutex<Option<CachedEffects>>>,
@@ -64,11 +62,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(cfg: Config, http: reqwest::Client, share: ShareStore) -> Self {
+    pub fn new(cfg: Config, http: reqwest::Client) -> Self {
         Self {
             cfg: Arc::new(cfg),
             http,
-            share: Arc::new(share),
             oauth: Arc::new(Mutex::new(HashMap::new())),
             timeline: Arc::new(Mutex::new(None)),
             effects: Arc::new(Mutex::new(None)),

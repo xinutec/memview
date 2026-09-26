@@ -7,8 +7,6 @@ import { IndexView } from './index-view';
 import { MemoryView } from './memory-view';
 import { ReaderView } from './reader-view';
 import { SearchView } from './search-view';
-import { ShareEntry } from './share-entry';
-import { SharingView } from './sharing-view';
 import { TimelineView } from './timeline-view';
 
 /**
@@ -18,12 +16,10 @@ import { TimelineView } from './timeline-view';
  *   /m/:name       → one memory, rendered
  *   /all           → every memory, grouped by type
  *   /graph         → the corpus as a 3D link graph (?metric=, ?walk=)
- *   /agents        → which named session works where (owner-only)
+ *   /agents        → which named session works where
  *   /doing         → what they did, minute by minute, opening onto the evidence
  *   /reader        → what the reader makes of the fleet's shell, and what it cannot
  *   /search        → full-text search of the memories (?q=)
- *   /sharing       → owner-only share-link management
- *   /share/:token  → share-link landing: stores the token, then → /
  */
 export const routes: Routes = [
   { path: '', component: IndexView },
@@ -34,7 +30,5 @@ export const routes: Routes = [
   { path: 'doing', component: TimelineView },
   { path: 'reader', component: ReaderView },
   { path: 'search', component: SearchView },
-  { path: 'sharing', component: SharingView },
-  { path: 'share/:token', component: ShareEntry },
   { path: '**', redirectTo: '' },
 ];

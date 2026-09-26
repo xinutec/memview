@@ -28,38 +28,24 @@
         <mat-icon>hub</mat-icon>
         <span>Link graph</span>
       </a>
-      @if (me(); as user) {
-        @if (!user.shared) {
-          <!-- Owner-only, like the API behind it. Shown to a local dev owner
-               too (auth_enabled false), unlike the share and sign-out controls,
-               which have nothing to act on without auth. -->
-          <a mat-menu-item routerLink="/agents">
-            <mat-icon>groups</mat-icon>
-            <span>Agents</span>
-          </a>
-          <!-- Beside Agents and owner-only for the same reason, and more so:
-               the evidence a row opens onto carries command text verbatim. -->
-          <a mat-menu-item routerLink="/doing">
-            <mat-icon>timeline</mat-icon>
-            <span>Timeline</span>
-          </a>
-          <!-- Owner-only with the other two: it names paths and command names
-               from the fleet's own filesystems. -->
-          <a mat-menu-item routerLink="/reader">
-            <mat-icon>data_object</mat-icon>
-            <span>Reader</span>
-          </a>
-        }
-        @if (!user.shared && user.auth_enabled) {
-          <a mat-menu-item routerLink="/sharing">
-            <mat-icon>share</mat-icon>
-            <span>Share link</span>
-          </a>
-          <button mat-menu-item (click)="signOut()">
-            <mat-icon>logout</mat-icon>
-            <span>Sign out</span>
-          </button>
-        }
+      <a mat-menu-item routerLink="/agents">
+        <mat-icon>groups</mat-icon>
+        <span>Agents</span>
+      </a>
+      <a mat-menu-item routerLink="/doing">
+        <mat-icon>timeline</mat-icon>
+        <span>Timeline</span>
+      </a>
+      <a mat-menu-item routerLink="/reader">
+        <mat-icon>data_object</mat-icon>
+        <span>Reader</span>
+      </a>
+      <!-- Without auth (local dev) there is nothing to sign out of. -->
+      @if (me()?.auth_enabled) {
+        <button mat-menu-item (click)="signOut()">
+          <mat-icon>logout</mat-icon>
+          <span>Sign out</span>
+        </button>
       }
     </mat-menu>
     <a routerLink="/" class="brand">memory</a>

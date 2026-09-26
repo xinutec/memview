@@ -22,7 +22,7 @@ import {
  * and tables that must scroll inside themselves rather than widening the page.
  */
 
-const ME = { user_id: 'pippijn', display_name: 'Pippijn', shared: false, auth_enabled: true };
+const ME = { user_id: 'pippijn', display_name: 'Pippijn', auth_enabled: true };
 
 /** The index as the backend renders it: dense interpunct-separated link runs
  *  with long slugs — the real MEMORY.md shape. */

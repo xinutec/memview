@@ -3,15 +3,12 @@
 //! `std::fs::write` is not a replacement — it truncates and then writes. Between
 //! those two, the file on disk is short, and every reader of these files parses
 //! JSON, so a reader that arrives in the gap does not get old data or new data:
-//! it gets a parse error. The window is small and it is not theoretical, because
-//! two of the three callers are in a request path that runs on every read of a
-//! shared page.
+//! it gets a parse error. The window is small and it is not theoretical: the
+//! viewer reads `couse.json` and `agents.json` on every request.
 //!
 //! The worse case is a crash or an eviction in the gap, which leaves the file
-//! truncated permanently. `ShareStore::load` treats an unreadable state file as
-//! "no share exists", so the outcome is a share link that silently stops
-//! working, and `couse.json`/`agents.json` are mined artefacts that would simply
-//! read as absent — a graph that quietly loses its usage weighting.
+//! truncated permanently. The mined artefacts would then simply read as absent —
+//! a graph that quietly loses its usage weighting.
 //!
 //! Write-then-rename closes both. `rename(2)` within a directory is atomic: a
 //! reader sees the whole old file or the whole new one, and a crash leaves the
@@ -22,8 +19,8 @@
 //!
 //! This is atomicity, not mutual exclusion. Two processes each holding their
 //! own copy of a whole-file document still lose one of the two updates, whoever
-//! renames last — see `ShareStore`, and #744 for why memview's Deployment is
-//! `Recreate` rather than rolling.
+//! renames last — see #744 for why memview's Deployment is `Recreate` rather
+//! than rolling.
 
 use std::path::Path;
 

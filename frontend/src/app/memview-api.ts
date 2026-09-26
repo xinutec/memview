@@ -12,7 +12,6 @@ import {
   CorpusRead,
   Evidence,
   SearchResult,
-  ShareInfo,
   Timeline,
   WorkMatch,
 } from './models';
@@ -50,21 +49,12 @@ export class MemviewApi {
     return this.http.get<SearchResult>('/api/search', { params: { q } });
   }
 
-  /**
-   * Who has been changing the files a query names. Owner-only; a share token
-   * gets 403, which the search view treats as "no panel" rather than an error.
-   */
+  /** Who has been changing the files a query names. */
   work(q: string): Observable<WorkMatch[]> {
     return this.http.get<WorkMatch[]>('/api/work', { params: { q } });
   }
 
-  shareGet(): Observable<ShareInfo> {
-    return this.http.get<ShareInfo>('/api/share');
-  }
-  shareRotate(): Observable<ShareInfo> {
-    return this.http.post<ShareInfo>('/api/share', {});
-  }
-  /** Which named session works where. Owner-only; a share token gets 403. */
+  /** Which named session works where. */
   agents(): Observable<AgentsResult> {
     return this.http.get<AgentsResult>('/api/agents');
   }
@@ -111,9 +101,5 @@ export class MemviewApi {
    */
   reading(): Observable<CorpusRead> {
     return this.http.get<CorpusRead>('/api/reading');
-  }
-
-  shareRevoke(): Observable<ShareInfo> {
-    return this.http.delete<ShareInfo>('/api/share');
   }
 }

@@ -20,7 +20,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use memview::config::Config;
 use memview::routes;
-use memview::share::ShareStore;
 use memview::state::AppState;
 use tower::ServiceExt;
 
@@ -35,15 +34,12 @@ fn app(dir: &std::path::Path) -> AppState {
     )
     .expect("index");
     std::fs::write(static_dir.join("main-ABC123.js"), "export {};").expect("bundle");
-    let share = ShareStore::load(dir.join("share-state.json")).expect("share store");
     let cfg = Config {
         doing_file: None,
         effects_file: None,
         reading_file: None,
         memory_dir: dir.join("corpus").to_string_lossy().into_owned(),
         bind_addr: "127.0.0.1:0".into(),
-        share_state_file: dir.join("share-state.json").to_string_lossy().into_owned(),
-        public_base_url: None,
         // Auth OFF: every request is the local owner, which is what lets these
         // reach the static service instead of a login redirect.
         auth: None,
@@ -51,7 +47,7 @@ fn app(dir: &std::path::Path) -> AppState {
         couse_file: None,
         agents_file: None,
     };
-    AppState::new(cfg, reqwest::Client::new(), share)
+    AppState::new(cfg, reqwest::Client::new())
 }
 
 async fn get(path: &str) -> (StatusCode, String) {

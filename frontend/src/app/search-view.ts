@@ -57,11 +57,7 @@ export class SearchView {
   /** The query matched nothing whole, so it was widened. Said out loud. */
   readonly relaxed = signal(false);
   readonly searching = signal(false);
-  /**
-   * Who has been changing files the query names. Empty for a share-link
-   * recipient, whose 403 is the intended answer rather than a failure — the
-   * panel simply is not theirs to see.
-   */
+  /** Who has been changing files the query names. */
   readonly workers = signal<WorkMatch[] | null>(null);
   /** Which rows have their file list open. Collapsed by default: the evidence
    *  is for checking an answer, not for reading past it. */
@@ -95,8 +91,7 @@ export class SearchView {
     // This swallow makes no claim, which is why it stays a swallow. The
     // panel renders only when the list is non-empty, so a failure here shows
     // nothing at all rather than asserting that nobody works on this — unlike
-    // the hit list above, whose empty state is a sentence. A 403 is the
-    // intended answer for a share-link recipient and reaches the same place.
+    // the hit list above, whose empty state is a sentence.
     this.work$
       .pipe(
         switchMap((q) => this.api.work(q).pipe(catchError(() => of([])))),

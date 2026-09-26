@@ -20,7 +20,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use serde::Deserialize;
 
-use crate::access::OwnerOnly;
+use crate::access::Owner;
 
 /// One thing that happened in the client.
 ///
@@ -120,14 +120,7 @@ pub fn one_line(label: &str, max: usize) -> String {
 /// Always 204. Telemetry is best-effort: the client neither reads the response
 /// nor retries, because a trace that interferes with the app it observes is
 /// worse than no trace.
-///
-/// Owner-gated rather than merely read-gated. A share link is handed to someone
-/// else, and their movements through the corpus are not the owner's to record —
-/// the share exists so a page can be read, not so the reading can be watched.
-pub async fn record(
-    OwnerOnly(user): OwnerOnly,
-    Json(events): Json<Vec<TelemetryEvent>>,
-) -> StatusCode {
+pub async fn record(Owner(user): Owner, Json(events): Json<Vec<TelemetryEvent>>) -> StatusCode {
     for e in events.into_iter().take(MAX_EVENTS) {
         let label = one_line(&e.label.unwrap_or_default(), MAX_LABEL);
         tracing::info!(

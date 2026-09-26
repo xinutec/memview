@@ -1,5 +1,4 @@
-//! JSON API. All corpus reads admit the owner or a share-token holder;
-//! share management is owner-only.
+//! JSON API. Every route admits the signed-in owner and nobody else.
 
 use axum::Json;
 use std::collections::BTreeMap;
@@ -8,9 +7,8 @@ use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::access::{OwnerOnly, ReadAccess, Viewer};
+use crate::access::Owner;
 use crate::error::AppError;
-use crate::share::build_share_url;
 use crate::state::AppState;
 use crate::store::{Corpus, Graph, MemoryMeta, render_markdown};
 
@@ -18,40 +16,35 @@ fn load_corpus(app: &AppState) -> Result<Corpus, AppError> {
     Ok(Corpus::load(&app.cfg.memory_dir)?)
 }
 
-/// GET /api/reading — the corpus survey. Owner-only, like the timeline: it names
-/// paths from Pippijn's machines. 404 rather than an empty body when nothing has
-/// been mined, so the view can say "not mined yet".
+/// GET /api/reading — the corpus survey. 404 rather than an empty body when
+/// nothing has been mined, so the view can say "not mined yet".
 pub async fn reading(
     State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
+    Owner(_): Owner,
 ) -> Result<Json<reader::reading::CorpusRead>, AppError> {
     let summary = app.reading().ok_or(AppError::NotFound)?;
     Ok(Json((*summary).clone()))
 }
 
+/// Who is signed in, and whether signing in is on at all.
+#[derive(Serialize)]
+pub struct Me {
+    user_id: String,
+    display_name: String,
+    auth_enabled: bool,
+}
+
 /// GET /api/me
-pub async fn me(State(app): State<AppState>, ReadAccess(viewer): ReadAccess) -> Json<Value> {
-    let auth_enabled = app.cfg.auth.is_some();
-    match viewer {
-        // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE): give this handler a Serialize response struct when the route is next touched
-        Viewer::Owner(user) => Json(json!({
-            "user_id": user.user_id,
-            "display_name": user.display_name,
-            "shared": false,
-            "auth_enabled": auth_enabled,
-        })),
-        Viewer::Shared => Json(json!({
-            "shared": true,
-            "auth_enabled": auth_enabled,
-        })),
-    }
+pub async fn me(State(app): State<AppState>, Owner(user): Owner) -> Json<Me> {
+    Json(Me {
+        user_id: user.user_id,
+        display_name: user.display_name,
+        auth_enabled: app.cfg.auth.is_some(),
+    })
 }
 
 /// GET /api/index — MEMORY.md rendered, links rewritten to /m/<name>.
-pub async fn index(
-    State(app): State<AppState>,
-    ReadAccess(_): ReadAccess,
-) -> Result<Json<Value>, AppError> {
+pub async fn index(State(app): State<AppState>, Owner(_): Owner) -> Result<Json<Value>, AppError> {
     let corpus = load_corpus(&app)?;
     let md = corpus.index_md.ok_or(AppError::NotFound)?;
     // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE): give this handler a Serialize response struct when the route is next touched
@@ -64,7 +57,7 @@ pub async fn index(
 /// GET /api/memories — every memory's metadata.
 pub async fn memories(
     State(app): State<AppState>,
-    ReadAccess(_): ReadAccess,
+    Owner(_): Owner,
 ) -> Result<Json<Vec<MemoryMeta>>, AppError> {
     Ok(Json(load_corpus(&app)?.list()))
 }
@@ -89,8 +82,7 @@ pub struct MemoryPage {
     outlinks: Vec<MemoryMeta>,
     /// Wikilink targets not written yet — surfaced, not hidden.
     dangling: Vec<String>,
-    /// Owner-only, absent for a share-link recipient, for the reason `/api/agents`
-    /// is: a link to one memory must not hand over who is working on what.
+    /// The session that wrote it, and the agent it was, where the mine knows.
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
 }
@@ -108,21 +100,16 @@ fn roster(app: &AppState) -> crate::agents::Agents {
 /// GET /api/memory/{name}
 pub async fn memory(
     State(app): State<AppState>,
-    ReadAccess(viewer): ReadAccess,
+    Owner(_): Owner,
     Path(name): Path<String>,
 ) -> Result<Json<MemoryPage>, AppError> {
     let corpus = load_corpus(&app)?;
     let doc = corpus.get(&name).ok_or(AppError::NotFound)?;
     let (outlinks, dangling) = corpus.outlinks(doc);
-    // Resolved only for the owner, and the roster is loaded inside the match so a
-    // share request does not pay to read an artefact it may not see.
-    let origin = match viewer {
-        Viewer::Owner(_) => doc.origin_session.as_ref().map(|session| Origin {
-            agent: roster(&app).name_of_session(session).map(str::to_string),
-            session: session.clone(),
-        }),
-        Viewer::Shared => None,
-    };
+    let origin = doc.origin_session.as_ref().map(|session| Origin {
+        agent: roster(&app).name_of_session(session).map(str::to_string),
+        session: session.clone(),
+    });
     Ok(Json(MemoryPage {
         meta: doc.meta.clone(),
         html: render_markdown(&doc.body)?,
@@ -137,10 +124,7 @@ pub async fn memory(
 /// needs every node before it can place any. Every node carries its
 /// `description`, so measure the size rather than trusting a number here —
 /// the last one rotted by two orders of magnitude. See memview#1306.
-pub async fn graph(
-    State(app): State<AppState>,
-    ReadAccess(_): ReadAccess,
-) -> Result<Json<Graph>, AppError> {
+pub async fn graph(State(app): State<AppState>, Owner(_): Owner) -> Result<Json<Graph>, AppError> {
     let mut graph = load_corpus(&app)?.graph();
     if let Some(path) = &app.cfg.couse_file
         && let Some(couse) = crate::couse::CoUse::load(std::path::Path::new(path))
@@ -171,28 +155,26 @@ fn usage_of(app: &AppState) -> BTreeMap<String, crate::couse::Usage> {
 /// GET /api/search?q=
 pub async fn search(
     State(app): State<AppState>,
-    ReadAccess(_): ReadAccess,
+    Owner(_): Owner,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<crate::store::SearchResult>, AppError> {
     let corpus = load_corpus(&app)?;
     Ok(Json(corpus.search(&query.q, &usage_of(&app))))
 }
 
-/// GET /api/agents — which named session works where. Owner-only: a share token
-/// is a deliberately public surface, and the roster is the shape of the work.
+/// GET /api/agents — which named session works where.
 pub async fn agents(
     State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
+    Owner(_): Owner,
 ) -> Result<Json<crate::agents::Agents>, AppError> {
     Ok(Json(roster(&app)))
 }
 
 /// GET /api/work?q= — who has been changing the files a query names. The
 /// companion to `/api/search`: what was WORKED ON rather than written down.
-/// Owner-only, as [`agents`] is.
 pub async fn work(
     State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
+    Owner(_): Owner,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<crate::agents::WorkMatch>>, AppError> {
     Ok(Json(roster(&app).who_works_on(&query.q)))
@@ -258,12 +240,11 @@ pub struct Timeline {
 /// How many moments one request may take: the artefact is two hundred thousand rows.
 const PAGE: usize = 200;
 
-/// GET /api/doing — what the sessions did, newest first. Owner-only: the shape
-/// of the work over time. Derived throughout; no command line or prompt text
-/// exists in the artefact.
+/// GET /api/doing — what the sessions did, newest first. Derived throughout; no
+/// command line or prompt text exists in the artefact.
 pub async fn doing(
     State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
+    Owner(_): Owner,
     Query(query): Query<DoingQuery>,
 ) -> Result<Json<Timeline>, AppError> {
     let log = app.doing();
@@ -433,11 +414,10 @@ pub struct Evidence {
 }
 
 /// GET /api/effects — what a turn actually did, and to what. Keyed by
-/// `(agent, at)`, which a `/api/doing` row already carries. Owner-only: a row
-/// carries the command text verbatim.
+/// `(agent, at)`, which a `/api/doing` row already carries.
 pub async fn effects(
     State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
+    Owner(_): Owner,
     Query(query): Query<EffectsQuery>,
 ) -> Result<Json<Evidence>, AppError> {
     let log = app.effects();
@@ -500,47 +480,4 @@ pub async fn effects(
         total,
         unnamed,
     }))
-}
-
-fn share_json(app: &AppState) -> Value {
-    match app.share.get() {
-        Some(s) => {
-            let url = app
-                .cfg
-                .public_base_url
-                .as_deref()
-                .map(|base| build_share_url(base, &s.token));
-            json!({
-                "active": true,
-                "token": s.token,
-                "url": url,
-                "created_at": s.created_at,
-                "last_accessed_at": s.last_accessed_at,
-            })
-        }
-        None => json!({ "active": false }),
-    }
-}
-
-/// GET /api/share — current share state (owner only).
-pub async fn share_get(State(app): State<AppState>, OwnerOnly(_): OwnerOnly) -> Json<Value> {
-    Json(share_json(&app))
-}
-
-/// POST /api/share — create or rotate the token.
-pub async fn share_rotate(
-    State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
-) -> Result<Json<Value>, AppError> {
-    app.share.rotate()?;
-    Ok(Json(share_json(&app)))
-}
-
-/// DELETE /api/share — revoke.
-pub async fn share_revoke(
-    State(app): State<AppState>,
-    OwnerOnly(_): OwnerOnly,
-) -> Result<Json<Value>, AppError> {
-    app.share.revoke()?;
-    Ok(Json(share_json(&app)))
 }

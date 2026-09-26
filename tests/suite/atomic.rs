@@ -2,11 +2,10 @@
 //!
 //! What these defend, and why it is worth a file: `std::fs::write` truncates and
 //! then writes, so between those two the file on disk is short. Every reader of
-//! the three files that go through `atomic::write` parses JSON, so a reader
-//! arriving in that window gets a parse error rather than either version — and a
-//! crash in the window leaves it truncated for good. Each caller then degrades
-//! QUIETLY: `ShareStore::load` reads an unparseable state file as "no share
-//! exists", and `couse.json` / `agents.json` read as absent.
+//! the files that go through `atomic::write` parses JSON, so a reader arriving
+//! in that window gets a parse error rather than either version — and a crash in
+//! the window leaves it truncated for good. Each caller then degrades QUIETLY:
+//! `couse.json` / `agents.json` read as absent.
 //!
 //! Through the public API only, so what is pinned is the behaviour a caller can
 //! rely on and not the temp file's spelling. That the temp is a SIBLING of the
@@ -45,7 +44,7 @@ fn names_in(dir: &Path) -> Vec<String> {
 #[test]
 fn a_replacement_is_visible_whole_or_not_at_all() {
     let dir = scratch("replace");
-    let path = dir.join("share-state.json");
+    let path = dir.join("state.json");
 
     atomic::write(&path, br#"{"token":"one"}"#).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), br#"{"token":"one"}"#);
@@ -141,7 +140,7 @@ fn a_write_that_cannot_finish_leaves_the_previous_version_and_no_temp() {
 #[test]
 fn a_replacement_is_a_new_file_and_not_the_old_one_rewritten() {
     let dir = scratch("inode");
-    let path = dir.join("share-state.json");
+    let path = dir.join("state.json");
 
     atomic::write(&path, br#"{"token":"one"}"#).unwrap();
     let first = std::fs::metadata(&path).unwrap().ino();

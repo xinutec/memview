@@ -1,9 +1,8 @@
-//! memview — read-only viewer for the Claude memory corpus. Loads config,
-//! loads the share-token state file, serves. All logic lives in the
-//! `memview` library crate.
+//! memview — read-only viewer for the Claude memory corpus. Loads config and
+//! serves. All logic lives in the `memview` library crate.
 
 use anyhow::Result;
-use memview::{config::Config, routes, share::ShareStore, state::AppState};
+use memview::{config::Config, routes, state::AppState};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -37,10 +36,9 @@ async fn main() -> Result<()> {
         cfg.memory_dir
     );
 
-    let share = ShareStore::load(&cfg.share_state_file)?;
     let http = reqwest::Client::builder().build()?;
     let bind_addr = cfg.bind_addr.clone();
-    let app = routes::router(AppState::new(cfg, http, share));
+    let app = routes::router(AppState::new(cfg, http));
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     tracing::info!("memview listening on {bind_addr}");

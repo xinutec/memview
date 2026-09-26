@@ -1,7 +1,7 @@
 //! Runtime configuration from the environment.
 //!
 //! Auth is *inert unless configured* (the recall pattern): the Nextcloud
-//! login wall and share tokens only activate when SESSION_SECRET +
+//! login wall only activates when SESSION_SECRET +
 //! NC_CLIENT_ID + NC_CLIENT_SECRET are all set. Local dev on the Mac serves
 //! the corpus open on the LAN; only the isis deployment raises the wall.
 
@@ -13,10 +13,6 @@ pub struct Config {
     pub memory_dir: String,
     /// Address to bind the HTTP server to.
     pub bind_addr: String,
-    /// JSON file persisting the public share token (no DB in this app).
-    pub share_state_file: String,
-    /// Base URL used when composing a share link for display.
-    pub public_base_url: Option<String>,
 
     /// Nextcloud OAuth2 (identity-only). None → auth disabled.
     pub auth: Option<AuthConfig>,
@@ -105,10 +101,6 @@ impl Config {
         Ok(Self {
             memory_dir: env("MEMORY_DIR")?,
             bind_addr: env_or("BIND_ADDR", "0.0.0.0:8091"),
-            share_state_file: env_or("SHARE_STATE", "share-state.json"),
-            public_base_url: std::env::var("PUBLIC_BASE_URL")
-                .ok()
-                .map(|u| u.trim_end_matches('/').to_string()),
             auth,
             static_dir: std::env::var("STATIC_DIR").ok(),
             couse_file: std::env::var("COUSE_FILE").ok(),
