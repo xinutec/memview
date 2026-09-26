@@ -90,7 +90,6 @@
         </span>
       }
     }
-    <!-- dev-lint: allow-unstyled-class styled by styles.scss as `app-session-view .entry .body` -->
     <div class="body" [innerHTML]="entry.text | rendered"></div>
   }
   @case ('shown') {
@@ -111,7 +110,6 @@
     </button>
   }
   @case ('said') {
-    <!-- dev-lint: allow-unstyled-class styled by styles.scss as `app-session-view .entry .body` -->
     <div class="body" [innerHTML]="entry.text | rendered"></div>
   }
   @default {
