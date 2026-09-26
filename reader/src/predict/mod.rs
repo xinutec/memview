@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 
 mod python;
+mod python_re;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;

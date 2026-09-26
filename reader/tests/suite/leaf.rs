@@ -24,11 +24,17 @@
 /// no key, no secret, no verification of anything anybody sent. If a future use
 /// of it authenticates, signs, or compares against something a user supplied,
 /// that use belongs in whichever crate holds the trust, not in this one.
-const ALLOWED: [&str; 8] = [
+///
+/// `regex` and `regex-syntax` run a Python `re.sub` the evaluator predicts, on
+/// text already in hand. The engine is linear-time, so a pattern read from a
+/// transcript cannot stall either binary.
+const ALLOWED: [&str; 10] = [
     "anyhow",
     "base64",
     "pest",
     "pest_derive",
+    "regex",
+    "regex-syntax",
     "serde",
     "serde_json",
     "sha2",

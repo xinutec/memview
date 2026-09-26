@@ -25,6 +25,9 @@ base64 = "0.23"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Python's `re.sub`, followed where the two engines agree; see src/predict/python_re.rs.
+regex = "1"
+regex-syntax = "0.8"
 ts-rs = { version = "12", features = ["serde-compat"], optional = true }
 
 [dev-dependencies]

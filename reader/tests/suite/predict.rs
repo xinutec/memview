@@ -764,3 +764,124 @@ fn an_argv_word_holding_a_quote_stays_one_word() {
         }]
     );
 }
+
+/// `re.sub` where Python's `re` and Rust's `regex` mean the same thing: groups,
+/// flags, a replacement's own escapes.
+#[test]
+fn a_regex_substitution_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nimport re\ns = open('a.txt').read()\ns = re.sub(r'^(\\w+) = (\\d+)$', r'\\2 = \\1', s, flags=re.M | re.S)\nopen('a.txt', 'w').write(s)\nPY",
+        &known(&[("/repo/a.txt", Some("x = 1\ny = 2\n"))]),
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/a.txt", "1 = x\n2 = y\n")]
+    );
+
+    let named = run(
+        "python3 - <<'PY'\nimport re\nopen('o.txt', 'w').write(re.sub(r'(?P<k>a)', r'\\g<k>\\n', 'aXa', count=1) + re.sub('\u{e9}+', 'e', 'caf\u{e9}\u{e9}'))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(named.written, vec![written("/repo/o.txt", "a\nXacafe")]);
+}
+
+/// A compiled pattern, and one built with `re.escape`.
+#[test]
+fn a_compiled_and_escaped_pattern_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nimport re\np = re.compile(re.escape('a.b'))\nopen('o.txt', 'w').write(p.sub('c', 'a.b axb'))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "c axb")]);
+}
+
+/// Python's `$` also matches before a final newline, Rust's does not: followed
+/// where the text cannot tell them apart, refused where it can.
+#[test]
+fn a_dollar_before_a_final_newline_is_refused() {
+    let refused = run(
+        "python3 - <<'PY'\nimport re\nopen('o.txt', 'w').write(re.sub(r'x$', 'y', 'ax\\n'))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        refused.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/o.txt".to_string()),
+            why: Why::Python("re $ before a final newline".to_string()),
+        }]
+    );
+
+    let followed = run(
+        "python3 - <<'PY'\nimport re\nopen('o.txt', 'w').write(re.sub(r'x$', 'y', 'ax'))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(followed.written, vec![written("/repo/o.txt", "ay")]);
+}
+
+/// Where the two engines differ, the substitution is refused by what differs.
+#[test]
+fn a_regex_the_engines_disagree_on_is_refused() {
+    for (call, why) in [
+        (r"re.sub(r'x*', '-', 'ab')", "re empty match"),
+        (r"re.sub(r'(a)\1', 'b', 'aa')", "re backreference"),
+        (
+            r"re.sub('a', lambda m: 'b', 'a')",
+            "re replacement function",
+        ),
+        (r"re.sub('a', r'\q', 'a')", "re replacement escape"),
+        (r"re.sub('a b', 'c', 'a b', flags=re.X)", "re flag"),
+    ] {
+        let found = run(
+            &format!("python3 - <<'PY'\nimport re\nopen('o.txt', 'w').write({call})\nPY"),
+            &nothing_known(),
+        );
+        assert_eq!(
+            found.unfollowed,
+            vec![Unfollowed {
+                path: Some("/repo/o.txt".to_string()),
+                why: Why::Python(why.to_string()),
+            }],
+            "{call}"
+        );
+    }
+}
+
+/// A replacement's octal escapes, against CPython's own answer: `\101\0` is
+/// `'A\x00'`.
+#[test]
+fn a_replacements_octal_escapes_are_pythons() {
+    let found = run(
+        "python3 - <<'PY'\nimport re\nopen('o.txt', 'w').write(re.sub('a', r'\\101\\0', 'a'))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "A\u{0}")]);
+}
+
+/// A method on text this does not have is a string method: its path-shaped
+/// arguments are text being replaced, not files being written.
+#[test]
+fn a_method_on_unknown_text_writes_none_of_its_arguments() {
+    let found = run(
+        "python3 - <<'PY'\ns = open('a.txt').read()\ns = s.replace('src/old.ts', 'src/new.ts')\nopen('b.txt', 'w').write(s)\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/b.txt".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+}
+
+/// A library call that only reads or computes is handed path-shaped strings all
+/// the time; it writes none of them.
+#[test]
+fn a_pure_library_call_writes_nothing() {
+    let found = run(
+        "echo x > src/a.ts && python3 - <<'PY'\nimport glob, json, sys\nsys.path.insert(0, '/tmp')\nfiles = glob.glob('src/*.ts')\nprint(json.dumps({'p': 'src/a.ts'}))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/src/a.ts", "x\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+}

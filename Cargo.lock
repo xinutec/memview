@@ -2109,6 +2109,8 @@ dependencies = [
  "base64 0.23.1",
  "pest",
  "pest_derive",
+ "regex",
+ "regex-syntax",
  "serde",
  "serde_json",
  "sha2",

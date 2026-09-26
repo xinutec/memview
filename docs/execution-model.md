@@ -82,7 +82,11 @@ tree, against the same files as the shell around it: each call assumed to
 succeed, strings, paths and open files interpreted, a function the program
 defines followed in its own frame, a loop over a written-out list run once per
 element, and a block it does not follow (an undecided `if`, a loop over values
-it cannot list, a decorated function) refused and forgotten as a shell loop is. `predict-report` lists what the
+it cannot list, a decorated function) refused and forgotten as a shell loop is.
+A command it runs is followed as the shell it amounts to. `re.sub` is followed
+where Python's `re` and Rust's `regex` mean the same thing, translated rather
+than copied, and refused by what differs where they do not: a backreference,
+a pattern that can match the empty string, a `$` before a final newline. `predict-report` lists what the
 reconstruction knows is written and the evaluator never mentions, which is what
 is still out of its sight.
 

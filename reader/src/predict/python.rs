@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::python_re;
 use super::{Held, Run, Unfollowed, Why};
 use crate::syntax::python::ast::{
     Arg, BinOp, BoolOp, CmpOp, Expr, FPart, Module, Params, Singleton, Stmt, StmtKind, UnaryOp,
@@ -40,6 +41,13 @@ enum Value {
     /// A function the program defines, by name.
     Defined(String),
     Tuple(Vec<Value>),
+    /// What `re.compile` returned: the pattern and its flags, compiled where used.
+    Pattern {
+        source: String,
+        flags: i64,
+    },
+    /// A function this does not follow, as a value: a `lambda`.
+    Callable,
     /// Not determined by the text, and why.
     Unknown(Why),
 }
@@ -69,6 +77,17 @@ enum Function {
     DeleteTree,
     /// Reads its first argument and writes its second.
     Transfer,
+    /// `re.sub` and `re.subn`: a substitution, and with `subn` its count too.
+    Substitute {
+        counted: bool,
+    },
+    /// `re.compile`.
+    Compile,
+    /// `re.escape`.
+    Escape,
+    /// A library call that only reads or computes: handed a path-shaped string,
+    /// it writes none of them.
+    Pure,
     /// A library that reads the file it is given: `Image.open(p)`.
     Reads,
 }
@@ -96,6 +115,16 @@ impl Function {
             "os.remove" | "os.unlink" => Function::Delete,
             "shutil.rmtree" => Function::DeleteTree,
             "Image.open" | "PIL.Image.open" | "wave.open" => Function::Reads,
+            "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk"
+            | "os.path.basename" | "os.path.dirname" | "os.path.splitext" | "os.path.isdir"
+            | "os.path.relpath" | "os.getcwd" | "os.environ.get" | "json.dumps" | "json.loads"
+            | "sys.path.insert" | "sys.path.append" | "re.search" | "re.match" | "re.fullmatch"
+            | "re.findall" | "re.finditer" | "re.split" | "shlex.quote" | "shlex.split"
+            | "textwrap.dedent" => Function::Pure,
+            "re.sub" => Function::Substitute { counted: false },
+            "re.subn" => Function::Substitute { counted: true },
+            "re.compile" => Function::Compile,
+            "re.escape" => Function::Escape,
             "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
             | "shutil.copyfile" => Function::Transfer,
             _ => return None,
@@ -539,7 +568,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Value::Unknown(why) => Value::Unknown(why),
                 _ => Value::Unknown(construct("operator -")),
             },
-            Expr::Lambda { .. } => Value::Unknown(construct("lambda")),
+            Expr::Lambda { .. } => Value::Callable,
             Expr::Bytes(_) => Value::Unknown(construct("bytes")),
             Expr::ListComp { .. }
             | Expr::SetComp { .. }
@@ -580,6 +609,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
 
     fn attribute(&self, value: Value, attr: &str) -> Value {
         match value {
+            Value::Name(dotted) if dotted == "re" && python_re::flag(attr).is_some() => {
+                Value::Int(python_re::flag(attr).unwrap_or_default())
+            }
             Value::Name(dotted) => Value::Name(format!("{dotted}.{attr}")),
             Value::Path(path) => match PathPart::of(attr) {
                 Some(PathPart::Parent) => Value::Path(parent(&path)),
@@ -618,6 +650,20 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 let (positional, keyword) = self.args(args)?;
                 if let Value::Str(text) = &receiver {
                     return string_method(text, attr, &positional);
+                }
+                if let Value::Pattern { source, flags } = &receiver
+                    && let counted @ ("sub" | "subn") = attr.as_str()
+                {
+                    let arg =
+                        |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
+                    return Ok(substitute(
+                        &Value::Str(source.clone()),
+                        &Value::Int(*flags),
+                        arg(0, "repl").unwrap_or(&Value::None),
+                        arg(1, "string").unwrap_or(&Value::None),
+                        arg(2, "count").unwrap_or(&Value::Int(0)),
+                        counted == "subn",
+                    ));
                 }
                 return Ok(self.method(receiver, attr, positional, &keyword));
             }
@@ -705,7 +751,42 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 self.forget_tree(first.as_ref().unwrap_or(&Value::None), &Why::Python(name));
                 Value::None
             }
-            Some(Function::Reads) => Value::Unknown(Why::Python(format!("call {name}"))),
+            Some(Function::Reads | Function::Pure) => {
+                Value::Unknown(Why::Python(format!("call {name}")))
+            }
+            Some(Function::Substitute { counted }) => {
+                let arg = |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
+                substitute(
+                    arg(0, "pattern").unwrap_or(&Value::None),
+                    arg(4, "flags").unwrap_or(&Value::Int(0)),
+                    arg(1, "repl").unwrap_or(&Value::None),
+                    arg(2, "string").unwrap_or(&Value::None),
+                    arg(3, "count").unwrap_or(&Value::Int(0)),
+                    counted,
+                )
+            }
+            Some(Function::Compile) => {
+                let flags = positional.get(1).or_else(|| keyword.get("flags"));
+                match (first.as_ref(), flags) {
+                    (Some(Value::Str(source)), None) => Value::Pattern {
+                        source: source.clone(),
+                        flags: 0,
+                    },
+                    (Some(Value::Str(source)), Some(Value::Int(flags))) => Value::Pattern {
+                        source: source.clone(),
+                        flags: *flags,
+                    },
+                    (Some(Value::Unknown(why)), _) | (_, Some(Value::Unknown(why))) => {
+                        Value::Unknown(why.clone())
+                    }
+                    _ => Value::Unknown(construct("re pattern")),
+                }
+            }
+            Some(Function::Escape) => match first {
+                Some(Value::Str(text)) => Value::Str(python_re::escape(&text)),
+                Some(other) => unknown(&other, "re.escape"),
+                None => Value::Unknown(construct("re.escape")),
+            },
             Some(Function::Transfer) => {
                 for path in positional.iter().take(2) {
                     self.forget_value(path, &Why::Python(name.clone()));
@@ -808,11 +889,13 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 _ => Value::Unknown(Why::Python(format!("file.{method}"))),
             },
-            // An object this does not know may write a path handed to it.
+            // An object this does not know may write a file handed to it. Not a
+            // path-shaped string: an unknown object is most often text, and its
+            // `replace('src/a.ts', …)` names no file.
             other => {
                 let why = Why::Python(format!("method {method}"));
                 for value in args.iter().chain(keyword.values()) {
-                    if written_by_a_stranger(value) {
+                    if holds_a_file(value) {
                         self.forget_value(value, &why);
                     }
                 }
@@ -1316,22 +1399,68 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     }
 }
 
-/// Whether a function this does not know may write what it is handed: a `Path`,
-/// a file open for writing, or a string shaped like a path. Other strings are text.
+/// Whether a function this does not know may write what it is handed: a file
+/// ([`holds_a_file`]), or a string shaped like a path. Other strings are text.
 fn written_by_a_stranger(value: &Value) -> bool {
     match value {
-        Value::Path(_)
-        | Value::File {
-            mode: Mode::Write, ..
-        } => true,
         Value::Str(text) => crate::shell_ops::looks_like_path(text),
-        _ => false,
+        other => holds_a_file(other),
     }
+}
+
+/// A `Path`, or a file open for writing.
+fn holds_a_file(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Path(_)
+            | Value::File {
+                mode: Mode::Write,
+                ..
+            }
+    )
 }
 
 /// One shell word holding exactly `word`.
 fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+/// `re.sub(pattern, repl, string, count, flags)`, where the two regex engines agree;
+/// refused by what differs where they do not. `counted` is `re.subn`.
+fn substitute(
+    pattern: &Value,
+    flags: &Value,
+    repl: &Value,
+    string: &Value,
+    count: &Value,
+    counted: bool,
+) -> Value {
+    let refused = |why: &str| Value::Unknown(Why::Python(why.to_string()));
+    let (source, flags, template, text, count) = match (pattern, flags, repl, string, count) {
+        (_, _, Value::Callable | Value::Defined(_) | Value::Name(_), _, _) => {
+            return refused("re replacement function");
+        }
+        (
+            Value::Str(source),
+            Value::Int(flags),
+            Value::Str(template),
+            Value::Str(text),
+            Value::Int(count),
+        ) if *count >= 0 => (source, *flags, template, text, *count as usize),
+        (Value::Unknown(why), ..)
+        | (_, Value::Unknown(why), ..)
+        | (_, _, Value::Unknown(why), ..)
+        | (_, _, _, Value::Unknown(why), _)
+        | (.., Value::Unknown(why)) => return Value::Unknown(why.clone()),
+        _ => return refused("re.sub"),
+    };
+    match python_re::compile(source, flags)
+        .and_then(|pattern| python_re::sub(&pattern, template, text, count))
+    {
+        Ok((out, done)) if counted => Value::Tuple(vec![Value::Str(out), Value::Int(done as i64)]),
+        Ok((out, _)) => Value::Str(out),
+        Err(why) => refused(why),
+    }
 }
 
 /// A value as the text of a path or a string, when it is one.
@@ -1382,6 +1511,7 @@ fn truth(value: Value) -> Value {
 
 fn binary(left: Value, op: BinOp, right: Value) -> Value {
     match (left, op, right) {
+        (Value::Int(a), BinOp::BitOr, Value::Int(b)) => Value::Int(a | b),
         (Value::Str(a), BinOp::Add, Value::Str(b)) => Value::Str(a + &b),
         (Value::Int(a), op @ (BinOp::Add | BinOp::Sub | BinOp::Mult), Value::Int(b)) => {
             let n = match op {
