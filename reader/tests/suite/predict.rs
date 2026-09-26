@@ -674,3 +674,93 @@ fn a_path_like_string_given_to_an_unknown_function_is_forgotten() {
         why: Why::Python("call ed.edit".to_string()),
     }));
 }
+
+/// Shell run from Python is the shell, against the same files: `os.system`'s
+/// text is followed, and Python reads what it wrote.
+#[test]
+fn a_command_python_runs_through_a_shell_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nimport os\nos.system('echo hi > a.txt')\ns = open('a.txt').read()\nopen('b.txt', 'w').write(s)\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "hi\n"),
+            written("/repo/b.txt", "hi\n")
+        ]
+    );
+}
+
+/// An argv with no shell between is one command, read by the same tables.
+#[test]
+fn a_command_python_runs_as_an_argv_is_followed() {
+    let found = run(
+        "python3 - <<'PY'\nimport subprocess\nopen('a.txt', 'w').write('x')\nsubprocess.run(['sed', '-i', 's/x/y/', 'a.txt'], check=True)\nPY",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/a.txt".to_string()),
+        why: Why::Program("sed".to_string()),
+    }));
+}
+
+/// `cwd=` is where it runs, and its `cd` stays with it.
+#[test]
+fn a_commands_working_directory_is_its_own() {
+    let found = run(
+        "python3 - <<'PY'\nimport subprocess\nsubprocess.run('cd deeper; echo x > c.txt', shell=True, cwd='sub')\nopen('d.txt', 'w').write('y')\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/sub/deeper/c.txt", "x\n"),
+            written("/repo/d.txt", "y")
+        ]
+    );
+}
+
+/// A command the text does not give, or one left running beside the program,
+/// is refused.
+#[test]
+fn an_unknown_or_concurrent_command_is_refused() {
+    let unknown = run(
+        "python3 - <<'PY'\nimport os, sys\nos.system(sys.argv[1])\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        unknown.unfollowed,
+        vec![Unfollowed {
+            path: None,
+            why: Why::Python("subprocess".to_string()),
+        }]
+    );
+
+    let concurrent = run(
+        "python3 - <<'PY'\nimport subprocess\nsubprocess.Popen(['bash', '-c', 'echo x > e.txt'])\nPY",
+        &nothing_known(),
+    );
+    assert!(concurrent.written.is_empty(), "{:?}", concurrent.written);
+    assert!(concurrent.unfollowed.contains(&Unfollowed {
+        path: Some("/repo/e.txt".to_string()),
+        why: Why::Python("subprocess.Popen".to_string()),
+    }));
+}
+
+/// An argv word is passed whole: a quote inside it is part of the name.
+#[test]
+fn an_argv_word_holding_a_quote_stays_one_word() {
+    let found = run(
+        "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['cp', 'a.txt', \"it's b.txt\"])\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/it's b.txt".to_string()),
+            why: Why::Program("cp".to_string()),
+        }]
+    );
+}

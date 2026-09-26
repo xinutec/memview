@@ -606,7 +606,8 @@ impl<'a> Run<'a> {
     /// whose `cd` does not reach back out. Text the outer shell expands first is
     /// not known, and what it writes is refused.
     fn nested(&mut self, script: &str, argv: &[String], literal: bool, why: Option<Why>) {
-        let Ok(tree) = crate::syntax::parse(script) else {
+        let why = why.or_else(|| (!literal).then_some(Why::Expansion));
+        if !self.child(script, self.cwd.clone(), why.clone()) {
             let program = unwrap_command(argv)
                 .first()
                 .map_or("", |head| basename(head));
@@ -614,24 +615,29 @@ impl<'a> Run<'a> {
                 path: None,
                 why: why.unwrap_or_else(|| Why::Program(program.to_string())),
             });
-            return;
+        }
+    }
+
+    /// Shell text run as a child process in `cwd`: followed, or with `why` every
+    /// file it writes refused. Its `cd` does not reach back out. `false` when the
+    /// text does not parse, and nothing was done.
+    fn child(&mut self, script: &str, cwd: Option<String>, why: Option<Why>) -> bool {
+        let Ok(tree) = crate::syntax::parse(script) else {
+            return false;
         };
-        match why.or_else(|| (!literal).then_some(Why::Expansion)) {
-            None => {
-                let cwd = self.cwd.clone();
-                self.items(&tree.items);
-                self.cwd = cwd;
-            }
+        let parent = std::mem::replace(&mut self.cwd, cwd);
+        match why {
+            None => self.items(&tree.items),
             Some(why) => {
-                let cwd = self.cwd.clone();
                 for item in &tree.items {
                     if let Item::List(list) = item {
                         self.forget_list(list, why.clone());
                     }
                 }
-                self.cwd = cwd;
             }
         }
+        self.cwd = parent;
+        true
     }
 
     /// Follows a `cd`, which says where every path after it resolves. `false` for

@@ -57,8 +57,12 @@ enum Function {
     Len,
     Print,
     Exit,
-    /// Runs a command, whose files are in the command.
-    Command,
+    /// Runs shell text: `os.system`, `os.popen`.
+    Shell,
+    /// Runs an argv, or shell text when told `shell=True`, and waits for it.
+    Spawn,
+    /// Starts a command and does not wait for it: `subprocess.Popen`.
+    Concurrent,
     /// Deletes its first argument.
     Delete,
     /// Deletes its first argument and everything under it.
@@ -83,13 +87,12 @@ impl Function {
             "len" => Function::Len,
             "print" => Function::Print,
             "sys.exit" | "exit" | "quit" | "os._exit" => Function::Exit,
+            "os.system" | "os.popen" => Function::Shell,
             "subprocess.run"
             | "subprocess.call"
             | "subprocess.check_call"
-            | "subprocess.check_output"
-            | "subprocess.Popen"
-            | "os.system"
-            | "os.popen" => Function::Command,
+            | "subprocess.check_output" => Function::Spawn,
+            "subprocess.Popen" => Function::Concurrent,
             "os.remove" | "os.unlink" => Function::Delete,
             "shutil.rmtree" => Function::DeleteTree,
             "Image.open" | "PIL.Image.open" | "wave.open" => Function::Reads,
@@ -679,8 +682,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Value::None
             }
             Some(Function::Exit) => return Err(Stop::Ended),
-            Some(Function::Command) => {
-                self.unnamed(construct("subprocess"));
+            Some(function @ (Function::Shell | Function::Spawn | Function::Concurrent)) => {
+                let why = Why::Python(name.clone());
+                // `stdout=open(f, 'w')`: the command's output lands in a file.
+                for value in keyword.values() {
+                    if let Value::File {
+                        mode: Mode::Write, ..
+                    } = value
+                    {
+                        self.forget_value(value, &why);
+                    }
+                }
+                let concurrent = matches!(function, Function::Concurrent).then_some(why);
+                self.command(function, first.as_ref(), &keyword, concurrent);
                 Value::Unknown(construct("subprocess"))
             }
             Some(Function::Delete) => {
@@ -974,6 +988,38 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// A command run from Python, as the shell text it amounts to: followed in
+    /// its own directory, or with `why` what it writes refused. A command the text
+    /// does not give is refused without a path.
+    fn command(
+        &mut self,
+        function: Function,
+        first: Option<&Value>,
+        keyword: &BTreeMap<&str, Value>,
+        why: Option<Why>,
+    ) {
+        let shell = matches!(function, Function::Shell)
+            || matches!(keyword.get("shell"), Some(Value::Bool(true)));
+        let script = match (shell, first) {
+            (true, Some(Value::Str(text))) => Some(text.clone()),
+            (false, Some(Value::Tuple(words))) => words
+                .iter()
+                .map(|word| text(word).map(|word| quoted(&word)))
+                .collect::<Option<Vec<_>>>()
+                .map(|words| words.join(" ")),
+            (false, Some(Value::Str(program) | Value::Path(program))) => Some(quoted(program)),
+            _ => None,
+        };
+        let cwd = match keyword.get("cwd") {
+            None => self.cwd.clone(),
+            Some(dir) => text(dir).and_then(|dir| self.resolve(&dir)),
+        };
+        let followed = script.is_some_and(|script| self.shell.child(&script, cwd, why.clone()));
+        if !followed {
+            self.unnamed(why.unwrap_or_else(|| construct("subprocess")));
+        }
+    }
+
     /// A directory a value names is removed in a way this does not follow, with
     /// everything under it.
     fn forget_tree(&mut self, value: &Value, why: &Why) {
@@ -1168,8 +1214,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 vec![]
             }
             Some(Function::Transfer) => positional.iter().take(2).copied().collect(),
-            Some(Function::Command) => {
-                self.unnamed(construct("subprocess"));
+            Some(function @ (Function::Shell | Function::Spawn | Function::Concurrent)) => {
+                let first = positional
+                    .first()
+                    .map(|expr| self.static_value(expr))
+                    .unwrap_or(Value::None);
+                let mut keyword = BTreeMap::new();
+                for arg in args {
+                    if let Arg::Keyword(key, expr) = arg {
+                        let value = self.static_value(expr);
+                        keyword.insert(key.as_str(), value);
+                    }
+                }
+                self.command(function, Some(&first), &keyword, Some(why.clone()));
                 vec![]
             }
             None => {
@@ -1197,6 +1254,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         match expr {
             Expr::Name(name) => self.name(name),
             Expr::Str(text) => Value::Str(text.clone()),
+            Expr::Singleton(Singleton::True) => Value::Bool(true),
+            Expr::Tuple(items) | Expr::List(items) => {
+                Value::Tuple(items.iter().map(|item| self.static_value(item)).collect())
+            }
             Expr::Attribute { value, attr } => {
                 let value = self.static_value(value);
                 self.attribute(value, attr)
@@ -1266,6 +1327,11 @@ fn written_by_a_stranger(value: &Value) -> bool {
         Value::Str(text) => crate::shell_ops::looks_like_path(text),
         _ => false,
     }
+}
+
+/// One shell word holding exactly `word`.
+fn quoted(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
 }
 
 /// A value as the text of a path or a string, when it is one.
