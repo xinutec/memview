@@ -158,6 +158,10 @@ repetition in one.
 directions.** Volume alone promotes whatever is being worked on this week.
 Breadth alone punishes deep focus — a month spent on one subject produces
 memories read by one session that are nonetheless the working set.
+`memory-tiers` holds such a memory from demotion when one agent came back to it
+on 5 or more days of the last 30, outside its sweeps: days, not opens, so one
+afternoon's forty reads is one day. The first it held was a project hub its
+single project opened on 7 of those days.
 
 So the two tiers want two different rules, and only one of them is a cut:
 

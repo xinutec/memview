@@ -164,6 +164,7 @@ fn main() -> Result<()> {
                 breadth: breadth.proven,
                 maybe_breadth: breadth.unprovable,
                 unswept_breadth: breadth.unswept,
+                returns: memview::tiers::returns(&mined.agents, name, excluding.as_deref()),
                 last_open: days
                     .get(name)
                     .and_then(|d| d.reads.iter().max())
@@ -394,6 +395,10 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
                 Held::Claims,
                 "judged POINTER, but the line states a claim — the record disagrees with \
                  what a reader meets, and `memory-lint`'s `loud-pointer` names it",
+            ),
+            (
+                Held::WorkingSet,
+                "one agent keeps coming back to it: its working set, which breadth cannot see",
             ),
             (
                 Held::Unjudged,

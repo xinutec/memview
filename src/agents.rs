@@ -74,6 +74,11 @@ pub struct Agent {
     /// sets on every run, never accumulated.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub swept: BTreeSet<String>,
+    /// How many days in the last [`RETURN_WINDOW`] this agent opened each memory
+    /// outside a sweep: how much it keeps coming back, which breadth cannot see.
+    /// Derived like [`Self::swept`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub returned: BTreeMap<String, usize>,
     /// Recency-weighted days present, per project — the ordering signal. See
     /// [`recency`] for why this is days rather than files.
     #[serde(default)]
@@ -89,6 +94,9 @@ pub struct Agent {
 /// Measured 2026-09-25 over 659 agent-days: the median opens 4 and the 95th
 /// percentile 30, while whole-corpus audits open 100 to 700.
 pub const SWEEP: usize = 50;
+
+/// The days, counted back from the mine, over which [`Agent::returned`] counts.
+pub const RETURN_WINDOW: i64 = 30;
 
 /// How one agent uses one memory: the times it deliberately opened or changed
 /// the file. Counted from the tool call's `file_path`, not from the memory being
@@ -1860,6 +1868,7 @@ pub fn scan_resumed(
     let mut memory_edit_days: BTreeMap<String, DaySet> = BTreeMap::new();
     for agent in by_name.values_mut() {
         agent.swept.clear();
+        agent.returned.clear();
     }
     for (name, seen) in &days {
         // Sets, because two agents opening one memory on the same day is one day
@@ -1900,6 +1909,18 @@ pub fn scan_resumed(
             .iter()
             .filter(|(_, when)| when.iter().all(|day| opened[day] > SWEEP))
             .map(|(memory, _)| memory.clone())
+            .collect();
+        agent.returned = seen
+            .memory_reads
+            .iter()
+            .map(|(memory, when)| {
+                let days = when
+                    .iter()
+                    .filter(|day| today - **day < RETURN_WINDOW && opened[*day] <= SWEEP)
+                    .count();
+                (memory.clone(), days)
+            })
+            .filter(|(_, days)| *days > 0)
             .collect();
     }
 

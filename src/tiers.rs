@@ -55,6 +55,9 @@ pub struct Thresholds {
     pub tenure_breadth: usize,
     /// At or below this, the entry is thin.
     pub thin_breadth: usize,
+    /// Days of the last [`crate::agents::RETURN_WINDOW`] on which one agent came
+    /// back to a memory for it to be that agent's working set, and held.
+    pub working_days: usize,
 }
 
 impl Default for Thresholds {
@@ -65,6 +68,9 @@ impl Default for Thresholds {
             lease_days: 14,
             tenure_breadth: 6,
             thin_breadth: 2,
+            // Measured 2026-09-26: the median indexed memory's most loyal agent
+            // came back on 1 day of the last 30, the 90th percentile on 4.
+            working_days: 5,
         }
     }
 }
@@ -85,6 +91,8 @@ pub struct Entry {
     /// Of [`Self::breadth`], the agents that opened it outside a sweep — see
     /// [`Breadth::unswept`]. What ADMIT counts.
     pub unswept_breadth: usize,
+    /// The most days any one agent came back to it lately — see [`returns`].
+    pub returns: usize,
     /// Days since it was last opened, or `None` if never.
     pub last_open: Option<i64>,
     /// Bytes its index line spends, which is what demoting it recovers. Zero
@@ -213,6 +221,18 @@ pub fn breadth(agents: &[crate::agents::Agent], memory: &str, excluding: Option<
     out
 }
 
+/// The most days, in the last [`crate::agents::RETURN_WINDOW`], that any one
+/// agent other than `excluding` came back to `memory` outside a sweep.
+pub fn returns(agents: &[crate::agents::Agent], memory: &str, excluding: Option<&str>) -> usize {
+    agents
+        .iter()
+        .filter(|agent| excluding != Some(agent.name.as_str()))
+        .filter_map(|agent| agent.returned.get(memory))
+        .max()
+        .copied()
+        .unwrap_or(0)
+}
+
 /// Why a demotion the evidence would offer is not being offered. Checked in this
 /// order: the freeze lifts at the harvest, a tripwire's reason never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,6 +242,9 @@ pub enum Held {
     /// Judged a pointer, but the line states a claim. The line is what a reader
     /// meets, so it is held on that and the judgement reported instead.
     Claims,
+    /// One agent keeps coming back to it: its working set, which breadth
+    /// cannot see (`docs/memory.md`, "Breadth alone punishes deep focus").
+    WorkingSet,
     /// An absent judgement is not a pointer: it fails toward deleting a rule that
     /// fires from its line.
     Unjudged,
@@ -313,6 +336,7 @@ pub fn propose(
             // not stop stating it on a date, where the freeze and the unproven-opens
             // hold both expire.
             Some(Role::Pointer) if entry.claims => Some(Held::Claims),
+            Some(Role::Pointer) if entry.returns >= at.working_days => Some(Held::WorkingSet),
             Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
             Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),
             Some(Role::Pointer) => None,

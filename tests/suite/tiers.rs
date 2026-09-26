@@ -595,3 +595,27 @@ fn an_ordinary_demotion_says_where_it_lands() {
 fn a_target_with_no_reading_before_still_reports_where_it_lands() {
     assert_eq!(memview::tiers::falls(None, Some(3)), "→3h");
 }
+
+/// Breadth punishes deep focus (`docs/memory.md`): a memory one project keeps
+/// coming back to is that project's working set, however few agents read it.
+/// The control beside it, as thin and as housed, is still offered.
+#[test]
+fn a_memory_one_agent_keeps_coming_back_to_is_held() {
+    let at = Thresholds::default();
+    let mut worked = housed("project_one_projects_working_set", Some(0), 1);
+    worked.returns = at.working_days;
+    let idle = housed("project_idle", Some(0), 1);
+    let trade = propose(&[worked, idle], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        trade
+            .demote
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        ["project_idle"]
+    );
+    assert_eq!(
+        reasons(&trade.held),
+        [("project_one_projects_working_set", Held::WorkingSet)]
+    );
+}

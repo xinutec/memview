@@ -2335,3 +2335,51 @@ fn a_memory_matched_many_times_in_one_result_counts_once() {
         Some(1)
     );
 }
+
+/// How often one agent came back to a memory — what breadth cannot see: the
+/// distinct days in the last [`RETURN_WINDOW`] it opened the memory, outside its
+/// sweeps. Two opens on a day are one day; a day before the window, or one on
+/// which it swept the corpus, is none.
+#[test]
+fn the_days_an_agent_came_back_to_a_memory_are_counted() {
+    let mut lines: Vec<String> = [
+        "2026-07-30",
+        "2026-07-29",
+        "2026-07-25",
+        "2026-07-20",
+        "2026-07-10",
+        "2026-06-01",
+    ]
+    .iter()
+    .map(|day| {
+        call(
+            Tool::Read,
+            "/mem/project_volume.md",
+            &format!("{day}T10:00:00Z"),
+        )
+    })
+    .collect();
+    lines.push(call(
+        Tool::Read,
+        "/mem/project_volume.md",
+        "2026-07-30T11:00:00Z",
+    ));
+    for i in 0..=SWEEP {
+        lines.push(call(
+            Tool::Read,
+            &format!("/mem/reference_{i}.md"),
+            "2026-07-15T10:00:00Z",
+        ));
+    }
+    lines.push(call(
+        Tool::Read,
+        "/mem/project_volume.md",
+        "2026-07-15T10:00:00Z",
+    ));
+    let agents = mine_corpus(
+        &[("s1", lines)],
+        &[],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"home"}"#)],
+    );
+    assert_eq!(agents[0].returned.get("project_volume"), Some(&5));
+}
