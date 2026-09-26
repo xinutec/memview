@@ -103,3 +103,12 @@ async fn a_real_asset_is_still_served() {
         "the bundle came back as HTML: {ct}"
     );
 }
+
+/// An API route that does not exist is a 404, not the page: a client asking the
+/// API for JSON must not be handed HTML with a 200 — `/api/share`, gone, did that.
+#[tokio::test]
+async fn an_unknown_api_route_is_a_404_and_not_the_page() {
+    let (status, ct) = get("/api/share").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!ct.starts_with("text/html"), "an API route got HTML: {ct}");
+}

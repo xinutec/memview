@@ -95,7 +95,9 @@ pub fn router(state: AppState) -> Router {
         .route("/doing", get(api::doing))
         .route("/effects", get(api::effects))
         .route("/reading", get(api::reading))
-        .route("/telemetry", post(telemetry::record));
+        .route("/telemetry", post(telemetry::record))
+        // Not the page: a client asking the API for JSON must not get HTML.
+        .fallback(|| async { crate::error::AppError::NotFound });
 
     let app = Router::new()
         .route("/login", get(auth::login))
