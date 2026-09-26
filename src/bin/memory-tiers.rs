@@ -304,10 +304,10 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         median_entry_cost(entries)
     );
     println!(
-        "\n  ADMIT — reached by {}+ agents WITHOUT the root carrying them, which is the",
+        "\n  ADMIT — found by {}+ agents outside a sweep WITHOUT the root carrying them,",
         at.tenure_breadth
     );
-    println!("  strong direction of evidence: they were found without help.");
+    println!("  the strong direction of evidence: they were found without help.");
     // `hops` is a second question, not a tie-breaker: the same breadth from one hop
     // and from four are different traversal costs. Printed rather than scored (#822).
     for (i, entry) in trade.admit.iter().take(15).enumerate() {
@@ -326,20 +326,14 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         );
     }
     if trade.admit.is_empty() {
-        println!("    (nothing outside the root has been opened by that many agents)");
+        println!("    (nothing outside the root has been found by that many agents)");
     }
-    // Shown, not yet scored (#1735): an agent whose only opens were in a sweep
-    // audited the corpus rather than finding the memory.
-    let swept = trade
-        .admit
-        .iter()
-        .filter(|e| e.unswept_breadth < at.tenure_breadth)
-        .count();
-    if swept > 0 {
+    if trade.swept_admissions > 0 {
+        // An agent whose only opens were in a sweep audited the corpus (#1735).
         println!(
-            "    ⚠ {swept} of {} clear the bar only through agents that reached them in a sweep \
-             (more than {} memories opened in a day).",
-            trade.admit.len(),
+            "    ⚠ {} more clear the bar only through agents that reached them in a sweep \
+             (more than {} memories opened in a day) — counted, never admitted.",
+            trade.swept_admissions,
             memview::agents::SWEEP
         );
     }

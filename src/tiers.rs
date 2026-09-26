@@ -83,7 +83,7 @@ pub struct Entry {
     /// never scored (#1214).
     pub maybe_breadth: usize,
     /// Of [`Self::breadth`], the agents that opened it outside a sweep — see
-    /// [`Breadth::unswept`].
+    /// [`Breadth::unswept`]. What ADMIT counts.
     pub unswept_breadth: usize,
     /// Days since it was last opened, or `None` if never.
     pub last_open: Option<i64>,
@@ -244,7 +244,8 @@ pub struct HeldEntry {
 /// whether the root is smaller afterwards.
 #[derive(Debug, Clone, Default)]
 pub struct Trade {
-    /// Not indexed, and consulted widely enough for tenure. Every qualifier, not
+    /// Not indexed, and found widely enough for tenure — by agents outside a sweep
+    /// ([`Entry::unswept_breadth`]). Every qualifier, not
     /// only the ones there is room for: "eleven have earned a slot and none fit" is
     /// the finding that argues for a demotion pass.
     pub admit: Vec<Entry>,
@@ -261,6 +262,9 @@ pub struct Trade {
     /// read that way predominantly, so breadth — a count over sessions — is exactly
     /// the axis that distorts (#1214). Counted, never admitted.
     pub unproven_admissions: usize,
+    /// Memories that clear the tenure bar only through agents that reached them
+    /// in a sweep: audited, not found (#1735). Counted, never admitted.
+    pub swept_admissions: usize,
     /// Bytes the demotions recover.
     pub recovered: usize,
     /// Bytes the admissions are budgeted at, at [`median_entry_cost`].
@@ -326,18 +330,30 @@ pub fn propose(
         .collect();
     trade.recovered = trade.demote.iter().map(|e| e.entry_cost).sum();
 
+    // Admission counts only agents that found a memory, not ones that swept past
+    // it; demotion above keeps raw breadth, where an undercount loses a rule.
     trade.unproven_admissions = entries
         .iter()
-        .filter(|e| !e.indexed && e.breadth < at.tenure_breadth)
-        .filter(|e| e.breadth + e.maybe_breadth >= at.tenure_breadth)
+        .filter(|e| !e.indexed && e.unswept_breadth < at.tenure_breadth)
+        .filter(|e| e.unswept_breadth + e.maybe_breadth >= at.tenure_breadth)
+        .count();
+    trade.swept_admissions = entries
+        .iter()
+        .filter(|e| !e.indexed && e.unswept_breadth < at.tenure_breadth)
+        .filter(|e| e.breadth >= at.tenure_breadth)
         .count();
 
     let mut admit: Vec<Entry> = entries
         .iter()
-        .filter(|e| !e.indexed && e.breadth >= at.tenure_breadth)
+        .filter(|e| !e.indexed && e.unswept_breadth >= at.tenure_breadth)
         .cloned()
         .collect();
-    admit.sort_by(|a, b| b.breadth.cmp(&a.breadth).then(a.name.cmp(&b.name)));
+    admit.sort_by(|a, b| {
+        b.unswept_breadth
+            .cmp(&a.unswept_breadth)
+            .then(b.breadth.cmp(&a.breadth))
+            .then(a.name.cmp(&b.name))
+    });
 
     // Spend what the demotions recovered plus the root's headroom, and stop.
     let room = trade.recovered + budget;

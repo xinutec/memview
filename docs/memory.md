@@ -210,10 +210,10 @@ top of it:
     **An audit is not a find.** An agent that opened more than 50 distinct
     memories in a day was sweeping the corpus, and its opens that day say
     nothing about whether it would have found any one of them. `memory-tiers`
-    shows, beside each admission, how many of its agents reached it outside a
-    sweep. On 2026-09-25, 32 of 35 admissions fell below the bar on that count
-    (memview#1735). It is shown, not scored: undercounting use is safe for
-    admission and costly for demotion, so it may drive ADMIT and never DEMOTE.
+    admits on the agents that reached a memory outside a sweep, and counts apart
+    what clears the bar only through sweeps: on 2026-09-26 that took ADMIT from
+    35 to 3 (memview#1735). DEMOTE keeps raw breadth, because undercounting use
+    is safe for admission and loses a rule on demotion.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
     under-measure the best-compressed rules, which is why tripwires are reported

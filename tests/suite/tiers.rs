@@ -14,6 +14,8 @@ fn entry(name: &str, created: Option<i64>, breadth: usize) -> Entry {
         indexed: true,
         created,
         breadth,
+        // No sweeps unless a test says so.
+        unswept_breadth: breadth,
         entry_cost: 40,
         ..Entry::default()
     }
@@ -537,6 +539,35 @@ fn admission_near_misses_that_turn_on_unprovable_opens_are_counted_apart() {
     let trade = propose(&[nearly], TODAY, &at, 0, &no_strands);
     assert!(trade.admit.is_empty(), "5 proven is under the bar of 6");
     assert_eq!(trade.unproven_admissions, 1);
+}
+
+/// An agent that reached a memory only while sweeping the corpus did not find
+/// it. ADMIT needs the bar in agents outside a sweep, and what clears it only on
+/// raw breadth is counted apart. DEMOTE stays on raw breadth: undercounting use
+/// there is the direction that loses a rule (#1735).
+#[test]
+fn an_admission_needs_agents_that_found_it_outside_a_sweep() {
+    let at = Thresholds::default();
+    let mut found = entry("project_found_by_its_readers", Some(0), 7);
+    found.indexed = false;
+    let mut swept = entry("project_reached_by_audits", Some(0), 9);
+    swept.indexed = false;
+    swept.unswept_breadth = 1;
+    // Middle on raw breadth, thin once sweeps are discounted: not demoted.
+    let mut middle = housed("project_middle_on_raw_breadth", Some(0), 3);
+    middle.unswept_breadth = 0;
+
+    let trade = propose(&[found, swept, middle], TODAY, &at, 1000, &no_strands);
+    assert_eq!(
+        trade
+            .admit
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        ["project_found_by_its_readers"]
+    );
+    assert_eq!(trade.swept_admissions, 1);
+    assert!(trade.demote.is_empty(), "{:?}", trade.demote);
 }
 
 // ── What a demotion COSTS: how far the target falls (#822) ──────────────────
