@@ -251,7 +251,10 @@ top of it:
     subject and warns nobody. `memory-lint`'s `mute-tripwire` reports those: the
     fix is re-judging the memory as a pointer or demoting it, never a longer
     line, since the index is near its ceiling (memview#822, #1734). The word
-    count in `states_a_claim` is only for the other direction, below.
+    count in `states_a_claim` is only for the other direction, below. The ones
+    judged and kept are recorded, name and label, in `accepted-labels.json`
+    beside `memory-roles.json`, and only a new or relabelled one is reported;
+    the record is frozen on purpose, so a new line never inherits it (#1784).
 
     ⚠ **A pointer whose line states a claim is the dangerous direction, and
     `loud-pointer` counts them.** A judgement of POINTER on a line that states a claim is the record

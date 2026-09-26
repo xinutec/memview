@@ -1,6 +1,6 @@
 //! The document-graph rules: whether the corpus is navigable at all.
 
-use memview::lint::{Severity, Wrote, check, passed_for_session, wrote_by};
+use memview::lint::{Accepted, Severity, Wrote, check, check_judged, passed_for_session, wrote_by};
 use memview::store::Corpus;
 
 /// A corpus of an index plus `(name, body)` memories.
@@ -859,4 +859,65 @@ fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field(
     // The consequence rules must stay SILENT: reporting both names the wrong
     // repair, which is how this cost a day.
     assert!(findings(&corpus, "missing-description").is_empty());
+}
+
+/// One-word tripwires judged and kept stop being warnings, so a NEW one is seen
+/// rather than arriving as number 73 of 73 (memview#1784). The acceptance is of
+/// a label, not a memory: relabelled, it is new again.
+#[test]
+fn an_accepted_one_word_tripwire_is_quiet_and_a_new_one_is_not() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    let index = concat!(
+        "## Rules\n",
+        "- [terse](kept_trip.md)\n",
+        "- [TDD](new_trip.md)\n",
+        "- [rebase](relabelled_trip.md)\n"
+    );
+    for name in ["kept_trip", "new_trip", "relabelled_trip", "gone_trip"] {
+        std::fs::write(
+            d.join(format!("{name}.md")),
+            format!(
+                "---\nname: {name}\ndescription: d\nrole: tripwire\nmetadata:\n  type: feedback\n---\n\nb\n"
+            ),
+        )
+        .expect("write");
+    }
+    std::fs::write(d.join("MEMORY.md"), index).expect("write index");
+    let corpus = Corpus::load(d).expect("loads");
+    let roles = serde_json::json!({ "roles": {} });
+    let accepted: Accepted = serde_json::from_value(serde_json::json!({
+        "decided": "2026-09-25",
+        "labels": {
+            "kept_trip": "terse",
+            "relabelled_trip": "amend",
+            "gone_trip": "cd",
+        }
+    }))
+    .expect("parses");
+
+    let findings = check_judged(&corpus, None, Some(&roles), Some(&accepted));
+    let named = |rule: &str| -> Vec<String> {
+        findings
+            .iter()
+            .filter(|f| f.rule == rule)
+            .map(|f| f.memory.clone())
+            .collect()
+    };
+    assert_eq!(
+        named("mute-tripwire"),
+        ["new_trip".to_string(), "relabelled_trip".to_string()]
+    );
+    assert_eq!(
+        named("stale-acceptance"),
+        ["gone_trip".to_string(), "relabelled_trip".to_string()]
+    );
+
+    // The control: without the record every one-word tripwire is reported.
+    let unrecorded: Vec<String> = check(&corpus, None, Some(&roles))
+        .into_iter()
+        .filter(|f| f.rule == "mute-tripwire")
+        .map(|f| f.memory)
+        .collect();
+    assert_eq!(unrecorded.len(), 3, "{unrecorded:?}");
 }

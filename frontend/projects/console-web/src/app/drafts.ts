@@ -333,9 +333,6 @@ export function difference(
   wants: string,
 ): { at: number; removed: number; added: string } {
   let head = 0;
-  // dev-lint: allow-field-identity-eq both sides are CHARACTERS of a string, not
-  // fields of a record — `string[i]` is `string | undefined`, for which identity
-  // IS value equality. There is no array or object a comparison could get wrong.
   while (head < had.length && head < wants.length && had[head] === wants[head]) head++;
   let tail = 0;
   while (

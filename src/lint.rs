@@ -83,6 +83,13 @@ const RULES: &[(&str, Severity, &str)] = &[
          warns nobody, so either the line or the judgement is wrong",
     ),
     (
+        "stale-acceptance",
+        Severity::Warning,
+        "an accepted one-word tripwire whose index line changed or left the index — \
+         the acceptance was of that label; judge the new one, or drop the entry \
+         (memview#1784)",
+    ),
+    (
         // A warning until the count has held at zero: a rule that flips to error
         // with instances live blocks every session's commits.
         "loud-pointer",
@@ -320,6 +327,36 @@ pub fn check(
     couse: Option<&CoUse>,
     roles: Option<&serde_json::Value>,
 ) -> Vec<Finding> {
+    check_judged(corpus, couse, roles, None)
+}
+
+/// The one-word tripwire labels judged and kept, memory name to the label
+/// accepted (memview#1784). Frozen by design: a line not in it, or changed since,
+/// is new and reported, which is what a baseline of accepted warnings is for.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct Accepted {
+    pub labels: BTreeMap<String, String>,
+}
+
+impl Accepted {
+    /// The record at `path`; `None` when there is none, which reports every
+    /// one-word tripwire as before.
+    pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Self>> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Ok(Some(serde_json::from_str(&text)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+/// [`check`], with the record of accepted one-word tripwires.
+pub fn check_judged(
+    corpus: &Corpus,
+    couse: Option<&CoUse>,
+    roles: Option<&serde_json::Value>,
+    accepted: Option<&Accepted>,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut push = |rule: &'static str, memory: &str, detail: String| {
         findings.push(Finding {
@@ -555,14 +592,40 @@ pub fn check(
                         format!("line reads {:?}", entry.label),
                     );
                 }
+                let kept =
+                    accepted.is_some_and(|a| a.labels.get(&entry.name) == Some(&entry.label));
                 if role == crate::study::Role::Tripwire
                     && crate::study::names_only_a_topic(&entry.label)
+                    && !kept
                 {
                     push(
                         "mute-tripwire",
                         &entry.name,
                         format!("line reads {:?}", entry.label),
                     );
+                }
+            }
+        }
+        // An acceptance is of a LABEL: one whose line changed or left the index is
+        // named, so the record cannot rot into a list of lines that no longer exist.
+        if let Some(accepted) = accepted {
+            let lines: BTreeMap<String, String> = crate::store::index_entries(index)
+                .into_iter()
+                .map(|entry| (entry.name, entry.label))
+                .collect();
+            for (name, label) in &accepted.labels {
+                match lines.get(name) {
+                    Some(now) if now == label => {}
+                    Some(now) => push(
+                        "stale-acceptance",
+                        name,
+                        format!("accepted as {label:?}; the line now reads {now:?}"),
+                    ),
+                    None => push(
+                        "stale-acceptance",
+                        name,
+                        format!("accepted as {label:?}; no longer in the index"),
+                    ),
                 }
             }
         }

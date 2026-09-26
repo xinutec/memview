@@ -66,7 +66,6 @@
   // A tick has to read against both halves of the bar, and no single colour does;
   // `difference` inverts whatever is behind it. White is the operand of the
   // blend, not a colour: the identity for inversion.
-  // dev-lint: allow-hardcoded-color the operand of `difference`, not a colour
   background: #fff;
   mix-blend-mode: difference;
   opacity: 0.45;

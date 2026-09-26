@@ -34,8 +34,9 @@ fn settle(
     dir: &str,
     couse: Option<&CoUse>,
     roles: Option<&serde_json::Value>,
+    accepted: Option<&lint::Accepted>,
 ) -> Result<(Corpus, Vec<lint::Finding>)> {
-    let findings = lint::check(&corpus, couse, roles);
+    let findings = lint::check_judged(&corpus, couse, roles, accepted);
     let racy = findings.iter().any(|f| RACY.contains(&f.rule));
     if !racy {
         return Ok((corpus, findings));
@@ -45,7 +46,7 @@ fn settle(
     );
     std::thread::sleep(SETTLE);
     let corpus = Corpus::load(dir)?;
-    let findings = lint::check(&corpus, couse, roles);
+    let findings = lint::check_judged(&corpus, couse, roles, accepted);
     Ok((corpus, findings))
 }
 
@@ -70,7 +71,16 @@ fn main() -> Result<()> {
         std::fs::read_to_string(reader::home::file("memory-roles.json"))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok());
-    let (corpus, mut findings) = settle(corpus, &dir, couse.as_ref(), roles.as_ref())?;
+    // The one-word tripwires judged and kept (memview#1784). Private, beside the
+    // roles record: it names memories.
+    let accepted = lint::Accepted::load(&reader::home::file("accepted-labels.json"))?;
+    let (corpus, mut findings) = settle(
+        corpus,
+        &dir,
+        couse.as_ref(),
+        roles.as_ref(),
+        accepted.as_ref(),
+    )?;
 
     // The one pass that leaves the corpus and asks whether what it says is still
     // true. `CODE_ROOT` overrides for a checkout elsewhere.
@@ -112,6 +122,18 @@ fn main() -> Result<()> {
     println!("\nrelations in use:");
     for (relation, count) in lint::relation_usage(&corpus) {
         println!("    {relation:<14} {count}");
+    }
+
+    // Said, so the accepted set stays visible rather than silent.
+    if let Some(accepted) = &accepted {
+        let stale = findings
+            .iter()
+            .filter(|f| f.rule == "stale-acceptance")
+            .count();
+        println!(
+            "\n{} one-word tripwires accepted (accepted-labels.json, memview#1784)",
+            accepted.labels.len() - stale
+        );
     }
 
     let tally = lint::tally(&findings);
