@@ -244,11 +244,9 @@ impl Session {
     pub(super) fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
         let mut state = self.state.lock();
         let at = Heard(now());
-        // Through [`crate::usage::remember`], not a blind insert: an answer from cached
-        // headers is an echo, and must not overwrite a fresh `rate_limit_event`.
-        crate::usage::remember(
-            &mut state.spent,
-            windows.into_iter().map(|(window, utilization, resets_at)| {
+        let heard: Vec<(String, Seen)> = windows
+            .into_iter()
+            .map(|(window, utilization, resets_at)| {
                 (
                     window,
                     Seen {
@@ -258,8 +256,26 @@ impl Session {
                         measured: false,
                     },
                 )
-            }),
-        );
+            })
+            .collect();
+        // An echo that says something else and is not believed: the one case in which
+        // the figure on screen and the CLI's own answer disagree, so it is said.
+        for (window, seen) in &heard {
+            if let Some(held) = state.spent.get(window)
+                && held.utilization != seen.utilization
+                && !crate::usage::fresher(held, seen)
+            {
+                tracing::info!(
+                    "{}: kept {window} at {:.0}% over an echo of {:.0}%",
+                    self.id,
+                    held.utilization * 100.0,
+                    seen.utilization * 100.0,
+                );
+            }
+        }
+        // Through [`crate::usage::remember`], not a blind insert: an answer from cached
+        // headers is an echo, and must not overwrite a fresh `rate_limit_event`.
+        crate::usage::remember(&mut state.spent, heard);
     }
 
     /// Ask this session what the account has spent — [`protocol::get_usage`]. The
