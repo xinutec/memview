@@ -7,19 +7,14 @@
 } @else if (loading()) {
   <mat-progress-bar mode="indeterminate" />
 } @else {
-  <!-- The fleet's bar (@xinutec/ui-scaffold): the menu and a screen's name, or
-       an arrow up to the index from a memory. -->
+  <!-- The fleet's bar (@xinutec/ui-scaffold): the menu on the index, and an
+       arrow up to it from every other screen. -->
   <ui-scaffold title="memory" [menu]="nav" />
   <!-- One trigger rather than a row of icons: the bar had five, each readable
        only by guessing what its glyph meant, and every new destination made
        the brand and the icons compete for the same phone-width line. A menu
        also affords the thing icons cannot — a written label. -->
   <mat-menu #nav="matMenu">
-    <!-- First: the bar's name is no longer a link home. -->
-    <a mat-menu-item routerLink="/">
-      <mat-icon>home</mat-icon>
-      <span>Memory index</span>
-    </a>
     <a mat-menu-item routerLink="/search">
       <mat-icon>search</mat-icon>
       <span>Search</span>

@@ -19,7 +19,7 @@ allowBuilds:
   '@parcel/watcher': true
   lmdb: true
   msgpackr-extract: true
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/36785055a5b6da60c6cfe1e45b23a055f46a9c99': true
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/505918947da95a30c8aab61d0f0f3f4c9d361be6': true
 
 # Carried across from package.json's npm-format `overrides`, which pnpm does not
 # read. Here and nowhere else: two lists of one constraint drift.

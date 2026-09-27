@@ -10,7 +10,9 @@ import { SearchView } from './search-view';
 import { TimelineView } from './timeline-view';
 
 /**
- * Routes for the SPA — a real table (fleet convention):
+ * Routes for the SPA — a real table (fleet convention). Every screen but the
+ * index is drilled into from it, the menu's included, so each declares up to it
+ * (@xinutec/ui-scaffold; Pippijn, 2026-09-27):
  *
  *   /              → MEMORY.md index (the curated map)
  *   /m/:name       → one memory, rendered
@@ -24,11 +26,11 @@ import { TimelineView } from './timeline-view';
 export const routes: Routes = [
   { path: '', component: IndexView },
   { path: 'm/:name', component: MemoryView, data: { up: { path: '/', label: 'memory index' } } },
-  { path: 'all', component: AllView },
-  { path: 'graph', component: GraphView },
-  { path: 'agents', component: AgentsView },
-  { path: 'doing', component: TimelineView },
-  { path: 'reader', component: ReaderView },
-  { path: 'search', component: SearchView },
+  { path: 'all', component: AllView, data: { up: { path: '/', label: 'memory index' } } },
+  { path: 'graph', component: GraphView, data: { up: { path: '/', label: 'memory index' } } },
+  { path: 'agents', component: AgentsView, data: { up: { path: '/', label: 'memory index' } } },
+  { path: 'doing', component: TimelineView, data: { up: { path: '/', label: 'memory index' } } },
+  { path: 'reader', component: ReaderView, data: { up: { path: '/', label: 'memory index' } } },
+  { path: 'search', component: SearchView, data: { up: { path: '/', label: 'memory index' } } },
   { path: '**', redirectTo: '' },
 ];
