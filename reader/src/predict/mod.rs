@@ -30,7 +30,7 @@ mod python_re;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
-use crate::shell_ops::{GitOp, Op, basename, classify, resolve, unwrap_command};
+use crate::shell_ops::{GitOp, Op, basename, classify, innermost, resolve};
 use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
     Script, SegmentKind, Simple, Tilde, Word,
@@ -324,7 +324,14 @@ impl<'a> Run<'a> {
             Some("true" | ":") => Ok(String::new()),
             Some("cat") => self.cat(&args, redirects),
             Some("tee") => self.stdin(redirects),
-            Some(other) => Err(Why::Program(other.to_string())),
+            // Named for the program that prints, behind any carrier.
+            Some(other) => {
+                let words: Vec<String> = std::iter::once(other.to_string()).chain(args).collect();
+                let program = innermost(&words)
+                    .first()
+                    .map_or(other, |head| basename(head));
+                Err(Why::Program(program.to_string()))
+            }
             None => Err(Why::Expansion),
         }
     }
@@ -594,9 +601,7 @@ impl<'a> Run<'a> {
             return;
         }
         let why = why.unwrap_or_else(|| {
-            let program = unwrap_command(&argv)
-                .first()
-                .map_or("", |head| basename(head));
+            let program = innermost(&argv).first().map_or("", |head| basename(head));
             Why::Program(program.to_string())
         });
         // With every word literal the text determines every path, implied ones
@@ -687,9 +692,7 @@ impl<'a> Run<'a> {
     fn nested(&mut self, script: &str, argv: &[String], literal: bool, why: Option<Why>) {
         let why = why.or_else(|| (!literal).then_some(Why::Expansion));
         if !self.child(script, self.cwd.clone(), why.clone()) {
-            let program = unwrap_command(argv)
-                .first()
-                .map_or("", |head| basename(head));
+            let program = innermost(argv).first().map_or("", |head| basename(head));
             self.unfollowed.push(Unfollowed {
                 path: None,
                 why: why.unwrap_or_else(|| Why::Program(program.to_string())),
@@ -929,12 +932,13 @@ const REWRITES_TREE: &[&str] = &[
 fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
     match op {
         Op::Unknown { .. } => Some(
-            unwrap_command(argv)
+            innermost(argv)
                 .first()
                 .map_or("", |head| basename(head))
                 .to_string(),
         ),
         Op::Run { script } => Some(basename(script).to_string()),
+        Op::Opaque { name } => Some(name.clone()),
         Op::Git(GitOp::Other { subcommand }) if REWRITES_TREE.contains(&subcommand.as_str()) => {
             Some(format!("git {subcommand}"))
         }

@@ -141,7 +141,7 @@ pub fn of(op: &Op, cmd: &Simple) -> Activity {
     match op {
         Op::Read { paths } if !paths.is_empty() => Activity::Inspect,
         Op::Transform { .. } => Activity::Inspect,
-        Op::Run { .. } => Activity::Run,
+        Op::Run { .. } | Op::Opaque { .. } => Activity::Run,
         Op::Python { .. } | Op::JavaScript { .. } | Op::Nested { .. } => Activity::Run,
         Op::Git(_) => Activity::Vcs,
         Op::ChangeDir { .. } => Activity::Navigate,

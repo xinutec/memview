@@ -97,6 +97,7 @@ pub fn naming(op: &Op) -> Naming {
         // that carries the meaning is the one the chip had dropped.
         Op::Nothing => name("nothing", "no files", "nothing with files"),
         Op::Unknown { .. } => name("unknown", "not read", "not understood"),
+        Op::Opaque { .. } => name("opaque", "runs unseen code", "runs code it does not show"),
     }
 }
 

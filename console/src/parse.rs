@@ -258,6 +258,8 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
         // The script is not repeated as a phrase: it is already the one file a `Run`
         // projects to, and a 412px screen has no room to say it twice.
         Op::Run { .. } => String::new(),
+        // What it runs, which is the whole of what is known.
+        Op::Opaque { name } => name.clone(),
         // The script itself is not repeated: its commands are the steps below
         // this one, which is a better answer than the text they came from.
         Op::Nested { .. } | Op::Python { .. } | Op::JavaScript { .. } => String::new(),

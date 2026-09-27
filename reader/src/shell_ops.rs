@@ -136,6 +136,10 @@ pub enum Op {
     /// Not in the table. Carries its name so the gap can be counted and worked
     /// down rather than silently ignored.
     Unknown { name: String },
+    /// Runs code the text does not show, and may do anything with files: a
+    /// package script (`pnpm run build`, `npm test`), `nix run`. Known, unlike
+    /// [`Op::Unknown`], and not a gap in the tables: no table could say more.
+    Opaque { name: String },
 }
 
 /// How a command names the machine it reaches, and where its payload starts.
@@ -563,6 +567,85 @@ fn after_flag<'a>(argv: &'a [String], flags: &[&str]) -> Option<&'a [String]> {
     argv.iter()
         .position(|word| flags.contains(&word.as_str()))
         .map(|at| &argv[at + 1..])
+}
+
+/// A carrier's own subcommand, when it carries nothing: a package manager or
+/// `nix` doing its own work. A package manager's queries touch nothing; anything
+/// else runs code the text does not show — a package script, or an install and
+/// the packages' own install scripts. `nix build` writes its out-link, and
+/// `nix run` runs whatever it names.
+fn uncarried(name: &str, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
+    // Flags that take a value, so the value is not read as the subcommand.
+    const VALUED: &[&str] = &[
+        "-C",
+        "--dir",
+        "--filter",
+        "-F",
+        "--prefix",
+        "--cwd",
+        "--store",
+        "-o",
+        "--out-link",
+    ];
+    let mut words = argv.iter().skip(1).map(String::as_str);
+    let mut base = cwd.map(str::to_string);
+    let mut out_link = Some("result");
+    let mut sub = Vec::new();
+    while let Some(word) = words.next() {
+        if VALUED.contains(&word) {
+            let value = words.next();
+            if matches!(word, "-C" | "--dir" | "--prefix" | "--cwd") {
+                base = value.and_then(|dir| resolve(dir, cwd, home));
+            } else if matches!(word, "-o" | "--out-link") {
+                out_link = value;
+            }
+        } else if word == "--no-link" {
+            out_link = None;
+        } else if !word.starts_with('-') {
+            sub.push(word);
+        }
+    }
+    let written = |files: &[&str]| Op::Write {
+        paths: files
+            .iter()
+            .filter_map(|file| resolve(file, base.as_deref(), home))
+            .collect(),
+    };
+    let opaque = |what: &str| Op::Opaque {
+        name: format!("{name} {what}"),
+    };
+    match (name, sub.as_slice()) {
+        (
+            "pnpm" | "npm" | "yarn",
+            []
+            | [
+                "list" | "ls" | "why" | "outdated" | "audit" | "view" | "info" | "help" | "config"
+                | "store" | "root" | "bin",
+                ..,
+            ],
+        ) => Op::Nothing,
+        ("pnpm" | "npm" | "yarn", [script, ..]) => opaque(script),
+        ("nix", ["build", ..]) => written(out_link.as_slice()),
+        ("nix", ["flake", "update" | "lock", ..]) => written(&["flake.lock"]),
+        ("nix", ["run" | "fmt", ..]) => opaque(sub[0]),
+        _ => Op::Nothing,
+    }
+}
+
+/// The program a command line finally runs: through wrappers (`timeout`, `env`)
+/// and through carriers (`pnpm exec`, `nix develop -c`). What a refusal names.
+pub fn innermost(argv: &[String]) -> &[String] {
+    let mut argv = unwrap_command(argv);
+    while let Some(head) = argv.first() {
+        let Some(Verb::Carries(flags)) = verb(basename(head)) else {
+            break;
+        };
+        match after_flag(argv, flags) {
+            Some(rest) if !rest.is_empty() => argv = unwrap_command(rest),
+            _ => break,
+        }
+    }
+    argv
 }
 
 /// The values given to any of `flags`, in order.
@@ -1661,7 +1744,12 @@ fn act(
             // with it — `nix develop -c python3 - <<'PY'` opens the body for
             // the python, not for the wrapper.
             Some(rest) if !rest.is_empty() => classify_naming(unnamed, rest, heredocs, cwd, home),
-            _ => Op::Nothing,
+            _ => uncarried(
+                argv.first().map_or("", |head| basename(head)),
+                argv,
+                cwd,
+                home,
+            ),
         },
         Verb::JavaScript => {
             // The program comes from a flag, from a script file, or from stdin —

@@ -612,9 +612,11 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
         Op::Git(GitOp::Stage { .. }) => Vec::new(),
         Op::Git(GitOp::Alter { paths }) => write(paths),
         Op::Git(GitOp::Inspect { paths }) => read(paths),
-        Op::Git(GitOp::Other { .. }) | Op::ChangeDir { .. } | Op::Nothing | Op::Unknown { .. } => {
-            Vec::new()
-        }
+        Op::Git(GitOp::Other { .. })
+        | Op::ChangeDir { .. }
+        | Op::Nothing
+        | Op::Unknown { .. }
+        | Op::Opaque { .. } => Vec::new(),
     }
 }
 

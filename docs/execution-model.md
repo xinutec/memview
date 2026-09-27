@@ -85,9 +85,11 @@ removes it, and `rm -r` everything under it. Any other program that writes
 files itself (`cp`, `sed -i`) has them named by the shell tables and
 refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`) stands for
 everything under its fixed part. A program the tables do not know, a script run
-from a file, a git command that rewrites the working tree, and a write to a path
-an expansion chose may each have written any file, so nothing predicted before
-one survives it. Found live: edit scripts (`sub.py`, `insert_kotlin.py`) run
+from a file, code the text does not show (a package script, `pnpm install` and
+the install scripts it runs, `nix run`), a git command that rewrites the working
+tree, and a write to a path an expansion chose may each have written any file,
+so nothing predicted before one survives it. A refusal names the program that
+ran, behind any carrier: `pnpm exec biome …` is biome's. Found live: edit scripts (`sub.py`, `insert_kotlin.py`) run
 after a heredoc rewrote the file it had just written; the rule withdrew (2026-09-27) 2,512 of
 6,575 predictions from history, every one a claim the text could not back. A script handed to another shell (`bash -c`, `nix-shell --run`) is the
 same language against the same files, so it is followed in place, its `cd`

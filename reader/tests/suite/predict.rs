@@ -1013,3 +1013,53 @@ fn a_removed_glob_is_still_refused() {
     let found = run("echo x > e2e/zz.ts; rm e2e/zz*.ts", &nothing_known());
     assert!(found.written.is_empty(), "{:?}", found.written);
 }
+
+/// A package script runs code the text does not show, so nothing predicted before
+/// it survives; a package manager's query touches nothing. Before this, `pnpm run`
+/// and `pnpm test` were taken to touch no files at all.
+#[test]
+fn a_package_script_forgets_what_came_before_and_a_query_does_not() {
+    for script in ["pnpm run fix", "pnpm test", "npm install", "nix run .#gen"] {
+        let found = run(&format!("echo x > a; {script}"), &nothing_known());
+        assert!(found.written.is_empty(), "{script}");
+    }
+    for query in [
+        "pnpm list",
+        "pnpm outdated",
+        "nix eval .#x",
+        "nix flake show",
+    ] {
+        let found = run(&format!("echo x > a; {query}"), &nothing_known());
+        assert_eq!(found.written, vec![written("/repo/a", "x\n")], "{query}");
+    }
+}
+
+/// A refusal names the program that ran, not the carrier in front of it:
+/// `pnpm exec biome check --write` is biome's write.
+#[test]
+fn a_refusal_names_the_program_behind_a_carrier() {
+    let found = run(
+        "echo x > a; pnpm exec biome check --write a",
+        &nothing_known(),
+    );
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/a")
+                && u.why == Why::Program("biome".to_string())),
+        "{:?}",
+        found.unfollowed
+    );
+}
+
+/// `nix build` writes its out-link, and nothing with `--no-link`.
+#[test]
+fn nix_build_writes_its_out_link() {
+    let found = run("echo x > result; nix build .#x", &nothing_known());
+    assert!(found.written.is_empty());
+    let kept = run("echo x > result; nix build --no-link .#x", &nothing_known());
+    assert_eq!(kept.written, vec![written("/repo/result", "x\n")]);
+    let elsewhere = run("echo x > result; nix build -o out .#x", &nothing_known());
+    assert_eq!(elsewhere.written, vec![written("/repo/result", "x\n")]);
+}
