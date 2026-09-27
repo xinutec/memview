@@ -88,6 +88,19 @@ pub enum Why {
     Python(String),
 }
 
+impl Why {
+    /// The reason as the census names it; a program keeps its name, since which
+    /// one is the worklist.
+    pub fn census_name(&self) -> String {
+        match self {
+            Why::Program(program) => format!("program {program}"),
+            Why::Option(option) => format!("option {option}"),
+            Why::Python(construct) => format!("python {construct}"),
+            other => format!("{other:?}").to_lowercase(),
+        }
+    }
+}
+
 /// What a command will write, and what it writes that could not be followed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Prediction {

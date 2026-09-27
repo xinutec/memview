@@ -68,6 +68,9 @@ sees, can overwrite a file while the task runs.
 **What the evaluator cannot follow yields no prediction, never an
 approximation.** It is refused by name and counted, the way every other gap in
 this layer is, and that census is what orders the next construct to teach it.
+From history no file is given, so most of that census is `not read`; a live call
+has its files read, and the console keeps its refusals (`refused.jsonl` beside
+the findings), which `predict-report --live` ranks. That ranking is the worklist.
 Observation is never a substitute for it: a diff taken from the files alone would
 show a change nobody here understood, and hide the gap that says what to build.
 

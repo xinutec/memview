@@ -201,3 +201,24 @@ fn a_backgrounded_call_agrees_if_either_look_holds_the_prediction() {
     let (_, diverged) = edits.ended("c2", Some(&Ended::Completed)).expect("checked");
     assert_eq!(diverged.paths.len(), 1);
 }
+
+/// What a live call's prediction refused is kept, by the census's names: live
+/// calls have their files read, so these refusals — not history's `not read` —
+/// are what to teach the evaluator next. A call that refused nothing adds nothing.
+#[test]
+fn a_live_calls_refusals_are_kept_by_name() {
+    let dir = scratch("refused");
+    let edits = Edits::new(dir.join("store"));
+    assert!(edits.before("s1", "c1", "make > a.txt", at(&dir)).is_none());
+    edits
+        .before("s1", "c2", "echo x > b.txt", at(&dir))
+        .expect("predicted");
+    let kept = std::fs::read_to_string(dir.join("store").join("refused.jsonl")).expect("kept");
+    let rows: Vec<serde_json::Value> = kept
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("json"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{kept}");
+    assert_eq!(rows[0]["call"], "c1");
+    assert_eq!(rows[0]["refused"], serde_json::json!(["program make"]));
+}

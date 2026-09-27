@@ -85,6 +85,18 @@ pub fn edits_root() -> PathBuf {
         .join("edits")
 }
 
+/// What a live call's prediction did not follow, by the census's names — see
+/// `predict-report --live`.
+#[derive(Serialize)]
+struct Refused {
+    session: String,
+    call: String,
+    command: String,
+    /// Files it did predict, beside the refusals.
+    predicted: usize,
+    refused: Vec<String>,
+}
+
 /// A prediction waiting for its call to finish.
 struct Pending {
     session: String,
@@ -124,6 +136,22 @@ impl Edits {
             .filter_map(|path| Some((path.clone(), read(Path::new(&path))?)))
             .collect();
         let prediction = predict(&script, cwd, &home, &files);
+        if !prediction.unfollowed.is_empty() {
+            let refused = Refused {
+                session: session.to_string(),
+                call: call.to_string(),
+                command: command.to_string(),
+                predicted: prediction.written.len(),
+                refused: prediction
+                    .unfollowed
+                    .iter()
+                    .map(|unfollowed| unfollowed.why.census_name())
+                    .collect(),
+            };
+            if let Err(why) = self.keep(&self.root.join("refused.jsonl"), &refused) {
+                tracing::warn!("could not keep the refusals of {call}: {why}");
+            }
+        }
         if prediction.written.is_empty() {
             return None;
         }

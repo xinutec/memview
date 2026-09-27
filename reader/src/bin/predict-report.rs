@@ -2,6 +2,7 @@
 //! follow yet — ranked, because that list is what to teach it next.
 //!
 //!     cargo run --release -p reader --bin predict-report -- <corpus.jsonl> [--show <why> <n>]
+//!     cargo run --release -p reader --bin predict-report -- --live ~/.console/edits/refused.jsonl
 //!
 //! The history setting: each command is given its text and nothing else, so a
 //! write that depends on a file's old contents counts as `not read`. Before a live
@@ -13,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use reader::predict::{Files, Why, predict};
+use reader::predict::{Files, predict};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -28,6 +29,12 @@ fn main() -> anyhow::Result<()> {
             args.get(at + 2)?.parse::<usize>().ok()?,
         ))
     });
+    if path == "--live" {
+        let Some(path) = args.get(2) else {
+            anyhow::bail!("usage: predict-report --live <refused.jsonl> [--show <why> <n>]");
+        };
+        return live(path, show);
+    }
     let home = std::env::var("HOME").unwrap_or_default();
     // `--only <text>`: just the commands containing it.
     let filter = args
@@ -125,7 +132,7 @@ fn main() -> anyhow::Result<()> {
         refused += found.unfollowed.len();
         whole += usize::from(found.unfollowed.is_empty());
         for unfollowed in &found.unfollowed {
-            let name = name(&unfollowed.why);
+            let name = unfollowed.why.census_name();
             if let Some((wanted, n)) = &show
                 && name.contains(wanted.as_str())
                 && shown < *n
@@ -162,13 +169,41 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A reason as the report prints it; a program keeps its name, since which one is
-/// the worklist.
-fn name(why: &Why) -> String {
-    match why {
-        Why::Program(program) => format!("program {program}"),
-        Why::Option(option) => format!("option {option}"),
-        Why::Python(construct) => format!("python {construct}"),
-        other => format!("{other:?}").to_lowercase(),
+/// `--live`: the refusals the console kept from live calls, which had their files
+/// read — so `not read` is rare there, and what is left is what to build next.
+fn live(path: &str, show: Option<(String, usize)>) -> anyhow::Result<()> {
+    let (mut calls, mut predicted) = (0usize, 0usize);
+    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+    let mut shown = 0usize;
+    for line in std::fs::read_to_string(path)?.lines() {
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        calls += 1;
+        predicted += row["predicted"].as_u64().unwrap_or(0) as usize;
+        for name in row["refused"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|n| n.as_str())
+        {
+            if let Some((wanted, n)) = &show
+                && name.contains(wanted.as_str())
+                && shown < *n
+            {
+                shown += 1;
+                println!("--- {name}:\n{}\n", row["command"].as_str().unwrap_or(""));
+            }
+            *why.entry(name.to_string()).or_insert(0) += 1;
+        }
     }
+    println!("live calls with a refusal    {calls}");
+    println!("  files they did predict     {predicted}");
+    println!("writes not followed, by why:");
+    let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    for (name, n) in ranked.iter().take(40) {
+        println!("  {n:7}  {name}");
+    }
+    Ok(())
 }
