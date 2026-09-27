@@ -65,7 +65,7 @@ pub struct Finding {
     pub call: String,
     pub command: String,
     pub path: String,
-    pub predicted: String,
+    pub predicted: Option<String>,
     pub actual: Option<String>,
 }
 
@@ -161,7 +161,12 @@ impl Edits {
             .iter()
             .flat_map(|written| {
                 let now = read(Path::new(&written.path)).flatten().unwrap_or_default();
-                hunks(&written.path, &now, &written.text)
+                // A file the command removes shows as every line of it deleted.
+                hunks(
+                    &written.path,
+                    &now,
+                    written.text.as_deref().unwrap_or_default(),
+                )
             })
             .collect();
         let edited = Edited {

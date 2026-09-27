@@ -222,3 +222,29 @@ fn a_live_calls_refusals_are_kept_by_name() {
     assert_eq!(rows[0]["call"], "c1");
     assert_eq!(rows[0]["refused"], serde_json::json!(["program make"]));
 }
+
+/// A file the command removes is predicted gone, and the check holds it to that:
+/// gone agrees, still there diverges.
+#[test]
+fn a_removed_file_is_checked_for_being_gone() {
+    let dir = scratch("removed");
+    let edits = Edits::new(dir.join("store"));
+    std::fs::write(dir.join("a.txt"), "old\n").expect("seed");
+    edits
+        .before("s1", "c1", "rm a.txt", at(&dir))
+        .expect("predicted");
+    std::fs::remove_file(dir.join("a.txt")).expect("the call ran");
+    let (_, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    assert!(diverged.paths.is_empty(), "{diverged:?}");
+
+    std::fs::write(dir.join("a.txt"), "old\n").expect("seed");
+    edits
+        .before("s1", "c2", "rm a.txt", at(&dir))
+        .expect("predicted");
+    let (_, diverged) = edits
+        .finished("c2", &serde_json::json!({}))
+        .expect("checked");
+    assert_eq!(diverged.paths.len(), 1, "a file still there is not removed");
+}

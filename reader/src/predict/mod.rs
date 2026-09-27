@@ -43,11 +43,12 @@ use crate::syntax::print::print_value;
 /// not known at all.
 pub type Files = BTreeMap<String, Option<String>>;
 
-/// A file as it will be after the command.
+/// A file as it will be after the command: its text, or `None` for a file the
+/// command removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     pub path: String,
-    pub text: String,
+    pub text: Option<String>,
 }
 
 /// A write this could not follow, and why. `path` is absent when the target
@@ -127,7 +128,11 @@ pub fn predict(script: &Script, cwd: &str, home: &str, files: &Files) -> Predict
         .filter_map(|path| match run.now.get(path) {
             Some(Held::Text(text)) => Some(Written {
                 path: path.clone(),
-                text: text.clone(),
+                text: Some(text.clone()),
+            }),
+            Some(Held::Absent) => Some(Written {
+                path: path.clone(),
+                text: None,
             }),
             _ => None,
         })
@@ -156,9 +161,10 @@ struct Run<'a> {
     order: Vec<String>,
     /// Paths whose given text was asked for and not there.
     asked: Vec<String>,
-    /// Paths rewritten in a way this does not follow. Whatever lies under one —
-    /// a formatter's directory — is unknown too.
-    gone: Vec<String>,
+    /// Directories whose contents this run changed wholesale, oldest first: to
+    /// unknown (a formatter's directory) or to absent (`rm -r`). The newest one
+    /// over a path decides what it holds.
+    trees: Vec<(String, Held)>,
     unfollowed: Vec<Unfollowed>,
 }
 
@@ -171,7 +177,7 @@ impl<'a> Run<'a> {
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
-            gone: Vec::new(),
+            trees: Vec::new(),
             unfollowed: Vec::new(),
         }
     }
@@ -456,7 +462,7 @@ impl<'a> Run<'a> {
                 why: why.clone(),
             });
         }
-        self.gone.push(path.to_string());
+        self.trees.push((path.to_string(), Held::Unknown));
         self.write(path, false, Err(why));
     }
 
@@ -472,7 +478,29 @@ impl<'a> Run<'a> {
             }
         }
         // The root: every path lies under it.
-        self.gone.push(String::new());
+        self.trees.push((String::new(), Held::Unknown));
+    }
+
+    /// `rm`: the path, and with `-r` everything under it, is gone. What the run
+    /// wrote there is reported removed; anything under it read later is absent.
+    fn remove(&mut self, path: &str, recursive: bool) {
+        if recursive {
+            let under = format!("{path}/");
+            let inside: Vec<String> = self
+                .now
+                .keys()
+                .filter(|known| known.starts_with(&under))
+                .cloned()
+                .collect();
+            for known in inside {
+                self.now.insert(known, Held::Absent);
+            }
+            self.trees.push((path.to_string(), Held::Absent));
+        }
+        if !self.order.iter().any(|seen| seen == path) {
+            self.order.push(path.to_string());
+        }
+        self.now.insert(path.to_string(), Held::Absent);
     }
 
     /// A file's text as this run has left it, or as it was given.
@@ -480,12 +508,10 @@ impl<'a> Run<'a> {
         if let Some(held) = self.now.get(path) {
             return held.clone();
         }
-        if self
-            .gone
-            .iter()
-            .any(|gone| path.starts_with(gone.as_str()) && path[gone.len()..].starts_with('/'))
-        {
-            return Held::Unknown;
+        if let Some((_, held)) = self.trees.iter().rev().find(|(tree, _)| {
+            path.starts_with(tree.as_str()) && path[tree.len()..].starts_with('/')
+        }) {
+            return held.clone();
         }
         match self.given.get(path) {
             Some(Some(text)) => Held::Text(text.clone()),
@@ -542,6 +568,17 @@ impl<'a> Run<'a> {
         if let Op::Nested { script } = &op {
             let literal = literal.iter().all(Option::is_some);
             self.nested(script, &argv, literal, why);
+            return;
+        }
+        // Removed paths the text names exactly are known to be gone.
+        if let Op::Remove { paths, recursive } = &op
+            && literal.iter().all(Option::is_some)
+            && paths.iter().all(|path| glob_root(path).is_none())
+            && why.is_none()
+        {
+            for path in paths {
+                self.remove(path, *recursive);
+            }
             return;
         }
         if let Some(program) = writes_anything(&op, &argv) {
@@ -848,7 +885,8 @@ fn moves(command: &Command) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Divergence {
     pub path: String,
-    pub predicted: String,
+    /// What the file was to hold, or `None` if it was to be removed.
+    pub predicted: Option<String>,
     /// What the file held after the call, or `None` if it did not exist.
     pub actual: Option<String>,
 }
@@ -860,7 +898,7 @@ pub fn check(predicted: &[Written], after: &Files) -> Vec<Divergence> {
         .iter()
         .filter_map(|written| {
             let actual = after.get(&written.path)?;
-            (actual.as_deref() != Some(written.text.as_str())).then(|| Divergence {
+            (actual != &written.text).then(|| Divergence {
                 path: written.path.clone(),
                 predicted: written.text.clone(),
                 actual: actual.clone(),

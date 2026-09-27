@@ -16,7 +16,15 @@ fn run(script: &str, files: &Files) -> Prediction {
 fn written(path: &str, text: &str) -> Written {
     Written {
         path: path.to_string(),
-        text: text.to_string(),
+        text: Some(text.to_string()),
+    }
+}
+
+/// A file the command removes.
+fn removed(path: &str) -> Written {
+    Written {
+        path: path.to_string(),
+        text: None,
     }
 }
 
@@ -200,7 +208,7 @@ mod checking {
             check(&[written("/repo/a", "x\n")], &after),
             vec![Divergence {
                 path: "/repo/a".to_string(),
-                predicted: "x\n".to_string(),
+                predicted: Some("x\n".to_string()),
                 actual: Some("y\n".to_string()),
             }]
         );
@@ -955,13 +963,53 @@ fn a_glob_forgets_what_lies_under_its_fixed_prefix() {
     }
 }
 
-/// `rm -r` takes everything under the directory with it. Found live:
-/// `cat > examples/a.rs …; cargo build; rm -r examples`.
+/// `rm -r` takes everything under the directory with it: what the command wrote
+/// there is gone, and so is the directory. Found live: `cat > examples/a.rs …;
+/// cargo build; rm -r examples`.
 #[test]
-fn a_recursive_rm_forgets_the_files_under_it() {
+fn a_recursive_rm_removes_the_files_under_it() {
     let found = run(
         "mkdir -p examples && cat > examples/a.rs <<'EOF'\nfn main() {}\nEOF\nrm -r examples",
         &nothing_known(),
     );
+    assert_eq!(
+        found.written,
+        vec![removed("/repo/examples/a.rs"), removed("/repo/examples")]
+    );
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+}
+
+/// A file written and then removed, as life's screenshot command does with its
+/// temporary spec: the end state is that it does not exist, which the text says
+/// exactly.
+#[test]
+fn a_file_written_then_removed_is_predicted_gone() {
+    let found = run("echo x > zz.spec.ts; rm zz.spec.ts", &nothing_known());
+    assert_eq!(found.written, vec![removed("/repo/zz.spec.ts")]);
+    assert!(found.unfollowed.is_empty());
+    // Written again after, it holds the new text.
+    let again = run("rm -f a; echo y > a", &nothing_known());
+    assert_eq!(again.written, vec![written("/repo/a", "y\n")]);
+}
+
+/// Under a removed directory there is nothing to read: a later read is of a file
+/// that does not exist, not of one the run knows nothing about.
+#[test]
+fn a_read_under_a_removed_directory_finds_nothing() {
+    let found = run("rm -rf d; cat d/x > y", &nothing_known());
+    assert!(
+        found.unfollowed.contains(&Unfollowed {
+            path: Some("/repo/y".to_string()),
+            why: Why::Missing,
+        }),
+        "{:?}",
+        found.unfollowed
+    );
+}
+
+/// A glob is every file it matches, which the text cannot list: still refused.
+#[test]
+fn a_removed_glob_is_still_refused() {
+    let found = run("echo x > e2e/zz.ts; rm e2e/zz*.ts", &nothing_known());
     assert!(found.written.is_empty(), "{:?}", found.written);
 }

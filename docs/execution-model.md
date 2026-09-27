@@ -79,8 +79,10 @@ a heredoc into a file carries its whole new text, then `echo`/`printf` into a
 file, then `sed -i`. Python, the largest share by far, follows once it has a tree
 of its own — see Scope.
 
-**Every write is predicted or refused, never left out.** A program that writes
-files itself (`cp`, `rm`, `sed -i`) has them named by the shell tables and
+**Every write is predicted or refused, never left out.** A prediction is a file's
+text afterwards, or that it will not exist: `rm` of a path the text names exactly
+removes it, and `rm -r` everything under it. Any other program that writes
+files itself (`cp`, `sed -i`) has them named by the shell tables and
 refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`) stands for
 everything under its fixed part. A program the tables do not know, a script run
 from a file, a git command that rewrites the working tree, and a write to a path

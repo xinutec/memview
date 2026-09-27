@@ -123,7 +123,10 @@ fn main() -> anyhow::Result<()> {
             shown += 1;
             println!("--- predicted:\n{cmd}");
             for file in &found.written {
-                println!("  {} ⇒\n{}", file.path, file.text);
+                match &file.text {
+                    Some(text) => println!("  {} ⇒\n{text}", file.path),
+                    None => println!("  {} ⇒ removed", file.path),
+                }
             }
             println!();
         }
