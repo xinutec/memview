@@ -241,10 +241,11 @@ impl Session {
 
     /// Keep what the CLI answered about each window. Per window, not wholesale: an
     /// answer naming one window says nothing about another.
-    pub(super) fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
+    pub(super) fn record_usage(&self, reply: protocol::UsageReply) {
         let mut state = self.state.lock();
         let at = Heard(now());
-        let heard: Vec<(String, Seen)> = windows
+        let heard: Vec<(String, Seen)> = reply
+            .windows
             .into_iter()
             .map(|(window, utilization, resets_at)| {
                 (
@@ -253,7 +254,7 @@ impl Session {
                         utilization,
                         resets_at: resets_at.map(ResetsAt),
                         at,
-                        measured: false,
+                        measured: reply.fetched,
                     },
                 )
             })

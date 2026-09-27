@@ -602,7 +602,9 @@ const USAGE_REPLY: &str = r#"{"type":"control_response","response":{"request_id"
 
 #[test]
 fn the_usage_reply_gives_up_both_windows() {
-    let mut found = console::protocol::usage_reply(USAGE_REPLY).expect("rate limits");
+    let mut found = console::protocol::usage_reply(USAGE_REPLY)
+        .expect("rate limits")
+        .windows;
     found.sort_by(|a, b| a.0.cmp(&b.0));
     // A percentage on the wire, a fraction here — one place multiplies, so
     // nothing downstream has to know which it was given.
@@ -624,7 +626,9 @@ fn a_models_own_allowance_is_read_out_of_the_array_it_lives_in() {
     // `model_scoped` is an ARRAY beside an object of windows, so the loop that
     // reads a `utilization` off each value steps over it in silence — which is
     // how the Fable window went unnoticed while sitting in every reply.
-    let mut found = console::protocol::usage_reply(SCOPED_REPLY).expect("rate limits");
+    let mut found = console::protocol::usage_reply(SCOPED_REPLY)
+        .expect("rate limits")
+        .windows;
     found.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(found.len(), 3, "{found:?}");
     // Named by the model, prefixed so it cannot collide with a CLI window name.
@@ -644,7 +648,9 @@ fn a_model_scope_with_no_name_is_dropped_rather_than_guessed_at() {
     // after a guess is worse than one that is not drawn. The plan's own windows
     // in the same reply are unaffected.
     let nameless = r#"{"type":"control_response","response":{"response":{"rate_limits":{"five_hour":{"utilization":62,"resets_at":"2026-08-12T18:19:59Z"},"model_scoped":[{"utilization":6},{"display_name":"Fable","utilization":6}]}}}}"#;
-    let mut found = console::protocol::usage_reply(nameless).expect("rate limits");
+    let mut found = console::protocol::usage_reply(nameless)
+        .expect("rate limits")
+        .windows;
     found.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(found.len(), 2, "{found:?}");
     assert_eq!(found[0].0, "five_hour");
@@ -1203,5 +1209,29 @@ fn a_mode_the_console_does_not_know_is_kept_by_name() {
     assert_eq!(
         serde_json::to_string(&Mode::DontAsk).expect("json"),
         r#""dontAsk""#
+    );
+}
+
+/// The reply as the CLI gave it on 2026-09-27, trimmed: the `limits` list and the
+/// account's spend beside the windows, which only the usage service knows.
+const FETCHED_REPLY: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":{"utilization":3,"resets_at":"2026-09-27T20:09:59.742550+00:00"},"seven_day":{"utilization":0,"resets_at":"2026-10-02T01:59:59.742570+00:00"},"limits":[{"kind":"weekly_all","group":"weekly","percent":0,"resets_at":"2026-10-02T01:59:59.742570+00:00"}],"spend":{"percent":100},"model_scoped":[{"display_name":"Fable","utilization":0,"resets_at":"2026-10-02T02:00:00+00:00"}]}}}}"#;
+
+/// A reply in the fetched shape is a measurement, and one in the header shape is
+/// not: the first is what let a reset reach the screen, where every echo that
+/// fell had been refused as a stale cache.
+#[test]
+fn a_reply_the_cli_fetched_is_told_apart_from_an_echo() {
+    let fetched = console::protocol::usage_reply(FETCHED_REPLY).expect("rate limits");
+    assert!(fetched.fetched);
+    assert_eq!(fetched.windows.len(), 3, "{:?}", fetched.windows);
+    assert!(
+        !console::protocol::usage_reply(SCOPED_REPLY)
+            .expect("rate limits")
+            .fetched
+    );
+    assert!(
+        !console::protocol::usage_reply(USAGE_REPLY)
+            .expect("rate limits")
+            .fetched
     );
 }

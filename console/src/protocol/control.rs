@@ -221,7 +221,7 @@ pub fn get_usage(request_id: &str) -> String {
 /// key beside the others — `model_scoped` is an array of `{display_name,
 /// utilization, resets_at}`.
 /// Not matched on a request id: any response carrying rate limits is an answer.
-pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
+pub fn usage_reply(line: &str) -> Option<UsageReply> {
     let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
     if parsed.get("type")?.as_str()? != "control_response" {
         return None;
@@ -231,6 +231,9 @@ pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
         .get("response")?
         .get("rate_limits")?
         .as_object()?;
+    let fetched = limits
+        .get("limits")
+        .is_some_and(serde_json::Value::is_array);
     let mut found = Vec::new();
     for (window, seen) in limits {
         if window == MODEL_SCOPED {
@@ -244,7 +247,23 @@ pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
         };
         found.push((window.clone(), pct / 100.0, resets_at(seen)));
     }
-    (!found.is_empty()).then_some(found)
+    (!found.is_empty()).then_some(UsageReply {
+        windows: found,
+        fetched,
+    })
+}
+
+/// What a `get_usage` answer says about the rate limits.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageReply {
+    /// Each window, by name, as a fraction and when it turns over (epoch seconds).
+    pub windows: Vec<(String, f64, Option<i64>)>,
+    /// Whether the CLI fetched this from the usage service rather than repeating
+    /// the headers it last saw. The fetched shape carries a `limits` list (and the
+    /// account's spend), which headers never did; a fresh process and one hours
+    /// old gave the same figures in it moments after a reset (2026-09-27). A
+    /// fetched answer is a measurement — see [`crate::usage::fresher`].
+    pub fetched: bool,
 }
 
 /// Where the CLI files a window belonging to one model rather than to the plan.

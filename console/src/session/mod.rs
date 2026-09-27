@@ -411,8 +411,8 @@ impl Session {
                     session.heard();
                     // Before the events and separately: a control response is an answer to
                     // something the console asked, not something that happened in the conversation.
-                    if let Some(windows) = protocol::usage_reply(&line) {
-                        session.record_usage(windows);
+                    if let Some(reply) = protocol::usage_reply(&line) {
+                        session.record_usage(reply);
                         continue;
                     }
                     // The other answer this console asks for — see [`Session::settle_mode`].
