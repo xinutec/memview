@@ -85,11 +85,11 @@ pub struct Seen {
     pub resets_at: Option<ResetsAt>,
     pub at: Heard,
     /// Whether the API itself said this, at a moment we can date: a
-    /// `rate_limit_event`, a dashboard row, or a `get_usage` answer the CLI fetched
-    /// (see [`crate::protocol::UsageReply::fetched`]) is a measurement; a `get_usage`
-    /// answer in the older shape repeats headers of unknowable age. A measurement
-    /// moves the figure both ways, an echo can only fill in — see
-    /// [`crate::usage::fresher`]. Defaulted false.
+    /// `rate_limit_event`, a dashboard row, or a `get_usage` answer, dated by the
+    /// API's last answer to that process (see [`crate::usage::echo_dated`]). Only a
+    /// `get_usage` answer from a process the API has not answered since it started
+    /// is undated, an echo. A measurement moves the figure both ways, an echo can
+    /// only fill in — see [`crate::usage::fresher`]. Defaulted false.
     #[serde(default)]
     pub measured: bool,
 }

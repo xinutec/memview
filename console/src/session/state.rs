@@ -140,6 +140,11 @@ pub(super) struct State {
     /// When the last turn ended, in epoch milliseconds — `None` whenever the session
     /// is working. See [`Session::deaf`].
     pub(super) idle_since: Option<i64>,
+    /// When the API last answered this process, in epoch milliseconds: the age of
+    /// the rate-limit headers it would repeat if asked about usage. `None` until it
+    /// has answered since starting — a transcript replayed on joining is someone
+    /// else's answers. See [`crate::usage::echo_dated`].
+    pub(super) answered: Option<i64>,
     /// Whether this episode of deafness has already been announced. See
     /// [`Session::check_deaf`].
     pub(super) announced_deaf: bool,
@@ -202,8 +207,18 @@ pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
         // Nothing is running as of now. `Joined` matters most: pushed after the seeded
         // transcript, it stops a file ending mid-turn from reading as a turn still
         // going in a process that has only just started.
-        Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now),
+        Event::Started { .. } | Event::Joined { .. } => {
+            state.idle_since = Some(now);
+            state.answered = None;
+        }
         _ => {}
+    }
+    // What the API sent back: each carries fresh rate-limit headers.
+    if matches!(
+        event,
+        Event::Text { .. } | Event::Tool { .. } | Event::Context { .. } | Event::Turn { .. }
+    ) {
+        state.answered = Some(now);
     }
     state.working = working_after(state.working, event);
     match event {

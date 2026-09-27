@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
 
 use super::state::Unread;
-use super::{Heard, ResetsAt, Seen, Session, now};
+use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
 impl Session {
@@ -243,7 +243,7 @@ impl Session {
     /// answer naming one window says nothing about another.
     pub(super) fn record_usage(&self, reply: protocol::UsageReply) {
         let mut state = self.state.lock();
-        let at = Heard(now());
+        let (at, measured) = crate::usage::echo_dated(reply.fetched, state.answered, now());
         let heard: Vec<(String, Seen)> = reply
             .windows
             .into_iter()
@@ -254,7 +254,7 @@ impl Session {
                         utilization,
                         resets_at: resets_at.map(ResetsAt),
                         at,
-                        measured: reply.fetched,
+                        measured,
                     },
                 )
             })

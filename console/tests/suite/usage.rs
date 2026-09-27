@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use console::session::{Heard, ResetsAt, Seen};
-use console::usage::{Published, fresher, here, merged, reading, short_name};
+use console::usage::{Published, echo_dated, fresher, here, merged, reading, short_name};
 
 /// The reading exactly as the dashboard served it while this was written.
 fn published() -> Published {
@@ -625,4 +625,54 @@ fn only_a_measurement_may_lower_within_a_window() {
         fresher(&base, &measured_down),
         "a measurement may lower: that is how a reset lands"
     );
+}
+
+/// A `get_usage` answer repeats the headers of the API's last answer to that
+/// process, so it is dated by that answer: a measurement, which may lower the
+/// figure. Found live (2026-09-27): after a manual reset, every session's reply
+/// said Fable 0% and the console kept 96% until the week turned over, having
+/// refused each reply as an echo that fell.
+#[test]
+fn a_reply_from_a_process_the_api_just_answered_can_lower_the_figure() {
+    let resets = 1_790_906_400; // 2026-10-02T02:00:00Z, unchanged by the reset
+    let before = held(0.96, resets, 1_000);
+    // The process heard from the API at 5_000; asked at 9_000.
+    let (at, measured) = echo_dated(false, Some(5_000), 9_000);
+    assert_eq!((at, measured), (Heard(5_000), true));
+    let after = Seen {
+        utilization: 0.0,
+        resets_at: Some(ResetsAt(resets)),
+        at,
+        measured,
+    };
+    assert!(
+        fresher(&before, &after),
+        "the reset did not reach the figure"
+    );
+}
+
+/// The control: headers older than the figure held are not believed when they
+/// are lower — the case the rule exists for, an idle session reporting the account
+/// as it stood an hour ago.
+#[test]
+fn a_reply_older_than_the_figure_does_not_lower_it() {
+    let resets = 1_790_906_400;
+    let now_held = Seen {
+        utilization: 0.81,
+        resets_at: Some(ResetsAt(resets)),
+        at: Heard(8_000),
+        measured: true,
+    };
+    let (at, measured) = echo_dated(false, Some(2_000), 9_000);
+    let stale = Seen {
+        utilization: 0.77,
+        resets_at: Some(ResetsAt(resets)),
+        at,
+        measured,
+    };
+    assert!(!fresher(&now_held, &stale));
+    // And a process the API has not answered since it started gives no date at all.
+    assert_eq!(echo_dated(false, None, 9_000), (Heard(9_000), false));
+    // A reply the CLI fetched is dated now.
+    assert_eq!(echo_dated(true, Some(2_000), 9_000), (Heard(9_000), true));
 }

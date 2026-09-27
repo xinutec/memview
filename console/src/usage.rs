@@ -22,7 +22,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::RwLock;
 
-use crate::session::Seen;
+use crate::session::{Heard, Seen};
 
 /// How often to ask the dashboard: the reading behind it changes when somebody
 /// opens a terminal.
@@ -201,6 +201,21 @@ const SAME_WINDOW: i64 = 60;
 /// Whether two reset instants describe one window instance. See [`SAME_WINDOW`].
 fn same_window(held: crate::session::ResetsAt, candidate: crate::session::ResetsAt) -> bool {
     (held.0 - candidate.0).abs() <= SAME_WINDOW
+}
+
+/// When a `get_usage` answer was true, and whether it counts as a measurement.
+///
+/// Fetched from the usage service: now. Otherwise the CLI repeats the headers of
+/// the API's last answer to that process, so the figure is exactly as old as that
+/// answer — a measurement dated then, and a busy session's reply can lower the
+/// figure after a reset. A process the API has not answered since it started
+/// gives no date, and its reply stays an echo.
+pub fn echo_dated(fetched: bool, answered: Option<i64>, now: i64) -> (Heard, bool) {
+    match (fetched, answered) {
+        (true, _) => (Heard(now), true),
+        (false, Some(at)) => (Heard(at), true),
+        (false, None) => (Heard(now), false),
+    }
 }
 
 /// Fold what the sessions have just said into what is already known.
