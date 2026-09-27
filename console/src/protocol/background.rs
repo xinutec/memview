@@ -193,8 +193,26 @@ impl crate::named::Named for Ended {
 fn ends_without_naming_the_call(text: &str) -> bool {
     const TIMED_OUT: &str = "[Monitor timed out — re-arm if needed.]";
     const NO_RECORD: &str = "No completion record was found for background agent";
-    between(text, "<event>", "</event>") == Some(TIMED_OUT)
+    between(text, "<event>", "</event>").is_some_and(|event| event == TIMED_OUT || expired(event))
         || between(text, "<summary>", "</summary>").is_some_and(|said| said.starts_with(NO_RECORD))
+}
+
+/// The newer words for a monitor's timeout, whole, with only the duration free:
+/// `[Monitor expired after 5m with no events delivered. Re-arm it if you still
+/// need the watch — and widen the filter if silence was unexpected.]`.
+fn expired(event: &str) -> bool {
+    const BEFORE: &str = "[Monitor expired after ";
+    const AFTER: &str = " with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]";
+    let Some(duration) = event
+        .strip_prefix(BEFORE)
+        .and_then(|rest| rest.strip_suffix(AFTER))
+    else {
+        return false;
+    };
+    let digits = duration.trim_end_matches(['s', 'm', 'h']);
+    duration.len() == digits.len() + 1
+        && !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Whether this text is the harness reporting on a background task at all —

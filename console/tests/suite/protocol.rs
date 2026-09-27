@@ -430,6 +430,21 @@ fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
 }
 
 #[test]
+fn a_monitor_that_expired_is_an_ending_in_its_newer_words() {
+    // Verbatim, from utterance (2026-09-27): the CLI now says "expired", and the
+    // console kept the monitor on the strip for an hour after it had gone.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b1sq24h3h</task-id>\n<summary>Monitor event: \"Wait for the commit job PID to exit\"</summary>\n<event>[Monitor expired after 5m with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]</event>\n</task-notification>"}]}}"#;
+    assert!(
+        matches!(
+            read(line).as_slice(),
+            [Event::Background { tool: None, task: Some(task), .. }] if task == "b1sq24h3h"
+        ),
+        "got {:?}",
+        read(line)
+    );
+}
+
+#[test]
 fn a_monitor_reporting_is_not_a_monitor_ending() {
     // The reason the ending is matched on its words and not on the absence
     // of a call. Every line a monitor emits arrives as a notification of the
@@ -451,6 +466,14 @@ fn a_monitor_reporting_is_not_a_monitor_ending() {
         (
             "output that quotes the timeout line",
             "  68 [Monitor timed out — re-arm if needed.]",
+        ),
+        (
+            "output that quotes the expiry line",
+            "2 [Monitor expired after N with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]",
+        ),
+        (
+            "an expiry line with something that is not a duration in it",
+            "[Monitor expired after a while with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]",
         ),
     ] {
         let line = format!(
