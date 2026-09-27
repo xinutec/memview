@@ -1054,6 +1054,41 @@ test('starting a session is behind one button, not in the way @ phone width', as
   await expect.poll(() => sent).toMatchObject({ dir: '/home/example/Code/memview', prompt: '' });
 });
 
+test('starting a session leaves no history entry for the sheet behind @ phone width', async ({
+  page,
+}) => {
+  // The sheet closes and the app navigates at once, but the sheet's history
+  // entry is only taken back after its exit animation — by then the session's
+  // entry is on top, so the sheet's is stranded under it and back from the
+  // session spends a press on nothing (#1801).
+  await mockRunner(page);
+  await page.route('**/api/sessions', (r) => r.fulfill({ json: RUNNING }));
+  await page.goto('/');
+  await page.getByText('decode').first().waitFor();
+  await page.getByRole('button', { name: 'start a new session' }).click();
+  await page.getByLabel('where').fill('/home/example/Code/memview');
+  await page.getByRole('button', { name: /start a session/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}`));
+  await page.locator('mat-bottom-sheet-container').waitFor({ state: 'detached' });
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  // Polled: back lands on the leftover entry first, and the step past it follows
+  // the popstate. Without that step the state stays the sheet's.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            typeof history.state === 'object' &&
+            history.state !== null &&
+            'overlay' in history.state,
+        ),
+      { message: "back landed on the sheet's leftover entry" },
+    )
+    .toBe(false);
+});
+
 test('session list — a dozen sessions do not reach the build stamp @ phone width', async ({
   page,
 }, testInfo) => {

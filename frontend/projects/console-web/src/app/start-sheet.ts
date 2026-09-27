@@ -5,7 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { Router } from '@angular/router';
+import { Sheets } from '@xinutec/ui-scaffold';
 
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
@@ -37,7 +37,7 @@ export class StartSheet {
   protected readonly repos = this.given.repos;
 
   private api = inject(ConsoleApi);
-  private router = inject(Router);
+  private sheets = inject(Sheets);
   private sheet = inject(MatBottomSheetRef<StartSheet>);
 
   /**
@@ -76,9 +76,10 @@ export class StartSheet {
     this.api.start(dir, '').subscribe({
       next: (session) => {
         this.starting.set(false);
-        // Closed before navigating: the sheet is a sibling of the router outlet.
-        this.sheet.dismiss();
-        void this.router.navigate(['/s', session.id]);
+        // Closed before navigating: the sheet is a sibling of the router outlet. The
+        // session takes the sheet's history entry, or back from it would stop on
+        // that entry first — see [[Sheets.dismissTo]].
+        void this.sheets.dismissTo(this.sheet, ['/s', session.id]);
       },
       error: (err: unknown) => {
         this.starting.set(false);
