@@ -1,12 +1,12 @@
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { catchError, of } from 'rxjs';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { ConsoleApi } from './console-api';
-import { Here } from './here';
 import { CorpusRead } from './models';
 
 /** One bar: a shape of work and its share of the biggest. */
@@ -31,18 +31,16 @@ const HAIRLINE = 0.006;
   templateUrl: './reading-view.html',
   styleUrl: './reading-view.scss',
 })
-export class ReadingView implements OnDestroy {
+export class ReadingView {
   private api = inject(ConsoleApi);
-  private here = inject(Here);
 
   readonly reading = signal<CorpusRead | undefined>(undefined);
   /** Set when the survey could not be fetched — including "never mined". */
   readonly failed = signal(false);
 
   constructor() {
-    // The bar above is drawn from the route, before anything is fetched — see
-    // [[Here.page]].
-    this.here.page.set('Reader');
+    // Named before anything is fetched: the bar is drawn from the route.
+    scaffoldTitle(() => 'Reader');
     this.api
       .reading()
       .pipe(
@@ -57,10 +55,6 @@ export class ReadingView implements OnDestroy {
         this.failed.set(false);
         this.reading.set(got);
       });
-  }
-
-  ngOnDestroy(): void {
-    this.here.page.set(undefined);
   }
 
   /**

@@ -15,14 +15,13 @@ import {
 } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { switchMap } from 'rxjs';
-import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { Sheets, scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { Composer } from './composer';
 import { ConsoleApi } from './console-api';
-import { Dismiss } from './dismiss';
 import { Drafts } from './drafts';
 import { reason } from './errors';
 import { Folding } from './folding';
@@ -31,6 +30,7 @@ import { Foreground } from './foreground';
 import { Here } from './here';
 import { Lasted } from './lasted';
 import { modelName } from './model';
+import { titleOf } from './naming';
 import { type Change, type Entry, type Summary, type ToolCall } from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
@@ -67,8 +67,7 @@ export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
 
   private readonly api = inject(ConsoleApi);
-  private readonly sheet = inject(MatBottomSheet);
-  private readonly dismiss = inject(Dismiss);
+  private readonly sheets = inject(Sheets);
   private readonly here = inject(Here);
   private readonly store = inject(SessionStore);
   private readonly drafts = inject(Drafts);
@@ -169,6 +168,12 @@ export class SessionView implements OnDestroy {
   private was = 0;
 
   constructor() {
+    // Its name, else where it runs, quieter: the same rule titles the list's cards.
+    // Nothing during the round trip, rather than a stand-in for a stand-in.
+    scaffoldTitle(() => {
+      const open = this.session();
+      return open && { text: titleOf(open), provisional: !open.name };
+    });
     effect((onCleanup) => {
       const id = this.id();
       this.here.at.set(id);
@@ -432,22 +437,20 @@ export class SessionView implements OnDestroy {
   }
 
   protected diff(change: Change): void {
-    this.dismiss.onBack(this.sheet.open(DiffSheet, { data: change, panelClass: 'session-sheet' }));
+    this.sheets.open(DiffSheet, { data: change, panelClass: 'session-sheet' });
   }
 
   protected parse(entry: ToolCall): void {
-    this.dismiss.onBack(
-      this.sheet.open(ParseSheet, {
-        data: {
-          session: this.id(),
-          command: entry.text,
-          ok: entry.ok,
-          hunks: entry.hunks,
-          diverged: entry.diverged,
-        },
-        panelClass: 'session-sheet',
-      }),
-    );
+    this.sheets.open(ParseSheet, {
+      data: {
+        session: this.id(),
+        command: entry.text,
+        ok: entry.ok,
+        hunks: entry.hunks,
+        diverged: entry.diverged,
+      },
+      panelClass: 'session-sheet',
+    });
   }
 
   /** A picture link inside rendered markdown opens the picture sheet. */
@@ -457,8 +460,6 @@ export class SessionView implements OnDestroy {
     const url = link && pointedAt(link.getAttribute('href') ?? '');
     if (!url) return;
     event.preventDefault();
-    this.dismiss.onBack(
-      this.sheet.open(PictureSheet, { data: { url }, panelClass: 'picture-panel' }),
-    );
+    this.sheets.open(PictureSheet, { data: { url }, panelClass: 'picture-panel' });
   }
 }

@@ -4,13 +4,12 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
+import { Sheets } from '@xinutec/ui-scaffold';
 
 import { cacheStops, cacheUrgent, withinCacheHour } from './cache-heat';
 import { since } from './since';
 import { ConsoleApi } from './console-api';
-import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Roster } from './roster';
 import { Foreground } from './foreground';
@@ -118,8 +117,7 @@ export class SessionsView {
   private api = inject(ConsoleApi);
   private updates = inject(Updates);
   private router = inject(Router);
-  private sheet = inject(MatBottomSheet);
-  private dismiss = inject(Dismiss);
+  private sheets = inject(Sheets);
   private roster = inject(Roster);
   private pastStore = inject(PastStore);
   private foreground = inject(Foreground);
@@ -252,13 +250,11 @@ export class SessionsView {
   /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
   add(): void {
     // Wired into history: the list is the root, so a back press with this open
-    // leaves the app altogether. See [[Dismiss]].
-    this.dismiss.onBack(
-      this.sheet.open(StartSheet, {
-        data: { repos: this.state()?.repos ?? [], common: this.commonest() },
-        panelClass: 'start-sheet',
-      }),
-    );
+    // leaves the app altogether. See [[Sheets]].
+    this.sheets.open(StartSheet, {
+      data: { repos: this.state()?.repos ?? [], common: this.commonest() },
+      panelClass: 'start-sheet',
+    });
   }
 
   /**

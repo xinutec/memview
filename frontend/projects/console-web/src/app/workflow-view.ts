@@ -1,21 +1,12 @@
-import {
-  Component,
-  DestroyRef,
-  OnDestroy,
-  computed,
-  effect,
-  inject,
-  input,
-  signal,
-} from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
-import { Here, LIST } from './here';
 import { type Agent, type Run, type ToolCall } from './models';
 import { Roster } from './roster';
 import { fold } from './transcript';
@@ -34,7 +25,7 @@ type State = 'done' | 'working' | 'stopped';
   styleUrl: './workflow-view.scss',
   imports: [MatIconModule, MatProgressBarModule, MatProgressSpinnerModule, RouterLink],
 })
-export class WorkflowView implements OnDestroy {
+export class WorkflowView {
   readonly id = input.required<string>();
   readonly run = input.required<string>();
   /** The harness's task id for the run, from its launch. */
@@ -42,7 +33,6 @@ export class WorkflowView implements OnDestroy {
   readonly name = input<string>();
 
   private readonly api = inject(ConsoleApi);
-  private readonly here = inject(Here);
   private readonly roster = inject(Roster);
 
   protected readonly got = signal<Run | undefined>(undefined);
@@ -63,10 +53,7 @@ export class WorkflowView implements OnDestroy {
 
   constructor() {
     inject(DestroyRef).onDestroy(this.roster.follow());
-    effect(() => {
-      this.here.page.set(this.name() ?? 'workflow');
-      this.here.up.set({ path: `/s/${this.id()}` });
-    });
+    scaffoldTitle(() => this.name() ?? 'workflow');
     effect((onCleanup) => {
       const id = this.id();
       const run = this.run();
@@ -83,11 +70,6 @@ export class WorkflowView implements OnDestroy {
       const timer = setInterval(read, REREAD_MS);
       onCleanup(() => clearInterval(timer));
     });
-  }
-
-  ngOnDestroy(): void {
-    this.here.page.set(undefined);
-    this.here.up.set(LIST);
   }
 
   private stateOf(agent: Agent): State {

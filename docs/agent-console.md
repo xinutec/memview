@@ -783,7 +783,8 @@ themselves carry the reasoning.
 
 | file                  | what it owns                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------- |
-| `app.ts` / `app.html` | the shell: toolbar, build stamp, `<router-outlet>`                                    |
+| `app.ts` / `app.html` | the frame: the fleet's bar (`@xinutec/ui-scaffold`), the ⋮ menu, build stamp, outlet  |
+| `app.routes.ts`       | the screens, and where up goes from each: declared, for the bar to read               |
 | `sessions-view.ts`    | the list — one ranked row per conversation, and starting one                          |
 | `session-view.ts`     | one conversation: transcript, composer, approvals, header                             |
 | `session-store.ts`    | **the state that outlives a page** — transcripts, activity, background tasks          |
@@ -810,7 +811,7 @@ themselves carry the reasoning.
 | `model.ts`            | the id the CLI reports → the name anybody says; unknown ids shown whole               |
 | `naming.ts`           | what to call a conversation — its name, else where it runs; one rule, two views       |
 | `session-sheet.ts`    | the details behind the heading: path, model id, mode, session id                      |
-| `here.ts`             | the open conversation, for the toolbar's menu above the router                        |
+| `here.ts`             | the open conversation, for the bar's ⋮ menu above the router                          |
 
 ### The state model
 
@@ -1105,7 +1106,7 @@ not how important it is.
   on a session, press back, and you land on the session _list_ with the sheet
   gone. The gesture meaning "put this panel away" also threw away the
   conversation. On the list it is worse — the start sheet sits on the root, so
-  back leaves the app. `dismiss.ts` gives each sheet a history entry to spend,
+  back leaves the app. `Sheets` (`@xinutec/ui-scaffold`) gives each sheet a history entry to spend,
   and takes it back when the sheet is closed by hand; a step that outlives its
   panel is a back press spent on nothing, which reads as a frozen phone.
 - ⚠ **A cold launch lands inside a session with no history behind it**, because
@@ -1497,7 +1498,7 @@ So the arrangement is: **every picture the console shows comes from the console.
   re-rendered. Answering the second look with the first render is the one wrong
   answer that looks exactly like the right one.
 - **It opens over the conversation, and back puts it away.** A full-screen sheet,
-  registered with `Dismiss` so the gesture pops a history entry rather than the
+  opened through `Sheets` so the gesture pops a history entry rather than the
   page — without that, back closes the picture _and_ leaves the conversation
   behind it. Tapping the picture switches between fitted and its own size: a
   render fitted to a phone shows the shape of a room and hides whether a wall came

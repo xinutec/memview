@@ -2,7 +2,6 @@ import {
   Component,
   DestroyRef,
   Injector,
-  OnDestroy,
   afterNextRender,
   computed,
   effect,
@@ -12,16 +11,14 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { Sheets, scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { ConsoleApi } from './console-api';
 import { DiffSheet } from './diff-sheet';
-import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Folding } from './folding';
-import { Here, LIST } from './here';
 import { type Change, type Entry, type Timed, type ToolCall } from './models';
 import { ParseSheet } from './parse-sheet';
 import { Roster } from './roster';
@@ -42,7 +39,7 @@ const NEAR_END_PX = 80;
   styleUrl: './agent-view.scss',
   imports: [MatButtonModule, MatProgressBarModule, TranscriptList],
 })
-export class AgentView implements OnDestroy {
+export class AgentView {
   readonly id = input.required<string>();
   readonly run = input.required<string>();
   readonly agent = input.required<string>();
@@ -50,10 +47,8 @@ export class AgentView implements OnDestroy {
   readonly label = input<string>();
 
   private readonly api = inject(ConsoleApi);
-  private readonly here = inject(Here);
   private readonly roster = inject(Roster);
-  private readonly sheet = inject(MatBottomSheet);
-  private readonly dismiss = inject(Dismiss);
+  private readonly sheets = inject(Sheets);
   private readonly injector = inject(Injector);
 
   /** Everything read so far, oldest first, and the cursors on either side. */
@@ -76,13 +71,7 @@ export class AgentView implements OnDestroy {
 
   constructor() {
     inject(DestroyRef).onDestroy(this.roster.follow());
-    effect(() => {
-      this.here.page.set(this.label() ?? this.agent());
-      this.here.up.set({
-        path: `/s/${this.id()}/w/${this.run()}`,
-        query: { task: this.task() },
-      });
-    });
+    scaffoldTitle(() => this.label() ?? this.agent());
     effect(() => {
       const [id, run, agent] = [this.id(), this.run(), this.agent()];
       untracked(() =>
@@ -108,11 +97,6 @@ export class AgentView implements OnDestroy {
       const timer = setInterval(() => this.extend(), REREAD_MS);
       onCleanup(() => clearInterval(timer));
     });
-  }
-
-  ngOnDestroy(): void {
-    this.here.page.set(undefined);
-    this.here.up.set(LIST);
   }
 
   /** What the agent has done since it was last read. */
@@ -167,15 +151,13 @@ export class AgentView implements OnDestroy {
   }
 
   protected diff(change: Change): void {
-    this.dismiss.onBack(this.sheet.open(DiffSheet, { data: change, panelClass: 'session-sheet' }));
+    this.sheets.open(DiffSheet, { data: change, panelClass: 'session-sheet' });
   }
 
   protected parse(entry: ToolCall): void {
-    this.dismiss.onBack(
-      this.sheet.open(ParseSheet, {
-        data: { session: this.id(), command: entry.text, ok: entry.ok },
-        panelClass: 'session-sheet',
-      }),
-    );
+    this.sheets.open(ParseSheet, {
+      data: { session: this.id(), command: entry.text, ok: entry.ok },
+      panelClass: 'session-sheet',
+    });
   }
 }

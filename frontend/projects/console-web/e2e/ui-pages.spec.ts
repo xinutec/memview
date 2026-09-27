@@ -7,10 +7,12 @@ import { first, last, nth } from '../src/app/testing';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
+  expectBackClosesOverlay,
   expectIconFontLoaded,
   expectNoClippedText,
   expectNoHorizontalOverflow,
   expectNoTextOverlaps,
+  expectUpInTheBar,
   expectViewportIsPhone,
 } from '@xinutec/ui-harness';
 
@@ -587,7 +589,7 @@ async function mockRunner(page: Page): Promise<void> {
  */
 async function expectNoPinnedOverlap(page: Page): Promise<void> {
   const clashes = await page.evaluate(() => {
-    const boxes = ['.composer', '.build', '.bar'].map((sel) => ({
+    const boxes = ['.composer', '.build', 'ui-scaffold'].map((sel) => ({
       sel,
       box: document.querySelector(sel)?.getBoundingClientRect(),
     }));
@@ -3053,14 +3055,14 @@ test('the toolbar says which session this is, beside what can be done to it @ ph
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${RUNNING.id}`);
-  await expect(page.locator('.bar .name')).toHaveText('health');
+  await expect(page.locator('ui-scaffold h1')).toHaveText('health');
   // The ⋮ beside it is a glyph in a circle, and it has to be in the middle of it.
   await expectIconsCentred(page);
   // Named by what it is called rather than by a class, so the assertion is about
   // what a person — or a screen reader — can find.
-  await expect(page.locator('.bar').getByRole('button', { name: /what to do with/ })).toHaveText(
-    'more_vert',
-  );
+  await expect(
+    page.locator('ui-scaffold').getByRole('button', { name: /what to do with/ }),
+  ).toHaveText('more_vert');
   // The path is what the name replaced, and the session's own header no longer
   // prints it: it is in the sheet behind the name.
   //
@@ -3091,13 +3093,16 @@ test('the bar is a session bar before the runner has answered @ phone width', as
 
   // Nothing has answered yet, and the way out is already on screen.
   await expect(
-    page.locator('.bar [aria-label="all sessions"]'),
+    page.locator('ui-scaffold [aria-label="all sessions"]'),
     'the bar is still the list’s',
   ).toBeVisible();
-  await expect(page.locator('.bar .title'), 'the root headline flashed up').toHaveCount(0);
+  await expect(
+    page.locator('ui-scaffold h1', { hasText: /^console$/ }),
+    'the root headline flashed up',
+  ).toHaveCount(0);
 
   answer?.();
-  await expect(page.locator('.bar .name')).toHaveText('health');
+  await expect(page.locator('ui-scaffold h1')).toHaveText('health');
 });
 
 test('a session with no name yet says where it runs, and which one it is @ phone width', async ({
@@ -3112,8 +3117,8 @@ test('a session with no name yet says where it runs, and which one it is @ phone
   // is also what claims a task list.
   await mockRunner(page);
   await page.goto(`/s/${RUNNING.id}`);
-  await expect(page.locator('.bar .name')).toHaveText('decode · 6f7c2f11');
-  await expect(page.locator('.bar .name')).toHaveClass(/anonymous/);
+  await expect(page.locator('ui-scaffold h1')).toHaveText('decode · 6f7c2f11');
+  await expect(page.locator('ui-scaffold h1')).toHaveClass(/provisional/);
 });
 
 test('the list says nothing about which machine it is @ phone width', async ({ page }) => {
@@ -3131,9 +3136,9 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
-  await expect(page.locator('.bar')).not.toContainText('Mac');
+  await expect(page.locator('ui-scaffold')).not.toContainText('Mac');
   // Nowhere above the list, so nothing to go up to.
-  await expect(page.locator('.bar [aria-label="all sessions"]')).toHaveCount(0);
+  await expect(page.locator('ui-scaffold [aria-label="all sessions"]')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Menu' }).click();
   for (const aimed of ['Details', 'Go to…', 'Tasks', 'Rename', 'Stop']) {
@@ -3175,7 +3180,7 @@ test('the screen can be kept on from either screen @ phone width', async ({ page
 
   for (const url of ['/', `/s/${RUNNING.id}`]) {
     await page.goto(url);
-    const button = page.locator('.bar .awake');
+    const button = page.locator('ui-scaffold .awake');
     await button.waitFor();
     // Hollow until it is holding anything, and the label says what pressing it
     // will do rather than what the state is.
@@ -3211,13 +3216,15 @@ test('a browser that cannot keep the screen on is not offered it @ phone width',
   });
   await mockRunner(page);
   await page.goto(`/s/${RUNNING.id}`);
-  await page.locator('.bar .name').waitFor();
-  await expect(page.locator('.bar .awake')).toHaveCount(0);
+  await page.locator('ui-scaffold h1').waitFor();
+  await expect(page.locator('ui-scaffold .awake')).toHaveCount(0);
 });
 
 /** Where the toolbar's leading glyph starts — the terminal mark, or the arrow. */
 async function leadingGlyph(page: Page): Promise<number> {
-  return page.evaluate(() => document.querySelector('.bar mat-icon')!.getBoundingClientRect().left);
+  return page.evaluate(
+    () => document.querySelector('ui-scaffold mat-icon')!.getBoundingClientRect().left,
+  );
 }
 
 test('the toolbar starts in the same place on both screens @ phone width', async ({ page }) => {
@@ -3235,10 +3242,10 @@ test('the toolbar starts in the same place on both screens @ phone width', async
   // `.first()`, because the bar now carries a second glyph: the screen-awake
   // control sits at the end of both branches, and a bare locator matching two
   // elements is a strict-mode violation rather than a measurement.
-  await page.locator('.bar mat-icon').first().waitFor();
+  await page.locator('ui-scaffold mat-icon').first().waitFor();
   const list = await leadingGlyph(page);
   await page.goto(`/s/${RUNNING.id}`);
-  await page.locator('.bar [aria-label="all sessions"]').waitFor();
+  await page.locator('ui-scaffold [aria-label="all sessions"]').waitFor();
   const session = await leadingGlyph(page);
   expect(list, 'the list has no leading glyph to measure').toBeGreaterThan(0);
   expect(
@@ -3269,19 +3276,22 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);
-  await page.locator('.bar .name').waitFor();
+  // The name, not the heading: the bar draws its heading before the name arrives.
+  await expect(page.locator('ui-scaffold h1')).toHaveText(
+    'health-sync-backend-decode-matcher-gate-quantiser',
+  );
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectThumbTargets(page);
 
   const bar = await page.evaluate(() => {
     // `HTMLElement`, not `Element`: `scrollWidth`/`clientWidth` are what this
     // measures, and they are the whole assertion.
-    const name = document.querySelector<HTMLElement>('.bar .name')!;
+    const name = document.querySelector<HTMLElement>('ui-scaffold h1')!;
     const menu = document
-      .querySelector('.bar button[aria-haspopup="menu"]')!
+      .querySelector('ui-scaffold button[aria-haspopup="menu"]')!
       .getBoundingClientRect();
     const leave = document
-      .querySelector('.bar [aria-label="all sessions"]')!
+      .querySelector('ui-scaffold [aria-label="all sessions"]')!
       .getBoundingClientRect();
     return {
       wanted: name.scrollWidth,
@@ -3384,7 +3394,7 @@ test('the session is still named after scrolling to the end @ phone width', asyn
   await page.getByText('verified_cli').first().waitFor();
   const tops = () =>
     page.evaluate(() => ({
-      name: document.querySelector('.bar .name')!.getBoundingClientRect().top,
+      name: document.querySelector('ui-scaffold h1')!.getBoundingClientRect().top,
       facts: document.querySelector('.head .facts')!.getBoundingClientRect().top,
     }));
   const before = await tops();
@@ -3398,7 +3408,7 @@ test('the session is still named after scrolling to the end @ phone width', asyn
   const scrolled = await page.evaluate(() => document.querySelector('.transcript')!.scrollTop);
   expect(scrolled, 'the transcript did not move, so this proves nothing').toBeGreaterThan(100);
   expect(await tops(), 'the session scrolled away with its conversation').toEqual(before);
-  await expect(page.locator('.bar .name')).toBeInViewport();
+  await expect(page.locator('ui-scaffold h1')).toBeInViewport();
 });
 
 test('the details sheet holds what the page has no room for @ phone width', async ({
@@ -3414,7 +3424,7 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await page.goto(`/s/${RUNNING.id}`);
   // Behind the ⋮, where everything else you can do to a session already was.
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Details' }).click();
@@ -3489,7 +3499,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   // Open over total on the menu item itself, so "is there anything left?" is
@@ -3606,7 +3616,7 @@ test('back dismisses an overlay rather than the page under it @ phone width', as
   await page.locator('.session').first().click();
   await page.locator('.transcript').waitFor();
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Details' }).click();
@@ -3647,7 +3657,7 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
   await page.locator('.session').first().click();
   await page.locator('.transcript').waitFor();
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Details' }).click();
@@ -3671,6 +3681,25 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
 
   await page.goBack();
   expect(new URL(page.url()).pathname, 'the first back press was spent on nothing').toBe('/');
+});
+
+test('below the list, the bar leads up, and back closes a sheet and only the sheet @ phone width', async ({
+  page,
+}) => {
+  // The scaffold's own checks (`@xinutec/ui-harness`), run against this app's
+  // routes: whether a screen has a parent is declared in `app.routes.ts`, and
+  // whether a sheet is wired into history is decided where it is opened.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto(`/s/${RUNNING.id}`);
+  await expect(page.locator('ui-scaffold h1')).toHaveText('health');
+  await expectUpInTheBar(page);
+  await expectBackClosesOverlay(page, async () => {
+    await page.locator('ui-scaffold button[aria-label^="what to do with"]').click();
+    await page.getByRole('menuitem', { name: 'Details' }).click();
+  });
+  await page.goto('/reader');
+  await expectUpInTheBar(page);
 });
 
 test('leaving a session leaves its name behind @ phone width', async ({ page }) => {
@@ -3697,24 +3726,24 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   // Away before the runner has answered.
-  await page.locator('.bar [aria-label="all sessions"]').click();
+  await page.locator('ui-scaffold [aria-label="all sessions"]').click();
   await page.locator('.session').first().waitFor();
   answer?.();
   // Long enough for the held response to land and be acted on.
   await page.waitForTimeout(300);
   await expect(
-    page.locator('.bar .name'),
+    page.locator('ui-scaffold h1'),
     'the list is titled with the session just left',
-  ).toHaveCount(0);
+  ).toHaveText('console');
   // Not "no buttons" or "no menu": the list has both. What this test is about is
   // a session no longer on screen
   // still being ACTIONABLE, so it names the control that acts on one: the ⋮
   // labels itself with the conversation it belongs to.
   await expect(
-    page.locator('.bar button[aria-label^="what to do with"]'),
+    page.locator('ui-scaffold button[aria-label^="what to do with"]'),
     'the ⋮ still acts on the session just left',
   ).toHaveCount(0);
-  await expect(page.locator('.bar [aria-label="all sessions"]')).toHaveCount(0);
+  await expect(page.locator('ui-scaffold [aria-label="all sessions"]')).toHaveCount(0);
 });
 
 test('a run of tool calls is folded into one row @ phone width', async ({ page }) => {
@@ -4257,7 +4286,7 @@ test('a working session can be renamed from the menu @ phone width', async ({ pa
   });
   await page.goto(`/s/${RUNNING.id}`);
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Rename' }).click();
@@ -4304,7 +4333,7 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
   });
   await page.goto(`/s/${RUNNING.id}`);
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Rename' }).click();
@@ -4346,7 +4375,7 @@ test('the rename sheet offers nothing when no model has named the conversation @
   await mockRunner(page);
   await page.goto(`/s/${RUNNING.id}`);
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await page.getByRole('menuitem', { name: 'Rename' }).click();
@@ -4381,7 +4410,7 @@ test('a refused mode change says so and puts the mode back @ phone width', async
 
   // And the header agrees with the session rather than with the request.
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await expect(page.locator('.session-menu .current')).toHaveText('Auto');
@@ -4443,7 +4472,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page
-    .locator('.bar')
+    .locator('ui-scaffold')
     .getByRole('button', { name: /what to do with/ })
     .click();
   await expect(page.locator('.session-menu .current')).toHaveText('Accept edits');
@@ -4776,7 +4805,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
 
   // Back closes the sheet and stays in the conversation, though a sheet takes
-  // no part in history. See `dismiss.ts`.
+  // no part in history. See `Sheets` in `@xinutec/ui-scaffold`.
   await page.goBack();
   await expect(page.locator('app-picture-sheet')).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}$`));
@@ -5507,7 +5536,8 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
   const busy = view.locator('.agent[data-state="working"]');
   await expect(busy.locator('mat-spinner')).toBeVisible();
   await expect(busy.locator('.doing')).toContainText('Bash');
-  await expect(page.locator('.bar .name')).toHaveText('comment-pass-1721');
+  await expect(page.locator('ui-scaffold h1')).toHaveText('comment-pass-1721');
+  await expectUpInTheBar(page);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo, 'app-workflow-view');
   await page.screenshot({ path: testInfo.outputPath('workflow.png') });
@@ -5518,7 +5548,8 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
   await expect(agent.locator('.entry.said')).toContainText('Reading the runner first.');
   await expect(agent.locator('.entry.tools .count')).toContainText('2 tool calls');
   await expect(agent.locator('.entry.tools .running')).toContainText('1 running');
-  await expect(page.locator('.bar .name')).toHaveText('comments:runner');
+  await expect(page.locator('ui-scaffold h1')).toHaveText('comments:runner');
+  await expectUpInTheBar(page);
   await expectNoHorizontalOverflow(page, testInfo);
   await page.screenshot({ path: testInfo.outputPath('agent.png') });
 

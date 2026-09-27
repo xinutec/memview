@@ -1,23 +1,21 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, effect, inject } from '@angular/core';
-import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
+import { MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatToolbarModule } from '@angular/material/toolbar';
 import { RouterLink, RouterOutlet } from '@angular/router';
+import { Scaffold, ScaffoldActions, Sheets } from '@xinutec/ui-scaffold';
 
 import { Awake } from './awake';
 import { BUILD_INFO } from './build-info';
 import { ConsoleApi } from './console-api';
-import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Here } from './here';
 import { Summary } from './models';
 import { type Known, modeIcon, modeIsLoud, modeTitle } from './modes';
-import { titleOf } from './naming';
 import { Choosing, ModesSheet } from './modes-sheet';
 import { RenameSheet } from './rename-sheet';
 import { Restyle } from './restyle';
@@ -35,7 +33,8 @@ import { SessionStore } from './session-store';
     NgTemplateOutlet,
     RouterOutlet,
     RouterLink,
-    MatToolbarModule,
+    Scaffold,
+    ScaffoldActions,
     MatBottomSheetModule,
     MatButtonModule,
     MatIconModule,
@@ -49,8 +48,7 @@ export class App {
   private store = inject(SessionStore);
   private restyle = inject(Restyle);
   private api = inject(ConsoleApi);
-  private sheet = inject(MatBottomSheet);
-  private dismiss = inject(Dismiss);
+  private sheets = inject(Sheets);
   private snack = inject(MatSnackBar);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
@@ -62,25 +60,6 @@ export class App {
   protected readonly mode = computed(() => modeTitle(this.here.open()?.mode));
   protected readonly modeIcon = computed(() => modeIcon(this.here.open()?.mode));
   protected readonly loud = computed(() => modeIsLoud(this.here.open()?.mode));
-
-  /**
-   * What to call the conversation on screen — its name, else where it runs. A
-   * `computed`, since a template method runs on every change-detection pass. The
-   * same rule titles the list's cards; see `naming.ts`.
-   */
-  protected readonly title = computed(() => {
-    const open = this.here.open();
-    return open ? titleOf(open) : '';
-  });
-
-  /**
-   * Whether the headline is standing in for a name rather than being one. Reads
-   * `open`, not `at`: during the round trip there is no name and no stand-in either.
-   */
-  protected readonly anonymous = computed(() => {
-    const open = this.here.open();
-    return !!open && !open.name;
-  });
 
   // Instrumented once, from the shell, so no new control can be missed.
   /**
@@ -147,13 +126,11 @@ export class App {
    * read is worse than text a second old.
    */
   protected details(session: Summary): void {
-    this.dismiss.onBack(
-      this.sheet.open(SessionSheet, {
-        // The sentence travels beside the summary — see [[Here.gist]].
-        data: { session, gist: this.here.gist() },
-        panelClass: 'session-sheet',
-      }),
-    );
+    this.sheets.open(SessionSheet, {
+      // The sentence travels beside the summary — see [[Here.gist]].
+      data: { session, gist: this.here.gist() },
+      panelClass: 'session-sheet',
+    });
   }
 
   /**
@@ -169,11 +146,10 @@ export class App {
    * the bottom of the page that arrives, off [[Held.adrift]].
    */
   protected goTo(session: Summary): void {
-    const sheet = this.sheet.open<JumpSheet, Where, number>(JumpSheet, {
+    const sheet = this.sheets.open<JumpSheet, Where, number>(JumpSheet, {
       data: { session: session.id },
       panelClass: 'session-sheet',
     });
-    this.dismiss.onBack(sheet);
     sheet.afterDismissed().subscribe((at) => {
       if (at === undefined) return;
       this.store.goTo(session.id, at).subscribe({
@@ -183,23 +159,20 @@ export class App {
   }
 
   protected tasks(session: Summary): void {
-    this.dismiss.onBack(
-      this.sheet.open(TasksSheet, {
-        data: { session: session.id, name: session.name ?? undefined },
-        panelClass: 'session-sheet',
-      }),
-    );
+    this.sheets.open(TasksSheet, {
+      data: { session: session.id, name: session.name ?? undefined },
+      panelClass: 'session-sheet',
+    });
   }
 
   /** Offer what the session may do without asking. See [[ModesSheet]] for why
    *  this is a sheet rather than six rows in the menu. */
   protected chooseMode(session: Summary): void {
     // Typed on the way in, so the dismissal value is `Known | undefined`.
-    const sheet = this.sheet.open<ModesSheet, Choosing, Known>(ModesSheet, {
+    const sheet = this.sheets.open<ModesSheet, Choosing, Known>(ModesSheet, {
       data: { id: session.id, mode: session.mode },
       panelClass: 'start-sheet',
     });
-    this.dismiss.onBack(sheet);
     // The sheet chooses; this still records and rolls back, so one place knows what
     // the header is claiming.
     sheet.afterDismissed().subscribe((mode) => {
@@ -210,19 +183,17 @@ export class App {
   /** Name the conversation. See [[RenameSheet]] for why the console does this
    *  itself instead of leaving it to `/rename`. */
   protected rename(session: Summary): void {
-    this.dismiss.onBack(
-      this.sheet.open(RenameSheet, {
-        // The name it has, not what the list shows — prefilling `Code · 3f8a1c2b` is
-        // prefilling something to delete. The suggestion goes beside the field, never
-        // into it: it is a guess, and in the box the first Enter would make it a name.
-        data: {
-          id: session.id,
-          title: session.name ?? '',
-          suggestion: this.here.gist()?.name,
-        },
-        panelClass: 'start-sheet',
-      }),
-    );
+    this.sheets.open(RenameSheet, {
+      // The name it has, not what the list shows — prefilling `Code · 3f8a1c2b` is
+      // prefilling something to delete. The suggestion goes beside the field, never
+      // into it: it is a guess, and in the box the first Enter would make it a name.
+      data: {
+        id: session.id,
+        title: session.name ?? '',
+        suggestion: this.here.gist()?.name,
+      },
+      panelClass: 'start-sheet',
+    });
   }
 
   protected stop(id: string): void {

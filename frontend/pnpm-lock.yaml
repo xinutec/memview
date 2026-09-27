@@ -43,8 +43,11 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@xinutec/ui-harness':
-        specifier: github:xinutec/ui-harness#fd31cb2613875bb3ba4f429a66cdacff8077b2f1
-        version: https://codeload.github.com/xinutec/ui-harness/tar.gz/fd31cb2613875bb3ba4f429a66cdacff8077b2f1(@playwright/test@1.63.0)
+        specifier: github:xinutec/ui-harness#3ea135dfa7db4109c4f05f34760d7ac7182e82a2
+        version: https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2(@playwright/test@1.63.0)
+      '@xinutec/ui-scaffold':
+        specifier: github:xinutec/ui-harness#3ea135dfa7db4109c4f05f34760d7ac7182e82a2&path:/scaffold
+        version: https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2#path:/scaffold(6ce7364639554e0024b74f69fbe5c661)
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -1833,14 +1836,25 @@ packages:
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/fd31cb2613875bb3ba4f429a66cdacff8077b2f1':
-    resolution: {gitHosted: true, integrity: sha512-PIqZlzlHeEe8xnN2SRm/GGO3y783VUS2F1VQ4vi1YKwcx9wY5ZHnS50dfRmyxfU/+P6uFDwFkYt/Tc1fdFlSig==, tarball: https://codeload.github.com/xinutec/ui-harness/tar.gz/fd31cb2613875bb3ba4f429a66cdacff8077b2f1}
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2':
+    resolution: {gitHosted: true, integrity: sha512-qVJMdzY1S5HJQpzAjfrdrlUDV2ua0ZfYYSJ1MzvCsVJpDQuswDB8MfhmpkX0rKrTugrlRhjiOWSKlP2RQsOXPQ==, tarball: https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2}
     version: 0.1.0
     peerDependencies:
       '@playwright/test': '>=1.61.0'
     peerDependenciesMeta:
       '@playwright/test':
         optional: true
+
+  '@xinutec/ui-scaffold@https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2#path:/scaffold':
+    resolution: {gitHosted: true, integrity: sha512-qVJMdzY1S5HJQpzAjfrdrlUDV2ua0ZfYYSJ1MzvCsVJpDQuswDB8MfhmpkX0rKrTugrlRhjiOWSKlP2RQsOXPQ==, path: /scaffold, tarball: https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2}
+    version: 0.1.0
+    peerDependencies:
+      '@angular/cdk': ^22.1.7
+      '@angular/common': ^22.1.7
+      '@angular/core': ^22.1.7
+      '@angular/material': ^22.1.7
+      '@angular/router': ^22.1.7
+      rxjs: ~7.8.2
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -4745,11 +4759,21 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/fd31cb2613875bb3ba4f429a66cdacff8077b2f1(@playwright/test@1.63.0)':
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2(@playwright/test@1.63.0)':
     dependencies:
       '@types/node': 24.13.6
     optionalDependencies:
       '@playwright/test': 1.63.0
+
+  '@xinutec/ui-scaffold@https://codeload.github.com/xinutec/ui-harness/tar.gz/3ea135dfa7db4109c4f05f34760d7ac7182e82a2#path:/scaffold(6ce7364639554e0024b74f69fbe5c661)':
+    dependencies:
+      '@angular/cdk': 22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(@angular/forms@22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(@angular/platform-browser@22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2)))(rxjs@7.8.2))(@angular/platform-browser@22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2)))(rxjs@7.8.2)
+      '@angular/common': 22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/core': 22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2)
+      '@angular/material': 22.1.7(98d61717a67593c786c69e18d869e5f4)
+      '@angular/router': 22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(@angular/platform-browser@22.1.7(@angular/common@22.1.7(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.7(@angular/compiler@22.1.7)(rxjs@7.8.2)))(rxjs@7.8.2)
+      rxjs: 7.8.2
+      tslib: 2.8.1
 
   accepts@2.0.0:
     dependencies:

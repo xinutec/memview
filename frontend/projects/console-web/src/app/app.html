@@ -1,36 +1,23 @@
-<mat-toolbar color="primary" class="bar">
-  <!-- Two screens, two bars: the list is where you are, a session is somewhere you
-       went. The name is the headline, not a control — the details sheet is the
-       first item in the ⋮ menu. -->
-  <!-- Which branch, from the route: `here.open()` arrives a round trip later, so a
-       cold launch into a conversation would draw the list's bar first. See `here.ts`. -->
-  @if (!here.at() && !here.page()) {
-    <!-- The root: a menu of things that are about the whole corpus rather than a session. -->
-    <!-- `Menu`, not a word containing another test's locator: Playwright's
-         `getByLabel` matches a substring, so `elsewhere` would match `getByLabel('where')`. -->
-    <button matIconButton [matMenuTriggerFor]="elsewhere" aria-label="Menu">
-      <mat-icon>menu</mat-icon>
-    </button>
-    <mat-menu #elsewhere="matMenu">
-      <!-- Named as the viewer names it. -->
-      <a mat-menu-item routerLink="/reader">
-        <mat-icon>data_object</mat-icon>
-        <span>Reader</span>
-      </a>
-    </mat-menu>
-    <h1 class="title">console</h1>
-    <span class="spacer"></span>
-    <ng-container [ngTemplateOutlet]="keepAwake" />
-  } @else if (here.at()) {
-    <!-- Up, to the list. A `button`, not an `a`: the rule that centres a glyph in its
-         circle is `button[matIconButton]`, an element selector. -->
-    <button matIconButton routerLink="/" aria-label="all sessions">
-      <mat-icon>arrow_back</mat-icon>
-    </button>
-    <h1 class="name" [class.anonymous]="anonymous()">{{ title() }}</h1>
-    <span class="spacer"></span>
-    <ng-container [ngTemplateOutlet]="keepAwake" />
-    <!-- The one thing here that has to wait: every item acts on a session. -->
+<!-- The bar every app draws (`@xinutec/ui-scaffold`): the list's `menu` and name at
+     the root, an arrow up and the screen's name below it, from the route. -->
+<ui-scaffold title="console" [menu]="elsewhere">
+  <!-- On every screen, and before the screen's own actions. -->
+  <ng-container [ngTemplateOutlet]="keepAwake" />
+</ui-scaffold>
+
+<!-- A menu of things that are about the whole corpus rather than a session. -->
+<mat-menu #elsewhere="matMenu">
+  <!-- Named as the viewer names it. -->
+  <a mat-menu-item routerLink="/reader">
+    <mat-icon>data_object</mat-icon>
+    <span>Reader</span>
+  </a>
+</mat-menu>
+
+<!-- A session's actions, while one is open: the name is the headline, not a
+     control, so the details sheet is the first item in the ⋮ menu. -->
+@if (here.at()) {
+  <ng-template scaffoldActions>
     @if (here.open(); as open) {
       <button
         matIconButton
@@ -100,22 +87,8 @@
         }
       </mat-menu>
     }
-  } @else if (here.page(); as page) {
-    <!-- A screen that is neither the list nor a session: the same shape as a session's
-         bar, because it is the same kind of place. -->
-    <button
-      matIconButton
-      [routerLink]="here.up().path"
-      [queryParams]="here.up().query"
-      [attr.aria-label]="here.up().path === '/' ? 'all sessions' : 'back'"
-    >
-      <mat-icon>arrow_back</mat-icon>
-    </button>
-    <h1 class="name">{{ page }}</h1>
-    <span class="spacer"></span>
-    <ng-container [ngTemplateOutlet]="keepAwake" />
-  }
-</mat-toolbar>
+  </ng-template>
+}
 
 <!-- On both screens, one template: watching is done with no hands, and waking the
      screen by hand is also the gesture that stops the transcript following. Absent,

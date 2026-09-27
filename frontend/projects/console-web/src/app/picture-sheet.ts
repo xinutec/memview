@@ -50,7 +50,7 @@ export interface Looking {
  * A lightbox here, where a sent picture opens in place: that one has the words
  * about it around it, this one is not in the transcript at all and is usually a
  * render unreadable at a quarter of a phone screen. Back closes the viewer and
- * only the viewer — [[Dismiss]]'s history entry. The bytes come through
+ * only the viewer — [[Sheets]]'s history entry. The bytes come through
  * [[ConsoleApi.elsewhere]] because an `<img>` that fails says nothing about why.
  */
 @Component({
