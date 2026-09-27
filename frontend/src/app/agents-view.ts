@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
@@ -167,6 +168,7 @@ export class AgentsView {
   readonly generated = computed(() => this.data()?.generated ?? '');
 
   constructor() {
+    scaffoldTitle(() => 'Agents');
     this.api
       .agents()
       .pipe(

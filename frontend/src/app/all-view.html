@@ -1,12 +1,16 @@
 @if (memories(); as list) {
-  <div class="filters">
-    <button mat-button [class.active]="filter() === 'all'" (click)="filter.set('all')">
-      all ({{ list.length }})
-    </button>
+  <mat-button-toggle-group
+    class="filters"
+    hideSingleSelectionIndicator
+    aria-label="Which memories"
+    [value]="filter()"
+    (change)="filter.set($event.value)"
+  >
+    <mat-button-toggle value="all">all ({{ list.length }})</mat-button-toggle>
     @for (t of types(); track t) {
-      <button mat-button [class.active]="filter() === t" (click)="filter.set(t)">{{ t }}</button>
+      <mat-button-toggle [value]="t">{{ t }}</mat-button-toggle>
     }
-  </div>
+  </mat-button-toggle-group>
 
   <ul class="mem-list">
     @for (m of visible(); track m.name) {

@@ -15,6 +15,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSliderModule } from '@angular/material/slider';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import {
   Camera,
@@ -587,6 +588,7 @@ export class GraphView {
   private pendingWalk: readonly string[] | null = null;
 
   constructor() {
+    scaffoldTitle(() => 'Link graph');
     const destroyRef = inject(DestroyRef);
 
     // The walk lives in ?walk= so a path through the corpus can be linked, and

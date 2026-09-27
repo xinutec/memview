@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { Subject, catchError, of, switchMap } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
@@ -66,6 +67,7 @@ export class SearchView {
   private work$ = new Subject<string>();
 
   constructor() {
+    scaffoldTitle(() => 'Search');
     this.search$
       .pipe(
         switchMap((q) =>

@@ -1,13 +1,7 @@
 .filters {
-  display: flex;
+  // A row of types that can outgrow a phone: wrapped, not scrolled sideways.
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px 0;
-
-  .active {
-    background: var(--mat-sys-secondary-container);
-    color: var(--mat-sys-on-secondary-container);
-  }
+  margin: 8px 0;
 }
 
 .mem-list {

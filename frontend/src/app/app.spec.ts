@@ -37,7 +37,7 @@ describe('App', () => {
       .flush({ user_id: 'local', display_name: 'Local', auth_enabled: false });
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('.brand')?.textContent).toContain('memory');
+    expect(el.querySelector('ui-scaffold h1')?.textContent).toContain('memory');
   });
 
   it('raises the sign-in wall on a 401 from /api/me', async () => {

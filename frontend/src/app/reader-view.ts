@@ -3,6 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
@@ -56,6 +57,7 @@ export class ReaderView {
   readonly missing = signal(false);
 
   constructor() {
+    scaffoldTitle(() => 'Reader');
     this.api
       .reading()
       .pipe(

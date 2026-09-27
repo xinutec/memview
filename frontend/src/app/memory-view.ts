@@ -4,6 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { catchError, of, switchMap } from 'rxjs';
 
 import { ContentNav } from './content-nav';
@@ -36,6 +37,7 @@ export class MemoryView {
   readonly failed = signal(false);
 
   constructor() {
+    scaffoldTitle(() => this.name());
     toObservable(this.name)
       .pipe(
         switchMap((n) => {

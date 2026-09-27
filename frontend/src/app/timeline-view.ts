@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
@@ -95,6 +96,7 @@ export class TimelineView {
   readonly opened = signal<Opened | undefined>(undefined);
 
   constructor() {
+    scaffoldTitle(() => 'Timeline');
     this.load();
   }
 

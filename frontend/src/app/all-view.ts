@@ -1,7 +1,8 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
+import { scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { MemviewApi } from './memview-api';
 import { MemoryMeta } from './models';
@@ -12,7 +13,7 @@ import { Slug } from './slug';
   selector: 'app-all-view',
   templateUrl: './all-view.html',
   styleUrl: './all-view.scss',
-  imports: [RouterLink, MatButtonModule, MatProgressBarModule, Slug],
+  imports: [RouterLink, MatButtonToggleModule, MatProgressBarModule, Slug],
 })
 export class AllView {
   private api = inject(MemviewApi);
@@ -33,6 +34,7 @@ export class AllView {
   });
 
   constructor() {
+    scaffoldTitle(() => 'All memories');
     this.api.memories().subscribe((list) => this.memories.set(list));
   }
 }

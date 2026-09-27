@@ -7,6 +7,7 @@ import {
   expectNoTextOverlaps,
   expectCanvasLegible,
   expectRecoversFromMissingBundle,
+  expectUpInTheBar,
   expectViewportIsPhone,
 } from '@xinutec/ui-harness';
 
@@ -529,8 +530,14 @@ test('memory page — long slug, code, table, link panels @ phone width', async 
 }, testInfo) => {
   await mockApi(page);
   await page.goto('/m/project_health_verified_core_lean');
-  await page.getByRole('heading', { name: 'project_health_verified_core_lean' }).waitFor();
+  // The page's own heading; the bar names the memory too.
+  await page
+    .locator('main')
+    .getByRole('heading', { name: 'project_health_verified_core_lean' })
+    .waitFor();
   await page.getByText('Linked from').waitFor();
+  // A memory is below the index: the bar leads up to it (@xinutec/ui-scaffold).
+  await expectUpInTheBar(page);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, MD_SCROLLERS);
 });
@@ -538,10 +545,18 @@ test('memory page — long slug, code, table, link panels @ phone width', async 
 test('all list — type filters + long slugs @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/all');
-  await page.getByRole('button', { name: 'reference', exact: true }).waitFor();
+  // A single-choice toggle group, which Material exposes as radios.
+  const reference = page.getByRole('radio', { name: 'reference', exact: true });
+  await reference.waitFor();
   await page.getByText('user_cycling').waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
+  await reference.click();
+  await expect(reference).toBeChecked();
+  await expect(
+    page.getByText('user_cycling'),
+    'a user memory under the reference filter',
+  ).toHaveCount(0);
 });
 
 /**

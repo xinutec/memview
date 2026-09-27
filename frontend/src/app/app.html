@@ -7,49 +7,51 @@
 } @else if (loading()) {
   <mat-progress-bar mode="indeterminate" />
 } @else {
-  <mat-toolbar class="bar">
-    <button mat-icon-button [matMenuTriggerFor]="nav" aria-label="Menu">
-      <mat-icon>menu</mat-icon>
-    </button>
-    <!-- One trigger rather than a row of icons: the bar had five, each readable
-         only by guessing what its glyph meant, and every new destination made
-         the brand and the icons compete for the same phone-width line. A menu
-         also affords the thing icons cannot — a written label. -->
-    <mat-menu #nav="matMenu">
-      <a mat-menu-item routerLink="/search">
-        <mat-icon>search</mat-icon>
-        <span>Search</span>
-      </a>
-      <a mat-menu-item routerLink="/all">
-        <mat-icon>list</mat-icon>
-        <span>All memories</span>
-      </a>
-      <a mat-menu-item routerLink="/graph">
-        <mat-icon>hub</mat-icon>
-        <span>Link graph</span>
-      </a>
-      <a mat-menu-item routerLink="/agents">
-        <mat-icon>groups</mat-icon>
-        <span>Agents</span>
-      </a>
-      <a mat-menu-item routerLink="/doing">
-        <mat-icon>timeline</mat-icon>
-        <span>Timeline</span>
-      </a>
-      <a mat-menu-item routerLink="/reader">
-        <mat-icon>data_object</mat-icon>
-        <span>Reader</span>
-      </a>
-      <!-- Without auth (local dev) there is nothing to sign out of. -->
-      @if (me()?.auth_enabled) {
-        <button mat-menu-item (click)="signOut()">
-          <mat-icon>logout</mat-icon>
-          <span>Sign out</span>
-        </button>
-      }
-    </mat-menu>
-    <a routerLink="/" class="brand">memory</a>
-  </mat-toolbar>
+  <!-- The fleet's bar (@xinutec/ui-scaffold): the menu and a screen's name, or
+       an arrow up to the index from a memory. -->
+  <ui-scaffold title="memory" [menu]="nav" />
+  <!-- One trigger rather than a row of icons: the bar had five, each readable
+       only by guessing what its glyph meant, and every new destination made
+       the brand and the icons compete for the same phone-width line. A menu
+       also affords the thing icons cannot — a written label. -->
+  <mat-menu #nav="matMenu">
+    <!-- First: the bar's name is no longer a link home. -->
+    <a mat-menu-item routerLink="/">
+      <mat-icon>home</mat-icon>
+      <span>Memory index</span>
+    </a>
+    <a mat-menu-item routerLink="/search">
+      <mat-icon>search</mat-icon>
+      <span>Search</span>
+    </a>
+    <a mat-menu-item routerLink="/all">
+      <mat-icon>list</mat-icon>
+      <span>All memories</span>
+    </a>
+    <a mat-menu-item routerLink="/graph">
+      <mat-icon>hub</mat-icon>
+      <span>Link graph</span>
+    </a>
+    <a mat-menu-item routerLink="/agents">
+      <mat-icon>groups</mat-icon>
+      <span>Agents</span>
+    </a>
+    <a mat-menu-item routerLink="/doing">
+      <mat-icon>timeline</mat-icon>
+      <span>Timeline</span>
+    </a>
+    <a mat-menu-item routerLink="/reader">
+      <mat-icon>data_object</mat-icon>
+      <span>Reader</span>
+    </a>
+    <!-- Without auth (local dev) there is nothing to sign out of. -->
+    @if (me()?.auth_enabled) {
+      <button mat-menu-item (click)="signOut()">
+        <mat-icon>logout</mat-icon>
+        <span>Sign out</span>
+      </button>
+    }
+  </mat-menu>
 
   <main class="content">
     <router-outlet />

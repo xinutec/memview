@@ -3,8 +3,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatToolbarModule } from '@angular/material/toolbar';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
+import { Scaffold } from '@xinutec/ui-scaffold';
 
 import { AuthStore } from './auth';
 import { BUILD_INFO } from './build-info';
@@ -20,7 +20,7 @@ import { Me } from './models';
   imports: [
     RouterOutlet,
     RouterLink,
-    MatToolbarModule,
+    Scaffold,
     MatButtonModule,
     MatIconModule,
     MatMenuModule,

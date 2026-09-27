@@ -23,7 +23,7 @@ import { TimelineView } from './timeline-view';
  */
 export const routes: Routes = [
   { path: '', component: IndexView },
-  { path: 'm/:name', component: MemoryView },
+  { path: 'm/:name', component: MemoryView, data: { up: { path: '/', label: 'memory index' } } },
   { path: 'all', component: AllView },
   { path: 'graph', component: GraphView },
   { path: 'agents', component: AgentsView },
