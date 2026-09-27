@@ -589,7 +589,9 @@ impl<'a> Run<'a> {
             return;
         }
         if let Some(program) = writes_anything(&op, &argv) {
-            self.forget_everything(why.unwrap_or(Why::Program(program)));
+            // Named for the program whatever holds it: a pipe or a loop is not why
+            // what came before is unknown.
+            self.forget_everything(Why::Program(program));
             return;
         }
         let written: Vec<String> = files_of(&op, Reached::Always)

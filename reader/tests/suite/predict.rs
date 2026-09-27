@@ -1063,3 +1063,18 @@ fn nix_build_writes_its_out_link() {
     let elsewhere = run("echo x > result; nix build -o out .#x", &nothing_known());
     assert_eq!(elsewhere.written, vec![written("/repo/result", "x\n")]);
 }
+
+/// What a program that may write anything withdraws is named for the program, in
+/// a pipeline or a loop as much as alone: the pipe is not why `a` is unknown.
+#[test]
+fn a_withdrawal_inside_a_pipeline_names_the_program() {
+    let found = run("echo x > a; ./fix.sh | tail -3", &nothing_known());
+    assert!(
+        found.unfollowed.contains(&Unfollowed {
+            path: Some("/repo/a".to_string()),
+            why: Why::Program("fix.sh".to_string())
+        }),
+        "{:?}",
+        found.unfollowed
+    );
+}
