@@ -200,7 +200,7 @@ async fn start(
             )
         })?;
     }
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,7 +229,7 @@ async fn input(
         .send(&body.text)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// How far a client has already pulled.
@@ -394,7 +394,7 @@ async fn show(
         .show(&body.text, &kept.media_type, body.data.trim(), &kept.path)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// What to do about one question.
@@ -439,7 +439,7 @@ async fn decide(
         // CONFLICT rather than NOT_FOUND: usually the question was answered a moment
         // ago, on another screen.
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// What a client asks for when changing a session's permission mode.
@@ -473,7 +473,7 @@ async fn mode(
     // Only once the session has taken it: a mode the request failed to apply must
     // not come back at the next resume — see [`crate::modes`].
     roster.remember_mode(&id, &body.mode);
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// What to call a conversation. See [`Session::rename`].
@@ -504,7 +504,7 @@ async fn rename(
         .rename(title)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// Take back a command that is waiting for the turn to end. A command no longer
@@ -527,7 +527,7 @@ async fn unhold(
             "was not holding"
         }
     );
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 async fn stop(
@@ -538,7 +538,7 @@ async fn stop(
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
     session.stop().await;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 /// Stop a session that has stopped listening and start it again on the same
@@ -553,7 +553,7 @@ async fn revive(
         .revive(&id)
         .await
         .map_err(|why| (StatusCode::CONFLICT, why))?;
-    Ok(Json(session.summary()))
+    Ok(Json(roster.summary_of(&session)))
 }
 
 async fn forget(State(roster): State<Arc<Roster>>, Path(id): Path<String>) -> impl IntoResponse {

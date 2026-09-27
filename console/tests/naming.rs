@@ -150,3 +150,32 @@ async fn a_conversation_nobody_has_named_is_left_for_the_cli_to_name() {
         "a nameless conversation was spawned under a name anyway"
     );
 }
+
+/// What an action on a session replies with carries the name the list shows. A
+/// reply built without the transcript had none, so after every send the title fell
+/// back to its stand-in until the next poll put the name back.
+#[tokio::test]
+async fn a_sessions_summary_carries_its_name_wherever_it_is_asked_for() {
+    let root = scratch();
+    let dir = std::env::temp_dir();
+    let id = "a-conversation-with-a-name-to-keep";
+    let name = format!("a-name-that-stays-{}", std::process::id());
+    transcript(&root, id, Some(&name));
+
+    let roster = roster(&dir);
+    let session = roster
+        .resume(&dir.display().to_string(), id)
+        .expect("resume");
+    called(&root, id).await;
+
+    assert_eq!(
+        roster.summary_of(&session).name.as_deref(),
+        Some(name.as_str())
+    );
+    let listed = roster
+        .list()
+        .into_iter()
+        .find(|s| s.id == id)
+        .expect("listed");
+    assert_eq!(listed.name, roster.summary_of(&session).name);
+}

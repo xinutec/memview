@@ -622,28 +622,30 @@ impl Roster {
         }
     }
 
+    /// A session's summary, with what only its transcript knows: its name, when it
+    /// last moved and its size, and its peer name. Every answer about a session is
+    /// this one — a reply without them showed the title's stand-in after a send,
+    /// until the next poll put the name back.
+    pub fn summary_of(&self, session: &Session) -> Summary {
+        let mut summary = session.summary();
+        // See [`crate::past::about`], and [`crate::past::last_moved`] for why the date is
+        // read out of the conversation rather than off the file.
+        if let Some(about) = crate::past::about(&crate::past::projects_root(), &summary.id) {
+            summary.name = about.name;
+            summary.touched = Some(about.touched);
+            summary.bytes = Some(about.bytes);
+        }
+        // The other name, read by pid rather than by conversation — it belongs to
+        // the process, not the transcript. See [`Summary::peer_name`].
+        summary.peer_name = crate::peers::named(&crate::peers::sessions_root(), session.pid());
+        summary
+    }
+
     pub fn list(&self) -> Vec<Summary> {
         let sessions = self.sessions.read();
-        // The name and the last-activity time are the transcript's, not the session's,
-        // so the roster reads them here in one pass over the tail and metadata.
-        let root = crate::past::projects_root();
-        let peers = crate::peers::sessions_root();
         let mut all: Vec<Summary> = sessions
             .values()
-            .map(|session| {
-                let mut summary = session.summary();
-                // See [`crate::past::about`], and [`crate::past::last_moved`] for why the date is
-                // read out of the conversation rather than off the file.
-                if let Some(about) = crate::past::about(&root, &summary.id) {
-                    summary.name = about.name;
-                    summary.touched = Some(about.touched);
-                    summary.bytes = Some(about.bytes);
-                }
-                // The other name, read by pid rather than by conversation — it belongs to
-                // the process, not the transcript. See [`Summary::peer_name`].
-                summary.peer_name = crate::peers::named(&peers, session.pid());
-                summary
-            })
+            .map(|session| self.summary_of(session))
             .collect();
         // By last activity, falling back to pickup time: `started` is seconds, `touched`
         // milliseconds.
