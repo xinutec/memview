@@ -167,3 +167,37 @@ fn a_backgrounded_call_is_checked_when_its_task_ends() {
         "dropped"
     );
 }
+
+/// A backgrounded call's files can be changed by something else before its task
+/// ends — the session's next edit, which never passes through here. Found live: a
+/// doc edit sent to the background with its commit, then edited again while the
+/// commit's gate ran. So the files are looked at twice, when the call is
+/// backgrounded and when its task ends, and either look holding the prediction
+/// agrees. Neither holding it still diverges.
+#[test]
+fn a_backgrounded_call_agrees_if_either_look_holds_the_prediction() {
+    let dir = scratch("overtaken");
+    std::fs::write(dir.join("a.txt"), "old\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    let command = "cat > a.txt <<'EOF'\nnew\nEOF";
+    let backgrounded = serde_json::json!({ "stdout": "", "backgroundTaskId": "b1" });
+
+    edits
+        .before("s1", "c1", command, at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "new\n").expect("the call wrote it at once");
+    assert!(edits.finished("c1", &backgrounded).is_none());
+    std::fs::write(dir.join("a.txt"), "edited again\n").expect("a later edit");
+    let (_, diverged) = edits.ended("c1", Some(&Ended::Completed)).expect("checked");
+    assert!(diverged.paths.is_empty(), "{diverged:?}");
+
+    // The control: neither look holds it.
+    std::fs::write(dir.join("a.txt"), "old\n").expect("reset");
+    edits
+        .before("s1", "c2", command, at(&dir))
+        .expect("predicted");
+    assert!(edits.finished("c2", &backgrounded).is_none());
+    std::fs::write(dir.join("a.txt"), "something else\n").expect("wrong");
+    let (_, diverged) = edits.ended("c2", Some(&Ended::Completed)).expect("checked");
+    assert_eq!(diverged.paths.len(), 1);
+}

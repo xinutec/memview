@@ -91,6 +91,9 @@ struct Pending {
     command: String,
     written: Vec<Written>,
     since: std::time::Instant,
+    /// For a backgrounded call, its files when it was sent to the background: a
+    /// later edit can change them before its task ends.
+    early: Option<Files>,
 }
 
 /// How long a prediction waits for its call to end. A backgrounded call in a
@@ -146,6 +149,7 @@ impl Edits {
                 command: command.to_string(),
                 written: prediction.written,
                 since: std::time::Instant::now(),
+                early: None,
             },
         );
         drop(pending);
@@ -156,12 +160,16 @@ impl Edits {
     }
 
     /// The call's hook says it is done. A call sent to the background has only
-    /// started, so its check waits for [`Self::ended`]; any other is checked now.
+    /// started, so its check waits for [`Self::ended`], with a first look at its
+    /// files kept for then; any other is checked now.
     pub fn finished(&self, call: &str, response: &serde_json::Value) -> Option<(String, Diverged)> {
         if response
             .get("backgroundTaskId")
             .is_some_and(serde_json::Value::is_string)
         {
+            if let Some(pending) = self.pending.lock().get_mut(call) {
+                pending.early = Some(look(&pending.written));
+            }
             return None;
         }
         self.check(call)
@@ -187,12 +195,13 @@ impl Edits {
     /// kept as a finding. `None` when there was no prediction for the call.
     fn check(&self, call: &str) -> Option<(String, Diverged)> {
         let pending = self.pending.lock().remove(call)?;
-        let now: Files = pending
-            .written
-            .iter()
-            .filter_map(|written| Some((written.path.clone(), read(Path::new(&written.path))?)))
-            .collect();
-        let diverged = check(&pending.written, &now);
+        let mut diverged = check(&pending.written, &look(&pending.written));
+        // Either look holding the prediction agrees: a later edit may have
+        // overtaken the first.
+        if let Some(early) = &pending.early {
+            let first = check(&pending.written, early);
+            diverged.retain(|late| first.iter().any(|d| d.path == late.path));
+        }
         for divergence in &diverged {
             let finding = Finding {
                 session: pending.session.clone(),
@@ -298,5 +307,13 @@ pub fn hunks(path: &str, was: &str, now: &str) -> Vec<Hunk> {
                 after,
             }
         })
+        .collect()
+}
+
+/// The files a prediction names, as they are now.
+fn look(written: &[Written]) -> Files {
+    written
+        .iter()
+        .filter_map(|written| Some((written.path.clone(), read(Path::new(&written.path))?)))
         .collect()
 }

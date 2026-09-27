@@ -14,8 +14,10 @@
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
 //! then on, so a later append to it is not guessed at either. A program that
 //! writes files itself — `sed -i`, `cp`, `rm` — has them named by the shell
-//! tables and refused, so no write it knows of goes unmentioned. A script handed
-//! to another shell — `bash -c`, `nix-shell --run` — is followed in place.
+//! tables and refused, so no write it knows of goes unmentioned. One the tables
+//! do not know may have written anything, and nothing known survives it. A
+//! script handed to another shell — `bash -c`, `nix-shell --run` — is followed
+//! in place.
 //!
 //! **The prediction assumes each command succeeds.** A write after `||` is only
 //! sometimes made, and is not followed. Whether the call really went that way is
@@ -28,7 +30,7 @@ mod python_re;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
-use crate::shell_ops::{Op, basename, classify, resolve, unwrap_command};
+use crate::shell_ops::{GitOp, Op, basename, classify, resolve, unwrap_command};
 use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
     Script, SegmentKind, Simple, Tilde, Word,
@@ -445,6 +447,21 @@ impl<'a> Run<'a> {
         self.write(path, false, Err(why));
     }
 
+    /// A program that may have written any file: nothing known survives it.
+    fn forget_everything(&mut self, why: Why) {
+        for (path, held) in &mut self.now {
+            if !matches!(held, Held::Unknown) {
+                *held = Held::Unknown;
+                self.unfollowed.push(Unfollowed {
+                    path: Some(path.clone()),
+                    why: why.clone(),
+                });
+            }
+        }
+        // The root: every path lies under it.
+        self.gone.push(String::new());
+    }
+
     /// A file's text as this run has left it, or as it was given.
     fn read(&mut self, path: &str) -> Held {
         if let Some(held) = self.now.get(path) {
@@ -514,6 +531,10 @@ impl<'a> Run<'a> {
             self.nested(script, &argv, literal, why);
             return;
         }
+        if let Some(program) = writes_anything(&op, &argv) {
+            self.forget_everything(why.unwrap_or(Why::Program(program)));
+            return;
+        }
         let written: Vec<String> = files_of(&op, Reached::Always)
             .into_iter()
             .filter(|file| file.write)
@@ -539,8 +560,15 @@ impl<'a> Run<'a> {
             .collect();
         for path in written {
             if determined || named.contains(&path) {
-                self.forget_tree(&path, why.clone());
+                // A pattern the program expands itself stands for the files
+                // under its fixed part.
+                self.forget_tree(glob_root(&path).unwrap_or(&path), why.clone());
+            } else if let Some(root) = glob_root(&path).filter(|_| !path.contains(['$', '`'])) {
+                // A glob and nothing else: its fixed part is in the text.
+                self.forget_tree(root, why.clone());
             } else {
+                // Could be any file, so nothing known survives it.
+                self.forget_everything(Why::Expansion);
                 self.unfollowed.push(Unfollowed {
                     path: None,
                     why: Why::Expansion,
@@ -826,4 +854,46 @@ pub fn check(predicted: &[Written], after: &Files) -> Vec<Divergence> {
             })
         })
         .collect()
+}
+
+/// Git subcommands that rewrite files in the working tree, whatever they name:
+/// `git checkout main` as much as `git checkout a.txt`.
+const REWRITES_TREE: &[&str] = &[
+    "checkout",
+    "switch",
+    "stash",
+    "reset",
+    "pull",
+    "rebase",
+    "merge",
+    "cherry-pick",
+    "revert",
+    "apply",
+    "am",
+    "clean",
+];
+
+/// The name of a program that may write any file: one the tables do not know,
+/// a script run from a file, or git rewriting the working tree.
+fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
+    match op {
+        Op::Unknown { .. } => Some(
+            unwrap_command(argv)
+                .first()
+                .map_or("", |head| basename(head))
+                .to_string(),
+        ),
+        Op::Run { script } => Some(basename(script).to_string()),
+        Op::Git(GitOp::Other { subcommand }) if REWRITES_TREE.contains(&subcommand.as_str()) => {
+            Some(format!("git {subcommand}"))
+        }
+        _ => None,
+    }
+}
+
+/// The directory a glob's matches all lie under — the path up to its first
+/// pattern character — or `None` for a path with none.
+fn glob_root(path: &str) -> Option<&str> {
+    let at = path.find(['*', '?', '['])?;
+    Some(path[..at].rfind('/').map_or("", |slash| &path[..slash]))
 }

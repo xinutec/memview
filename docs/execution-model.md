@@ -60,7 +60,10 @@ the only one that sees real work at full scale, because it observes the call tha
 was going to run anyway rather than re-executing anything. A divergence is a
 defect in the evaluator, kept with the command and both texts so it becomes a
 test. The target is a prediction that never diverges; the check stays once it is
-reached, so the two cannot drift apart again.
+reached, so the two cannot drift apart again. A call sent to the background is
+looked at twice, when it is backgrounded and when its task ends, and agrees if
+either look holds the prediction: the session's next edit, which the check never
+sees, can overwrite a file while the task runs.
 
 **What the evaluator cannot follow yields no prediction, never an
 approximation.** It is refused by name and counted, the way every other gap in
@@ -75,7 +78,13 @@ of its own — see Scope.
 
 **Every write is predicted or refused, never left out.** A program that writes
 files itself (`cp`, `rm`, `sed -i`) has them named by the shell tables and
-refused. A script handed to another shell (`bash -c`, `nix-shell --run`) is the
+refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`) stands for
+everything under its fixed part. A program the tables do not know, a script run
+from a file, a git command that rewrites the working tree, and a write to a path
+an expansion chose may each have written any file, so nothing predicted before
+one survives it. Found live: edit scripts (`sub.py`, `insert_kotlin.py`) run
+after a heredoc rewrote the file it had just written; the rule withdrew (2026-09-27) 2,512 of
+6,575 predictions from history, every one a claim the text could not back. A script handed to another shell (`bash -c`, `nix-shell --run`) is the
 same language against the same files, so it is followed in place, its `cd`
 kept inside it. Python is followed by `reader/src/predict/python.rs`, on the program's
 tree, against the same files as the shell around it: each call assumed to

@@ -387,6 +387,24 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
     out
 }
 
+/// [`paths`], for a program whose every operand is a file whatever its shape.
+fn named_paths(
+    unnamed: &mut Vec<String>,
+    words: &[&str],
+    cwd: Option<&str>,
+    home: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for word in words {
+        match resolve(word, cwd, home) {
+            Some(path) if !undetermined(word) => out.push(path),
+            _ if undetermined(word) => unnamed.push((*word).to_string()),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Whether a refused word is a subject the text does not determine, as opposed to
 /// one that is simply not a file.
 ///
@@ -1574,8 +1592,10 @@ fn act(
             // reason: a flag cluster is one word carrying several flags.
             in_place: honours_i && argv.iter().any(|a| spells_in_place(a, flags.valued)),
         },
+        // Every operand is a path, bare or not: `rm -r examples` removes a
+        // directory that no shape test would take for one.
         Verb::Remove => Op::Remove {
-            paths: paths(unnamed, &words, cwd, home),
+            paths: named_paths(unnamed, &words, cwd, home),
             recursive: argv
                 .iter()
                 .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('r'))
@@ -1868,6 +1888,10 @@ fn git(unnamed: &mut Vec<String>, argv: &[String], cwd: Option<&str>, home: &str
         // of that name. It is readable only in its `--` form.
         ("rm" | "restore" | "mv", _) => Op::Git(GitOp::Alter {
             paths: paths(unnamed, &words, base, home),
+        }),
+        // `git checkout -- a` puts back `a`: the separator settles that it is a path.
+        ("checkout", Some(at)) => Op::Git(GitOp::Alter {
+            paths: paths(unnamed, &words[at + 1..], base, home),
         }),
         // The separator is the author saying these are paths, which is exactly
         // the guarantee needed.

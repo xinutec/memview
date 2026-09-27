@@ -885,3 +885,83 @@ fn a_pure_library_call_writes_nothing() {
     assert_eq!(found.written, vec![written("/repo/src/a.ts", "x\n")]);
     assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
 }
+
+/// A program the tables do not know may write any file, so nothing predicted
+/// before it survives it. Found live: a script run from a file (`/tmp/try.sh`,
+/// `python3 scripts/insert.py`) rewrote a file the text never named.
+#[test]
+fn a_program_nobody_knows_forgets_everything_before_it() {
+    for program in [
+        "./fix.sh",
+        "python3 scripts/insert.py a",
+        "../scripts/dev cargo fmt",
+    ] {
+        let found = run(&format!("echo x > a; {program}"), &nothing_known());
+        assert!(found.written.is_empty(), "{program}");
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/a") && matches!(u.why, Why::Program(_))),
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+    let known = run("echo x > a; grep x a; ls", &nothing_known());
+    assert_eq!(known.written, vec![written("/repo/a", "x\n")]);
+}
+
+/// `git checkout` rewrites the working tree whether it names a branch or a path;
+/// `git status` reads it. Found live: `git checkout -q src/calibration.ts`.
+#[test]
+fn a_git_command_that_rewrites_the_tree_forgets_it() {
+    for git in [
+        "git checkout -q a",
+        "git checkout main",
+        "git stash",
+        "git reset --hard",
+        "git pull",
+    ] {
+        let found = run(&format!("echo x > a; {git}"), &nothing_known());
+        assert!(found.written.is_empty(), "{git}");
+    }
+    for git in [
+        "git status",
+        "git diff a",
+        "git log",
+        "git add a",
+        "git commit -m m",
+    ] {
+        let found = run(&format!("echo x > a; {git}"), &nothing_known());
+        assert_eq!(found.written, vec![written("/repo/a", "x\n")], "{git}");
+    }
+}
+
+/// A path with a glob in it is every file the pattern matches, which the text
+/// cannot list: what lies under its fixed prefix is forgotten. Found live:
+/// `ktlint -F "app/src/**/*.kt"` and `rm e2e/zz-shot*.ts`.
+#[test]
+fn a_glob_forgets_what_lies_under_its_fixed_prefix() {
+    for program in ["ktlint -F 'app/src/**/*.kt'", "rm app/src/zz*.kt"] {
+        let found = run(
+            &format!("echo x > app/src/zz.kt; echo y > other.kt; {program}"),
+            &nothing_known(),
+        );
+        assert_eq!(
+            found.written,
+            vec![written("/repo/other.kt", "y\n")],
+            "{program}"
+        );
+    }
+}
+
+/// `rm -r` takes everything under the directory with it. Found live:
+/// `cat > examples/a.rs …; cargo build; rm -r examples`.
+#[test]
+fn a_recursive_rm_forgets_the_files_under_it() {
+    let found = run(
+        "mkdir -p examples && cat > examples/a.rs <<'EOF'\nfn main() {}\nEOF\nrm -r examples",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
