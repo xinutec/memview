@@ -169,9 +169,10 @@ impl Matcher {
 
     /// `text[start..end]` matched, expanded through `template` onto `out`.
     fn expand(&self, text: &str, start: usize, end: usize, template: &str, out: &mut String) {
-        if let Some(found) = self.full.captures(&text[start..end]) {
-            found.expand(template, out);
-        }
+        self.full
+            .captures(&text[start..end])
+            .expect("a span the anchored pattern accepted")
+            .expand(template, out);
     }
 }
 

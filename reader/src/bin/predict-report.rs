@@ -227,7 +227,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         }
     }
 
-    let (mut refused_calls, mut unreplayable) = (0usize, 0usize);
+    let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
     let mut why: BTreeMap<String, usize> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;
@@ -236,6 +236,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
             continue;
         };
         let Ok(script) = reader::syntax::parse(&kept.command) else {
+            unparsed += 1;
             continue;
         };
         let found = predict(&script, &kept.cwd, &home, &kept.files);
@@ -303,6 +304,9 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     println!("live calls with a refusal    {refused_calls}");
     if unreplayable > 0 {
         println!("  kept before their inputs   {unreplayable}  (not ranked)");
+    }
+    if unparsed > 0 {
+        println!("  not parsed by the tree     {unparsed}  (not ranked)");
     }
     println!("findings                     {findings}");
     println!("  still diverging            {still}");

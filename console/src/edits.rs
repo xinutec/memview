@@ -198,7 +198,7 @@ impl Edits {
                 call: call.to_string(),
                 at: time::OffsetDateTime::now_utc()
                     .format(&time::format_description::well_known::Rfc3339)
-                    .unwrap_or_default(),
+                    .expect("RFC 3339 formats any instant"),
                 command: command.to_string(),
                 cwd: cwd.to_string(),
                 files: files.clone(),
