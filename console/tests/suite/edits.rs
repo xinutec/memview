@@ -115,6 +115,29 @@ fn a_call_that_left_something_else_is_a_finding() {
 }
 
 #[test]
+fn a_finding_keeps_what_the_evaluator_was_given() {
+    let dir = scratch("finding-inputs");
+    std::fs::write(dir.join("a.txt"), "one\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    edits
+        .before("s1", "c1", "echo two >> a.txt", at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "one\nthree\n").expect("write");
+    edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    let findings = std::fs::read_to_string(dir.join("store/findings.jsonl")).expect("kept");
+    let finding: serde_json::Value =
+        serde_json::from_str(findings.lines().next().expect("one finding")).expect("json");
+    assert_eq!(finding["cwd"], at(&dir));
+    assert_eq!(
+        finding["files"][dir.join("a.txt").display().to_string()],
+        "one\n",
+        "the file as it was before the call, so the prediction can be made again"
+    );
+}
+
+#[test]
 fn a_command_the_reader_cannot_follow_predicts_nothing() {
     let dir = scratch("unfollowed");
     let edits = Edits::new(dir.join("store"));

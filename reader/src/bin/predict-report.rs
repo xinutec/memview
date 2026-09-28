@@ -2,17 +2,18 @@
 //! follow yet — ranked, because that list is what to teach it next.
 //!
 //!     cargo run --release -p reader --bin predict-report -- <corpus.jsonl> [--show <why> <n>]
-//!     cargo run --release -p reader --bin predict-report -- --live ~/.console/edits/refused.jsonl
+//!     cargo run --release -p reader --bin predict-report -- --live ~/.console/edits [--show <why|finding> <n>]
 //!
 //! The history setting: each command is given its text and nothing else, so a
 //! write that depends on a file's old contents counts as `not read`. Before a live
 //! call the console supplies those, and the same evaluator follows more.
 //!
-//! Beside the census, the writes the reconstruction (`shell_files`) knows of that
-//! the evaluator neither predicted nor refused: the part of the denominator it
-//! cannot see yet. `--show unseen <n>` prints them.
+//! Beside the census, the commands the reconstruction (`shell_files`) knows to
+//! write a file and the evaluator neither predicted nor refused — the part of
+//! the denominator it cannot see yet. `--show unseen <n>` prints them.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use reader::predict::{Files, predict};
 
@@ -31,9 +32,9 @@ fn main() -> anyhow::Result<()> {
     });
     if path == "--live" {
         let Some(path) = args.get(2) else {
-            anyhow::bail!("usage: predict-report --live <refused.jsonl> [--show <why> <n>]");
+            anyhow::bail!("usage: predict-report --live <edits dir> [--show <why|finding> <n>]");
         };
-        return live(path, show);
+        return live(Path::new(path), show);
     }
     let home = std::env::var("HOME").unwrap_or_default();
     // `--only <text>`: just the commands containing it.
@@ -71,21 +72,21 @@ fn main() -> anyhow::Result<()> {
         };
         let found = predict(&script, cwd, &home, &Files::new());
         // What the reconstruction says the command writes, which the evaluator must
-        // either predict or refuse by name. A write it never mentions is neither.
+        // either predict or refuse by name. Compared per command, not per path: a
+        // refusal names one path or none where the reconstruction lists every
+        // file a loop touched, so only a command the evaluator says nothing about
+        // at all is out of its sight.
         let mut unseen_here: BTreeSet<String> = BTreeSet::new();
         let mut writers: BTreeSet<String> = BTreeSet::new();
-        if let Ok(parsed) = reader::project::read(cmd) {
+        if found.written.is_empty()
+            && found.unfollowed.is_empty()
+            && let Ok(parsed) = reader::project::read(cmd)
+        {
             let recon = reader::shell_files::extract_knowing(&parsed, Some(cwd), &home, &[]);
-            let seen: BTreeSet<&str> = found
-                .written
-                .iter()
-                .map(|w| w.path.as_str())
-                .chain(found.unfollowed.iter().filter_map(|u| u.path.as_deref()))
-                .collect();
             unseen_here = recon
                 .files
                 .iter()
-                .filter(|f| f.write && !seen.contains(f.path.as_str()))
+                .filter(|f| f.write)
                 .map(|f| f.path.clone())
                 .collect();
             writers = recon
@@ -95,9 +96,6 @@ fn main() -> anyhow::Result<()> {
                 .map(|(name, _)| name.clone())
                 .collect();
         }
-        // A refusal without a path — a glob, a variable — may be any of them.
-        let unnamed = found.unfollowed.iter().filter(|u| u.path.is_none()).count();
-        let unseen_here: Vec<String> = unseen_here.into_iter().skip(unnamed).collect();
         if !unseen_here.is_empty() {
             unseen_commands += 1;
             unseen += unseen_here.len();
@@ -172,37 +170,148 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `--live`: the refusals the console kept from live calls, which had their files
-/// read — so `not read` is rare there, and what is left is what to build next.
-fn live(path: &str, show: Option<(String, usize)>) -> anyhow::Result<()> {
-    let (mut calls, mut predicted) = (0usize, 0usize);
-    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+/// A live call as the console kept it, with what the evaluator was given.
+struct Kept {
+    command: String,
+    cwd: String,
+    files: Files,
+}
+
+impl Kept {
+    /// `None` for a row from before the inputs were kept, which cannot be
+    /// predicted again.
+    fn read(row: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            command: row["command"].as_str()?.to_string(),
+            cwd: row["cwd"].as_str()?.to_string(),
+            files: serde_json::from_value(row["files"].clone()).ok()?,
+        })
+    }
+}
+
+/// The rows of one file under the edits directory, skipping any that do not read.
+fn rows(dir: &Path, name: &str) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(dir.join(name))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+/// `--live <edits dir>`: what the console kept from live calls, which had their
+/// files read — so `not read` is rare there, and what is left is what to build
+/// next. Each refusal and each finding carries the evaluator's inputs, so both
+/// are predicted again here under this evaluator: the refusals ranked by what it
+/// does not follow today, not by names an older one wrote, and the findings
+/// sorted into those still diverging and those it now gets right.
+fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
+    let dir = if dir.is_file() {
+        dir.parent().unwrap_or(dir)
+    } else {
+        dir
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
     let mut shown = 0usize;
-    for line in std::fs::read_to_string(path)?.lines() {
-        let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+
+    // Calls with a prediction: one line per call in each session's own file.
+    let mut predicted_calls = 0usize;
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.ends_with(".jsonl")
+            && !name.ends_with(".diverged.jsonl")
+            && name != "findings.jsonl"
+            && name != "refused.jsonl"
+        {
+            predicted_calls += rows(dir, name).len();
+        }
+    }
+
+    let (mut refused_calls, mut unreplayable) = (0usize, 0usize);
+    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+    for row in rows(dir, "refused.jsonl") {
+        refused_calls += 1;
+        let Some(kept) = Kept::read(&row) else {
+            unreplayable += 1;
             continue;
         };
-        calls += 1;
-        predicted += row["predicted"].as_u64().unwrap_or(0) as usize;
-        for name in row["refused"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|n| n.as_str())
-        {
+        let Ok(script) = reader::syntax::parse(&kept.command) else {
+            continue;
+        };
+        let found = predict(&script, &kept.cwd, &home, &kept.files);
+        for unfollowed in &found.unfollowed {
+            let name = unfollowed.why.census_name();
             if let Some((wanted, n)) = &show
                 && name.contains(wanted.as_str())
                 && shown < *n
             {
                 shown += 1;
-                println!("--- {name}:\n{}\n", row["command"].as_str().unwrap_or(""));
+                println!("--- {name}:\n{}\n", kept.command);
             }
-            *why.entry(name.to_string()).or_insert(0) += 1;
+            *why.entry(name).or_insert(0) += 1;
         }
     }
-    println!("live calls with a refusal    {calls}");
-    println!("  files they did predict     {predicted}");
-    println!("writes not followed, by why:");
+
+    // A finding predicted again: still diverging, agreeing now, or no longer
+    // predicted at all — the evaluator refuses today what it once got wrong.
+    let (mut findings, mut still, mut agrees, mut unpredicted, mut findings_unreplayable) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
+    for row in rows(dir, "findings.jsonl") {
+        findings += 1;
+        let (Some(kept), Some(path)) = (Kept::read(&row), row["path"].as_str()) else {
+            findings_unreplayable += 1;
+            continue;
+        };
+        let Ok(script) = reader::syntax::parse(&kept.command) else {
+            continue;
+        };
+        let found = predict(&script, &kept.cwd, &home, &kept.files);
+        let actual: Option<String> = row["actual"].as_str().map(str::to_string);
+        let now = found.written.iter().find(|w| w.path == path);
+        let outcome = match now {
+            None => {
+                unpredicted += 1;
+                "no longer predicted"
+            }
+            Some(written) if written.text == actual => {
+                agrees += 1;
+                "agrees now"
+            }
+            Some(_) => {
+                still += 1;
+                "still diverging"
+            }
+        };
+        if let Some((wanted, n)) = &show
+            && wanted == "finding"
+            && shown < *n
+        {
+            shown += 1;
+            let head: String = kept
+                .command
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect();
+            println!("--- finding, {outcome}: {path}\n{head}\n");
+        }
+    }
+
+    println!("live calls with a prediction {predicted_calls}");
+    println!("live calls with a refusal    {refused_calls}");
+    if unreplayable > 0 {
+        println!("  kept before their inputs   {unreplayable}  (not ranked)");
+    }
+    println!("findings                     {findings}");
+    println!("  still diverging            {still}");
+    println!("  agreeing now               {agrees}");
+    println!("  no longer predicted        {unpredicted}");
+    if findings_unreplayable > 0 {
+        println!("  kept before their inputs   {findings_unreplayable}");
+    }
+    println!("writes not followed, by why, under this evaluator:");
     let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     for (name, n) in ranked.iter().take(40) {

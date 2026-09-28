@@ -58,12 +58,17 @@ pub struct Record {
     pub diverged: Vec<Diverged>,
 }
 
-/// A call whose files did not end up as predicted: the finding, in full.
+/// A call whose files did not end up as predicted: the finding, in full. It
+/// carries what the evaluator was given, so `predict-report --live` can make the
+/// prediction again under a later evaluator and say whether it still diverges.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
     pub session: String,
     pub call: String,
     pub command: String,
+    pub cwd: String,
+    /// The files the prediction was made from, as they were before the call.
+    pub files: Files,
     pub path: String,
     pub predicted: Option<String>,
     pub actual: Option<String>,
@@ -85,13 +90,16 @@ pub fn edits_root() -> PathBuf {
         .join("edits")
 }
 
-/// What a live call's prediction did not follow, by the census's names — see
-/// `predict-report --live`.
+/// What a live call's prediction did not follow, by the census's names, with
+/// what the evaluator was given: `predict-report --live` predicts again under the
+/// current evaluator rather than counting names an older one wrote.
 #[derive(Serialize)]
 struct Refused {
     session: String,
     call: String,
     command: String,
+    cwd: String,
+    files: Files,
     /// Files it did predict, beside the refusals.
     predicted: usize,
     refused: Vec<String>,
@@ -101,6 +109,8 @@ struct Refused {
 struct Pending {
     session: String,
     command: String,
+    cwd: String,
+    files: Files,
     written: Vec<Written>,
     since: std::time::Instant,
     /// For a backgrounded call, its files when it was sent to the background: a
@@ -141,6 +151,8 @@ impl Edits {
                 session: session.to_string(),
                 call: call.to_string(),
                 command: command.to_string(),
+                cwd: cwd.to_string(),
+                files: files.clone(),
                 predicted: prediction.written.len(),
                 refused: prediction
                     .unfollowed
@@ -180,6 +192,8 @@ impl Edits {
             Pending {
                 session: session.to_string(),
                 command: command.to_string(),
+                cwd: cwd.to_string(),
+                files,
                 written: prediction.written,
                 since: std::time::Instant::now(),
                 early: None,
@@ -240,6 +254,8 @@ impl Edits {
                 session: pending.session.clone(),
                 call: call.to_string(),
                 command: pending.command.clone(),
+                cwd: pending.cwd.clone(),
+                files: pending.files.clone(),
                 path: divergence.path.clone(),
                 predicted: divergence.predicted.clone(),
                 actual: divergence.actual.clone(),

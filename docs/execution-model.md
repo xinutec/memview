@@ -58,21 +58,34 @@ console reads the same files again and compares them with the prediction. That
 comparison is the third oracle, beside the fixture shims and bash's printer — and
 the only one that sees real work at full scale, because it observes the call that
 was going to run anyway rather than re-executing anything. A divergence is a
-defect in the evaluator, kept with the command and both texts so it becomes a
-test. The target is a prediction that never diverges; the check stays once it is
-reached, so the two cannot drift apart again. A call sent to the background is
-looked at twice, when it is backgrounded and when its task ends, and agrees if
-either look holds the prediction: the session's next edit, which the check never
-sees, can overwrite a file while the task runs.
+defect in the evaluator, kept with the command, the files the prediction was
+made from and both texts, so the prediction can be made again under a later
+evaluator: `predict-report --live` does, and sorts the findings into still
+diverging, agreeing now, and no longer predicted. A finding kept without its
+inputs cannot become a test, which the first 48 showed: the edits behind them
+were Python over files too large to rebuild by hand. The target is a prediction
+that never diverges; the check stays once it is reached, so the two cannot
+drift apart again. Only a call that succeeded is checked — the hook that reports
+a call's end does not fire for one that failed, so a prediction that assumed
+success is never held against a call that did not get that far. A call sent to
+the background is looked at twice, when it is backgrounded and when its task
+ends, and agrees if either look holds the prediction: the session's next edit,
+which the check never sees, can overwrite a file while the task runs.
 
 **What the evaluator cannot follow yields no prediction, never an
 approximation.** It is refused by name and counted, the way every other gap in
 this layer is, and that census is what orders the next construct to teach it.
 From history no file is given, so most of that census is `not read`; a live call
-has its files read, and the console keeps its refusals (`refused.jsonl` beside
-the findings), which `predict-report --live` ranks. That ranking is the worklist.
-Observation is never a substitute for it: a diff taken from the files alone would
-show a change nobody here understood, and hide the gap that says what to build.
+has its files read, and the console keeps its refusals with those files
+(`refused.jsonl` beside the findings), which `predict-report --live` predicts
+again under the current evaluator and ranks — a name an older evaluator wrote is
+not counted, since a rename would leave it ranking a construct that no longer
+exists. That ranking is the worklist, with the caution the parser's census
+carries: it says what stopped the evaluator, not what building a construct would
+unlock, because everything after an unfollowed program is withdrawn under that
+program's name. Observation is never a substitute for it: a diff taken from the
+files alone would show a change nobody here understood, and hide the gap that
+says what to build.
 
 The order it grows in comes from the corpus. Shell first, where the tree exists:
 a heredoc into a file carries its whole new text, then `echo`/`printf` into a
