@@ -175,13 +175,20 @@ fn a_write_after_or_is_only_sometimes_made() {
 }
 
 #[test]
-fn a_write_inside_a_loop_is_not_followed() {
+fn a_quoted_loop_variable_is_the_word_it_is_bound_to() {
     let found = run(
         "for f in a b; do echo x > \"$f\"; done; echo y > c",
         &nothing_known(),
     );
-    assert_eq!(found.written, vec![written("/repo/c", "y\n")]);
-    assert_eq!(found.unfollowed.len(), 1);
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a", "x\n"),
+            written("/repo/b", "x\n"),
+            written("/repo/c", "y\n")
+        ]
+    );
+    assert!(found.unfollowed.is_empty());
 }
 
 #[test]
@@ -256,8 +263,8 @@ fn a_file_a_program_wrote_is_forgotten() {
 }
 
 #[test]
-fn a_program_write_inside_a_loop_is_refused_as_a_compound() {
-    let found = run("for f in x; do rm gone.txt; done", &nothing_known());
+fn a_loop_over_words_the_text_does_not_spell_out_is_refused_as_a_compound() {
+    let found = run("for f in $list; do rm gone.txt; done", &nothing_known());
     assert_eq!(
         found.unfollowed,
         vec![Unfollowed {
@@ -265,6 +272,70 @@ fn a_program_write_inside_a_loop_is_refused_as_a_compound() {
             why: Why::Compound,
         }]
     );
+}
+
+#[test]
+fn a_loop_over_spelled_out_words_runs_once_per_word() {
+    let found = run(
+        "for f in a b; do echo $f > $f.txt; done; echo $f > last.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "a\n"),
+            written("/repo/b.txt", "b\n"),
+            written("/repo/last.txt", "b\n"),
+        ],
+        "and the variable stays bound to the last word, as bash leaves it"
+    );
+    assert!(found.unfollowed.is_empty());
+}
+
+#[test]
+fn a_group_is_its_commands_and_a_subshell_keeps_its_cd_inside() {
+    let found = run(
+        "{ echo x > a.txt; }; (cd sub && echo y > b.txt); echo z > c.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "x\n"),
+            written("/repo/sub/b.txt", "y\n"),
+            written("/repo/c.txt", "z\n"),
+        ]
+    );
+}
+
+#[test]
+fn a_variable_is_known_while_the_text_bound_it() {
+    let found = run("name=out; echo hi > $name.txt", &nothing_known());
+    assert_eq!(found.written, vec![written("/repo/out.txt", "hi\n")]);
+
+    let rebound = run("name=out; read name; echo hi > $name.txt", &nothing_known());
+    assert_eq!(
+        rebound.unfollowed,
+        vec![Unfollowed {
+            path: None,
+            why: Why::Expansion,
+        }],
+        "a builtin that binds on its own leaves the name unknown"
+    );
+
+    let computed = run("name=$(date); echo hi > $name.txt", &nothing_known());
+    assert!(computed.written.is_empty());
+
+    let prefix = run("name=out true; echo hi > $name.txt", &nothing_known());
+    assert!(
+        prefix.written.is_empty(),
+        "a prefix binds for that command alone"
+    );
+
+    let inner = run("(name=in); echo hi > ${name:-none}.txt", &nothing_known());
+    assert!(inner.written.is_empty(), "an operator is not followed");
+    let subshell = run("name=out; (name=in); echo hi > $name.txt", &nothing_known());
+    assert_eq!(subshell.written, vec![written("/repo/out.txt", "hi\n")]);
 }
 
 /// A destination the text names is still named when a source is a variable.

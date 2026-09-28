@@ -111,13 +111,68 @@ tree, against the same files as the shell around it: each call assumed to
 succeed, strings, paths and open files interpreted, a function the program
 defines followed in its own frame, a loop over a written-out list run once per
 element, and a block it does not follow (an undecided `if`, a loop over values
-it cannot list, a decorated function) refused and forgotten as a shell loop is.
+it cannot list, a decorated function) refused and forgotten as a shell branch
+is. The shell side follows the same shapes: a `for` over words the text spells
+out runs once per word, a brace group is its commands, a subshell keeps its
+`cd` and its bindings inside, and a variable is known while the text bound it
+to a literal and no builtin since could have rebound it.
 A command it runs is followed as the shell it amounts to. `re.sub` is followed
 where Python's `re` and Rust's `regex` mean the same thing, translated rather
 than copied, and refused by what differs where they do not: a backreference,
 a pattern that can match the empty string, a `$` before a final newline. `predict-report` lists what the
 reconstruction knows is written and the evaluator never mentions, which is what
 is still out of its sight.
+
+### Sight
+
+The evaluator is a pure function of the text and of what it is shown. What it
+is shown is decided by these rules (Pippijn, 2026-09-28):
+
+- **It reads; it never runs.** A file's text, a directory's names, and nothing
+  a process would have to compute. What a program does to text — `cat`, `sed`,
+  `grep`, `sort`, `head` — is modelled here, in Rust, so that the safety of a
+  prediction comes from this code and not from the program being harmless on
+  the day it was called: `cargo fmt` changes nothing today and may install
+  something tomorrow, and a `sed` that only reads is one flag away from one
+  that writes. No local process is started for a prediction, ever.
+- **On another machine, the same reads and only those.** A file there is read
+  with `cat` and a directory listed with `ls`, over ssh, with a literal path
+  quoted for the remote shell, and no other program. That list is closed. The
+  end state is a program of ours on each host answering the same questions
+  through a fixed protocol, so no shell re-splits anything and the remote side
+  is under the same rule as this crate: it can read and has no code path that
+  writes. Until it exists, the two commands are the whole remote vocabulary.
+- **Sight is asked for, not handed over.** The evaluator asks for a file or a
+  directory when it reaches the command that needs it, so a path that only
+  becomes known part-way through (`cd "$(cat where)" && …`) can still be
+  read. What was shown is recorded with the prediction, which is what makes a
+  finding replayable. From history nothing is shown and every ask is `not
+  read`; in a test the fixture answers; before a live call the console answers
+  from disk.
+- **Git's objects are files, and reading them is on the list — later.** What
+  `git checkout -- f` restores is the index's blob, which sight could read; it
+  means decoding git's storage, through a reviewed Rust library rather than
+  through `git` itself. Not before the simpler constructs are done; until then
+  a tree-rewriting git command withdraws everything, as it does now.
+
+### A prediction is exact, and a set is exact
+
+A prediction is a file's text afterwards, its absence, or a finite set of
+those: `if grep -q x f; then sed -i … f; fi` with the test undecided leaves `f`
+as one of two texts, and saying so is exact — the set is the outcomes, nothing
+missing and nothing extra. It is the same shape as `S ⊆ L` for paths in
+[reader.md](reader.md): a described set, refuted after the call by an actual
+text that is not in it. "Never an approximation" therefore forbids two things:
+a single guess picked from the set, and a set padded with a text the command
+could not produce.
+
+- A member enters the set only from a branch the text has. Two undecided
+  tests over one file give four texts; a loop whose count is unknown gives a
+  set nobody can write down, and stays refused. Exact or refused, and a set is
+  exact when it is finite and every member is reachable.
+- A check can only refute a set. It cannot show that an extra member was
+  reachable, so a padded set passes every check — the same blind spot as sound
+  over-approximation, and the guard is construction, not the oracle.
 
 ### What the flat reader knows
 

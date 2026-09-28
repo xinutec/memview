@@ -3,14 +3,20 @@
 //! evaluator".
 //!
 //! A pure function. It opens nothing and runs nothing: the text of each file it
-//! depends on is an argument ([`Files`]), and [`needs`] says which those are. From
-//! history nothing is given, and only what the text alone determines is predicted;
-//! before a live call the console reads the files and passes them in.
+//! depends on is asked of a [`Sight`] when the command that needs it is reached.
+//! From history nothing is shown, and only what the text alone determines is
+//! predicted; before a live call the console answers from disk and keeps what
+//! it showed, so the prediction can be made again. [`needs`] lists what a run
+//! asked for and was not shown.
 //!
 //! **Straight-line shell, in order.** Top-level commands run one after another,
-//! and a write replaces or extends what the file held at that point. What this
-//! cannot follow — a program whose output is not modelled, a pipeline, a loop, a
-//! word with an expansion in it — yields no prediction for the files it writes,
+//! and a write replaces or extends what the file held at that point. A `for`
+//! over words the text spells out runs its body once per word; a brace group is
+//! its commands; a subshell is the same with its `cd` and its variables kept
+//! inside. A variable is known while the text bound it to a literal and nothing
+//! since could have changed it. What this
+//! cannot follow — a program whose output is not modelled, a pipeline, a branch,
+//! a word with an expansion in it — yields no prediction for the files it writes,
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
 //! then on, so a later append to it is not guessed at either. A program that
 //! writes files itself — `sed -i`, `cp`, `rm` — has them named by the shell
@@ -42,6 +48,22 @@ use crate::syntax::print::print_value;
 /// `Some(text)`, or `None` for a file that does not exist. A path with no entry is
 /// not known at all.
 pub type Files = BTreeMap<String, Option<String>>;
+
+/// What the evaluator may be shown, asked for when a command needs it. It reads
+/// and never runs — `docs/execution-model.md`, "Sight". This crate has no
+/// implementation that touches a disk: a [`Files`] answers from what it holds,
+/// which is how history (nothing) and a test (a fixture) are shown.
+pub trait Sight {
+    /// `Some(Some(text))`, `Some(None)` for a file that does not exist, or `None`
+    /// when the file cannot be shown.
+    fn file(&self, path: &str) -> Option<Option<String>>;
+}
+
+impl Sight for Files {
+    fn file(&self, path: &str) -> Option<Option<String>> {
+        self.get(path).cloned()
+    }
+}
 
 /// A file as it will be after the command: its text, or `None` for a file the
 /// command removes.
@@ -75,7 +97,8 @@ pub enum Why {
     Missing,
     /// Several commands joined by `|`.
     Pipeline,
-    /// A write inside a loop, a branch, a group or a function.
+    /// A write inside a branch, a `while`, a function, or a loop over words the
+    /// text does not spell out.
     Compound,
     /// Only run when something before it failed: after `||`.
     Sometimes,
@@ -110,7 +133,7 @@ pub struct Prediction {
     pub unfollowed: Vec<Unfollowed>,
 }
 
-/// The files whose current text `predict` depends on, in the order it asks.
+/// The files `predict` asked for and was shown nothing of, in the order it asked.
 pub fn needs(script: &Script, cwd: &str, home: &str) -> Vec<String> {
     let nothing = Files::new();
     let mut run = Run::new(cwd, home, &nothing);
@@ -119,8 +142,8 @@ pub fn needs(script: &Script, cwd: &str, home: &str) -> Vec<String> {
 }
 
 /// What `script`, run in `cwd`, will leave in the files it writes.
-pub fn predict(script: &Script, cwd: &str, home: &str, files: &Files) -> Prediction {
-    let mut run = Run::new(cwd, home, files);
+pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Prediction {
+    let mut run = Run::new(cwd, home, sight);
     run.items(&script.items);
     let written = run
         .order
@@ -154,7 +177,9 @@ enum Held {
 struct Run<'a> {
     cwd: Option<String>,
     home: &'a str,
-    given: &'a Files,
+    sight: &'a dyn Sight,
+    /// Variables the text bound to a literal, still known to hold it.
+    vars: BTreeMap<String, String>,
     /// Files this run has written or found out about, by path.
     now: BTreeMap<String, Held>,
     /// Paths written, in first-write order.
@@ -169,11 +194,12 @@ struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-    fn new(cwd: &str, home: &'a str, given: &'a Files) -> Self {
+    fn new(cwd: &str, home: &'a str, sight: &'a dyn Sight) -> Self {
         Self {
             cwd: Some(cwd.to_string()),
             home,
-            given,
+            sight,
+            vars: BTreeMap::new(),
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
@@ -225,6 +251,37 @@ impl<'a> Run<'a> {
     fn command(&mut self, command: &Command) {
         match &command.kind {
             CommandKind::Simple(simple) => self.simple(command, simple),
+            // A group is its commands; a subshell the same, with its `cd` and
+            // its bindings kept inside.
+            CommandKind::Group(items) if command.redirects.is_empty() => self.items(items),
+            CommandKind::Subshell(items) if command.redirects.is_empty() => {
+                let (cwd, vars) = (self.cwd.clone(), self.vars.clone());
+                self.items(items);
+                self.cwd = cwd;
+                self.vars = vars;
+            }
+            // A loop over words the text spells out runs its body once per word,
+            // the variable bound to each; it stays bound to the last, as bash
+            // leaves it.
+            CommandKind::For(it) if !it.select && command.redirects.is_empty() => {
+                let values: Option<Vec<String>> =
+                    it.words.iter().map(|w| self.literal(w)).collect();
+                match values {
+                    Some(values) => {
+                        for value in values {
+                            self.vars.insert(it.name.clone(), value);
+                            self.items(&it.body);
+                        }
+                    }
+                    None => {
+                        self.vars.remove(&it.name);
+                        self.forget_command(command, Why::Compound);
+                        if moves(command) {
+                            self.cwd = None;
+                        }
+                    }
+                }
+            }
             _ => {
                 let cwd = self.cwd.clone();
                 self.forget_command(command, Why::Compound);
@@ -245,6 +302,25 @@ impl<'a> Run<'a> {
         let name = argv.first().cloned().flatten();
         if self.change_dir(&argv) {
             return;
+        }
+        // A bare assignment binds; one whose value the text does not spell out,
+        // or that appends, leaves the name unknown. A prefix (`A=1 cmd`) binds
+        // for that command alone and is not recorded.
+        if simple.words.is_empty() {
+            for assignment in &simple.assignments {
+                match self.literal(&assignment.value) {
+                    Some(value) if !assignment.append => {
+                        self.vars.insert(assignment.name.clone(), value);
+                    }
+                    _ => {
+                        self.vars.remove(&assignment.name);
+                    }
+                }
+            }
+        }
+        // A builtin that binds names of its own choosing leaves none known.
+        if name.as_deref().is_some_and(|name| REBINDS.contains(&name)) {
+            self.vars.clear();
         }
         // `tee` writes its input to the files it names, as well as to stdout.
         if name.as_deref() == Some("tee") {
@@ -475,6 +551,9 @@ impl<'a> Run<'a> {
 
     /// A program that may have written any file: nothing known survives it.
     fn forget_everything(&mut self, why: Why) {
+        // A function the text defines could have rebound anything, and calling
+        // one is a program this does not know.
+        self.vars.clear();
         for (path, held) in &mut self.now {
             if !matches!(held, Held::Unknown) {
                 *held = Held::Unknown;
@@ -520,8 +599,8 @@ impl<'a> Run<'a> {
         }) {
             return held.clone();
         }
-        match self.given.get(path) {
-            Some(Some(text)) => Held::Text(text.clone()),
+        match self.sight.file(path) {
+            Some(Some(text)) => Held::Text(text),
             Some(None) => Held::Absent,
             None => {
                 if !self.asked.iter().any(|seen| seen == path) {
@@ -769,13 +848,19 @@ impl<'a> Run<'a> {
         }
     }
 
-    /// A word's value, when the text determines it.
+    /// A word's value, when the text determines it: literal text, a home tilde,
+    /// or a plain `$name` this run knows the binding of.
     fn literal(&self, word: &Word) -> Option<String> {
         let mut out = String::new();
         for (at, segment) in word.segments.iter().enumerate() {
             match &segment.kind {
                 SegmentKind::Literal(text) => out.push_str(text),
                 SegmentKind::Tilde(Tilde::Home) if at == 0 => out.push_str(self.home),
+                SegmentKind::Parameter(parameter)
+                    if parameter.subscript.is_none() && parameter.op.is_none() =>
+                {
+                    out.push_str(self.vars.get(&parameter.name)?);
+                }
                 _ => return None,
             }
         }
@@ -786,6 +871,25 @@ impl<'a> Run<'a> {
         resolve(word, self.cwd.as_deref(), self.home)
     }
 }
+
+/// Builtins that bind names this cannot see the values of, or run text it has
+/// not read.
+const REBINDS: &[&str] = &[
+    "read",
+    "mapfile",
+    "readarray",
+    "declare",
+    "typeset",
+    "local",
+    "export",
+    "unset",
+    "eval",
+    "source",
+    ".",
+    "shift",
+    "getopts",
+    "let",
+];
 
 /// Where a command's output lands.
 enum Target {

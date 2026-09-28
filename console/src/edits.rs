@@ -17,7 +17,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use reader::predict::{Divergence, Files, Written, check, needs, predict};
+use reader::predict::{Divergence, Files, Sight, Written, check, predict};
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
@@ -141,11 +141,9 @@ impl Edits {
     pub fn before(&self, session: &str, call: &str, command: &str, cwd: &str) -> Option<Edited> {
         let script = reader::syntax::parse(command).ok()?;
         let home = std::env::var("HOME").unwrap_or_default();
-        let files: Files = needs(&script, cwd, &home)
-            .into_iter()
-            .filter_map(|path| Some((path.clone(), read(Path::new(&path))?)))
-            .collect();
-        let prediction = predict(&script, cwd, &home, &files);
+        let seen = Seen::default();
+        let prediction = predict(&script, cwd, &home, &seen);
+        let files = seen.0.into_inner();
         if !prediction.unfollowed.is_empty() {
             let refused = Refused {
                 session: session.to_string(),
@@ -316,6 +314,20 @@ fn lines<T: serde::de::DeserializeOwned>(file: &Path) -> Vec<T> {
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect()
+}
+
+/// Sight from this disk, asked for as the evaluator reaches each file, keeping
+/// what it showed: a finding or a refusal carries it, so the prediction can be
+/// made again. Reads only — see `docs/execution-model.md`, "Sight".
+#[derive(Default)]
+struct Seen(std::cell::RefCell<Files>);
+
+impl Sight for Seen {
+    fn file(&self, path: &str) -> Option<Option<String>> {
+        let shown = read(Path::new(path))?;
+        self.0.borrow_mut().insert(path.to_string(), shown.clone());
+        Some(shown)
+    }
 }
 
 /// A file's text: `Some(None)` when it does not exist, `None` when it cannot be
