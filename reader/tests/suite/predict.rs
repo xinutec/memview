@@ -239,7 +239,7 @@ fn a_program_that_writes_a_file_is_refused_with_its_path() {
         found.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/notes.txt".to_string()),
-            why: Why::Program("sed".to_string()),
+            why: Why::NotRead,
         }]
     );
 }
@@ -336,6 +336,46 @@ fn a_variable_is_known_while_the_text_bound_it() {
     assert!(inner.written.is_empty(), "an operator is not followed");
     let subshell = run("name=out; (name=in); echo hi > $name.txt", &nothing_known());
     assert_eq!(subshell.written, vec![written("/repo/out.txt", "hi\n")]);
+}
+
+/// `sed -i` over a file sight has shown, with the old text kept under `-i.bak`.
+#[test]
+fn sed_in_place_rewrites_the_file_sight_has_shown() {
+    let shown = known(&[("/repo/a.txt", Some("x y\nx\n"))]);
+    let found = run("sed -i '' 's/x/z/' a.txt", &shown);
+    assert_eq!(found.written, vec![written("/repo/a.txt", "z y\nz\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    let backup = run("sed -i.bak -e 's/x/z/g' -e '$s/y/w/' a.txt", &shown);
+    assert_eq!(
+        backup.written,
+        vec![
+            written("/repo/a.txt.bak", "x y\nx\n"),
+            written("/repo/a.txt", "z y\nz\n"),
+        ]
+    );
+
+    let blind = run("sed -i '' 's/x/z/' a.txt", &nothing_known());
+    assert_eq!(
+        blind.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/a.txt".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+
+    let deletes = run("sed -i '' '2d' a.txt", &shown);
+    assert!(deletes.written.is_empty());
+    assert_eq!(
+        deletes.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/a.txt".to_string()),
+            why: Why::Sed("d".to_string()),
+        }]
+    );
+
+    let quiet = run("sed -n -i '' 's/x/z/p' a.txt", &shown);
+    assert_eq!(quiet.unfollowed[0].why, Why::Sed("-n".to_string()));
 }
 
 /// `cp` of one file to one file: the destination holds the source's text.
@@ -580,19 +620,16 @@ fn a_nested_shell_is_followed() {
     );
 }
 
-/// A program inside the nested shell that rewrites a file the outer one wrote
-/// makes it unknown — the shape of a heredoc followed by a formatter.
+/// A program inside the nested shell rewrites a file the outer one wrote, and
+/// the rewrite is followed against that text.
 #[test]
-fn a_rewrite_inside_a_nested_shell_forgets_the_file() {
+fn a_rewrite_inside_a_nested_shell_is_followed_against_the_outer_write() {
     let found = run(
         "echo x > a.txt && bash -c 'sed -i s/x/y/ a.txt'",
         &nothing_known(),
     );
-    assert!(found.written.is_empty(), "{:?}", found.written);
-    assert!(found.unfollowed.contains(&Unfollowed {
-        path: Some("/repo/a.txt".to_string()),
-        why: Why::Program("sed".to_string()),
-    }));
+    assert_eq!(found.written, vec![written("/repo/a.txt", "y\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
 }
 
 /// The inner shell is a child: its `cd` does not move the outer one.
@@ -843,11 +880,8 @@ fn a_command_python_runs_as_an_argv_is_followed() {
         "python3 - <<'PY'\nimport subprocess\nopen('a.txt', 'w').write('x')\nsubprocess.run(['sed', '-i', 's/x/y/', 'a.txt'], check=True)\nPY",
         &nothing_known(),
     );
-    assert!(found.written.is_empty(), "{:?}", found.written);
-    assert!(found.unfollowed.contains(&Unfollowed {
-        path: Some("/repo/a.txt".to_string()),
-        why: Why::Program("sed".to_string()),
-    }));
+    assert_eq!(found.written, vec![written("/repo/a.txt", "y")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
 }
 
 /// `cwd=` is where it runs, and its `cd` stays with it.

@@ -24,6 +24,7 @@ mod projection;
 mod python;
 mod python_syntax;
 mod resolvable;
+mod sed;
 mod shell;
 mod shell_files;
 mod shell_ops;

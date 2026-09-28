@@ -33,6 +33,7 @@ use std::collections::BTreeMap;
 
 mod python;
 mod python_re;
+pub mod sed;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
@@ -110,6 +111,8 @@ pub enum Why {
     Directory,
     /// A Python construct the evaluator does not follow, by name.
     Python(String),
+    /// A sed flag, command or pattern it does not follow, by name.
+    Sed(String),
 }
 
 impl Why {
@@ -120,6 +123,7 @@ impl Why {
             Why::Program(program) => format!("program {program}"),
             Why::Option(option) => format!("option {option}"),
             Why::Python(construct) => format!("python {construct}"),
+            Why::Sed(construct) => format!("sed {construct}"),
             other => format!("{other:?}").to_lowercase(),
         }
     }
@@ -624,6 +628,39 @@ impl<'a> Run<'a> {
         self.write(to, false, text);
     }
 
+    /// `sed -i`: each file rewritten by the script, and its old text kept under
+    /// the backup suffix when one was given. What the script or the flags say
+    /// that [`sed`] does not follow is refused by name, once per file.
+    fn sed(&mut self, argv: &[String], paths: &[String]) {
+        let invocation = sed::invocation(argv);
+        for path in paths {
+            let text = match self.read(path) {
+                Held::Text(text) => Ok(text),
+                Held::Absent => Err(Why::Missing),
+                Held::Unknown => Err(Why::NotRead),
+            };
+            let (after, suffix) = match (&invocation, text) {
+                (Err(refused), _) => (Err(Why::Sed(refused.clone())), None),
+                (Ok(_), Err(why)) => (Err(why), None),
+                (Ok(invocation), Ok(before)) => {
+                    let scripts: Vec<&str> =
+                        invocation.scripts.iter().map(String::as_str).collect();
+                    let after =
+                        sed::apply(&scripts, invocation.extended, &before).map_err(Why::Sed);
+                    let backup = invocation
+                        .suffix
+                        .as_ref()
+                        .map(|suffix| (format!("{path}{suffix}"), before));
+                    (after, backup)
+                }
+            };
+            if let Some((backup, before)) = suffix {
+                self.write(&backup, false, Ok(before));
+            }
+            self.write(path, false, after);
+        }
+    }
+
     /// A file's text as this run has left it, or as it was given.
     fn read(&mut self, path: &str) -> Held {
         if let Some(held) = self.now.get(path) {
@@ -700,6 +737,20 @@ impl<'a> Run<'a> {
             for path in paths {
                 self.remove(path, *recursive);
             }
+            return;
+        }
+        // `sed -i` over files sight has shown, where its regex and Rust's agree.
+        if let Op::Transform {
+            program_file: None,
+            paths,
+            in_place: true,
+            ..
+        } = &op
+            && literal.iter().all(Option::is_some)
+            && why.is_none()
+            && argv.first().is_some_and(|head| basename(head) == "sed")
+        {
+            self.sed(&argv, paths);
             return;
         }
         // A copy of one file to another holds the source's text.
