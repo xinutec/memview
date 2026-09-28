@@ -90,6 +90,12 @@ enum Function {
     Pure,
     /// A library that reads the file it is given: `Image.open(p)`.
     Reads,
+    /// The sequences a loop can be unrolled over, when every element is known.
+    Range,
+    Enumerate,
+    Zip,
+    Sorted,
+    List,
 }
 
 impl Function {
@@ -104,6 +110,11 @@ impl Function {
             "os.chdir" => Function::ChangeDir,
             "str" => Function::Str,
             "len" => Function::Len,
+            "range" => Function::Range,
+            "enumerate" => Function::Enumerate,
+            "zip" => Function::Zip,
+            "sorted" => Function::Sorted,
+            "list" | "tuple" => Function::List,
             "print" => Function::Print,
             "sys.exit" | "exit" | "quit" | "os._exit" => Function::Exit,
             "os.system" | "os.popen" => Function::Shell,
@@ -324,24 +335,27 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 orelse,
                 target,
                 iter,
-            } => match self.expr(iter)? {
-                Value::Tuple(values) if values.len() <= MAX_UNROLL => {
-                    for value in values {
-                        self.bind(target, value);
-                        match self.block(body) {
-                            Ok(()) | Err(Stop::Continue) => {}
-                            Err(Stop::Break) => return Ok(()),
-                            Err(stop) => return Err(stop),
+            } => {
+                let over = self.expr(iter)?;
+                match self.iterable(over) {
+                    Value::Tuple(values) if values.len() <= MAX_UNROLL => {
+                        for value in values {
+                            self.bind(target, value);
+                            match self.block(body) {
+                                Ok(()) | Err(Stop::Continue) => {}
+                                Err(Stop::Break) => return Ok(()),
+                                Err(stop) => return Err(stop),
+                            }
                         }
+                        self.block(orelse)?;
                     }
-                    self.block(orelse)?;
+                    _ => {
+                        self.unbind(target, &construct("for"));
+                        self.forget(body, &construct("for"), 0);
+                        self.forget(orelse, &construct("for"), 0);
+                    }
                 }
-                _ => {
-                    self.unbind(target, &construct("for"));
-                    self.forget(body, &construct("for"), 0);
-                    self.forget(orelse, &construct("for"), 0);
-                }
-            },
+            }
             StmtKind::While { body, orelse, .. } => {
                 self.forget(body, &construct("while"), 0);
                 self.forget(orelse, &construct("while"), 0);
@@ -711,6 +725,65 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     .and_then(|path| self.resolve(&path));
                 Value::None
             }
+            // A `for` over a `Tuple` runs once per element.
+            Some(Function::Range) => range(&positional),
+            Some(Function::Enumerate) => {
+                let start = positional.get(1).or_else(|| keyword.get("start"));
+                match (first, start) {
+                    (Some(Value::Tuple(values)), None | Some(Value::Int(_))) => {
+                        let start = match start {
+                            Some(Value::Int(n)) => *n,
+                            _ => 0,
+                        };
+                        Value::Tuple(
+                            values
+                                .into_iter()
+                                .enumerate()
+                                .map(|(at, value)| {
+                                    Value::Tuple(vec![Value::Int(start + at as i64), value])
+                                })
+                                .collect(),
+                        )
+                    }
+                    (Some(other), _) => unknown(&other, "enumerate"),
+                    (None, _) => Value::Unknown(construct("enumerate")),
+                }
+            }
+            Some(Function::Zip) => {
+                let rows: Option<Vec<Vec<Value>>> = positional
+                    .iter()
+                    .map(|value| match value {
+                        Value::Tuple(values) => Some(values.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                match rows {
+                    Some(rows) if !rows.is_empty() => {
+                        let shortest = rows.iter().map(Vec::len).min().unwrap_or(0);
+                        Value::Tuple(
+                            (0..shortest)
+                                .map(|at| {
+                                    Value::Tuple(rows.iter().map(|row| row[at].clone()).collect())
+                                })
+                                .collect(),
+                        )
+                    }
+                    _ => Value::Unknown(construct("zip")),
+                }
+            }
+            Some(Function::Sorted) => match first {
+                Some(Value::Tuple(values)) if keyword.is_empty() => sorted(values),
+                Some(other) => unknown(&other, "sorted"),
+                None => Value::Unknown(construct("sorted")),
+            },
+            Some(Function::List) => match first {
+                Some(Value::Tuple(values)) => Value::Tuple(values),
+                Some(Value::Str(text)) => {
+                    Value::Tuple(text.chars().map(|c| Value::Str(c.to_string())).collect())
+                }
+                Some(other) => unknown(&other, "list"),
+                None => Value::Tuple(Vec::new()),
+            },
             Some(Function::Str) => match first {
                 Some(Value::Str(text) | Value::Path(text)) => Value::Str(text),
                 Some(Value::Int(n)) => Value::Str(n.to_string()),
@@ -872,6 +945,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Value::Path(path) => self.path_method(&path, method, args, keyword),
             Value::File { path, mode } => match (method, mode) {
                 ("read", Mode::Read) if args.is_empty() => self.read_value(&path),
+                ("readlines", Mode::Read) if args.is_empty() => lines_of(self.read_value(&path)),
                 ("write", Mode::Write) => {
                     let written = match args.into_iter().next() {
                         Some(Value::Str(text)) => Ok(text),
@@ -1024,6 +1098,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 path: resolved,
                 mode: Mode::Read,
             },
+        }
+    }
+
+    /// What a `for` runs over: a file open for reading is its lines.
+    fn iterable(&mut self, value: Value) -> Value {
+        match value {
+            Value::File {
+                path,
+                mode: Mode::Read,
+            } => lines_of(self.read_value(&path)),
+            other => other,
         }
     }
 
@@ -1580,6 +1665,30 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
                 Value::Str(text.replacen(old.as_str(), new, *count as usize))
             }
         }
+        ("splitlines", []) => splitlines(text),
+        ("split", []) => Value::Tuple(
+            text.split_whitespace()
+                .map(|word| Value::Str(word.to_string()))
+                .collect(),
+        ),
+        ("split", [Value::Str(sep)]) if !sep.is_empty() => Value::Tuple(
+            text.split(sep.as_str())
+                .map(|part| Value::Str(part.to_string()))
+                .collect(),
+        ),
+        ("join", [Value::Tuple(parts)]) => {
+            let parts: Option<Vec<&str>> = parts
+                .iter()
+                .map(|part| match part {
+                    Value::Str(part) => Some(part.as_str()),
+                    _ => None,
+                })
+                .collect();
+            match parts {
+                Some(parts) => Value::Str(parts.join(text)),
+                None => Value::Unknown(construct("join")),
+            }
+        }
         ("strip", []) => Value::Str(text.trim().to_string()),
         ("rstrip", []) => Value::Str(text.trim_end().to_string()),
         ("lstrip", []) => Value::Str(text.trim_start().to_string()),
@@ -1596,6 +1705,98 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
             None => Value::Unknown(Why::Python(format!("str.{method}"))),
         },
     })
+}
+
+/// `str.splitlines`: a break at `\n`, `\r` or `\r\n`, none kept, and no empty
+/// last line after a final break. Python also breaks on `\v`, `\f`, the
+/// separators and NEL, which this does not follow.
+fn splitlines(text: &str) -> Value {
+    if text.contains([
+        '\x0b', '\x0c', '\x1c', '\x1d', '\x1e', '\u{85}', '\u{2028}', '\u{2029}',
+    ]) {
+        return Value::Unknown(construct("splitlines"));
+    }
+    let mut lines: Vec<Value> = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let end = rest.find(['\n', '\r']).unwrap_or(rest.len());
+        lines.push(Value::Str(rest[..end].to_string()));
+        rest = &rest[end..];
+        rest = rest
+            .strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix(['\n', '\r']))
+            .unwrap_or(rest);
+    }
+    Value::Tuple(lines)
+}
+
+/// `range(stop)`, `range(start, stop)`, `range(start, stop, step)`.
+fn range(args: &[Value]) -> Value {
+    let ints: Option<Vec<i64>> = args
+        .iter()
+        .map(|arg| match arg {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    let (start, stop, step) = match ints.as_deref() {
+        Some([stop]) => (0, *stop, 1),
+        Some([start, stop]) => (*start, *stop, 1),
+        Some([start, stop, step]) if *step != 0 => (*start, *stop, *step),
+        _ => return Value::Unknown(construct("range")),
+    };
+    let mut out = Vec::new();
+    let mut at = start;
+    while (step > 0 && at < stop) || (step < 0 && at > stop) {
+        if out.len() > MAX_UNROLL {
+            return Value::Unknown(construct("range"));
+        }
+        out.push(Value::Int(at));
+        at += step;
+    }
+    Value::Tuple(out)
+}
+
+/// `sorted` of strings or of integers, as Python orders each; anything else
+/// compares by rules this does not follow.
+fn sorted(values: Vec<Value>) -> Value {
+    if values.iter().all(|v| matches!(v, Value::Str(_))) {
+        let mut texts: Vec<String> = values
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Str(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        texts.sort();
+        return Value::Tuple(texts.into_iter().map(Value::Str).collect());
+    }
+    if values.iter().all(|v| matches!(v, Value::Int(_))) {
+        let mut ints: Vec<i64> = values
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Int(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        ints.sort_unstable();
+        return Value::Tuple(ints.into_iter().map(Value::Int).collect());
+    }
+    Value::Unknown(construct("sorted"))
+}
+
+/// A text as its lines, each with its newline, as iterating an open file
+/// yields them.
+fn lines_of(value: Value) -> Value {
+    match value {
+        Value::Str(text) => Value::Tuple(
+            text.split_inclusive('\n')
+                .map(|line| Value::Str(line.to_string()))
+                .collect(),
+        ),
+        Value::Unknown(why) => Value::Unknown(why),
+        _ => Value::Unknown(construct("lines")),
+    }
 }
 
 /// Where `needle` first occurs in `text`, counted in code points as Python counts.

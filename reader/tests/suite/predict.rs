@@ -554,6 +554,99 @@ fn a_binding_is_unknown_after_anything_that_could_rebind_it() {
     assert_eq!(kept.written, vec![written("/repo/a.txt", "y\n")]);
 }
 
+/// Found in history: the loops refused as `python for` were over lists the
+/// program could name — a range, a shown file's lines, a split string.
+#[test]
+fn a_python_loop_over_what_the_program_can_list_is_unrolled() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/a.txt", Some("p\nq\n"))]);
+
+    let ranged = run(
+        &py("for i in range(2):\n    open(str(i) + '.txt', 'w').write('x')"),
+        &shown,
+    );
+    assert_eq!(
+        ranged.written,
+        vec![written("/repo/0.txt", "x"), written("/repo/1.txt", "x")]
+    );
+
+    let lines = run(
+        &py("for line in open('a.txt'):\n    open(line.strip() + '.out', 'w').write(line)"),
+        &shown,
+    );
+    assert_eq!(
+        lines.written,
+        vec![written("/repo/p.out", "p\n"), written("/repo/q.out", "q\n")]
+    );
+    let read = run(
+        &py(
+            "for line in open('a.txt').read().splitlines():\n    open(line + '.o', 'w').write('y')",
+        ),
+        &shown,
+    );
+    assert_eq!(
+        read.written,
+        vec![written("/repo/p.o", "y"), written("/repo/q.o", "y")]
+    );
+    let readlines = run(
+        &py("for line in open('a.txt').readlines():\n    open(line.strip(), 'w').write('z')"),
+        &shown,
+    );
+    assert_eq!(
+        readlines.written,
+        vec![written("/repo/p", "z"), written("/repo/q", "z")]
+    );
+
+    let split = run(
+        &py("for name in 'u.txt v.txt'.split():\n    open(name, 'w').write('x')"),
+        &shown,
+    );
+    assert_eq!(
+        split.written,
+        vec![written("/repo/u.txt", "x"), written("/repo/v.txt", "x")]
+    );
+    let enumerated = run(
+        &py("for i, name in enumerate(['u', 'v'], 1):\n    open(name + str(i), 'w').write('x')"),
+        &shown,
+    );
+    assert_eq!(
+        enumerated.written,
+        vec![written("/repo/u1", "x"), written("/repo/v2", "x")]
+    );
+    let ordered = run(
+        &py("for name in sorted(['b.txt', 'a.txt']):\n    open(name, 'w').write('x')"),
+        &shown,
+    );
+    assert_eq!(
+        ordered.written,
+        vec![written("/repo/a.txt", "x"), written("/repo/b.txt", "x")]
+    );
+    let zipped = run(
+        &py("for a, b in zip(['m', 'n'], ['1', '2']):\n    open(a + b, 'w').write('x')"),
+        &shown,
+    );
+    assert_eq!(
+        zipped.written,
+        vec![written("/repo/m1", "x"), written("/repo/n2", "x")]
+    );
+    let joined = run(&py("open('-'.join(['j', 'k']), 'w').write('x')"), &shown);
+    assert_eq!(joined.written, vec![written("/repo/j-k", "x")]);
+
+    let unknown = run(
+        &py("for name in sorted(names()):\n    open(name, 'w').write('x')"),
+        &shown,
+    );
+    assert!(unknown.written.is_empty());
+    assert!(
+        unknown
+            .unfollowed
+            .iter()
+            .any(|u| u.why == Why::Python("for".to_string())),
+        "{:?}",
+        unknown.unfollowed
+    );
+}
+
 /// `cp` of one file to one file: the destination holds the source's text.
 #[test]
 fn cp_of_a_file_sight_has_shown_is_its_text() {

@@ -121,8 +121,9 @@ pipeline, and leaving a path two members both change unknown, since their
 order is not. Python is followed by `reader/src/predict/python.rs`, on the program's
 tree, against the same files as the shell around it: each call assumed to
 succeed, strings, paths and open files interpreted, a function the program
-defines followed in its own frame, a loop over a written-out list run once per
-element, and a block it does not follow (an undecided `if`, a loop over values
+defines followed in its own frame, a loop run once per element over a list
+the program can name (written out, a `range`, a shown file's lines, a split
+string, and `enumerate`, `zip` or `sorted` of those), and a block it does not follow (an undecided `if`, a loop over values
 it cannot list, a decorated function) refused and forgotten as a shell branch
 is. The shell side follows the same shapes: a `for` over words the text spells
 out runs once per word, a brace group is its commands, a subshell keeps its
