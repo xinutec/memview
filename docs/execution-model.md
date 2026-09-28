@@ -102,7 +102,7 @@ of its own — see Scope.
 text afterwards, or that it will not exist: `rm` of a path the text names exactly
 removes it, and `rm -r` everything under it; `cp` of one file to another
 leaves the source's text there, once sight has shown both (a destination it
-cannot show may be a directory); `sed -i` rewrites what sight has shown
+cannot show may be a directory), and `mv` the same with the source gone; `sed -i` rewrites what sight has shown
 where sed's regular expressions and Rust's agree, the match made the longest
 by construction (`reader/src/predict/sed.rs`). Any other program that writes
 files itself has them named by the shell tables and refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`) stands for

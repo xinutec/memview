@@ -709,6 +709,46 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// `mv`: one file to one file, as `cp` and then the source removed. A flag
+    /// other than `-f` or `-v` (no-clobber, a prompt) and several sources are
+    /// refused by name; a destination sight cannot show may be a directory.
+    fn rename(&mut self, argv: &[String], from: &[String], to: &str) {
+        let (flags, operands): (Vec<&String>, Vec<&String>) = argv
+            .iter()
+            .skip(1)
+            .filter(|word| word.as_str() != "--")
+            .partition(|word| word.starts_with('-'));
+        if let Some(flag) = flags
+            .iter()
+            .find(|flag| flag.len() < 2 || !flag[1..].chars().all(|c| "fv".contains(c)))
+        {
+            self.write(to, false, Err(Why::Option(format!("mv {flag}"))));
+            return;
+        }
+        if operands.len() != 2 || from.len() != 1 {
+            self.write(
+                to,
+                false,
+                Err(Why::Option("mv into a directory".to_string())),
+            );
+            return;
+        }
+        let text = match self.read(&from[0]) {
+            Held::Text(text) => Ok(text),
+            Held::Absent => Err(Why::Missing),
+            Held::Unknown => Err(Why::NotRead),
+        };
+        let text = text.and_then(|text| match self.read(to) {
+            Held::Unknown => Err(Why::NotRead),
+            _ => Ok(text),
+        });
+        let moved = text.is_ok();
+        self.write(to, false, text);
+        if moved {
+            self.remove(&from[0], false);
+        }
+    }
+
     /// A file's text as this run has left it, or as it was given.
     fn read(&mut self, path: &str) -> Held {
         if let Some(held) = self.now.get(path) {
@@ -799,6 +839,16 @@ impl<'a> Run<'a> {
             && argv.first().is_some_and(|head| basename(head) == "sed")
         {
             self.sed(&argv, paths);
+            return;
+        }
+        // A move of one file to another: the destination holds the source's
+        // text and the source is gone.
+        if let Op::Move { from, to } = &op
+            && literal.iter().all(Option::is_some)
+            && why.is_none()
+            && argv.first().is_some_and(|head| basename(head) == "mv")
+        {
+            self.rename(&argv, from, to);
             return;
         }
         // A copy of one file to another holds the source's text.

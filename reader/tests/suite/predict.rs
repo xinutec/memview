@@ -465,6 +465,45 @@ fn a_bound_name_under_a_strip_operator_is_computed() {
     assert!(unknown.unfollowed.iter().all(|u| u.why == Why::Expansion));
 }
 
+/// `mv` of one file to one file: the destination holds the source's text and
+/// the source is gone.
+#[test]
+fn mv_of_a_file_sight_has_shown_moves_its_text() {
+    let shown = known(&[("/repo/a.txt", Some("x\n")), ("/repo/b.txt", None)]);
+    let found = run("mv a.txt b.txt", &shown);
+    assert_eq!(
+        found.written,
+        vec![written("/repo/b.txt", "x\n"), removed("/repo/a.txt")]
+    );
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    let then = run("mv a.txt b.txt && cat a.txt >> b.txt", &shown);
+    assert_eq!(
+        then.unfollowed[0].why,
+        Why::Missing,
+        "the source is gone: {:?}",
+        then.unfollowed
+    );
+
+    let blind = run("mv a.txt b.txt", &nothing_known());
+    assert_eq!(
+        blind.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/b.txt".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+    assert!(blind.written.is_empty());
+
+    let clobber = run("mv -n a.txt b.txt", &shown);
+    assert_eq!(clobber.unfollowed[0].why, Why::Option("mv -n".to_string()));
+    let many = run("mv a.txt b.txt dir.d", &shown);
+    assert_eq!(
+        many.unfollowed[0].why,
+        Why::Option("mv into a directory".to_string())
+    );
+}
+
 /// `cp` of one file to one file: the destination holds the source's text.
 #[test]
 fn cp_of_a_file_sight_has_shown_is_its_text() {
