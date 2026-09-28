@@ -504,6 +504,56 @@ fn mv_of_a_file_sight_has_shown_moves_its_text() {
     );
 }
 
+/// Found in review: an unrolled loop ran every iteration past a `break`, and a
+/// script went on past `exit`.
+#[test]
+fn control_flow_is_honoured_or_refused() {
+    let looped = run(
+        "for i in 1 2 3; do echo x > log$i.txt; if ok; then break; fi; done",
+        &nothing_known(),
+    );
+    assert!(looped.written.is_empty(), "{:?}", looped.written);
+    assert!(looped.unfollowed.iter().all(|u| u.why == Why::Compound));
+
+    let exited = run("echo x > a.txt; exit 0; echo y > b.txt", &nothing_known());
+    assert_eq!(exited.written, vec![written("/repo/a.txt", "x\n")]);
+    assert!(
+        exited.unfollowed.is_empty(),
+        "what never runs is not a write"
+    );
+
+    let inner = run(
+        "(echo x > a.txt; exit 1); (exit 1) | cat; bash -c 'exit 1'; echo y > b.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        inner.written,
+        vec![written("/repo/a.txt", "x\n"), written("/repo/b.txt", "y\n")],
+        "an exit ends only the shell it is in"
+    );
+}
+
+/// Found in review: a binding survived a compound this does not follow, and a
+/// child shell saw its parent's bindings.
+#[test]
+fn a_binding_is_unknown_after_anything_that_could_rebind_it() {
+    for script in [
+        "x=a; if c; then x=b; fi; echo y > $x.txt",
+        "x=a; ((x++)); echo y > $x.txt",
+        "x=a; true || x=b; echo y > $x.txt",
+        "x=a; printf -v x b; echo y > $x.txt",
+        "x=a; bash -c 'echo y > $x.txt'",
+    ] {
+        let found = run(script, &nothing_known());
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+    }
+    let kept = run(
+        "x=a; true || echo; bash -c 'x=b'; echo y > $x.txt",
+        &nothing_known(),
+    );
+    assert_eq!(kept.written, vec![written("/repo/a.txt", "y\n")]);
+}
+
 /// `cp` of one file to one file: the destination holds the source's text.
 #[test]
 fn cp_of_a_file_sight_has_shown_is_its_text() {

@@ -32,8 +32,8 @@ use regex::{Regex, RegexBuilder};
 /// Why a script is not followed, as the census names it after `sed `.
 pub type Refused = String;
 
-/// A line longer than this is not rewritten: finding the longest match costs a
-/// pattern test per possible end.
+/// A line longer than this is not rewritten, nor tested by an address: finding
+/// the longest match costs a pattern test per possible end.
 const LONGEST_LINE: usize = 4096;
 
 /// How `sed` was invoked: the scripts in order, whether `-E`, and the backup
@@ -228,6 +228,9 @@ pub fn apply(scripts: &[&str], extended: bool, text: &str) -> Result<String, Ref
             Some(body) => (body, true),
             None => (*line, false),
         };
+        if body.len() > LONGEST_LINE {
+            return Err("long line".to_string());
+        }
         let mut space = body.to_string();
         for command in &mut commands {
             if command.selects(number, last, &space) {
@@ -270,9 +273,6 @@ impl Substitute {
     }
 
     fn run(&self, space: &str) -> Result<String, Refused> {
-        if space.len() > LONGEST_LINE {
-            return Err("long line".to_string());
-        }
         let wanted = match self.which {
             Which::First => 1,
             Which::Nth(n) => n,
@@ -575,7 +575,9 @@ fn translate(pattern: &str, extended: bool) -> Result<(String, bool, bool), Refu
                     't' => out.push_str("\\t"),
                     // GNU's literal ampersand, which Rust needs no escape for.
                     '&' => out.push('&'),
-                    's' | 'S' | 'w' | 'W' | 'b' | 'B' => {
+                    // A boundary is judged against a span, not the line.
+                    'b' | 'B' => return Err("word boundary".to_string()),
+                    's' | 'S' | 'w' | 'W' => {
                         out.push('\\');
                         out.push(next);
                     }

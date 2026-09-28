@@ -188,6 +188,8 @@ struct Run<'a> {
     vars: BTreeMap<String, String>,
     /// Inside a pipeline member after the first: stdin is the pipe.
     piped: bool,
+    /// An unconditional `exit` or `return` was reached: nothing after it runs.
+    stopped: bool,
     /// Files this run has written or found out about, by path.
     now: BTreeMap<String, Held>,
     /// Paths written, in first-write order.
@@ -209,6 +211,7 @@ impl<'a> Run<'a> {
             sight,
             vars: BTreeMap::new(),
             piped: false,
+            stopped: false,
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
@@ -219,6 +222,9 @@ impl<'a> Run<'a> {
 
     fn items(&mut self, items: &[Item]) {
         for item in items {
+            if self.stopped {
+                break;
+            }
             if let Item::List(list) = item {
                 self.list(list);
             }
@@ -261,7 +267,12 @@ impl<'a> Run<'a> {
             self.command(only);
             return;
         }
-        let (cwd, vars, outer) = (self.cwd.clone(), self.vars.clone(), self.piped);
+        let (cwd, vars, outer, stopped) = (
+            self.cwd.clone(),
+            self.vars.clone(),
+            self.piped,
+            self.stopped,
+        );
         let (base_now, base_trees) = (self.now.clone(), self.trees.clone());
         let mut merged = base_now.clone();
         let mut merged_trees = base_trees.clone();
@@ -270,6 +281,7 @@ impl<'a> Run<'a> {
             self.now = base_now.clone();
             self.trees = base_trees.clone();
             self.piped = outer || at > 0;
+            self.stopped = stopped;
             self.command(member);
             self.cwd = cwd.clone();
             self.vars = vars.clone();
@@ -283,6 +295,7 @@ impl<'a> Run<'a> {
             merged_trees.extend(self.trees.iter().skip(base_trees.len()).cloned());
         }
         self.piped = outer;
+        self.stopped = stopped;
         self.now = merged;
         self.trees = merged_trees;
         for (path, members) in changed_by {
@@ -303,10 +316,11 @@ impl<'a> Run<'a> {
             // its bindings kept inside.
             CommandKind::Group(items) if command.redirects.is_empty() => self.items(items),
             CommandKind::Subshell(items) if command.redirects.is_empty() => {
-                let (cwd, vars) = (self.cwd.clone(), self.vars.clone());
+                let (cwd, vars, stopped) = (self.cwd.clone(), self.vars.clone(), self.stopped);
                 self.items(items);
                 self.cwd = cwd;
                 self.vars = vars;
+                self.stopped = stopped;
             }
             // A loop over words the text spells out runs its body once per word,
             // the variable bound to each; it stays bound to the last, as bash
@@ -315,14 +329,13 @@ impl<'a> Run<'a> {
                 let values: Option<Vec<String>> =
                     it.words.iter().map(|w| self.literal(w)).collect();
                 match values {
-                    Some(values) => {
+                    Some(values) if !controls_flow(&it.body) => {
                         for value in values {
                             self.vars.insert(it.name.clone(), value);
                             self.items(&it.body);
                         }
                     }
-                    None => {
-                        self.vars.remove(&it.name);
+                    _ => {
                         self.forget_command(command, Why::Compound);
                         if moves(command) {
                             self.cwd = None;
@@ -351,6 +364,11 @@ impl<'a> Run<'a> {
         if self.change_dir(&argv) {
             return;
         }
+        // The shell ends here, and what came before stands.
+        if matches!(name.as_deref(), Some("exit" | "return")) {
+            self.stopped = true;
+            return;
+        }
         // A bare assignment binds; one whose value the text does not spell out,
         // or that appends, leaves the name unknown. A prefix (`A=1 cmd`) binds
         // for that command alone and is not recorded.
@@ -367,7 +385,10 @@ impl<'a> Run<'a> {
             }
         }
         // A builtin that binds names of its own choosing leaves none known.
-        if name.as_deref().is_some_and(|name| REBINDS.contains(&name)) {
+        if name.as_deref().is_some_and(|name| REBINDS.contains(&name))
+            || (name.as_deref() == Some("printf")
+                && argv.iter().skip(1).any(|arg| arg.as_deref() == Some("-v")))
+        {
             self.vars.clear();
         }
         // `tee` writes its input to the files it names, as well as to stdout.
@@ -982,6 +1003,9 @@ impl<'a> Run<'a> {
             return false;
         };
         let parent = std::mem::replace(&mut self.cwd, cwd);
+        // A child sees only what was exported, which this does not track, and
+        // its `exit` ends only itself.
+        let (vars, stopped) = (std::mem::take(&mut self.vars), self.stopped);
         match why {
             None => self.items(&tree.items),
             Some(why) => {
@@ -993,6 +1017,8 @@ impl<'a> Run<'a> {
             }
         }
         self.cwd = parent;
+        self.vars = vars;
+        self.stopped = stopped;
         true
     }
 
@@ -1011,6 +1037,10 @@ impl<'a> Run<'a> {
     }
 
     fn forget_command(&mut self, command: &Command, why: Why) {
+        // Whatever it bound, this did not see.
+        if binds(command) {
+            self.vars.clear();
+        }
         if let CommandKind::Simple(simple) = &command.kind {
             let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
             if self.change_dir(&argv) {
@@ -1272,21 +1302,70 @@ fn bodies(kind: &CommandKind) -> Vec<&[Item]> {
     }
 }
 
-/// Whether a compound runs a `cd` anywhere inside it.
-fn moves(command: &Command) -> bool {
-    bodies(&command.kind).into_iter().flatten().any(|item| match item {
+/// Whether any command in `items`, at any depth, is one `wanted` says.
+fn any_command(items: &[Item], wanted: &dyn Fn(&Command) -> bool) -> bool {
+    items.iter().any(|item| match item {
         Item::List(list) => std::iter::once(&list.first)
             .chain(list.rest.iter().map(|link| &link.pipeline))
             .flat_map(|pipeline| &pipeline.commands)
-            .any(|command| match &command.kind {
-                CommandKind::Simple(simple) => simple
-                    .words
-                    .first()
-                    .is_some_and(|w| matches!(w.segments.as_slice(), [s] if s.kind == SegmentKind::Literal("cd".to_string()))),
-                _ => moves(command),
+            .any(|command| {
+                wanted(command)
+                    || bodies(&command.kind)
+                        .into_iter()
+                        .any(|body| any_command(body, wanted))
             }),
         Item::Comment(_) => false,
     })
+}
+
+/// A simple command's name, when it is one literal word.
+fn named(command: &Command) -> Option<&str> {
+    let CommandKind::Simple(simple) = &command.kind else {
+        return None;
+    };
+    match simple.words.first()?.segments.as_slice() {
+        [segment] => match &segment.kind {
+            SegmentKind::Literal(name) => Some(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a compound runs a `cd` anywhere inside it.
+fn moves(command: &Command) -> bool {
+    bodies(&command.kind)
+        .into_iter()
+        .any(|body| any_command(body, &|command| named(command) == Some("cd")))
+}
+
+/// Whether a loop body leaves the loop or the shell early anywhere inside it,
+/// which unrolling every iteration would not honour.
+fn controls_flow(body: &[Item]) -> bool {
+    any_command(body, &|command| {
+        matches!(
+            named(command),
+            Some("break" | "continue" | "exit" | "return")
+        )
+    })
+}
+
+/// Whether a command this does not follow could bind a name: an assignment, a
+/// builtin that binds, arithmetic, a loop's variable, or any of those inside.
+fn binds(command: &Command) -> bool {
+    match &command.kind {
+        CommandKind::Simple(simple) => {
+            !simple.assignments.is_empty()
+                || named(command).is_some_and(|name| REBINDS.contains(&name) || name == "printf")
+        }
+        CommandKind::Arithmetic(_)
+        | CommandKind::ForArith(_)
+        | CommandKind::For(_)
+        | CommandKind::Function(_) => true,
+        kind => bodies(kind)
+            .into_iter()
+            .any(|body| any_command(body, &binds)),
+    }
 }
 
 /// A file that did not end up holding what was predicted.

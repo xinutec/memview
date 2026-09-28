@@ -182,6 +182,11 @@ fn what_is_not_followed_is_refused_by_name() {
         Err("backreference".to_string())
     );
     assert_eq!(one("s/\\<a/b/", "a\n"), Err("word edge".to_string()));
+    assert_eq!(one("s/\\ba/b/", "a\n"), Err("word boundary".to_string()));
+    assert_eq!(
+        one("2s/a/b/", &"a".repeat(5000)),
+        Err("long line".to_string())
+    );
     assert_eq!(one("s/a/b", "a\n"), Err("unterminated".to_string()));
     assert_eq!(one("y/a/b/", "a\n"), Err("y".to_string()));
 }
