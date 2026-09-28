@@ -15,7 +15,8 @@
 //! its commands; a subshell is the same with its `cd` and its variables kept
 //! inside; each member of a pipeline is a subshell of its own, reading the pipe
 //! as its stdin. A variable is known while the text bound it to a literal and
-//! nothing since could have changed it. What this
+//! nothing since could have changed it, `$HOME` and `$PWD` are known, and a
+//! prefix or suffix strip with a spelled-out pattern is computed. What this
 //! cannot follow — a program whose output is not modelled, a branch,
 //! a word with an expansion in it — yields no prediction for the files it writes,
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
@@ -40,8 +41,8 @@ use crate::shell::Reached;
 use crate::shell_files::files_of;
 use crate::shell_ops::{GitOp, Op, basename, classify, innermost, resolve};
 use crate::syntax::ast::{
-    AndOr, Command, CommandKind, Connector, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
-    Script, SegmentKind, Simple, Tilde, Word,
+    AndOr, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp, Pipeline, Redirect,
+    RedirectOp, RedirectTarget, Script, SegmentKind, Simple, Tilde, Word,
 };
 use crate::syntax::embed::{Program, python_of};
 use crate::syntax::print::print_value;
@@ -998,10 +999,8 @@ impl<'a> Run<'a> {
             match &segment.kind {
                 SegmentKind::Literal(text) => out.push_str(text),
                 SegmentKind::Tilde(Tilde::Home) if at == 0 => out.push_str(self.home),
-                SegmentKind::Parameter(parameter)
-                    if parameter.subscript.is_none() && parameter.op.is_none() =>
-                {
-                    out.push_str(self.vars.get(&parameter.name)?);
+                SegmentKind::Parameter(parameter) if parameter.subscript.is_none() => {
+                    out.push_str(&self.parameter(parameter)?);
                 }
                 _ => return None,
             }
@@ -1009,9 +1008,117 @@ impl<'a> Run<'a> {
         Some(out)
     }
 
+    /// A `$name` this run knows the value of — one the text bound, or `HOME`
+    /// and `PWD`, which the run itself carries — alone or under a prefix or
+    /// suffix strip whose pattern the text spells out.
+    fn parameter(&self, parameter: &Parameter) -> Option<String> {
+        let value = match self.vars.get(&parameter.name) {
+            Some(bound) => bound.clone(),
+            None => match parameter.name.as_str() {
+                "HOME" => self.home.to_string(),
+                "PWD" => self.cwd.clone()?,
+                _ => return None,
+            },
+        };
+        match &parameter.op {
+            None => Some(value),
+            Some(ParameterOp::StripPrefix { longest, pattern }) => {
+                Some(strip(&value, &glob(pattern)?, Strip::Prefix, *longest))
+            }
+            Some(ParameterOp::StripSuffix { longest, pattern }) => {
+                Some(strip(&value, &glob(pattern)?, Strip::Suffix, *longest))
+            }
+            Some(_) => None,
+        }
+    }
+
     fn resolve(&self, word: &str) -> Option<String> {
         resolve(word, self.cwd.as_deref(), self.home)
     }
+}
+
+/// One piece of a shell pattern: a character, `*`, or `?`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Piece {
+    Char(char),
+    Any,
+    One,
+}
+
+/// A pattern word as pieces, when the text spells it out; a character class or
+/// an expansion in it is not followed.
+fn glob(word: &Word) -> Option<Vec<Piece>> {
+    let mut out = Vec::new();
+    for segment in &word.segments {
+        match &segment.kind {
+            SegmentKind::Literal(text) => out.extend(text.chars().map(Piece::Char)),
+            SegmentKind::Glob(Glob::Any) => out.push(Piece::Any),
+            SegmentKind::Glob(Glob::One) => out.push(Piece::One),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// Whether `pattern` matches all of `text`.
+fn matches(pattern: &[Piece], text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    // The classic wildcard walk: on `*`, remember where to resume.
+    let (mut p, mut t) = (0usize, 0usize);
+    let mut star: Option<(usize, usize)> = None;
+    while t < chars.len() {
+        match pattern.get(p) {
+            Some(Piece::Any) => {
+                star = Some((p, t));
+                p += 1;
+            }
+            Some(Piece::One) => {
+                p += 1;
+                t += 1;
+            }
+            Some(Piece::Char(c)) if *c == chars[t] => {
+                p += 1;
+                t += 1;
+            }
+            _ => match star {
+                Some((sp, st)) => {
+                    p = sp + 1;
+                    t = st + 1;
+                    star = Some((sp, st + 1));
+                }
+                None => return false,
+            },
+        }
+    }
+    pattern[p..].iter().all(|piece| *piece == Piece::Any)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Strip {
+    Prefix,
+    Suffix,
+}
+
+/// `${x#pat}`, `${x##pat}`, `${x%pat}`, `${x%%pat}`: the value with the shortest
+/// or longest matching prefix or suffix removed, or unchanged when none matches.
+fn strip(value: &str, pattern: &[Piece], end: Strip, longest: bool) -> String {
+    let mut cuts: Vec<usize> = (0..=value.len())
+        .filter(|at| value.is_char_boundary(*at))
+        .collect();
+    // Shortest first for a prefix means ascending; for a suffix, descending.
+    if matches!(end, Strip::Suffix) != longest {
+        cuts.reverse();
+    }
+    for at in cuts {
+        let (removed, kept) = match end {
+            Strip::Prefix => (&value[..at], &value[at..]),
+            Strip::Suffix => (&value[at..], &value[..at]),
+        };
+        if matches(pattern, removed) {
+            return kept.to_string();
+        }
+    }
+    value.to_string()
 }
 
 /// Builtins that bind names this cannot see the values of, or run text it has

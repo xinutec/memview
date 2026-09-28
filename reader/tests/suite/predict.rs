@@ -426,6 +426,45 @@ fn each_member_of_a_pipeline_is_followed_in_its_own_subshell() {
     );
 }
 
+/// Found in history: `for pair in a:b …; do s=${pair%%:*}; g=${pair##*:}; … > $g.svg`.
+#[test]
+fn a_bound_name_under_a_strip_operator_is_computed() {
+    let found = run(
+        "pair=20260717:tables; s=${pair%%:*}; g=${pair##*:}; echo x > $s-$g.txt; echo y > \"$HOME/h.txt\"; echo z > $PWD/p.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/20260717-tables.txt", "x\n"),
+            written("/home/me/h.txt", "y\n"),
+            written("/repo/p.txt", "z\n"),
+        ]
+    );
+
+    let ends = run(
+        "f=a.b.c; echo x > ${f%.*}.txt; echo y > ${f#*.}.txt; echo z > ${f%%.*}.txt; echo w > ${f##*.}.txt; echo v > ${f%x*}.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        ends.written,
+        vec![
+            written("/repo/a.b.txt", "x\n"),
+            written("/repo/b.c.txt", "y\n"),
+            written("/repo/a.txt", "z\n"),
+            written("/repo/c.txt", "w\n"),
+            written("/repo/a.b.c.txt", "v\n"),
+        ]
+    );
+
+    let unknown = run(
+        "echo x > ${undefined%%:*}.txt; echo y > ${f:-d}.txt",
+        &nothing_known(),
+    );
+    assert!(unknown.written.is_empty());
+    assert!(unknown.unfollowed.iter().all(|u| u.why == Why::Expansion));
+}
+
 /// `cp` of one file to one file: the destination holds the source's text.
 #[test]
 fn cp_of_a_file_sight_has_shown_is_its_text() {

@@ -127,7 +127,9 @@ it cannot list, a decorated function) refused and forgotten as a shell branch
 is. The shell side follows the same shapes: a `for` over words the text spells
 out runs once per word, a brace group is its commands, a subshell keeps its
 `cd` and its bindings inside, and a variable is known while the text bound it
-to a literal and no builtin since could have rebound it.
+to a literal and no builtin since could have rebound it; `$HOME` and `$PWD`
+are known, and `${x%%pat}` and its three siblings are computed when the
+pattern is spelled out.
 A command it runs is followed as the shell it amounts to. `re.sub` is followed
 where Python's `re` and Rust's `regex` mean the same thing, translated rather
 than copied, and refused by what differs where they do not: a backreference,
