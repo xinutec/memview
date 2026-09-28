@@ -589,6 +589,41 @@ impl<'a> Run<'a> {
         self.now.insert(path.to_string(), Held::Absent);
     }
 
+    /// `cp`: one file to one file, as the text of the source. A flag other than
+    /// `-f`, `-p` or `-v` (a tree, no-clobber, a prompt), or several sources,
+    /// is refused by name; a destination sight cannot show may be a directory,
+    /// under which the written file would have another name, so it is refused
+    /// as not read; a source that does not exist fails the copy.
+    fn copy(&mut self, argv: &[String], from: &[String], to: &str) {
+        let (flags, operands): (Vec<&String>, Vec<&String>) =
+            argv.iter().skip(1).partition(|word| word.starts_with('-'));
+        if let Some(flag) = flags
+            .iter()
+            .find(|flag| flag.len() < 2 || !flag[1..].chars().all(|c| "fpv".contains(c)))
+        {
+            self.write(to, false, Err(Why::Option(format!("cp {flag}"))));
+            return;
+        }
+        if operands.len() != 2 || from.len() != 1 {
+            self.write(
+                to,
+                false,
+                Err(Why::Option("cp into a directory".to_string())),
+            );
+            return;
+        }
+        let text = match self.read(&from[0]) {
+            Held::Text(text) => Ok(text),
+            Held::Absent => Err(Why::Missing),
+            Held::Unknown => Err(Why::NotRead),
+        };
+        let text = text.and_then(|text| match self.read(to) {
+            Held::Unknown => Err(Why::NotRead),
+            _ => Ok(text),
+        });
+        self.write(to, false, text);
+    }
+
     /// A file's text as this run has left it, or as it was given.
     fn read(&mut self, path: &str) -> Held {
         if let Some(held) = self.now.get(path) {
@@ -665,6 +700,15 @@ impl<'a> Run<'a> {
             for path in paths {
                 self.remove(path, *recursive);
             }
+            return;
+        }
+        // A copy of one file to another holds the source's text.
+        if let Op::Copy { from, to } = &op
+            && literal.iter().all(Option::is_some)
+            && why.is_none()
+            && argv.first().is_some_and(|head| basename(head) == "cp")
+        {
+            self.copy(&argv, from, to);
             return;
         }
         if let Some(program) = writes_anything(&op, &argv) {

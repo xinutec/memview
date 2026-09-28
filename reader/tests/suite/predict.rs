@@ -338,6 +338,50 @@ fn a_variable_is_known_while_the_text_bound_it() {
     assert_eq!(subshell.written, vec![written("/repo/out.txt", "hi\n")]);
 }
 
+/// `cp` of one file to one file: the destination holds the source's text.
+#[test]
+fn cp_of_a_file_sight_has_shown_is_its_text() {
+    let shown = known(&[("/repo/a.txt", Some("x\n")), ("/repo/b.txt", None)]);
+    let found = run("cp a.txt b.txt", &shown);
+    assert_eq!(found.written, vec![written("/repo/b.txt", "x\n")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    let then = run("cp a.txt b.txt && echo y >> b.txt", &shown);
+    assert_eq!(then.written, vec![written("/repo/b.txt", "x\ny\n")]);
+
+    // From history nothing is shown, and the write depends on a text nobody has.
+    let blind = run("cp a.txt b.txt", &nothing_known());
+    assert!(blind.written.is_empty());
+    assert_eq!(
+        blind.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/b.txt".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+
+    // A destination sight cannot show may be a directory, which would make
+    // the written file a different one.
+    let unseen = run("cp a.txt out.d", &known(&[("/repo/a.txt", Some("x\n"))]));
+    assert_eq!(unseen.unfollowed[0].why, Why::NotRead);
+
+    // A source that does not exist fails the copy.
+    let gone = run(
+        "cp a.txt b.txt",
+        &known(&[("/repo/a.txt", None), ("/repo/b.txt", None)]),
+    );
+    assert_eq!(gone.unfollowed[0].why, Why::Missing);
+
+    // A tree, and several sources into a directory, are refused by name.
+    let tree = run("cp -r src.d dst.d", &shown);
+    assert_eq!(tree.unfollowed[0].why, Why::Option("cp -r".to_string()));
+    let many = run("cp a.txt b.txt dir.d", &shown);
+    assert_eq!(
+        many.unfollowed[0].why,
+        Why::Option("cp into a directory".to_string())
+    );
+}
+
 /// A destination the text names is still named when a source is a variable.
 #[test]
 fn a_named_destination_survives_an_expanded_source() {
@@ -860,7 +904,7 @@ fn an_argv_word_holding_a_quote_stays_one_word() {
         found.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/it's b.txt".to_string()),
-            why: Why::Program("cp".to_string()),
+            why: Why::NotRead,
         }]
     );
 }
