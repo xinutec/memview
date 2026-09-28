@@ -136,6 +136,7 @@ const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60)
 pub struct Edits {
     root: PathBuf,
     pending: Mutex<HashMap<String, Pending>>,
+    /// The refusal file's lock, holding when it was last pruned.
     pruned: Mutex<Option<std::time::Instant>>,
 }
 
@@ -148,19 +149,19 @@ impl Edits {
         }
     }
 
-    /// Drop refusal rows older than [`REFUSALS_KEPT`], and any without a date,
-    /// at most once per [`PRUNE_EVERY`].
-    fn prune_refusals(&self) {
+    /// Keep a refusal row, then drop rows older than [`REFUSALS_KEPT`] and any
+    /// without a date, at most once per [`PRUNE_EVERY`]. Under one lock: the
+    /// hook runs on a blocking pool, and a row appended while another thread
+    /// rewrites the file would be lost.
+    fn keep_refusal(&self, refused: &Refused) -> std::io::Result<()> {
         let mut pruned = self.pruned.lock();
+        let file = self.root.join("refused.jsonl");
+        self.keep(&file, refused)?;
         if pruned.is_some_and(|last| last.elapsed() < PRUNE_EVERY) {
-            return;
+            return Ok(());
         }
         *pruned = Some(std::time::Instant::now());
-        drop(pruned);
-        let file = self.root.join("refused.jsonl");
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            return;
-        };
+        let text = std::fs::read_to_string(&file)?;
         let oldest = time::OffsetDateTime::now_utc() - REFUSALS_KEPT;
         let kept: Vec<&str> = text
             .lines()
@@ -177,11 +178,10 @@ impl Edits {
                     .is_some_and(|at| at >= oldest)
             })
             .collect();
-        if kept.len() < text.lines().count()
-            && let Err(why) = std::fs::write(&file, kept.join("\n") + "\n")
-        {
-            tracing::warn!("could not prune the refusals: {why}");
+        if kept.len() < text.lines().count() {
+            std::fs::write(&file, kept.join("\n") + "\n")?;
         }
+        Ok(())
     }
 
     /// Predict what `command` will change, before it runs. `None` when it writes
@@ -209,10 +209,9 @@ impl Edits {
                     .map(|unfollowed| unfollowed.why.census_name())
                     .collect(),
             };
-            if let Err(why) = self.keep(&self.root.join("refused.jsonl"), &refused) {
+            if let Err(why) = self.keep_refusal(&refused) {
                 tracing::warn!("could not keep the refusals of {call}: {why}");
             }
-            self.prune_refusals();
         }
         if prediction.written.is_empty() {
             return None;
