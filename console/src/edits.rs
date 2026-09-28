@@ -97,6 +97,9 @@ pub fn edits_root() -> PathBuf {
 struct Refused {
     session: String,
     call: String,
+    /// When, so the rows can be pruned: a refusal is recomputable from the
+    /// transcript and only recent ones rank.
+    at: String,
     command: String,
     cwd: String,
     files: Files,
@@ -122,10 +125,18 @@ struct Pending {
 /// session the console does not run never reports its end here.
 const HELD: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
+/// How long a refusal row is kept. Nothing in it is golden: the command is in
+/// the transcript, and the ranking wants recent traffic.
+const REFUSALS_KEPT: time::Duration = time::Duration::days(30);
+
+/// How often the refusal rows are pruned, at most.
+const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
 #[derive(Default)]
 pub struct Edits {
     root: PathBuf,
     pending: Mutex<HashMap<String, Pending>>,
+    pruned: Mutex<Option<std::time::Instant>>,
 }
 
 impl Edits {
@@ -133,6 +144,43 @@ impl Edits {
         Self {
             root,
             pending: Mutex::default(),
+            pruned: Mutex::default(),
+        }
+    }
+
+    /// Drop refusal rows older than [`REFUSALS_KEPT`], and any without a date,
+    /// at most once per [`PRUNE_EVERY`].
+    fn prune_refusals(&self) {
+        let mut pruned = self.pruned.lock();
+        if pruned.is_some_and(|last| last.elapsed() < PRUNE_EVERY) {
+            return;
+        }
+        *pruned = Some(std::time::Instant::now());
+        drop(pruned);
+        let file = self.root.join("refused.jsonl");
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            return;
+        };
+        let oldest = time::OffsetDateTime::now_utc() - REFUSALS_KEPT;
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .ok()
+                    .and_then(|row| {
+                        time::OffsetDateTime::parse(
+                            row["at"].as_str()?,
+                            &time::format_description::well_known::Rfc3339,
+                        )
+                        .ok()
+                    })
+                    .is_some_and(|at| at >= oldest)
+            })
+            .collect();
+        if kept.len() < text.lines().count()
+            && let Err(why) = std::fs::write(&file, kept.join("\n") + "\n")
+        {
+            tracing::warn!("could not prune the refusals: {why}");
         }
     }
 
@@ -148,6 +196,9 @@ impl Edits {
             let refused = Refused {
                 session: session.to_string(),
                 call: call.to_string(),
+                at: time::OffsetDateTime::now_utc()
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default(),
                 command: command.to_string(),
                 cwd: cwd.to_string(),
                 files: files.clone(),
@@ -161,6 +212,7 @@ impl Edits {
             if let Err(why) = self.keep(&self.root.join("refused.jsonl"), &refused) {
                 tracing::warn!("could not keep the refusals of {call}: {why}");
             }
+            self.prune_refusals();
         }
         if prediction.written.is_empty() {
             return None;
@@ -215,6 +267,13 @@ impl Edits {
             if let Some(pending) = self.pending.lock().get_mut(call) {
                 pending.early = Some(look(&pending.written));
             }
+            return None;
+        }
+        // A script that raised did not do what its text says, though the shell's
+        // exit code can hide that behind a later command (`python3 … ; grep …`).
+        // The interpreter's own marker is read where it puts it, at a line start.
+        if raised(response) {
+            self.pending.lock().remove(call);
             return None;
         }
         self.check(call)
@@ -328,6 +387,17 @@ impl Sight for Seen {
         self.0.borrow_mut().insert(path.to_string(), shown.clone());
         Some(shown)
     }
+}
+
+/// Whether a Python interpreter in the call reported an uncaught exception.
+fn raised(response: &serde_json::Value) -> bool {
+    ["stdout", "stderr"].iter().any(|stream| {
+        response[stream]
+            .as_str()
+            .unwrap_or("")
+            .lines()
+            .any(|line| line.starts_with("Traceback (most recent call last):"))
+    })
 }
 
 /// A file's text: `Some(None)` when it does not exist, `None` when it cannot be

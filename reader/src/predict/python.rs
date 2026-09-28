@@ -975,6 +975,15 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Some(Value::Unknown(why)) => why,
                 _ => construct("open"),
             };
+            // Opened to write, at a path the program cannot name.
+            let reading = match &mode {
+                None => true,
+                Some(Value::Str(mode)) => !mode.contains(['w', 'a', 'x', '+']),
+                Some(_) => false,
+            };
+            if !reading {
+                self.unnamed_write(why.clone());
+            }
             return Value::Unknown(why);
         };
         let Some(resolved) = self.resolve(&path) else {
@@ -1059,6 +1068,15 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         self.shell.unfollowed.push(Unfollowed { path: None, why });
     }
 
+    /// A write to a path the program cannot name may have been to any file, so
+    /// nothing predicted before it survives and nothing read after it is known.
+    /// Found live: a loop over `grep -rl`'s output edited three files, and a
+    /// later loop over those files by name was predicted from their old text.
+    fn unnamed_write(&mut self, why: Why) {
+        self.unnamed(why.clone());
+        self.shell.forget_everything(why);
+    }
+
     /// The file a value names or holds open is changed in a way this does not follow.
     fn forget_value(&mut self, value: &Value, why: &Why) {
         let path = match value {
@@ -1067,7 +1085,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         };
         match path {
             Some(path) => self.shell.write(&path, false, Err(why.clone())),
-            None => self.unnamed(why.clone()),
+            None => self.unnamed_write(why.clone()),
         }
     }
 
@@ -1238,7 +1256,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                             Value::Unknown(_),
                             "write_text" | "write_bytes" | "touch" | "unlink" | "rename"
                             | "replace",
-                        ) => self.unnamed(why.clone()),
+                        ) => self.unnamed_write(why.clone()),
                         _ => {}
                     }
                 }

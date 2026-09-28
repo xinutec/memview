@@ -137,6 +137,42 @@ fn a_finding_keeps_what_the_evaluator_was_given() {
     );
 }
 
+/// Found live: `python3 - <<EOF … EOF; grep …` — the script raised before its
+/// write and the shell's exit code was grep's, so the call counted as done.
+/// The interpreter says so itself, and a call that did not do what its text
+/// says is not held against the prediction.
+#[test]
+fn a_call_whose_interpreter_raised_is_not_judged() {
+    let dir = scratch("raised");
+    let edits = Edits::new(dir.join("store"));
+    edits
+        .before("s1", "c1", "echo x > a.txt; true", at(&dir))
+        .expect("predicted");
+    let response = serde_json::json!({
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 3, in <module>\nValueError: substring not found\n",
+    });
+    assert!(edits.finished("c1", &response).is_none());
+    assert!(!dir.join("store/findings.jsonl").exists());
+}
+
+#[test]
+fn old_and_undated_refusal_rows_are_pruned_when_one_is_kept() {
+    let dir = scratch("prune");
+    std::fs::create_dir_all(dir.join("store")).expect("store");
+    std::fs::write(
+        dir.join("store/refused.jsonl"),
+        "{\"call\":\"old\",\"at\":\"2020-01-01T00:00:00Z\",\"refused\":[\"program x\"]}\n\
+         {\"call\":\"undated\",\"refused\":[\"program x\"]}\n",
+    )
+    .expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    assert!(edits.before("s1", "c1", "make > a.txt", at(&dir)).is_none());
+    let rows = std::fs::read_to_string(dir.join("store/refused.jsonl")).expect("kept");
+    assert_eq!(rows.lines().count(), 1, "{rows}");
+    assert!(rows.contains("\"call\":\"c1\""));
+}
+
 #[test]
 fn a_command_the_reader_cannot_follow_predicts_nothing() {
     let dir = scratch("unfollowed");

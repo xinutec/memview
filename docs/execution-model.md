@@ -63,11 +63,17 @@ made from and both texts, so the prediction can be made again under a later
 evaluator: `predict-report --live` does, and sorts the findings into still
 diverging, agreeing now, and no longer predicted. A finding kept without its
 inputs cannot become a test, which the first 48 showed: the edits behind them
-were Python over files too large to rebuild by hand. The target is a prediction
-that never diverges; the check stays once it is reached, so the two cannot
-drift apart again. Only a call that succeeded is checked — the hook that reports
-a call's end does not fire for one that failed, so a prediction that assumed
-success is never held against a call that did not get that far. A call sent to
+were Python over files too large to rebuild by hand. Nothing kept under
+`.console` is golden: a finding is an inbox item, deleted once its test is in
+`reader/tests`, and a refusal row is pruned after thirty days, since the
+command is in the transcript and only recent ones rank. The target is a
+prediction that never diverges; the check stays once it is reached, so the two
+cannot drift apart again. Only a call that succeeded is checked — the hook that
+reports a call's end does not fire for one that failed, so a prediction that
+assumed success is never held against a call that did not get that far. A
+shell exit code can hide a failure behind a later command (`python3 … ; grep
+…`), so a call whose interpreter printed a traceback is dropped unchecked
+too. A call sent to
 the background is looked at twice, when it is backgrounded and when its task
 ends, and agrees if either look holds the prediction: the session's next edit,
 which the check never sees, can overwrite a file while the task runs.

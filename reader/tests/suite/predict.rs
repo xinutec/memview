@@ -381,6 +381,27 @@ fn a_python_edit_from_history_is_not_read() {
     );
 }
 
+/// Found live: a loop over `grep -rl`'s output edited three files, and a later
+/// loop over those files by name was predicted from their text as if the first
+/// had not run. A write to a path the program cannot name may have been to any
+/// file, so nothing read after it is known.
+#[test]
+fn a_write_to_a_path_the_program_cannot_name_leaves_every_later_read_unknown() {
+    let found = run(
+        "python3 - <<'PY'\nfor p in names():\n    open(p, 'w').write('x')\ns = open('a.txt').read()\nopen('a.txt', 'w').write(s + 'z')\nPY",
+        &known(&[("/repo/a.txt", Some("a\n"))]),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/a.txt")),
+        "the later edit is refused by name: {:?}",
+        found.unfollowed
+    );
+}
+
 #[test]
 fn pathlib_reads_and_writes_are_followed() {
     let found = run(
