@@ -13,9 +13,10 @@
 //! and a write replaces or extends what the file held at that point. A `for`
 //! over words the text spells out runs its body once per word; a brace group is
 //! its commands; a subshell is the same with its `cd` and its variables kept
-//! inside. A variable is known while the text bound it to a literal and nothing
-//! since could have changed it. What this
-//! cannot follow — a program whose output is not modelled, a pipeline, a branch,
+//! inside; each member of a pipeline is a subshell of its own, reading the pipe
+//! as its stdin. A variable is known while the text bound it to a literal and
+//! nothing since could have changed it. What this
+//! cannot follow — a program whose output is not modelled, a branch,
 //! a word with an expansion in it — yields no prediction for the files it writes,
 //! and an [`Unfollowed`] that names why. A file it cannot follow is forgotten from
 //! then on, so a later append to it is not guessed at either. A program that
@@ -96,7 +97,7 @@ pub enum Why {
     NotRead,
     /// A file read that does not exist.
     Missing,
-    /// Several commands joined by `|`.
+    /// A pipeline member reading the pipe, or a path two members both change.
     Pipeline,
     /// A write inside a branch, a `while`, a function, or a loop over words the
     /// text does not spell out.
@@ -171,7 +172,7 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
 }
 
 /// A file as the run has left it so far.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Held {
     Text(String),
     Absent,
@@ -184,6 +185,8 @@ struct Run<'a> {
     sight: &'a dyn Sight,
     /// Variables the text bound to a literal, still known to hold it.
     vars: BTreeMap<String, String>,
+    /// Inside a pipeline member after the first: stdin is the pipe.
+    piped: bool,
     /// Files this run has written or found out about, by path.
     now: BTreeMap<String, Held>,
     /// Paths written, in first-write order.
@@ -204,6 +207,7 @@ impl<'a> Run<'a> {
             home,
             sight,
             vars: BTreeMap::new(),
+            piped: false,
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
@@ -245,10 +249,49 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// Each member of a longer pipeline runs in a subshell of its own, all at
+    /// once: it keeps its `cd` and bindings inside, sees the files as they
+    /// were before the pipeline, and reads the pipe as its stdin. A path two
+    /// members both change is left unknown, since their order is not. Found
+    /// live: a heredoc edit followed by `2>&1 | grep` was refused whole.
     fn pipeline(&mut self, pipeline: &Pipeline) {
-        match pipeline.commands.as_slice() {
-            [only] => self.command(only),
-            _ => self.forget_pipeline(pipeline, Why::Pipeline),
+        let members = pipeline.commands.as_slice();
+        if let [only] = members {
+            self.command(only);
+            return;
+        }
+        let (cwd, vars, outer) = (self.cwd.clone(), self.vars.clone(), self.piped);
+        let (base_now, base_trees) = (self.now.clone(), self.trees.clone());
+        let mut merged = base_now.clone();
+        let mut merged_trees = base_trees.clone();
+        let mut changed_by: BTreeMap<String, usize> = BTreeMap::new();
+        for (at, member) in members.iter().enumerate() {
+            self.now = base_now.clone();
+            self.trees = base_trees.clone();
+            self.piped = outer || at > 0;
+            self.command(member);
+            self.cwd = cwd.clone();
+            self.vars = vars.clone();
+            for (path, held) in &self.now {
+                if base_now.get(path) == Some(held) {
+                    continue;
+                }
+                *changed_by.entry(path.clone()).or_insert(0) += 1;
+                merged.insert(path.clone(), held.clone());
+            }
+            merged_trees.extend(self.trees.iter().skip(base_trees.len()).cloned());
+        }
+        self.piped = outer;
+        self.now = merged;
+        self.trees = merged_trees;
+        for (path, members) in changed_by {
+            if members > 1 {
+                self.now.insert(path.clone(), Held::Unknown);
+                self.unfollowed.push(Unfollowed {
+                    path: Some(path),
+                    why: Why::Pipeline,
+                });
+            }
         }
     }
 
@@ -468,8 +511,12 @@ impl<'a> Run<'a> {
                 _ => {}
             }
         }
-        // Nothing redirected in: the terminal, or whatever the caller wired up.
-        input.unwrap_or(Err(Why::Program("stdin".to_string())))
+        // Nothing redirected in: the pipe, or the terminal.
+        input.unwrap_or(if self.piped {
+            Err(Why::Pipeline)
+        } else {
+            Err(Why::Program("stdin".to_string()))
+        })
     }
 
     fn tee(&mut self, argv: &[Option<String>], redirects: &[Redirect]) {

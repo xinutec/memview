@@ -115,7 +115,10 @@ ran, behind any carrier: `pnpm exec biome …` is biome's. Found live: edit scri
 after a heredoc rewrote the file it had just written; the rule withdrew (2026-09-27) 2,512 of
 6,575 predictions from history, every one a claim the text could not back. A script handed to another shell (`bash -c`, `nix-shell --run`) is the
 same language against the same files, so it is followed in place, its `cd`
-kept inside it. Python is followed by `reader/src/predict/python.rs`, on the program's
+kept inside it. Each member of a pipeline is followed as the subshell bash
+gives it, reading the pipe as its stdin, the files as they were before the
+pipeline, and leaving a path two members both change unknown, since their
+order is not. Python is followed by `reader/src/predict/python.rs`, on the program's
 tree, against the same files as the shell around it: each call assumed to
 succeed, strings, paths and open files interpreted, a function the program
 defines followed in its own frame, a loop over a written-out list run once per

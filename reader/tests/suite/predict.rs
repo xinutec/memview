@@ -378,6 +378,54 @@ fn sed_in_place_rewrites_the_file_sight_has_shown() {
     assert_eq!(quiet.unfollowed[0].why, Why::Sed("-n".to_string()));
 }
 
+/// Found live: a heredoc edit whose output went to `grep` was refused whole.
+/// Each member runs in a subshell of its own.
+#[test]
+fn each_member_of_a_pipeline_is_followed_in_its_own_subshell() {
+    let found = run(
+        "python3 - <<'PY' 2>&1 | head -3\nopen('a.txt', 'w').write('x')\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/a.txt", "x")]);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    let scoped = run(
+        "(cd sub && echo y > b.txt) | cat; echo z > c.txt",
+        &nothing_known(),
+    );
+    assert_eq!(
+        scoped.written,
+        vec![
+            written("/repo/sub/b.txt", "y\n"),
+            written("/repo/c.txt", "z\n")
+        ]
+    );
+
+    // A member reading the pipe, and a path two members both change.
+    let piped = run("echo x | cat > d.txt", &nothing_known());
+    assert!(piped.written.is_empty());
+    assert_eq!(
+        piped.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/d.txt".to_string()),
+            why: Why::Pipeline,
+        }]
+    );
+    let raced = run("echo x > e.txt | echo y > e.txt", &nothing_known());
+    assert!(raced.written.is_empty());
+    assert_eq!(raced.unfollowed.last().unwrap().why, Why::Pipeline);
+
+    // A program's output in a pipeline is refused for the program, as alone.
+    let output = run("cat a.txt | grep x > g.txt", &nothing_known());
+    assert_eq!(
+        output.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/g.txt".to_string()),
+            why: Why::Program("grep".to_string()),
+        }]
+    );
+}
+
 /// `cp` of one file to one file: the destination holds the source's text.
 #[test]
 fn cp_of_a_file_sight_has_shown_is_its_text() {
@@ -688,8 +736,8 @@ fn an_implied_directory_is_named_when_the_text_determines_it() {
     }));
 }
 
-/// A `cd` inside a region that is not followed still decides where its paths
-/// resolve. After it, a pipeline's `cd` is gone with its subshell; one that only
+/// A `cd` inside a nested shell decides where its paths resolve, and is gone
+/// with its subshell after; a pipeline member's `cd` likewise; one that only
 /// sometimes ran leaves the directory unknown.
 #[test]
 fn a_cd_inside_a_forgotten_region_resolves_its_paths() {
@@ -700,7 +748,7 @@ fn a_cd_inside_a_forgotten_region_resolves_its_paths() {
     assert!(found.written.is_empty(), "{:?}", found.written);
     assert!(found.unfollowed.contains(&Unfollowed {
         path: Some("/repo/sub/a.ts".to_string()),
-        why: Why::Pipeline,
+        why: Why::Program("prettier".to_string()),
     }));
 
     let piped = run("cd sub | cat; echo y > b.txt", &nothing_known());
