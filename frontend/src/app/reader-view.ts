@@ -7,7 +7,7 @@ import { scaffoldTitle } from '@xinutec/ui-scaffold';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
-import { Both, CorpusRead, Ranked } from './models';
+import { CorpusRead, Ranked } from './models';
 
 /** One bar in the "what the shell was doing" chart. */
 interface Shape {
@@ -109,10 +109,6 @@ export class ReaderView {
     const at = this.reading()?.corpus_at;
     return at ? at * 1000 : undefined;
   });
-
-  totalOf(rows: Both[]): number {
-    return rows.reduce((sum, row) => sum + row.reads + row.writes, 0);
-  }
 
   /** Widest count in a ranked list, so its bars share one scale. */
   topOf(rows: Ranked[]): number {

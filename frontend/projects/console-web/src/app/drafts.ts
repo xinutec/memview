@@ -106,6 +106,7 @@ export class Drafts {
    * Point this at a different runner. Called before anything else, or not at all
    * — production needs no setting up.
    */
+  // dev-lint: allow-ts-test-only the specs point it at a fake runner; production uses fetch
   configure(get: typeof fetch): void {
     this.get = get;
   }

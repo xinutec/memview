@@ -162,10 +162,6 @@ export class ConsoleApi {
     return this.http.post<Summary>(`${session(id)}/revive`, {});
   }
 
-  forget(id: string): Observable<unknown> {
-    return this.http.delete(session(id));
-  }
-
   /** The session's events from `after`, then live, as server-sent events. */
   follow(id: string, after: number): Observable<Streamed> {
     return new Observable<Streamed>((to) => {
