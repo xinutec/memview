@@ -5076,7 +5076,10 @@ test('a prediction that assumed an unknown program harmless says which @ phone w
   await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
-  await page.locator('.entry.tool button.opens').click();
+  // The sheet copies what the row holds when it opens: wait for the prediction.
+  const row = page.locator('.entry.tool');
+  await expect(row.locator('mat-icon.diverged')).toBeVisible();
+  await row.locator('button.opens').click();
   const sheet = page.locator('app-parse-sheet');
   await expect(sheet.locator('.assumed')).toHaveText('If dev, run after, left it alone.');
   await expect(sheet.locator('.diverged')).toContainText('a program it assumed harmless');

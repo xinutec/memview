@@ -579,6 +579,7 @@ fn a_python_list_changed_in_place_is_followed() {
         ("del lines[0]", "q"),
         ("lines += ['z']", "p\nq\nz"),
         ("n = [l for l in lines]", "p\nq"),
+        ("del lines[0], lines[0]", ""),
     ] {
         let found = run(&py(&format!("{head}{change}{tail}")), &shown);
         assert_eq!(found.written, vec![written("/repo/a", after)], "{change}");
@@ -607,6 +608,7 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
         "while lines and lines[-1] == 'q':\n    lines.pop()",
         "i = next(n for n, l in enumerate(lines) if l == 'q')\nlines[i:i] = ['x']",
         "grow = lambda: lines.append('z')\ngrow()",
+        "import os\na, lines[0] = os.environ.get('X')",
     ] {
         let found = run(&py(&format!("{head}{change}{tail}")), &shown);
         assert!(found.written.is_empty(), "{change}: {:?}", found.written);
@@ -1479,6 +1481,102 @@ fn what_an_unknown_program_writes_itself_stays_refused() {
         found.unfollowed
     );
     assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
+}
+
+/// What a block the evaluator does not follow binds is not known after it: a
+/// function it defines, and a name its `:=` binds.
+#[test]
+fn a_python_block_not_followed_leaves_what_it_binds_unknown() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let redefined = run(
+        &py(
+            "def f():\n    open('a', 'w').write('A')\nif len(open('b').read()):\n    def f():\n        open('a', 'w').write('B')\nf()",
+        ),
+        &nothing_known(),
+    );
+    assert!(redefined.written.is_empty(), "{:?}", redefined.written);
+    assert!(
+        redefined
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/a"))
+    );
+
+    let walrus = run(
+        &py("line = 'x'\nwhile (line := input()):\n    pass\nopen(line, 'w').write('y')"),
+        &nothing_known(),
+    );
+    assert!(walrus.written.is_empty(), "{:?}", walrus.written);
+
+    let tested = run(
+        &py("while open('a', 'w').write('x') and input():\n    pass"),
+        &nothing_known(),
+    );
+    assert!(tested.written.is_empty(), "{:?}", tested.written);
+    assert!(
+        tested
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/a"))
+    );
+}
+
+/// A default argument is evaluated once, where the function is defined: a name
+/// rebound later does not change it, and a list default is shared by every call.
+#[test]
+fn a_python_default_argument_is_the_value_at_definition() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let rebound = run(
+        &py("name = 'a'\ndef f(p=name):\n    open(p, 'w').write('x')\nname = 'b'\nf()"),
+        &nothing_known(),
+    );
+    assert_eq!(rebound.written, vec![written("/repo/a", "x")]);
+
+    let shared = run(
+        &py(
+            "def f(acc=[]):\n    acc.append('x')\n    return acc\nf()\nopen('a', 'w').write(''.join(f()))",
+        ),
+        &nothing_known(),
+    );
+    assert!(shared.written.is_empty(), "{:?}", shared.written);
+
+    let fixed = run(
+        &py(
+            "def f(parts=('a',)):\n    for part in parts:\n        open(part, 'w').write('x')\nf()",
+        ),
+        &nothing_known(),
+    );
+    assert_eq!(fixed.written, vec![written("/repo/a", "x")]);
+}
+
+/// A function reached through an expression may write a file handed to it.
+#[test]
+fn a_python_call_through_an_expression_may_write_its_file_arguments() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let found = run(
+        &py("import json\nhandlers = json.loads('{}')\nhandlers['k'](open('a', 'w'))"),
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/a"))
+    );
+}
+
+/// `n<>file` opens it for reading and writing; what goes through it is not modelled.
+#[test]
+fn a_file_opened_for_reading_and_writing_is_refused() {
+    let found = run("cat a 3<> b", &known(&[("/repo/a", Some("x"))]));
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/b"))
+    );
 }
 
 /// `git checkout` rewrites the working tree whether it names a branch or a path;

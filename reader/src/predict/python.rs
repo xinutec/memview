@@ -203,6 +203,9 @@ struct Eval<'r, 'a, 'm> {
     /// The calls being followed, innermost last.
     frames: Vec<Frame>,
     functions: BTreeMap<String, Def<'m>>,
+    /// Each function's default arguments by parameter, evaluated once where it
+    /// was defined, as Python does.
+    defaults: BTreeMap<String, BTreeMap<String, Value>>,
 }
 
 /// One call's names, and the ones it declared `global`.
@@ -217,8 +220,9 @@ struct Frame {
 struct Def<'m> {
     params: &'m Params,
     body: &'m [Stmt],
-    /// A decorator may change what a call does, so such a call is not followed.
-    decorated: bool,
+    /// A call to it is not followed: a decorator may change what it does, or
+    /// it was defined in a block this does not know ran.
+    unfollowed: bool,
 }
 
 fn construct(name: &str) -> Why {
@@ -234,6 +238,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             names: BTreeMap::from([("__name__".to_string(), Value::Str("__main__".to_string()))]),
             frames: Vec::new(),
             functions: BTreeMap::new(),
+            defaults: BTreeMap::new(),
         }
     }
 
@@ -339,21 +344,16 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     return Err(Stop::Ended);
                 }
             }
-            StmtKind::Raise { .. } => return Err(Stop::Ended),
+            StmtKind::Raise { exc, .. } => {
+                // What it raises is built first, and building it may write.
+                if let Some(exc) = exc {
+                    self.expr(exc)?;
+                }
+                return Err(Stop::Ended);
+            }
             StmtKind::Delete(targets) => {
                 for target in targets {
-                    match target {
-                        Expr::Name(name) => self.unset(name),
-                        Expr::Subscript {
-                            value: container,
-                            index,
-                        } => self.remove_items(container, index)?,
-                        Expr::Attribute { value: owner, .. } => {
-                            let old = self.expr(owner)?;
-                            self.changed(owner, &old, None, &construct("del"));
-                        }
-                        _ => {}
-                    }
+                    self.delete(target)?;
                 }
             }
             StmtKind::If { test, body, orelse } => match truth(self.expr(test)?) {
@@ -390,7 +390,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     }
                 }
             }
-            StmtKind::While { body, orelse, .. } => {
+            // Its test runs too, as often as the body does: what it calls or
+            // binds is forgotten with the body.
+            StmtKind::While { test, body, orelse } => {
+                self.forget_expr(test, &construct("while"), 0);
                 self.forget(body, &construct("while"), 0);
                 self.forget(orelse, &construct("while"), 0);
             }
@@ -403,12 +406,37 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 self.block(body)?;
             }
+            // Its decorators and defaults run once, here.
             StmtKind::FunctionDef {
                 name,
                 params,
                 body,
                 decorators,
-            } => self.define(name, params, body, decorators),
+            } => {
+                for decorator in decorators {
+                    self.forget_expr(decorator, &construct("decorator"), 0);
+                }
+                let mut defaults = BTreeMap::new();
+                for param in params.args.iter().chain(&params.kwonly) {
+                    if let Some(default) = &param.default {
+                        let value = match (default, self.expr(default)?) {
+                            // A tuple of plain values cannot change.
+                            (Expr::Tuple(_), Value::Tuple(items))
+                                if !items.iter().any(|item| matches!(item, Value::Tuple(_))) =>
+                            {
+                                Value::Tuple(items)
+                            }
+                            // One list every call shares: which calls changed
+                            // it is not followed.
+                            (_, Value::Tuple(_)) => Value::Unknown(construct("mutable default")),
+                            (_, value) => value,
+                        };
+                        defaults.insert(param.name.clone(), value);
+                    }
+                }
+                self.defaults.insert(name.clone(), defaults);
+                self.define(name, params, body, decorators);
+            }
             // A raise the handlers may catch ends the body there; what the
             // handlers then do is not followed.
             StmtKind::Try {
@@ -478,6 +506,28 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
             }
         }
+    }
+
+    fn delete(&mut self, target: &'m Expr) -> Result<(), Stop> {
+        match target {
+            Expr::Name(name) => self.unset(name),
+            Expr::Subscript {
+                value: container,
+                index,
+            } => self.remove_items(container, index)?,
+            Expr::Attribute { value: owner, .. } => {
+                let old = self.expr(owner)?;
+                self.changed(owner, &old, None, &construct("del"));
+            }
+            // `del a[0], b`: each in turn.
+            Expr::Tuple(targets) | Expr::List(targets) => {
+                for target in targets {
+                    self.delete(target)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// `container[index] = value`, followed on a list this knows at an index or
@@ -701,7 +751,14 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.unbind(target, why);
                 }
             }
-            _ => {}
+            Expr::Starred(inner) => self.unbind(inner, why),
+            // `a, x[0] = f()`: the list `x` starts from has changed.
+            target => {
+                if let Some(name) = root(target) {
+                    let held = self.name(name);
+                    self.changed(&Expr::Name(name.to_string()), &held, None, why);
+                }
+            }
         }
     }
 
@@ -723,7 +780,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Def {
                 params,
                 body,
-                decorated: !decorators.is_empty(),
+                unfollowed: !decorators.is_empty(),
             },
         );
         self.set(name, Value::Defined(name.to_string()));
@@ -945,16 +1002,21 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let name = match callee {
             Value::Name(name) => name,
             Value::Defined(defined) => return self.call_defined(&defined, positional, keyword),
-            // A lambda may change a list it closes over.
-            Value::Callable => {
-                self.forget_lists(&construct("call"));
-                return Ok(Value::Unknown(construct("call")));
-            }
-            _ => {
-                for value in positional.iter().chain(keyword.values()) {
-                    self.escape(value, &construct("call"));
+            // A function reached through an expression this does not follow
+            // (`handlers[k](f)`, a lambda) may write a file handed to it, and a
+            // lambda may change a list it closes over.
+            callee => {
+                let why = construct("call");
+                if let Value::Callable = callee {
+                    self.forget_lists(&why);
                 }
-                return Ok(Value::Unknown(construct("call")));
+                for value in positional.iter().chain(keyword.values()) {
+                    if written_by_a_stranger(value) {
+                        self.forget_value(value, &why);
+                    }
+                    self.escape(value, &why);
+                }
+                return Ok(Value::Unknown(why));
             }
         };
         let first = positional.first().cloned();
@@ -1161,7 +1223,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let Some(def) = self.functions.get(name).copied() else {
             return Ok(Value::Unknown(why));
         };
-        if def.decorated || self.frames.len() >= DEPTH {
+        if def.unfollowed || self.frames.len() >= DEPTH {
             self.forget(def.body, &why, 0);
             return Ok(Value::Unknown(why));
         }
@@ -1175,7 +1237,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             ) {
                 (Some(value), _, _) => value,
                 (None, Some(value), _) => value.clone(),
-                (None, None, Some(default)) => self.expr(default)?,
+                (None, None, Some(_)) => self
+                    .defaults
+                    .get(name)
+                    .and_then(|defaults| defaults.get(&param.name))
+                    .cloned()
+                    .unwrap_or_else(|| Value::Unknown(why.clone())),
                 (None, None, None) => Value::Unknown(why.clone()),
             };
             frame.locals.insert(param.name.clone(), value);
@@ -1596,7 +1663,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 blocks.extend(handlers.iter().map(|handler| handler.body.as_slice()));
                 (vec![], blocks)
             }
-            // A definition runs nothing; a call to it is forgotten where it is made.
+            // A definition runs nothing; a call to it is forgotten where it is
+            // made, since which definition holds is not known.
             StmtKind::FunctionDef {
                 name,
                 params,
@@ -1604,6 +1672,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 decorators,
             } => {
                 self.define(name, params, body, decorators);
+                if let Some(def) = self.functions.get_mut(name) {
+                    def.unfollowed = true;
+                }
                 (vec![], vec![])
             }
             StmtKind::Delete(_)
@@ -1639,6 +1710,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
 
     /// Every write a call inside `expr` could make, refused for `why`.
     fn forget_expr(&mut self, expr: &'m Expr, why: &Why, depth: usize) {
+        // `while (line := f.readline()):` binds where it is not followed.
+        let mut bound = Vec::new();
+        walrus_in(expr, &mut bound);
+        for name in bound {
+            self.set(&name, Value::Unknown(why.clone()));
+        }
         let mut calls = Vec::new();
         calls_in(expr, &mut calls);
         for (func, args) in calls {
@@ -2200,13 +2277,22 @@ fn root(target: &Expr) -> Option<&str> {
     }
 }
 
-/// Every name an expression reads, anywhere in it.
-fn names_read(expr: &Expr, out: &mut Vec<String>) {
-    let mut each = |inner: &Expr| names_read(inner, out);
+/// The names `:=` binds anywhere in an expression.
+fn walrus_in(expr: &Expr, out: &mut Vec<String>) {
+    each_expr(expr, &mut |inner| {
+        if let Expr::NamedExpr { target, .. } = inner {
+            out.push(target.clone());
+        }
+    });
+}
+
+/// Calls `visit` on `expr` and every expression inside it.
+fn each_expr(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
+    visit(expr);
+    let mut each = |inner: &Expr| each_expr(inner, visit);
     match expr {
-        Expr::Name(name) => out.push(name.clone()),
-        Expr::Number(_) | Expr::Singleton(_) | Expr::Str(_) | Expr::Bytes(_) => {}
-        Expr::FString(parts) => fstring_names(parts, out),
+        Expr::Name(_) | Expr::Number(_) | Expr::Singleton(_) | Expr::Str(_) | Expr::Bytes(_) => {}
+        Expr::FString(parts) => fstring_exprs(parts, &mut each),
         Expr::Attribute { value: inner, .. }
         | Expr::UnaryOp { operand: inner, .. }
         | Expr::Lambda { body: inner, .. }
@@ -2263,7 +2349,11 @@ fn names_read(expr: &Expr, out: &mut Vec<String>) {
         | Expr::SetComp { elt, generators }
         | Expr::GeneratorExp { elt, generators } => {
             each(elt);
-            comprehension_names(generators, out);
+            for generator in generators {
+                each(&generator.target);
+                each(&generator.iter);
+                generator.ifs.iter().for_each(&mut each);
+            }
         }
         Expr::DictComp {
             key,
@@ -2272,9 +2362,34 @@ fn names_read(expr: &Expr, out: &mut Vec<String>) {
         } => {
             each(key);
             each(value);
-            comprehension_names(generators, out);
+            for generator in generators {
+                each(&generator.target);
+                each(&generator.iter);
+                generator.ifs.iter().for_each(&mut each);
+            }
         }
     }
+}
+
+fn fstring_exprs(parts: &[FPart], each: &mut impl FnMut(&Expr)) {
+    for part in parts {
+        if let FPart::Field { value, spec, .. } = part {
+            each(value);
+            if let Some(spec) = spec {
+                fstring_exprs(spec, each);
+            }
+        }
+    }
+}
+
+/// Every name an expression reads, anywhere in it. A comprehension's own
+/// variables are counted too, which only forgets more.
+fn names_read(expr: &Expr, out: &mut Vec<String>) {
+    each_expr(expr, &mut |inner| {
+        if let Expr::Name(name) = inner {
+            out.push(name.clone());
+        }
+    });
 }
 
 /// The names a loop ranges over the elements of, when that is all it reads:
@@ -2301,26 +2416,6 @@ fn ranged_over(iter: &Expr) -> Option<Vec<&str>> {
             Some(names)
         }
         _ => None,
-    }
-}
-
-fn comprehension_names(generators: &[Comprehension], out: &mut Vec<String>) {
-    for generator in generators {
-        names_read(&generator.iter, out);
-        for test in &generator.ifs {
-            names_read(test, out);
-        }
-    }
-}
-
-fn fstring_names(parts: &[FPart], out: &mut Vec<String>) {
-    for part in parts {
-        if let FPart::Field { value, spec, .. } = part {
-            names_read(value, out);
-            if let Some(spec) = spec {
-                fstring_names(spec, out);
-            }
-        }
     }
 }
 

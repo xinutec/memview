@@ -520,6 +520,9 @@ impl<'a> Run<'a> {
                 (RedirectOp::Write | RedirectOp::Clobber | RedirectOp::Append, Some(_)) => {
                     (false, false)
                 }
+                // Opened for reading and writing: what the program writes
+                // through it is not modelled.
+                (RedirectOp::ReadWrite, _) => (false, false),
                 _ => continue,
             };
             let Some(literal) = self.literal(word) else {
