@@ -697,8 +697,15 @@ async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
  * a violation. Icon glyphs are excluded: an icon font's middle is its own
  * business, and nudging a glyph to sit right beside digits is the fix, not the
  * defect.
+ *
+ * Roboto has to be LOADED first, since the cap height above is its own. Measured
+ * earlier, the row is in whatever face the machine has, which nobody sees. The
+ * likely cause of #1848: CI failed at 1.1px, then passed on a rerun of the same
+ * commit.
  */
 async function expectOneLine(page: Page, rowSel: string, tol = 1): Promise<void> {
+  await expectIconFontLoaded(page, 'Roboto');
+  await page.evaluate(() => document.fonts.ready);
   const ragged = await page.evaluate(
     ([sel, tolerance]) => {
       const bad: string[] = [];
