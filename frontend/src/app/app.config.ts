@@ -1,4 +1,5 @@
 import {
+  ErrorHandler,
   ApplicationConfig,
   LOCALE_ID,
   isDevMode,
@@ -14,6 +15,7 @@ import localeEnGb from '@angular/common/locales/en-GB';
 
 import { routes } from './app.routes';
 import { authInterceptor } from './auth';
+import { TelemetryErrorHandler, failedRequestInterceptor } from './error-reporting';
 
 // Angular defaults LOCALE_ID to `en-US` whatever the browser is set to, so every
 // `| date` rendered US dates to a UK reader. It is a different knob from
@@ -25,10 +27,11 @@ registerLocaleData(localeEnGb);
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    { provide: ErrorHandler, useClass: TelemetryErrorHandler },
     provideBrowserGlobalErrorListeners(),
     { provide: LOCALE_ID, useValue: 'en-GB' },
     provideZonelessChangeDetection(),
-    provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([authInterceptor, failedRequestInterceptor])),
     // Route params bind to component inputs (:name → MemoryView.name), so the
     // URL is the source of truth for the open memory.
     provideRouter(routes, withComponentInputBinding()),
