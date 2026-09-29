@@ -129,7 +129,14 @@ defines followed in its own frame, a loop run once per element over a list
 the program can name (written out, a `range`, a shown file's lines, a split
 string, and `enumerate`, `zip` or `sorted` of those), and a block it does not follow (an undecided `if`, a loop over values
 it cannot list, a decorated function) refused and forgotten as a shell branch
-is. The shell side follows the same shapes: a `for` over words the text spells
+is. A list is held by value where Python shares it, so a change made in place
+(an item, a slice, `append`, `insert`, `extend`, `del`) is followed only when
+modelled, and then every other holder of the list, under any name in any
+frame, is forgotten; a list passed to a call it does not follow, stored where
+it cannot see, or reached by a block it does not follow is forgotten too.
+Found live (2026-09-29): an insertion by `lines[i:i] = ins` and trailing lines
+popped in a `while` were both predicted as no change; in history the same
+blind spot had backed 118 file texts. The shell side follows the same shapes: a `for` over words the text spells
 out runs once per word, a brace group is its commands, a subshell keeps its
 `cd` and its bindings inside, and a variable is known while the text bound it
 to a literal and no builtin since could have rebound it; `$HOME` and `$PWD`

@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::python_re;
 use super::{Held, Run, Unfollowed, Why};
 use crate::syntax::python::ast::{
-    Arg, BinOp, BoolOp, CmpOp, Expr, FPart, Module, Params, Singleton, Stmt, StmtKind, UnaryOp,
+    Arg, BinOp, BoolOp, CmpOp, Comprehension, Expr, FPart, Module, Params, Singleton, Stmt,
+    StmtKind, UnaryOp,
 };
 
 /// Methods that write their object to the path they are given: `img.save(p)`.
@@ -23,7 +24,11 @@ const SAVES: &[&str] = &["save", "savefig", "to_csv", "to_json", "to_parquet"];
 /// [`Eval::forget`]; a backstop against recursion, not a limit programs meet.
 const DEPTH: usize = 8;
 
-#[derive(Debug, Clone)]
+/// A list is a `Tuple` held by value: where Python shares one list between
+/// names, this holds copies, so a change made through one name leaves the others
+/// stale. Every change is therefore followed to every holder
+/// ([`Eval::shared`]), or the holders are forgotten.
+#[derive(Debug, Clone, PartialEq)]
 enum Value {
     Str(String),
     Int(i64),
@@ -271,15 +276,35 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             StmtKind::Assign { targets, value } => {
                 let value = self.expr(value)?;
                 for target in targets {
-                    self.bind(target, value.clone());
+                    match target {
+                        Expr::Subscript {
+                            value: container,
+                            index,
+                        } => self.store(container, index, value.clone())?,
+                        _ => self.bind(target, value.clone()),
+                    }
                 }
             }
             StmtKind::AugAssign { target, op, value } => {
                 let right = self.expr(value)?;
-                if let Expr::Name(name) = target {
-                    let left = self.name(name);
-                    let joined = binary(left, *op, right);
-                    self.set(name, joined);
+                match target {
+                    Expr::Name(name) => {
+                        let left = self.name(name);
+                        let joined = binary(left.clone(), *op, right);
+                        // `xs += ys` extends the list every holder shares.
+                        if let (Value::Tuple(_), BinOp::Add) = (&left, op) {
+                            let why = construct("list +=");
+                            self.changed(target, &left, Some(joined), &why);
+                        } else {
+                            self.set(name, joined);
+                        }
+                    }
+                    Expr::Subscript { value: owner, .. } | Expr::Attribute { value: owner, .. } => {
+                        let old = self.expr(owner)?;
+                        self.escape(&right, &construct("item assignment"));
+                        self.changed(owner, &old, None, &construct("item assignment"));
+                    }
+                    _ => {}
                 }
             }
             StmtKind::Import(aliases) => {
@@ -317,8 +342,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             StmtKind::Raise { .. } => return Err(Stop::Ended),
             StmtKind::Delete(targets) => {
                 for target in targets {
-                    if let Expr::Name(name) = target {
-                        self.unset(name);
+                    match target {
+                        Expr::Name(name) => self.unset(name),
+                        Expr::Subscript {
+                            value: container,
+                            index,
+                        } => self.remove_items(container, index)?,
+                        Expr::Attribute { value: owner, .. } => {
+                            let old = self.expr(owner)?;
+                            self.changed(owner, &old, None, &construct("del"));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -433,8 +467,227 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.unbind(target, &construct("unpacking"));
                 }
             }
-            // An attribute or an item of something: no string or path changes.
-            _ => {}
+            // An item or an attribute: whatever list holds it has changed, and
+            // the value may now be reached through it.
+            (target, value) => {
+                let why = construct("item assignment");
+                self.escape(&value, &why);
+                if let Some(name) = root(target) {
+                    let held = self.name(name);
+                    self.changed(&Expr::Name(name.to_string()), &held, None, &why);
+                }
+            }
+        }
+    }
+
+    /// `container[index] = value`, followed on a list this knows at an index or
+    /// a step-less slice it can compute; otherwise the list is forgotten.
+    fn store(&mut self, container: &'m Expr, index: &'m Expr, value: Value) -> Result<(), Stop> {
+        let old = self.expr(container)?;
+        let why = construct("item assignment");
+        let Value::Tuple(items) = &old else {
+            self.escape(&value, &why);
+            self.changed(container, &old, None, &why);
+            return Ok(());
+        };
+        let now = match index {
+            Expr::Slice {
+                lower,
+                upper,
+                step: None,
+            } => {
+                let (lower, upper) = self.bounds(lower, upper)?;
+                match (
+                    bound(lower, items.len(), 0),
+                    bound(upper, items.len(), items.len()),
+                    &value,
+                ) {
+                    (Ok(from), Ok(to), Value::Tuple(put)) => {
+                        let mut now = items[..from].to_vec();
+                        now.extend(put.iter().cloned());
+                        now.extend(items[to.max(from)..].iter().cloned());
+                        Some(now)
+                    }
+                    _ => None,
+                }
+            }
+            index => match self.expr(index)? {
+                Value::Int(at) => {
+                    let at = position(items.len(), at)?;
+                    let mut now = items.clone();
+                    now[at] = value.clone();
+                    Some(now)
+                }
+                _ => None,
+            },
+        };
+        if now.is_none() {
+            self.escape(&value, &why);
+        }
+        self.changed(container, &old, now.map(Value::Tuple), &why);
+        Ok(())
+    }
+
+    /// `del container[index]`, followed as [`Self::store`] is.
+    fn remove_items(&mut self, container: &'m Expr, index: &'m Expr) -> Result<(), Stop> {
+        let old = self.expr(container)?;
+        let why = construct("del");
+        let Value::Tuple(items) = &old else {
+            self.changed(container, &old, None, &why);
+            return Ok(());
+        };
+        let now = match index {
+            Expr::Slice {
+                lower,
+                upper,
+                step: None,
+            } => {
+                let (lower, upper) = self.bounds(lower, upper)?;
+                match (
+                    bound(lower, items.len(), 0),
+                    bound(upper, items.len(), items.len()),
+                ) {
+                    (Ok(from), Ok(to)) => {
+                        let mut now = items[..from].to_vec();
+                        now.extend(items[to.max(from)..].iter().cloned());
+                        Some(now)
+                    }
+                    _ => None,
+                }
+            }
+            index => match self.expr(index)? {
+                Value::Int(at) => {
+                    let at = position(items.len(), at)?;
+                    let mut now = items.clone();
+                    now.remove(at);
+                    Some(now)
+                }
+                _ => None,
+            },
+        };
+        self.changed(container, &old, now.map(Value::Tuple), &why);
+        Ok(())
+    }
+
+    fn bounds(
+        &mut self,
+        lower: &'m Option<Box<Expr>>,
+        upper: &'m Option<Box<Expr>>,
+    ) -> Result<(Option<Value>, Option<Value>), Stop> {
+        let mut side = |part: &'m Option<Box<Expr>>| -> Result<Option<Value>, Stop> {
+            part.as_deref().map(|part| self.expr(part)).transpose()
+        };
+        Ok((side(lower)?, side(upper)?))
+    }
+
+    /// A list changed in place through `target`, which held `old`. Every holder
+    /// of `old`, under any name in any frame, is forgotten; then `target`, when
+    /// it is a name, holds `now` if the change was followed. A change through an
+    /// item or an attribute forgets the name it starts from.
+    fn changed(&mut self, target: &Expr, old: &Value, now: Option<Value>, why: &Why) {
+        self.shared(old, why);
+        match (target, now) {
+            (Expr::Name(name), Some(now)) => self.set(name, now),
+            _ => {
+                if let Some(name) = root(target) {
+                    let held = self.name(name);
+                    if matches!(held, Value::Tuple(_)) {
+                        self.shared(&held, why);
+                        self.set(name, Value::Unknown(why.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Forgets every binding that holds `list` or holds something holding it.
+    /// Equal lists that are not the same one are forgotten too: this cannot tell
+    /// them apart.
+    fn shared(&mut self, list: &Value, why: &Why) {
+        if !matches!(list, Value::Tuple(_)) {
+            return;
+        }
+        let frames = self.frames.iter_mut().map(|frame| &mut frame.locals);
+        for bindings in std::iter::once(&mut self.names).chain(frames) {
+            for held in bindings.values_mut() {
+                if holds(held, list) {
+                    *held = Value::Unknown(why.clone());
+                }
+            }
+        }
+    }
+
+    /// `value` is now reachable from something this does not follow, which may
+    /// change any list in it at any later point.
+    fn escape(&mut self, value: &Value, why: &Why) {
+        if let Value::Tuple(items) = value {
+            self.shared(value, why);
+            for item in items {
+                self.escape(item, why);
+            }
+        }
+    }
+
+    /// A comprehension shares the elements of what it ranges over, not the
+    /// list itself: `[l.strip() for l in lines]` leaves `lines` known. Names
+    /// read anywhere else in it escape whole.
+    fn escape_comprehension(&mut self, expr: &Expr, why: &Why) {
+        let (parts, generators): (Vec<&Expr>, &[Comprehension]) = match expr {
+            Expr::ListComp { elt, generators }
+            | Expr::SetComp { elt, generators }
+            | Expr::GeneratorExp { elt, generators } => (vec![elt], generators),
+            Expr::DictComp {
+                key,
+                value,
+                generators,
+            } => (vec![key, value], generators),
+            other => return self.escape_names(other, why),
+        };
+        for part in parts {
+            self.escape_names(part, why);
+        }
+        for generator in generators {
+            match ranged_over(&generator.iter) {
+                Some(names) => {
+                    for name in names {
+                        if let Value::Tuple(items) = self.name(name) {
+                            for item in &items {
+                                self.escape(item, why);
+                            }
+                        }
+                    }
+                }
+                None => self.escape_names(&generator.iter, why),
+            }
+            for test in &generator.ifs {
+                self.escape_names(test, why);
+            }
+        }
+    }
+
+    /// Every list this knows is forgotten: code it does not follow ran.
+    fn forget_lists(&mut self, why: &Why) {
+        let frames = self.frames.iter_mut().map(|frame| &mut frame.locals);
+        for bindings in std::iter::once(&mut self.names).chain(frames) {
+            for held in bindings.values_mut() {
+                if matches!(held, Value::Tuple(_)) {
+                    *held = Value::Unknown(why.clone());
+                }
+            }
+        }
+    }
+
+    /// The lists named inside an expression this does not evaluate escape into
+    /// its value; a function the program defines, or a lambda, called there may
+    /// change any list.
+    fn escape_names(&mut self, expr: &Expr, why: &Why) {
+        let mut names = Vec::new();
+        names_read(expr, &mut names);
+        for name in names {
+            match self.name(&name) {
+                Value::Defined(_) | Value::Callable => self.forget_lists(why),
+                held => self.escape(&held, why),
+            }
         }
     }
 
@@ -588,15 +841,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             | Expr::SetComp { .. }
             | Expr::GeneratorExp { .. }
             | Expr::DictComp { .. } => {
+                self.escape_comprehension(expr, &construct("comprehension"));
                 self.forget_expr(expr, &construct("comprehension"), 0);
                 Value::Unknown(construct("comprehension"))
             }
-            Expr::Singleton(Singleton::Ellipsis)
-            | Expr::UnaryOp { .. }
-            | Expr::Slice { .. }
-            | Expr::Set(_)
-            | Expr::Dict(_)
-            | Expr::Starred(_) => Value::Unknown(construct("value")),
+            Expr::Set(_) | Expr::Dict(_) | Expr::Starred(_) => {
+                self.escape_names(expr, &construct("value"));
+                Value::Unknown(construct("value"))
+            }
+            Expr::Singleton(Singleton::Ellipsis) | Expr::UnaryOp { .. } | Expr::Slice { .. } => {
+                Value::Unknown(construct("value"))
+            }
         })
     }
 
@@ -662,6 +917,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             let receiver = self.expr(value)?;
             if !matches!(receiver, Value::Name(_)) {
                 let (positional, keyword) = self.args(args)?;
+                if let Value::Tuple(items) = receiver {
+                    return Ok(self.list_method(value, items, attr, positional, &keyword));
+                }
                 if let Value::Str(text) = &receiver {
                     return string_method(text, attr, &positional);
                 }
@@ -687,7 +945,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let name = match callee {
             Value::Name(name) => name,
             Value::Defined(defined) => return self.call_defined(&defined, positional, keyword),
-            _ => return Ok(Value::Unknown(construct("call"))),
+            // A lambda may change a list it closes over.
+            Value::Callable => {
+                self.forget_lists(&construct("call"));
+                return Ok(Value::Unknown(construct("call")));
+            }
+            _ => {
+                for value in positional.iter().chain(keyword.values()) {
+                    self.escape(value, &construct("call"));
+                }
+                return Ok(Value::Unknown(construct("call")));
+            }
         };
         let first = positional.first().cloned();
         let function = Function::of(&name);
@@ -874,6 +1142,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     if written_by_a_stranger(value) {
                         self.forget_value(value, &why);
                     }
+                    self.escape(value, &why);
                 }
                 Value::Unknown(why)
             }
@@ -972,12 +1241,73 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     if holds_a_file(value) {
                         self.forget_value(value, &why);
                     }
+                    self.escape(value, &why);
                 }
                 match other {
                     Value::Unknown(unknown) => Value::Unknown(unknown),
                     _ => Value::Unknown(why),
                 }
             }
+        }
+    }
+
+    /// A method of a list: the changes it makes followed where modelled, the
+    /// list forgotten where not.
+    fn list_method(
+        &mut self,
+        target: &Expr,
+        items: Vec<Value>,
+        method: &str,
+        args: Vec<Value>,
+        keyword: &BTreeMap<&str, Value>,
+    ) -> Value {
+        let old = Value::Tuple(items.clone());
+        let why = Why::Python(format!("list.{method}"));
+        let mut items = items;
+        let now = match (method, args.as_slice()) {
+            ("copy", []) if keyword.is_empty() => return old,
+            ("index" | "count", _) => return Value::Unknown(why),
+            _ if !keyword.is_empty() => None,
+            ("append", [value]) => {
+                items.push(value.clone());
+                Some(items)
+            }
+            ("extend", [Value::Tuple(more)]) => {
+                items.extend(more.iter().cloned());
+                Some(items)
+            }
+            ("extend", [Value::Str(text)]) => {
+                items.extend(text.chars().map(|c| Value::Str(c.to_string())));
+                Some(items)
+            }
+            ("insert", [Value::Int(at), value]) => {
+                let len = items.len() as i64;
+                let at = if *at < 0 {
+                    (at + len).max(0)
+                } else {
+                    (*at).min(len)
+                };
+                items.insert(at as usize, value.clone());
+                Some(items)
+            }
+            ("clear", []) => Some(Vec::new()),
+            ("reverse", []) => {
+                items.reverse();
+                Some(items)
+            }
+            _ => None,
+        };
+        let followed = now.is_some();
+        if !followed {
+            for value in &args {
+                self.escape(value, &why);
+            }
+        }
+        self.changed(target, &old, now.map(Value::Tuple), &why);
+        if followed {
+            Value::None
+        } else {
+            Value::Unknown(why)
         }
     }
 
@@ -1218,6 +1548,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// Every file `body` could write is refused for `why` and forgotten, and every
     /// name it assigns becomes unknown — a block that is not followed.
     fn forget(&mut self, body: &'m [Stmt], why: &Why, depth: usize) {
+        // A block not followed may change a list without assigning a name.
+        self.forget_lists(why);
         for name in assigned(body) {
             self.set(&name, Value::Unknown(why.clone()));
         }
@@ -1616,6 +1948,10 @@ fn binary(left: Value, op: BinOp, right: Value) -> Value {
     match (left, op, right) {
         (Value::Int(a), BinOp::BitOr, Value::Int(b)) => Value::Int(a | b),
         (Value::Str(a), BinOp::Add, Value::Str(b)) => Value::Str(a + &b),
+        (Value::Tuple(mut a), BinOp::Add, Value::Tuple(b)) => {
+            a.extend(b);
+            Value::Tuple(a)
+        }
         (Value::Int(a), op @ (BinOp::Add | BinOp::Sub | BinOp::Mult), Value::Int(b)) => {
             let n = match op {
                 BinOp::Add => a.checked_add(b),
@@ -1840,22 +2176,163 @@ fn slice(value: Value, lower: Option<Value>, upper: Option<Value>) -> Value {
     }
 }
 
+/// Where `index` lands in a sequence of `len`; `Err` where Python raises.
+fn position(len: usize, index: i64) -> Result<usize, Stop> {
+    let at = if index < 0 { index + len as i64 } else { index };
+    usize::try_from(at)
+        .ok()
+        .filter(|at| *at < len)
+        .ok_or(Stop::Ended)
+}
+
+/// Whether `value` is `list` or holds it at any depth.
+fn holds(value: &Value, list: &Value) -> bool {
+    value == list
+        || matches!(value, Value::Tuple(items) if items.iter().any(|item| holds(item, list)))
+}
+
+/// The name an item or attribute chain starts from: `rows` in `rows[0].x`.
+fn root(target: &Expr) -> Option<&str> {
+    match target {
+        Expr::Name(name) => Some(name),
+        Expr::Subscript { value, .. } | Expr::Attribute { value, .. } => root(value),
+        _ => None,
+    }
+}
+
+/// Every name an expression reads, anywhere in it.
+fn names_read(expr: &Expr, out: &mut Vec<String>) {
+    let mut each = |inner: &Expr| names_read(inner, out);
+    match expr {
+        Expr::Name(name) => out.push(name.clone()),
+        Expr::Number(_) | Expr::Singleton(_) | Expr::Str(_) | Expr::Bytes(_) => {}
+        Expr::FString(parts) => fstring_names(parts, out),
+        Expr::Attribute { value: inner, .. }
+        | Expr::UnaryOp { operand: inner, .. }
+        | Expr::Lambda { body: inner, .. }
+        | Expr::NamedExpr { value: inner, .. }
+        | Expr::Starred(inner) => each(inner),
+        Expr::Call { func, args } => {
+            each(func);
+            for arg in args {
+                match arg {
+                    Arg::Positional(inner)
+                    | Arg::Starred(inner)
+                    | Arg::Keyword(_, inner)
+                    | Arg::DoubleStarred(inner) => each(inner),
+                }
+            }
+        }
+        Expr::Subscript { value, index } => {
+            each(value);
+            each(index);
+        }
+        Expr::Slice { lower, upper, step } => {
+            for part in [lower, upper, step].into_iter().flatten() {
+                each(part);
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            each(left);
+            each(right);
+        }
+        Expr::Compare { left, rest } => {
+            each(left);
+            for (_, right) in rest {
+                each(right);
+            }
+        }
+        Expr::IfExp { test, body, orelse } => {
+            each(test);
+            each(body);
+            each(orelse);
+        }
+        Expr::BoolOp { values: items, .. }
+        | Expr::Tuple(items)
+        | Expr::List(items)
+        | Expr::Set(items) => items.iter().for_each(each),
+        Expr::Dict(pairs) => {
+            for (key, value) in pairs {
+                if let Some(key) = key {
+                    each(key);
+                }
+                each(value);
+            }
+        }
+        Expr::ListComp { elt, generators }
+        | Expr::SetComp { elt, generators }
+        | Expr::GeneratorExp { elt, generators } => {
+            each(elt);
+            comprehension_names(generators, out);
+        }
+        Expr::DictComp {
+            key,
+            value,
+            generators,
+        } => {
+            each(key);
+            each(value);
+            comprehension_names(generators, out);
+        }
+    }
+}
+
+/// The names a loop ranges over the elements of, when that is all it reads:
+/// `lines`, `enumerate(lines)`, `zip(a, b)`.
+fn ranged_over(iter: &Expr) -> Option<Vec<&str>> {
+    match iter {
+        Expr::Name(name) => Some(vec![name]),
+        Expr::Call { func, args } => {
+            let Expr::Name(function) = &**func else {
+                return None;
+            };
+            if !["enumerate", "zip", "sorted", "reversed", "list", "tuple"]
+                .contains(&function.as_str())
+            {
+                return None;
+            }
+            let mut names = Vec::new();
+            for arg in args {
+                match arg {
+                    Arg::Positional(inner) => names.extend(ranged_over(inner)?),
+                    _ => return None,
+                }
+            }
+            Some(names)
+        }
+        _ => None,
+    }
+}
+
+fn comprehension_names(generators: &[Comprehension], out: &mut Vec<String>) {
+    for generator in generators {
+        names_read(&generator.iter, out);
+        for test in &generator.ifs {
+            names_read(test, out);
+        }
+    }
+}
+
+fn fstring_names(parts: &[FPart], out: &mut Vec<String>) {
+    for part in parts {
+        if let FPart::Field { value, spec, .. } = part {
+            names_read(value, out);
+            if let Some(spec) = spec {
+                fstring_names(spec, out);
+            }
+        }
+    }
+}
+
 /// `value[index]`. `Err` where Python raises: an index past either end.
 fn item(value: Value, index: Value) -> Result<Value, Stop> {
-    let at = |len: usize, index: i64| -> Result<usize, Stop> {
-        let at = if index < 0 { index + len as i64 } else { index };
-        usize::try_from(at)
-            .ok()
-            .filter(|at| *at < len)
-            .ok_or(Stop::Ended)
-    };
     Ok(match (value, index) {
         (Value::Str(text), Value::Int(index)) => {
-            let at = at(text.chars().count(), index)?;
+            let at = position(text.chars().count(), index)?;
             Value::Str(text.chars().nth(at).map(String::from).unwrap_or_default())
         }
         (Value::Tuple(mut items), Value::Int(index)) => {
-            let at = at(items.len(), index)?;
+            let at = position(items.len(), index)?;
             items.swap_remove(at)
         }
         (Value::Unknown(why), _) | (_, Value::Unknown(why)) => Value::Unknown(why),

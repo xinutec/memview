@@ -558,6 +558,69 @@ fn a_binding_is_unknown_after_anything_that_could_rebind_it() {
 
 /// Found in history: the loops refused as `python for` were over lists the
 /// program could name — a range, a shown file's lines, a split string.
+/// A list changed in place is followed where the change is modelled: an item,
+/// a slice, and the methods that add or reorder. Found live: an insertion by
+/// `lines[i+1:i+1] = ins` into thirteen `flake.nix` files was predicted as no
+/// change at all.
+#[test]
+fn a_python_list_changed_in_place_is_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/a", Some("p\nq"))]);
+    let head = "lines = open('a').read().split('\\n')\n";
+    let tail = "\nopen('a', 'w').write('\\n'.join(lines))";
+    for (change, after) in [
+        ("lines[1:1] = ['x']", "p\nx\nq"),
+        ("lines[0] = 'P'", "P\nq"),
+        ("lines[-1:] = []", "p"),
+        ("lines.append('z')", "p\nq\nz"),
+        ("lines.insert(1, 'x')", "p\nx\nq"),
+        ("lines.extend(['y', 'z'])", "p\nq\ny\nz"),
+        ("lines.reverse()", "q\np"),
+        ("del lines[0]", "q"),
+        ("lines += ['z']", "p\nq\nz"),
+        ("n = [l for l in lines]", "p\nq"),
+    ] {
+        let found = run(&py(&format!("{head}{change}{tail}")), &shown);
+        assert_eq!(found.written, vec![written("/repo/a", after)], "{change}");
+    }
+}
+
+/// Python shares a list between everything that holds it; this copies, so a
+/// change it cannot see through every holder forgets the list rather than
+/// write its old text.
+#[test]
+fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/a", Some("p\nq"))]);
+    let head = "lines = open('a').read().split('\\n')\n";
+    let tail = "\nopen('a', 'w').write('\\n'.join(lines))";
+    for change in [
+        "other = lines\nother.append('z')",
+        "rows = [lines]\nrows[0].append('z')",
+        "d = {'k': lines}\nd['k'].append('z')",
+        "def grow(xs):\n    xs.append('z')\ngrow(lines)",
+        "import random\nrandom.shuffle(lines)",
+        "lines.sort()",
+        "lines.pop()",
+        "if len(open('b').read()):\n    lines.append('z')",
+        // Found live: trailing lines popped in a loop, predicted still there.
+        "while lines and lines[-1] == 'q':\n    lines.pop()",
+        "i = next(n for n, l in enumerate(lines) if l == 'q')\nlines[i:i] = ['x']",
+        "grow = lambda: lines.append('z')\ngrow()",
+    ] {
+        let found = run(&py(&format!("{head}{change}{tail}")), &shown);
+        assert!(found.written.is_empty(), "{change}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/a")),
+            "{change}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
 #[test]
 fn a_python_loop_over_what_the_program_can_list_is_unrolled() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
