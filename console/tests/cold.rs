@@ -148,29 +148,33 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
     path
 }
 
-/// How long to wait for something that should already be true.
-///
-/// Do not shrink this to keep the file fast. The wait returns the moment
-/// the condition holds — the whole file runs in under a second — so the budget
-/// is only ever spent by a genuine hang, and a tight one instead fails on a busy
-/// machine, which is where these tests run. Nothing here is testing a timeout,
-/// so the count is free to be generous.
-///
-/// A failure here does not mean the code under test broke. These run
-/// inside `nix build .#sessions`, alongside whatever else is building; CPU load
-/// alone does not reproduce it. tasks#1586 holds what is known.
-const PATIENCE: Duration = Duration::from_secs(30);
-const POLL: Duration = Duration::from_millis(50);
+/// A guard against a genuine hang, never spent otherwise: `until` wakes on each
+/// event the session records, not on a clock, so a busy machine only makes it
+/// wait longer for the event it is already owed.
+const PATIENCE: Duration = Duration::from_secs(60);
 
+/// Wait until `what` holds of the session's history, re-checking on every event.
+/// Subscribed before the first look, so nothing recorded in between is missed.
 async fn until(session: &Arc<console::session::Session>, what: impl Fn(&[Event]) -> bool) {
-    let deadline = std::time::Instant::now() + PATIENCE;
-    while std::time::Instant::now() < deadline {
-        if what(&session.history()) {
-            return;
+    let mut events = session.listen();
+    let settled = async {
+        loop {
+            if what(&session.history()) {
+                return;
+            }
+            // A lagged receiver still means something happened: look again.
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                assert!(
+                    what(&session.history()),
+                    "the session closed before it happened"
+                );
+                return;
+            }
         }
-        tokio::time::sleep(POLL).await;
+    };
+    if tokio::time::timeout(PATIENCE, settled).await.is_err() {
+        panic!("waited {PATIENCE:?} for an event that never came");
     }
-    panic!("waited {PATIENCE:?} and it never happened");
 }
 
 /// How many events the stream carried — `data:` lines, which is one per event.
