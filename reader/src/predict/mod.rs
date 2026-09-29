@@ -301,7 +301,7 @@ impl<'a> Run<'a> {
 
     /// A program the tables do not know, which may have written any file. Under
     /// the assumption it wrote none, and only its name is kept.
-    fn unknown_program(&mut self, program: String) {
+    pub(super) fn unknown_program(&mut self, program: String) {
         self.clock += 1;
         self.assumed.push((self.clock, program.clone()));
         if self.assume {

@@ -10,6 +10,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod json;
+
 use super::python_re;
 use super::{Held, Run, Unfollowed, Why};
 use crate::syntax::python::ast::{
@@ -46,6 +48,8 @@ enum Value {
     /// A function the program defines, by name.
     Defined(String),
     Tuple(Vec<Value>),
+    /// A `dict`, its pairs in insertion order, each key once.
+    Dict(Vec<(Value, Value)>),
     /// What `re.compile` returned: the pattern and its flags, compiled where used.
     Pattern {
         source: String,
@@ -95,6 +99,14 @@ enum Function {
     Pure,
     /// A library that reads the file it is given: `Image.open(p)`.
     Reads,
+    /// `dict()`, from nothing, a dict, pairs, or keywords.
+    Dict,
+    /// `json.load(file)` and `json.loads(text)`.
+    JsonLoad,
+    JsonLoads,
+    /// `json.dump(value, file)` and `json.dumps(value)`.
+    JsonDump,
+    JsonDumps,
     /// The sequences a loop can be unrolled over, when every element is known.
     Range,
     Enumerate,
@@ -120,6 +132,11 @@ impl Function {
             "zip" => Function::Zip,
             "sorted" => Function::Sorted,
             "list" | "tuple" => Function::List,
+            "dict" => Function::Dict,
+            "json.load" => Function::JsonLoad,
+            "json.loads" => Function::JsonLoads,
+            "json.dump" => Function::JsonDump,
+            "json.dumps" => Function::JsonDumps,
             "print" => Function::Print,
             "sys.exit" | "exit" | "quit" | "os._exit" => Function::Exit,
             "os.system" | "os.popen" => Function::Shell,
@@ -133,10 +150,11 @@ impl Function {
             "Image.open" | "PIL.Image.open" | "wave.open" => Function::Reads,
             "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk"
             | "os.path.basename" | "os.path.dirname" | "os.path.splitext" | "os.path.isdir"
-            | "os.path.relpath" | "os.getcwd" | "os.environ.get" | "json.dumps" | "json.loads"
-            | "sys.path.insert" | "sys.path.append" | "re.search" | "re.match" | "re.fullmatch"
-            | "re.findall" | "re.finditer" | "re.split" | "shlex.quote" | "shlex.split"
-            | "textwrap.dedent" => Function::Pure,
+            | "os.path.relpath" | "os.getcwd" | "os.environ.get" | "sys.path.insert"
+            | "sys.path.append" | "re.search" | "re.match" | "re.fullmatch" | "re.findall"
+            | "re.finditer" | "re.split" | "shlex.quote" | "shlex.split" | "textwrap.dedent" => {
+                Function::Pure
+            }
             "re.sub" => Function::Substitute { counted: false },
             "re.subn" => Function::Substitute { counted: true },
             "re.compile" => Function::Compile,
@@ -535,6 +553,15 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     fn store(&mut self, container: &'m Expr, index: &'m Expr, value: Value) -> Result<(), Stop> {
         let old = self.expr(container)?;
         let why = construct("item assignment");
+        if let Value::Dict(pairs) = &old {
+            let at = self.expr(index)?;
+            let now = key(&at).map(|_| Value::Dict(put(pairs.clone(), at, value.clone())));
+            if now.is_none() {
+                self.escape(&value, &why);
+            }
+            self.changed(container, &old, now, &why);
+            return Ok(());
+        }
         let Value::Tuple(items) = &old else {
             self.escape(&value, &why);
             self.changed(container, &old, None, &why);
@@ -582,6 +609,20 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     fn remove_items(&mut self, container: &'m Expr, index: &'m Expr) -> Result<(), Stop> {
         let old = self.expr(container)?;
         let why = construct("del");
+        if let Value::Dict(pairs) = &old {
+            let at = self.expr(index)?;
+            let now = match find_key(pairs, &at) {
+                Some(found) => {
+                    let mut now = pairs.clone();
+                    now.remove(found);
+                    Some(Value::Dict(now))
+                }
+                None if key(&at).is_some() => return Err(Stop::Ended),
+                None => None,
+            };
+            self.changed(container, &old, now, &why);
+            return Ok(());
+        }
         let Value::Tuple(items) = &old else {
             self.changed(container, &old, None, &why);
             return Ok(());
@@ -636,12 +677,18 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// item or an attribute forgets the name it starts from.
     fn changed(&mut self, target: &Expr, old: &Value, now: Option<Value>, why: &Why) {
         self.shared(old, why);
+        // A dict's views change with it: what holds one is forgotten too.
+        if let Value::Dict(pairs) = old {
+            for view in views(pairs) {
+                self.shared(&view, why);
+            }
+        }
         match (target, now) {
             (Expr::Name(name), Some(now)) => self.set(name, now),
             _ => {
                 if let Some(name) = root(target) {
                     let held = self.name(name);
-                    if matches!(held, Value::Tuple(_)) {
+                    if container(&held) {
                         self.shared(&held, why);
                         self.set(name, Value::Unknown(why.clone()));
                     }
@@ -654,7 +701,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// Equal lists that are not the same one are forgotten too: this cannot tell
     /// them apart.
     fn shared(&mut self, list: &Value, why: &Why) {
-        if !matches!(list, Value::Tuple(_)) {
+        if !container(list) {
             return;
         }
         let frames = self.frames.iter_mut().map(|frame| &mut frame.locals);
@@ -670,11 +717,20 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// `value` is now reachable from something this does not follow, which may
     /// change any list in it at any later point.
     fn escape(&mut self, value: &Value, why: &Why) {
-        if let Value::Tuple(items) = value {
-            self.shared(value, why);
-            for item in items {
-                self.escape(item, why);
+        match value {
+            Value::Tuple(items) => {
+                self.shared(value, why);
+                for item in items {
+                    self.escape(item, why);
+                }
             }
+            Value::Dict(pairs) => {
+                self.shared(value, why);
+                for (_, item) in pairs {
+                    self.escape(item, why);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -720,7 +776,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let frames = self.frames.iter_mut().map(|frame| &mut frame.locals);
         for bindings in std::iter::once(&mut self.names).chain(frames) {
             for held in bindings.values_mut() {
-                if matches!(held, Value::Tuple(_)) {
+                if container(held) {
                     *held = Value::Unknown(why.clone());
                 }
             }
@@ -902,7 +958,32 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 self.forget_expr(expr, &construct("comprehension"), 0);
                 Value::Unknown(construct("comprehension"))
             }
-            Expr::Set(_) | Expr::Dict(_) | Expr::Starred(_) => {
+            Expr::Dict(entries) => {
+                let mut pairs = Vec::with_capacity(entries.len());
+                for (at, value) in entries {
+                    let value = self.expr(value)?;
+                    match at {
+                        Some(at) => {
+                            let at = self.expr(at)?;
+                            if key(&at).is_none() {
+                                return Ok(unknown(&at, "dict key"));
+                            }
+                            pairs = put(pairs, at, value);
+                        }
+                        // `**other`
+                        None => match value {
+                            Value::Dict(more) => {
+                                for (at, value) in more {
+                                    pairs = put(pairs, at, value);
+                                }
+                            }
+                            other => return Ok(unknown(&other, "dict unpacking")),
+                        },
+                    }
+                }
+                Value::Dict(pairs)
+            }
+            Expr::Set(_) | Expr::Starred(_) => {
                 self.escape_names(expr, &construct("value"));
                 Value::Unknown(construct("value"))
             }
@@ -977,6 +1058,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 if let Value::Tuple(items) = receiver {
                     return Ok(self.list_method(value, items, attr, positional, &keyword));
                 }
+                if let Value::Dict(pairs) = receiver {
+                    return self.dict_method(value, pairs, attr, positional, &keyword);
+                }
                 if let Value::Str(text) = &receiver {
                     return string_method(text, attr, &positional);
                 }
@@ -1011,9 +1095,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.forget_lists(&why);
                 }
                 for value in positional.iter().chain(keyword.values()) {
-                    if written_by_a_stranger(value) {
-                        self.forget_value(value, &why);
-                    }
+                    self.stranger_writes(value, &why, true);
                     self.escape(value, &why);
                 }
                 return Ok(Value::Unknown(why));
@@ -1103,17 +1185,104 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             }
             Some(Function::Sorted) => match first {
                 Some(Value::Tuple(values)) if keyword.is_empty() => sorted(values),
+                Some(Value::Dict(pairs)) if keyword.is_empty() => {
+                    sorted(pairs.into_iter().map(|(at, _)| at).collect())
+                }
                 Some(other) => unknown(&other, "sorted"),
                 None => Value::Unknown(construct("sorted")),
             },
             Some(Function::List) => match first {
                 Some(Value::Tuple(values)) => Value::Tuple(values),
+                Some(Value::Dict(pairs)) => {
+                    Value::Tuple(pairs.into_iter().map(|(at, _)| at).collect())
+                }
                 Some(Value::Str(text)) => {
                     Value::Tuple(text.chars().map(|c| Value::Str(c.to_string())).collect())
                 }
                 Some(other) => unknown(&other, "list"),
                 None => Value::Tuple(Vec::new()),
             },
+            Some(Function::Dict) => {
+                let mut pairs = match first {
+                    None => Vec::new(),
+                    Some(Value::Dict(pairs)) => pairs,
+                    Some(Value::Tuple(items)) => {
+                        let mut pairs = Vec::new();
+                        for item in items {
+                            match item {
+                                Value::Tuple(pair)
+                                    if pair.len() == 2 && key(&pair[0]).is_some() =>
+                                {
+                                    let mut pair = pair.into_iter();
+                                    let (at, value) = (pair.next(), pair.next());
+                                    if let (Some(at), Some(value)) = (at, value) {
+                                        pairs = put(pairs, at, value);
+                                    }
+                                }
+                                other => return Ok(unknown(&other, "dict")),
+                            }
+                        }
+                        pairs
+                    }
+                    Some(other) => return Ok(unknown(&other, "dict")),
+                };
+                // Keywords arrive sorted here, not in call order.
+                if keyword.len() > 1 {
+                    return Ok(Value::Unknown(construct("dict keywords")));
+                }
+                for (at, value) in &keyword {
+                    pairs = put(pairs, Value::Str((*at).to_string()), value.clone());
+                }
+                Value::Dict(pairs)
+            }
+            Some(Function::JsonLoad) => match first {
+                Some(Value::File {
+                    path,
+                    mode: Mode::Read,
+                }) if keyword.is_empty() => match self.read_value(&path) {
+                    Value::Str(text) => loaded(&text)?,
+                    other => other,
+                },
+                Some(other) => unknown(&other, "json.load"),
+                None => Value::Unknown(construct("json.load")),
+            },
+            Some(Function::JsonLoads) => match first {
+                Some(Value::Str(text)) if keyword.is_empty() => loaded(&text)?,
+                Some(other) => unknown(&other, "json.loads"),
+                None => Value::Unknown(construct("json.loads")),
+            },
+            Some(Function::JsonDumps) => match (first, layout(&keyword)) {
+                (Some(value), Ok(layout)) => match json::dump(&value, &layout) {
+                    Ok(text) => Value::Str(text),
+                    Err(construct_name) => unknown(&value, &construct_name),
+                },
+                (_, Err(why)) => Value::Unknown(why),
+                (None, _) => Value::Unknown(construct("json.dumps")),
+            },
+            Some(Function::JsonDump) => {
+                let file = positional.get(1).or_else(|| keyword.get("fp")).cloned();
+                let mut rest = keyword.clone();
+                rest.remove("fp");
+                let text = match (&first, layout(&rest)) {
+                    (Some(value), Ok(layout)) => {
+                        json::dump(value, &layout).map_err(|construct_name| match value {
+                            Value::Unknown(why) => why.clone(),
+                            _ => construct(&construct_name),
+                        })
+                    }
+                    (_, Err(why)) => Err(why),
+                    (None, _) => Err(construct("json.dump")),
+                };
+                match file {
+                    Some(Value::File {
+                        path,
+                        mode: Mode::Write,
+                    }) => self.shell.write(&path, true, text),
+                    Some(other) => self.forget_value(&other, &construct("json.dump")),
+                    None => {}
+                }
+                Value::None
+            }
             Some(Function::Str) => match first {
                 Some(Value::Str(text) | Value::Path(text)) => Value::Str(text),
                 Some(Value::Int(n)) => Value::Str(n.to_string()),
@@ -1122,6 +1291,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             },
             Some(Function::Len) => match first {
                 Some(Value::Str(text)) => Value::Int(text.chars().count() as i64),
+                Some(Value::Tuple(items)) => Value::Int(items.len() as i64),
+                Some(Value::Dict(pairs)) => Value::Int(pairs.len() as i64),
                 _ => Value::Unknown(construct("len")),
             },
             Some(Function::Print) => {
@@ -1201,9 +1372,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             None => {
                 let why = Why::Python(format!("call {name}"));
                 for value in positional.iter().chain(keyword.values()) {
-                    if written_by_a_stranger(value) {
-                        self.forget_value(value, &why);
-                    }
+                    self.stranger_writes(value, &why, true);
                     self.escape(value, &why);
                 }
                 Value::Unknown(why)
@@ -1305,9 +1474,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             other => {
                 let why = Why::Python(format!("method {method}"));
                 for value in args.iter().chain(keyword.values()) {
-                    if holds_a_file(value) {
-                        self.forget_value(value, &why);
-                    }
+                    self.stranger_writes(value, &why, false);
                     self.escape(value, &why);
                 }
                 match other {
@@ -1315,6 +1482,29 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     _ => Value::Unknown(why),
                 }
             }
+        }
+    }
+
+    /// A call this does not follow may write each file `value` names or holds
+    /// open, inside a list or a dict too: `fmt.run(['a.py', 'b.py'])`. A
+    /// path-shaped string counts where `strings` says it does.
+    fn stranger_writes(&mut self, value: &Value, why: &Why, strings: bool) {
+        match value {
+            Value::Tuple(items) => {
+                for item in items {
+                    self.stranger_writes(item, why, strings);
+                }
+            }
+            Value::Dict(pairs) => {
+                for (at, item) in pairs {
+                    self.stranger_writes(at, why, strings);
+                    self.stranger_writes(item, why, strings);
+                }
+            }
+            value if (strings && written_by_a_stranger(value)) || holds_a_file(value) => {
+                self.forget_value(value, why);
+            }
+            _ => {}
         }
     }
 
@@ -1376,6 +1566,88 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         } else {
             Value::Unknown(why)
         }
+    }
+
+    /// A method of a dict: what it reads computed, the changes it makes
+    /// followed where modelled, the dict forgotten where not.
+    fn dict_method(
+        &mut self,
+        target: &Expr,
+        pairs: Vec<(Value, Value)>,
+        method: &str,
+        args: Vec<Value>,
+        keyword: &BTreeMap<&str, Value>,
+    ) -> Result<Value, Stop> {
+        let old = Value::Dict(pairs.clone());
+        let why = Why::Python(format!("dict.{method}"));
+        let [keys, values, items] = views(&pairs);
+        let mut changed: Option<Vec<(Value, Value)>> = None;
+        let result = match (method, args.as_slice(), keyword.is_empty()) {
+            ("keys", [], true) => return Ok(keys),
+            ("values", [], true) => return Ok(values),
+            ("items", [], true) => return Ok(items),
+            ("copy", [], true) => return Ok(old),
+            ("get", [at] | [at, _], true) => {
+                if key(at).is_none() {
+                    return Ok(unknown(at, "dict key"));
+                }
+                return Ok(match find_key(&pairs, at) {
+                    Some(found) => pairs[found].1.clone(),
+                    None => args.get(1).cloned().unwrap_or(Value::None),
+                });
+            }
+            ("setdefault", [at] | [at, _], true) if key(at).is_some() => {
+                match find_key(&pairs, at) {
+                    Some(found) => return Ok(pairs[found].1.clone()),
+                    None => {
+                        let value = args.get(1).cloned().unwrap_or(Value::None);
+                        changed = Some(put(pairs, at.clone(), value.clone()));
+                        value
+                    }
+                }
+            }
+            ("pop", [at] | [at, _], true) if key(at).is_some() => match find_key(&pairs, at) {
+                Some(found) => {
+                    let mut now = pairs;
+                    let (_, value) = now.remove(found);
+                    changed = Some(now);
+                    value
+                }
+                None => match args.get(1) {
+                    Some(default) => return Ok(default.clone()),
+                    None => return Err(Stop::Ended),
+                },
+            },
+            ("update", [Value::Dict(more)], true) => {
+                let mut now = pairs;
+                for (at, value) in more {
+                    now = put(now, at.clone(), value.clone());
+                }
+                changed = Some(now);
+                Value::None
+            }
+            // Keywords arrive sorted here, not in call order: one is enough.
+            ("update", [], false) if keyword.len() == 1 => {
+                let mut now = pairs;
+                for (at, value) in keyword {
+                    now = put(now, Value::Str((*at).to_string()), value.clone());
+                }
+                changed = Some(now);
+                Value::None
+            }
+            ("clear", [], true) => {
+                changed = Some(Vec::new());
+                Value::None
+            }
+            _ => {
+                for value in args.iter().chain(keyword.values()) {
+                    self.escape(value, &why);
+                }
+                Value::Unknown(why.clone())
+            }
+        };
+        self.changed(target, &old, changed.map(Value::Dict), &why);
+        Ok(result)
     }
 
     fn path_method(
@@ -1505,6 +1777,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 path,
                 mode: Mode::Read,
             } => lines_of(self.read_value(&path)),
+            // A dict ranges over its keys.
+            Value::Dict(pairs) => Value::Tuple(pairs.into_iter().map(|(at, _)| at).collect()),
             other => other,
         }
     }
@@ -1599,7 +1873,18 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         };
         let followed = script.is_some_and(|script| self.shell.child(&script, cwd, why.clone()));
         if !followed {
+            // A command this cannot read may write any file, as an unknown
+            // program does: named for its program where the text gives it.
+            let program = match first {
+                Some(Value::Tuple(words)) => words.first().and_then(text),
+                Some(value) => text(value),
+                None => None,
+            }
+            .and_then(|head| head.split_whitespace().next().map(str::to_string))
+            .map(|head| crate::shell_ops::basename(&head).to_string())
+            .unwrap_or_else(|| "subprocess".to_string());
             self.unnamed(why.unwrap_or_else(|| construct("subprocess")));
+            self.shell.unknown_program(program);
         }
     }
 
@@ -1828,9 +2113,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 for arg in args {
                     if let Arg::Positional(expr) | Arg::Keyword(_, expr) = arg {
                         let value = self.static_value(expr);
-                        if written_by_a_stranger(&value) {
-                            self.forget_value(&value, why);
-                        }
+                        self.stranger_writes(&value, why, true);
                     }
                 }
                 vec![]
@@ -1912,10 +2195,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
 }
 
 /// Whether a function this does not know may write what it is handed: a file
-/// ([`holds_a_file`]), or a string shaped like a path. Other strings are text.
+/// ([`holds_a_file`]), or a string shaped like a path. Other strings are text,
+/// and so is one spanning lines: a doc comment starts with `///`.
 fn written_by_a_stranger(value: &Value) -> bool {
     match value {
-        Value::Str(text) => crate::shell_ops::looks_like_path(text),
+        Value::Str(text) => !text.contains('\n') && crate::shell_ops::looks_like_path(text),
         other => holds_a_file(other),
     }
 }
@@ -2016,6 +2300,8 @@ fn truth(value: Value) -> Value {
         Value::Str(text) => Value::Bool(!text.is_empty()),
         Value::Int(n) => Value::Bool(n != 0),
         Value::None => Value::Bool(false),
+        Value::Tuple(items) => Value::Bool(!items.is_empty()),
+        Value::Dict(pairs) => Value::Bool(!pairs.is_empty()),
         Value::Unknown(why) => Value::Unknown(why),
         _ => Value::Unknown(construct("truth")),
     }
@@ -2045,6 +2331,10 @@ fn binary(left: Value, op: BinOp, right: Value) -> Value {
 
 fn compare(left: &Value, op: CmpOp, right: &Value) -> Value {
     match (left, op, right) {
+        (_, CmpOp::In | CmpOp::NotIn, Value::Dict(pairs)) => match key(left) {
+            Some(_) => Value::Bool(find_key(pairs, left).is_some() == (op == CmpOp::In)),
+            None => unknown(left, "dict key"),
+        },
         (Value::Str(a), CmpOp::In, Value::Str(b)) => Value::Bool(b.contains(a.as_str())),
         (Value::Str(a), CmpOp::NotIn, Value::Str(b)) => Value::Bool(!b.contains(a.as_str())),
         (Value::Str(a), CmpOp::Eq, Value::Str(b)) => Value::Bool(a == b),
@@ -2172,7 +2462,49 @@ fn range(args: &[Value]) -> Value {
 
 /// `sorted` of strings or of integers, as Python orders each; anything else
 /// compares by rules this does not follow.
+/// Python's order between two values, where both are of a type it orders and
+/// this models: strings by code point, integers, and tuples element by
+/// element.
+fn order(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
+        (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
+        (Value::Tuple(a), Value::Tuple(b)) => {
+            for (a, b) in a.iter().zip(b) {
+                match order(a, b)? {
+                    std::cmp::Ordering::Equal => {}
+                    other => return Some(other),
+                }
+            }
+            Some(a.len().cmp(&b.len()))
+        }
+        _ => None,
+    }
+}
+
 fn sorted(values: Vec<Value>) -> Value {
+    // Every pair must be ordered: one that is not raises, or is not modelled.
+    let mut sortable = true;
+    for pair in values.windows(2) {
+        sortable &= order(&pair[0], &pair[1]).is_some();
+    }
+    if sortable && values.iter().all(|v| matches!(v, Value::Tuple(_))) {
+        let mut values = values;
+        // Stable, as Python's is; the check above covered neighbours only,
+        // so any pair found unordered while sorting refuses it.
+        let mut refused = false;
+        values.sort_by(|a, b| {
+            order(a, b).unwrap_or_else(|| {
+                refused = true;
+                std::cmp::Ordering::Equal
+            })
+        });
+        return if refused {
+            Value::Unknown(construct("sorted"))
+        } else {
+            Value::Tuple(values)
+        };
+    }
     if values.iter().all(|v| matches!(v, Value::Str(_))) {
         let mut texts: Vec<String> = values
             .into_iter()
@@ -2253,6 +2585,51 @@ fn slice(value: Value, lower: Option<Value>, upper: Option<Value>) -> Value {
     }
 }
 
+/// `json.loads` of a text: its value, the call raising where Python's does,
+/// or refused by the construct not modelled.
+fn loaded(text: &str) -> Result<Value, Stop> {
+    match json::parse(text) {
+        Ok(value) => Ok(value),
+        Err(None) => Err(Stop::Ended),
+        Err(Some(refused)) => Ok(Value::Unknown(construct(&refused))),
+    }
+}
+
+/// How `json.dump` was asked to lay its text out, or the keyword refused.
+fn layout(keyword: &BTreeMap<&str, Value>) -> Result<json::Layout, Why> {
+    let indent = match keyword.get("indent") {
+        None | Some(Value::None) => None,
+        Some(Value::Int(n)) => Some(" ".repeat(usize::try_from(*n).unwrap_or(0))),
+        Some(Value::Str(text)) => Some(text.clone()),
+        Some(other) => return Err(refusal(other, "json indent")),
+    };
+    let mut layout = json::Layout::new(indent);
+    for (name, value) in keyword {
+        match (*name, value) {
+            ("indent", _) => {}
+            ("sort_keys", Value::Bool(b)) => layout.sort_keys = *b,
+            ("ensure_ascii", Value::Bool(b)) => layout.ensure_ascii = *b,
+            ("separators", Value::Tuple(pair)) => match pair.as_slice() {
+                [Value::Str(item), Value::Str(key)] => {
+                    layout.item = item.clone();
+                    layout.key = key.clone();
+                }
+                _ => return Err(construct("json separators")),
+            },
+            (name, other) => return Err(refusal(other, &format!("json {name}"))),
+        }
+    }
+    Ok(layout)
+}
+
+/// Why a value is not what a construct needs: its own reason when unknown.
+fn refusal(value: &Value, name: &str) -> Why {
+    match value {
+        Value::Unknown(why) => why.clone(),
+        _ => construct(name),
+    }
+}
+
 /// Where `index` lands in a sequence of `len`; `Err` where Python raises.
 fn position(len: usize, index: i64) -> Result<usize, Stop> {
     let at = if index < 0 { index + len as i64 } else { index };
@@ -2265,7 +2642,58 @@ fn position(len: usize, index: i64) -> Result<usize, Stop> {
 /// Whether `value` is `list` or holds it at any depth.
 fn holds(value: &Value, list: &Value) -> bool {
     value == list
-        || matches!(value, Value::Tuple(items) if items.iter().any(|item| holds(item, list)))
+        || match value {
+            Value::Tuple(items) => items.iter().any(|item| holds(item, list)),
+            Value::Dict(pairs) => pairs.iter().any(|(_, item)| holds(item, list)),
+            _ => false,
+        }
+}
+
+/// A value the program can change in place: a list or a dict.
+fn container(value: &Value) -> bool {
+    matches!(value, Value::Tuple(_) | Value::Dict(_))
+}
+
+/// A dict's `keys()`, `values()` and `items()`, as this holds them.
+fn views(pairs: &[(Value, Value)]) -> [Value; 3] {
+    [
+        Value::Tuple(pairs.iter().map(|(key, _)| key.clone()).collect()),
+        Value::Tuple(pairs.iter().map(|(_, value)| value.clone()).collect()),
+        Value::Tuple(
+            pairs
+                .iter()
+                .map(|(key, value)| Value::Tuple(vec![key.clone(), value.clone()]))
+                .collect(),
+        ),
+    ]
+}
+
+/// Whether `value` can be a key, and the key it is: `True` and `1` are one
+/// key in Python.
+fn key(value: &Value) -> Option<Value> {
+    match value {
+        Value::Bool(b) => Some(Value::Int(i64::from(*b))),
+        Value::Str(_) | Value::Int(_) | Value::None => Some(value.clone()),
+        _ => None,
+    }
+}
+
+/// Where `wanted` is among a dict's keys.
+fn find_key(pairs: &[(Value, Value)], wanted: &Value) -> Option<usize> {
+    let wanted = key(wanted)?;
+    pairs
+        .iter()
+        .position(|(held, _)| key(held).as_ref() == Some(&wanted))
+}
+
+/// `pairs` with `value` under `at`: in place when the key is there, last when
+/// it is new.
+fn put(mut pairs: Vec<(Value, Value)>, at: Value, value: Value) -> Vec<(Value, Value)> {
+    match find_key(&pairs, &at) {
+        Some(found) => pairs[found].1 = value,
+        None => pairs.push((at, value)),
+    }
+    pairs
 }
 
 /// The name an item or attribute chain starts from: `rows` in `rows[0].x`.
@@ -2430,6 +2858,12 @@ fn item(value: Value, index: Value) -> Result<Value, Stop> {
             let at = position(items.len(), index)?;
             items.swap_remove(at)
         }
+        (Value::Dict(_), Value::Unknown(why)) => Value::Unknown(why),
+        (Value::Dict(mut pairs), at) => match find_key(&pairs, &at) {
+            Some(found) => pairs.swap_remove(found).1,
+            None if key(&at).is_some() => return Err(Stop::Ended),
+            None => Value::Unknown(construct("dict key")),
+        },
         (Value::Unknown(why), _) | (_, Value::Unknown(why)) => Value::Unknown(why),
         _ => Value::Unknown(construct("subscript")),
     })

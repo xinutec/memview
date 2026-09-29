@@ -136,7 +136,15 @@ frame, is forgotten; a list passed to a call it does not follow, stored where
 it cannot see, or reached by a block it does not follow is forgotten too.
 Found live (2026-09-29): an insertion by `lines[i:i] = ins` and trailing lines
 popped in a `while` were both predicted as no change; in history the same
-blind spot had backed 118 file texts. The shell side follows the same shapes: a `for` over words the text spells
+blind spot had backed 118 file texts. A dict is followed the same way, in
+insertion order, through its items, its keys, `get`, `setdefault`, `pop` and
+`update`, and its views are forgotten with it. `json.load` of a file sight has
+shown is read by the evaluator's own reader (`python/json.rs`), with Python's
+rules for a repeated key, and `json.dump` writes CPython's exact text for the
+indent, separators, `sort_keys` and `ensure_ascii` it was given; a float, which
+the evaluator does not model, is refused. A subprocess whose command it cannot
+read is an unknown program like any other: what was predicted before it is
+withdrawn, or held on the condition that it left the file alone. The shell side follows the same shapes: a `for` over words the text spells
 out runs once per word, a brace group is its commands, a subshell keeps its
 `cd` and its bindings inside, and a variable is known while the text bound it
 to a literal and no builtin since could have rebound it; `$HOME` and `$PWD`

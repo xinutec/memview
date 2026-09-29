@@ -1483,6 +1483,109 @@ fn what_an_unknown_program_writes_itself_stays_refused() {
     assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
 }
 
+/// A dict is followed as Python holds it: insertion order, one place per key,
+/// and read back through its items, its keys and `get`.
+#[test]
+fn a_python_dict_is_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let found = run(
+        &py(
+            "d = {'b': 1, 'a': 2}\nd['c'] = 3\nd['b'] = 4\nfor k, v in d.items():\n    open(k, 'w').write(str(v) + str(d.get('zz', 0)) + str(len(d)))",
+        ),
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/b", "403"),
+            written("/repo/a", "203"),
+            written("/repo/c", "303"),
+        ]
+    );
+}
+
+/// `json.load` of a shown file, changed, and `json.dump` back: the text is
+/// CPython's, byte for byte (each expected text below was printed by it).
+#[test]
+fn a_json_file_read_changed_and_dumped_is_predicted_exactly() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/s.json", Some("{\"b\": 1, \"a\": [1, 2]}"))]);
+    let head = "import json\nd = json.load(open('s.json'))\nd['c'] = 'x'\n";
+    for (dump, text) in [
+        (
+            "json.dump(d, open('s.json', 'w'), indent=2)",
+            "{\n  \"b\": 1,\n  \"a\": [\n    1,\n    2\n  ],\n  \"c\": \"x\"\n}",
+        ),
+        (
+            "open('s.json', 'w').write(json.dumps(d))",
+            "{\"b\": 1, \"a\": [1, 2], \"c\": \"x\"}",
+        ),
+    ] {
+        let found = run(&py(&format!("{head}{dump}")), &shown);
+        assert_eq!(found.written, vec![written("/repo/s.json", text)], "{dump}");
+    }
+    for (dumps, text) in [
+        (
+            "json.dumps({'k': 'é\\x7f😀'})",
+            "{\"k\": \"\\u00e9\\u007f\\ud83d\\ude00\"}",
+        ),
+        (
+            "json.dumps({'k': 'é'}, ensure_ascii=False)",
+            "{\"k\": \"é\"}",
+        ),
+        (
+            "json.dumps({'b': 1, 'a': {}}, sort_keys=True, separators=(',', ':'))",
+            "{\"a\":{},\"b\":1}",
+        ),
+        ("json.dumps([[], {}], indent=0)", "[\n[],\n{}\n]"),
+        (
+            "json.dumps({1: True, None: None})",
+            "{\"1\": true, \"null\": null}",
+        ),
+    ] {
+        let found = run(
+            &py(&format!("import json\nopen('o', 'w').write({dumps})")),
+            &nothing_known(),
+        );
+        assert_eq!(found.written, vec![written("/repo/o", text)], "{dumps}");
+    }
+}
+
+/// What JSON holds that the evaluator does not model is refused, a key that
+/// is not there raises, and a dict is shared with its holders and its views
+/// as a list is.
+#[test]
+fn a_python_dict_this_cannot_follow_is_refused() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[
+        ("/repo/s.json", Some("{\"b\": 1}")),
+        ("/repo/f.json", Some("{\"x\": 1.5}")),
+    ]);
+    for program in [
+        "import json\nd = json.load(open('f.json'))\nopen('o', 'w').write(json.dumps(d))",
+        "import json\nd = json.load(open('s.json'))\ne = d\ne['z'] = 2\nopen('o', 'w').write(json.dumps(d))",
+        "import json\nd = json.load(open('s.json'))\nks = d.keys()\nd['z'] = 2\nopen('o', 'w').write(','.join(ks))",
+        "d = dict(b=1, a=2)\nopen('o', 'w').write(','.join(d))",
+        "import json\nopen('o', 'w').write(json.dumps({'b': 1, 2: 2}, sort_keys=True))",
+    ] {
+        let found = run(&py(program), &shown);
+        assert!(found.written.is_empty(), "{program}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/o")),
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+    let missing = run(
+        &py("import json\nd = json.load(open('s.json'))\nd['nope']\nopen('o', 'w').write('x')"),
+        &shown,
+    );
+    assert!(missing.written.is_empty(), "a KeyError ends the program");
+}
+
 /// What a block the evaluator does not follow binds is not known after it: a
 /// function it defines, and a name its `:=` binds.
 #[test]
@@ -1554,7 +1657,7 @@ fn a_python_default_argument_is_the_value_at_definition() {
 fn a_python_call_through_an_expression_may_write_its_file_arguments() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
     let found = run(
-        &py("import json\nhandlers = json.loads('{}')\nhandlers['k'](open('a', 'w'))"),
+        &py("import plugins\nhandlers = plugins.table()\nhandlers['k'](open('a', 'w'))"),
         &nothing_known(),
     );
     assert!(found.written.is_empty(), "{:?}", found.written);
@@ -1563,6 +1666,58 @@ fn a_python_call_through_an_expression_may_write_its_file_arguments() {
             .unfollowed
             .iter()
             .any(|u| u.path.as_deref() == Some("/repo/a"))
+    );
+}
+
+/// Paths and open files inside a list or a dict handed to a call this does not
+/// follow may each be written.
+#[test]
+fn a_python_call_this_does_not_follow_may_write_the_files_in_a_list() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    for program in [
+        "import fmt\nopen('a.py', 'w').write('x')\nfmt.run(['a.py', 'b.py'])",
+        "import fmt\nf = open('a.py', 'w')\nfmt.run({'out': f})",
+    ] {
+        let found = run(&py(program), &nothing_known());
+        assert!(found.written.is_empty(), "{program}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/a.py")),
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+    // Found in history: a list of doc comments, which start with `///`, handed to
+    // an edit helper. Text spanning lines names no file.
+    let texts = run(
+        &py(
+            "import edit\nopen('a.py', 'w').write('x')\nedit.apply('b.rs', [('/// one\\n/// two', '/// three\\n/// four')])",
+        ),
+        &nothing_known(),
+    );
+    assert_eq!(texts.written, vec![written("/repo/a.py", "x")]);
+}
+
+/// A command whose words are not all known may still write any file: what
+/// was predicted before it is withdrawn, or conditional on it. Found in
+/// history: `subprocess.run(['python3', 'apply.py', f, ...])` in a loop, after a
+/// heredoc wrote the file the helper then read and rewrote.
+#[test]
+fn a_python_subprocess_this_cannot_read_is_an_unknown_program() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let found = run(
+        &py(
+            "import subprocess, sys\nopen('a', 'w').write('x')\nsubprocess.run(['python3', 'apply.py', sys.argv[0]])",
+        ),
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert_eq!(found.conditional.len(), 1);
+    assert_eq!(
+        found.conditional[0].assumed.after,
+        vec!["python3".to_string()]
     );
 }
 
