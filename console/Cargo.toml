@@ -42,7 +42,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # leaf that runs nothing, serves nothing and opens nothing. The rule about which
 # files under ~/.claude/projects are conversations lives there because getting it
 # wrong here once already opened a 119 MB session as blank — see
-# ../reader/src/transcript.rs. `reader/tests/leaf.rs` is what keeps it harmless
+# ../reader/src/transcript.rs. `reader/tests/suite/leaf.rs` is what keeps it harmless
 # to depend on from a process that spawns Claude Code.
 reader = { path = "../reader" }
 # For the descriptor work an upgrade needs: clearing close-on-exec, going

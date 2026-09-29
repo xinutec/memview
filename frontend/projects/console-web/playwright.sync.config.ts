@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Its own config because it needs the opposite of that one: no static server and
  * no stubbed API, because the whole point is a REAL runner serving both the app
- * and `/api/sync/drafts`. `e2e/runner.mjs` starts it, so there is no `webServer`
+ * and `/api/sync/drafts`. `e2e/runner.ts` starts it, so there is no `webServer`
  * here either — the fixture has to write a transcript before the runner reads
  * the directory, which a command line cannot express.
  *

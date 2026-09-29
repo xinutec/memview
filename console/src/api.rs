@@ -241,7 +241,7 @@ pub struct Since {
 }
 
 /// Every draft past the caller's checkpoint. The protocol is life's — see
-/// `life/src/sync/types.rs` and its `docs/design/sync.md`; a client library drives
+/// `life/src/sync/types.rs` and `life/docs/design/sync.md`; a client library drives
 /// pull and push.
 async fn pull_drafts(
     State(roster): State<Arc<Roster>>,

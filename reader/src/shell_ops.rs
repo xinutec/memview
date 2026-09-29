@@ -693,8 +693,8 @@ pub fn shell_c_value(argv: &[String]) -> Option<&str> {
     None
 }
 
-/// A command's name without the path it was invoked by: `./scripts/verify.sh`
-/// and `/usr/bin/sed` name `verify.sh` and `sed`.
+/// A command's name without the path it was invoked by: `./scripts/dev.sh`
+/// and `/usr/bin/sed` name `dev.sh` and `sed`.
 pub fn basename(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
