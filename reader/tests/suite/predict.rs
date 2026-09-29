@@ -3,7 +3,9 @@
 
 use std::collections::BTreeMap;
 
-use reader::predict::{Files, Prediction, Unfollowed, Why, Written, needs, predict};
+use reader::predict::{
+    Assumed, Conditional, Files, Prediction, Unfollowed, Why, Written, needs, predict,
+};
 
 const HOME: &str = "/home/me";
 const CWD: &str = "/repo";
@@ -1356,6 +1358,64 @@ fn a_program_nobody_knows_forgets_everything_before_it() {
     }
     let known = run("echo x > a; grep x a; ls", &nothing_known());
     assert_eq!(known.written, vec![written("/repo/a", "x\n")]);
+}
+
+fn assuming(before: &[&str], after: &[&str]) -> Assumed {
+    Assumed {
+        before: before.iter().map(|p| p.to_string()).collect(),
+        after: after.iter().map(|p| p.to_string()).collect(),
+    }
+}
+
+/// What an unknown program withdraws is still predicted, on the condition that
+/// it left the file alone. Found live: a Python edit to a Lean file, then
+/// `scripts/dev bash -c 'cd lean && lake build'`.
+#[test]
+fn a_file_an_unknown_program_ran_after_is_predicted_if_it_left_it_alone() {
+    let found = run(
+        "echo x > a; ./fix.sh; ./fix.sh; ./check.sh",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.conditional,
+        vec![Conditional {
+            written: written("/repo/a", "x\n"),
+            assumed: assuming(&[], &["fix.sh", "check.sh"]),
+        }]
+    );
+}
+
+/// Run before a file is read, the program may have changed what was read.
+#[test]
+fn a_file_read_after_an_unknown_program_is_predicted_if_it_left_the_input_alone() {
+    let files = known(&[("/repo/a", Some("y\n"))]);
+    let found = run("./fix.sh; cat a > b", &files);
+    assert!(found.written.is_empty());
+    assert_eq!(
+        found.conditional,
+        vec![Conditional {
+            written: written("/repo/b", "y\n"),
+            assumed: assuming(&["fix.sh"], &[]),
+        }]
+    );
+}
+
+/// The assumption is only that it wrote nothing else: what it writes itself is
+/// not known either way, and a file with no unknown program near it is certain.
+#[test]
+fn what_an_unknown_program_writes_itself_stays_refused() {
+    let found = run("./fix.sh > out", &nothing_known());
+    assert!(found.conditional.is_empty());
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/out")),
+        "{:?}",
+        found.unfollowed
+    );
+    assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
 }
 
 /// `git checkout` rewrites the working tree whether it names a branch or a path;

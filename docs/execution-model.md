@@ -66,7 +66,11 @@ inputs cannot become a test, which the first 48 showed: the edits behind them
 were Python over files too large to rebuild by hand. Nothing kept under
 `.console` is golden: a finding is an inbox item, deleted once its test is in
 `reader/tests`, and a refusal row is pruned after thirty days, since the
-command is in the transcript and only recent ones rank. The target is a
+command is in the transcript and only recent ones rank. The one row kept for
+good is an outcome (`outcomes.jsonl`): each file checked, agreed or diverged,
+and each prediction never checked and why. What a file held after its call
+cannot be looked at again, and without the agreements a prediction that was
+right reads the same as one nobody looked at. The target is a
 prediction that never diverges; the check stays once it is reached, so the two
 cannot drift apart again. Only a call that succeeded is checked — the hook that
 reports a call's end does not fire for one that failed, so a prediction that
@@ -188,6 +192,27 @@ could not produce.
 - A check can only refute a set. It cannot show that an extra member was
   reachable, so a padded set passes every check — the same blind spot as sound
   over-approximation, and the guard is construction, not the oracle.
+
+### A prediction on a named condition
+
+A program the tables do not know may have written any file, so what was
+predicted before it is withdrawn and what is read after it is not known. Most
+of the time it wrote none of them: `scripts/dev bash -c 'cd lean && lake
+build'` after a Python edit to a `.lean` file. So the evaluator runs a second
+time assuming each unknown program left every file alone, and a file only that
+run predicts is a **conditional** prediction, drawn with the programs it
+assumed: those run before its last write, which may have changed what the
+write read, and those run after it (the user, 2026-09-29).
+
+It is still exact: the text follows from the command and the assumption, and
+the assumption is named, not hidden. What a program writes itself (`./gen.sh >
+out`) is refused either way, since assuming it harmless says nothing about
+its own output. The after-look checks a conditional prediction like any other,
+but a divergence there has two suspects, the evaluator and the program assumed
+harmless, so it is kept apart (`conditional.jsonl`) and is not a finding until
+the evaluator is shown to be the one at fault. `predict-report --live` tallies
+the outcomes, conditional apart, and for each program assumed harmless how
+often it was: one that often was not is what to model next.
 
 ### What the flat reader knows
 

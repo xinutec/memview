@@ -5,7 +5,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
 import { DiffView } from './diff-view';
-import { type Change, Parsed, Line } from './models';
+import { type Assumed, type Change, Parsed, Line } from './models';
 import { reason } from './errors';
 
 /** What the sheet is opened with: the command as it was written, and how its
@@ -72,10 +72,16 @@ export class ParseSheet {
         change,
         named: changes[at - 1]?.path !== change.path,
         file,
+        assumption: change.assumed && assumption(change.assumed),
         folder: change.path.slice(0, -file.length),
       };
     });
   });
+
+  /** Whether a prediction drawn here assumed an unknown program left its file alone. */
+  protected readonly conditional = computed(() =>
+    (this.about.hunks ?? []).some((change) => change.assumed),
+  );
 
   /** Every step, with what the template needs that JSON cannot carry. */
   protected readonly steps = computed(() =>
@@ -149,4 +155,16 @@ export class ParseSheet {
       unproven: uses.filter((used) => !used.certain).length,
     };
   });
+}
+
+/** The condition a prediction holds on, as a sentence. */
+function assumption(assumed: Assumed): string {
+  const named = (programs: readonly string[]) => programs.join(', ');
+  const before = assumed.before.length
+    ? `${named(assumed.before)}, run before, did not change what it was made from`
+    : undefined;
+  const after = assumed.after.length
+    ? `${named(assumed.after)}, run after, left it alone`
+    : undefined;
+  return `If ${[before, after].filter(Boolean).join(', and ')}.`;
 }

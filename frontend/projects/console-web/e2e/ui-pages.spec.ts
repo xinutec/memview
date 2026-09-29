@@ -5036,6 +5036,55 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
 });
 
+test('a prediction that assumed an unknown program harmless says which @ phone width', async ({
+  page,
+}, testInfo) => {
+  const command = "python3 edit.py && scripts/dev bash -c 'cd lean && lake build'";
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+        {
+          kind: 'edited',
+          call: 'b1',
+          hunks: [
+            {
+              path: '/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean',
+              before: '  let fast := fun (k : Nat) => match moving[k]?.getD none with\n',
+              after: '  let fast : Nat → Bool := fun k => match moving[k]?.getD none with\n',
+              assumed: { before: [], after: ['dev'] },
+            },
+          ],
+        },
+        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+        {
+          kind: 'diverged',
+          call: 'b1',
+          paths: ['/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean'],
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.goto(`/s/${RUNNING.id}`);
+
+  await page.locator('.entry.tool button.opens').click();
+  const sheet = page.locator('app-parse-sheet');
+  await expect(sheet.locator('.assumed')).toHaveText('If dev, run after, left it alone.');
+  await expect(sheet.locator('.diverged')).toContainText('a program it assumed harmless');
+  await settleTransforms(page);
+  await page.screenshot({ path: testInfo.outputPath('conditional.png') });
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
   page,
 }, testInfo) => {

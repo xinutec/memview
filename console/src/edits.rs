@@ -8,7 +8,10 @@
 //! [`reader::predict::check`] whether they hold what was predicted — or, for a
 //! call sent to the background, leaves that to [`Edits::ended`]. A divergence
 //! is a defect in the evaluator, kept in full so it can become a test — see
-//! `docs/execution-model.md`, "Two settings, one evaluator".
+//! `docs/execution-model.md`, "Two settings, one evaluator". A file predicted
+//! only on the condition that an unknown program left it alone is checked the
+//! same way, but its divergence is kept apart: either may be wrong. Every file
+//! checked, and every prediction never checked, leaves an outcome row.
 //!
 //! Nothing here runs the command or writes a file it names.
 
@@ -17,7 +20,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use reader::predict::{Divergence, Files, Sight, Written, check, predict};
+use reader::predict::{Conditional, Divergence, Files, Sight, Written, check, predict};
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
@@ -29,6 +32,30 @@ pub struct Hunk {
     pub path: String,
     pub before: String,
     pub after: String,
+    /// Present when the file is predicted only if these programs left it alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub assumed: Option<Assumed>,
+}
+
+/// The unknown programs a conditional prediction assumes did not touch its
+/// file: those run before its last write, which may have changed what the
+/// write read, and those run after it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Assumed {
+    pub before: Vec<String>,
+    pub after: Vec<String>,
+}
+
+impl From<&reader::predict::Assumed> for Assumed {
+    fn from(assumed: &reader::predict::Assumed) -> Self {
+        Self {
+            before: assumed.before.clone(),
+            after: assumed.after.clone(),
+        }
+    }
 }
 
 /// What one call is predicted to change, as stored and as sent.
@@ -74,6 +101,32 @@ pub struct Finding {
     pub actual: Option<String>,
 }
 
+/// A conditional prediction that diverged: the finding, and what it assumed.
+/// Not a finding yet — the program assumed harmless may have made the change.
+#[derive(Serialize)]
+struct Doubted<'a> {
+    #[serde(flatten)]
+    finding: &'a Finding,
+    assumed: &'a Assumed,
+}
+
+/// What became of one predicted file: `agreed`, `diverged`, or `unchecked`
+/// with why. Kept for good: what a file held after its call cannot be looked
+/// at again, and the rate of each is how the evaluator and its assumptions are
+/// judged.
+#[derive(Serialize)]
+struct Outcome<'a> {
+    at: String,
+    session: &'a str,
+    call: &'a str,
+    path: &'a str,
+    outcome: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    why: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assumed: Option<&'a Assumed>,
+}
+
 /// Larger files are not read: a hook waits on this.
 const LARGEST: u64 = 2 * 1024 * 1024;
 
@@ -105,6 +158,8 @@ struct Refused {
     files: Files,
     /// Files it did predict, beside the refusals.
     predicted: usize,
+    /// Files predicted on the condition that an unknown program left them alone.
+    conditional: usize,
     refused: Vec<String>,
 }
 
@@ -115,6 +170,7 @@ struct Pending {
     cwd: String,
     files: Files,
     written: Vec<Written>,
+    conditional: Vec<Conditional>,
     since: std::time::Instant,
     /// For a backgrounded call, its files when it was sent to the background: a
     /// later edit can change them before its task ends.
@@ -196,13 +252,12 @@ impl Edits {
             let refused = Refused {
                 session: session.to_string(),
                 call: call.to_string(),
-                at: time::OffsetDateTime::now_utc()
-                    .format(&time::format_description::well_known::Rfc3339)
-                    .expect("RFC 3339 formats any instant"),
+                at: now(),
                 command: command.to_string(),
                 cwd: cwd.to_string(),
                 files: files.clone(),
                 predicted: prediction.written.len(),
+                conditional: prediction.conditional.len(),
                 refused: prediction
                     .unfollowed
                     .iter()
@@ -213,21 +268,29 @@ impl Edits {
                 tracing::warn!("could not keep the refusals of {call}: {why}");
             }
         }
-        if prediction.written.is_empty() {
+        if prediction.written.is_empty() && prediction.conditional.is_empty() {
             return None;
         }
-        // The text each file holds now, for the diff's first side.
-        let hunks = prediction
-            .written
+        let sure = prediction.written.iter().map(|written| (written, None));
+        let unsure = prediction
+            .conditional
             .iter()
-            .flat_map(|written| {
+            .map(|file| (&file.written, Some(Assumed::from(&file.assumed))));
+        // The text each file holds now, for the diff's first side.
+        let hunks = sure
+            .chain(unsure)
+            .flat_map(|(written, assumed)| {
                 let now = read(Path::new(&written.path)).flatten().unwrap_or_default();
                 // A file the command removes shows as every line of it deleted.
-                hunks(
+                let mut drawn = hunks(
                     &written.path,
                     &now,
                     written.text.as_deref().unwrap_or_default(),
-                )
+                );
+                for hunk in &mut drawn {
+                    hunk.assumed = assumed.clone();
+                }
+                drawn
             })
             .collect();
         let edited = Edited {
@@ -235,7 +298,17 @@ impl Edits {
             hunks,
         };
         let mut pending = self.pending.lock();
-        pending.retain(|_, waiting| waiting.since.elapsed() < HELD);
+        let expired: Vec<String> = pending
+            .iter()
+            .filter(|(_, waiting)| waiting.since.elapsed() >= HELD)
+            .map(|(call, _)| call.clone())
+            .collect();
+        for call in expired {
+            // A call that failed never reports its end here.
+            if let Some(waiting) = pending.remove(&call) {
+                self.unchecked(&call, &waiting, "never finished");
+            }
+        }
         pending.insert(
             call.to_string(),
             Pending {
@@ -244,6 +317,7 @@ impl Edits {
                 cwd: cwd.to_string(),
                 files,
                 written: prediction.written,
+                conditional: prediction.conditional,
                 since: std::time::Instant::now(),
                 early: None,
             },
@@ -264,7 +338,7 @@ impl Edits {
             .is_some_and(serde_json::Value::is_string)
         {
             if let Some(pending) = self.pending.lock().get_mut(call) {
-                pending.early = Some(look(&pending.written));
+                pending.early = Some(look(&pending.all()));
             }
             return None;
         }
@@ -272,7 +346,9 @@ impl Edits {
         // exit code can hide that behind a later command (`python3 … ; grep …`).
         // The interpreter's own marker is read where it puts it, at a line start.
         if raised(response) {
-            self.pending.lock().remove(call);
+            if let Some(pending) = self.pending.lock().remove(call) {
+                self.unchecked(call, &pending, "raised");
+            }
             return None;
         }
         self.check(call)
@@ -288,7 +364,9 @@ impl Edits {
         match status {
             Some(crate::protocol::Ended::Completed) => self.check(call),
             _ => {
-                self.pending.lock().remove(call);
+                if let Some(pending) = self.pending.lock().remove(call) {
+                    self.unchecked(call, &pending, "did not complete");
+                }
                 None
             }
         }
@@ -298,12 +376,29 @@ impl Edits {
     /// kept as a finding. `None` when there was no prediction for the call.
     fn check(&self, call: &str) -> Option<(String, Diverged)> {
         let pending = self.pending.lock().remove(call)?;
-        let mut diverged = check(&pending.written, &look(&pending.written));
+        let all = pending.all();
+        let mut diverged = check(&all, &look(&all));
         // Either look holding the prediction agrees: a later edit may have
         // overtaken the first.
         if let Some(early) = &pending.early {
-            let first = check(&pending.written, early);
+            let first = check(&all, early);
             diverged.retain(|late| first.iter().any(|d| d.path == late.path));
+        }
+        for written in &all {
+            let assumed = pending.assumed(&written.path);
+            let outcome = if diverged.iter().any(|d| d.path == written.path) {
+                "diverged"
+            } else {
+                "agreed"
+            };
+            self.outcome(
+                &pending.session,
+                call,
+                &written.path,
+                outcome,
+                None,
+                assumed.as_ref(),
+            );
         }
         for divergence in &diverged {
             let finding = Finding {
@@ -317,7 +412,17 @@ impl Edits {
                 actual: divergence.actual.clone(),
             };
             tracing::warn!("{call}: {} did not end up as predicted", divergence.path);
-            if let Err(why) = self.keep(&self.root.join("findings.jsonl"), &finding) {
+            let kept = match pending.assumed(&divergence.path) {
+                Some(assumed) => self.keep(
+                    &self.root.join("conditional.jsonl"),
+                    &Doubted {
+                        finding: &finding,
+                        assumed: &assumed,
+                    },
+                ),
+                None => self.keep(&self.root.join("findings.jsonl"), &finding),
+            };
+            if let Err(why) = kept {
                 tracing::warn!("could not keep the finding for {call}: {why}");
             }
         }
@@ -342,6 +447,44 @@ impl Edits {
         }
     }
 
+    /// An outcome row for each file a prediction named that was never checked.
+    fn unchecked(&self, call: &str, pending: &Pending, why: &'static str) {
+        for written in pending.all() {
+            let assumed = pending.assumed(&written.path);
+            self.outcome(
+                &pending.session,
+                call,
+                &written.path,
+                "unchecked",
+                Some(why),
+                assumed.as_ref(),
+            );
+        }
+    }
+
+    fn outcome(
+        &self,
+        session: &str,
+        call: &str,
+        path: &str,
+        outcome: &'static str,
+        why: Option<&'static str>,
+        assumed: Option<&Assumed>,
+    ) {
+        let row = Outcome {
+            at: now(),
+            session,
+            call,
+            path,
+            outcome,
+            why,
+            assumed,
+        };
+        if let Err(why) = self.keep(&self.root.join("outcomes.jsonl"), &row) {
+            tracing::warn!("could not keep the outcome of {call}: {why}");
+        }
+    }
+
     fn diverged_file(&self, session: &str) -> PathBuf {
         self.file(session).with_extension("diverged.jsonl")
     }
@@ -363,6 +506,32 @@ impl Edits {
             .collect();
         self.root.join(format!("{safe}.jsonl"))
     }
+}
+
+impl Pending {
+    /// Every file predicted, the certain ones first.
+    fn all(&self) -> Vec<Written> {
+        self.written
+            .iter()
+            .cloned()
+            .chain(self.conditional.iter().map(|file| file.written.clone()))
+            .collect()
+    }
+
+    /// What the prediction of `path` assumed, if it was conditional.
+    fn assumed(&self, path: &str) -> Option<Assumed> {
+        self.conditional
+            .iter()
+            .find(|file| file.written.path == path)
+            .map(|file| Assumed::from(&file.assumed))
+    }
+}
+
+/// This instant, as the rows date themselves.
+fn now() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("RFC 3339 formats any instant")
 }
 
 /// Every value one JSON line each in `file`, skipping any that do not read.
@@ -435,6 +604,7 @@ pub fn hunks(path: &str, was: &str, now: &str) -> Vec<Hunk> {
                 path: path.to_string(),
                 before,
                 after,
+                assumed: None,
             }
         })
         .collect()

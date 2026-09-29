@@ -30,6 +30,7 @@ fn a_change_keeps_three_lines_either_side() {
             path: "/f".to_string(),
             before: "line 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\n".to_string(),
             after: "line 7\nline 8\nline 9\nline ten\nline 11\nline 12\nline 13\n".to_string(),
+            assumed: None,
         }]
     );
 }
@@ -306,4 +307,104 @@ fn a_removed_file_is_checked_for_being_gone() {
         .finished("c2", &serde_json::json!({}))
         .expect("checked");
     assert_eq!(diverged.paths.len(), 1, "a file still there is not removed");
+}
+
+/// The rows `outcomes.jsonl` holds, parsed.
+fn outcomes(dir: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(dir.join("store/outcomes.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("json"))
+        .collect()
+}
+
+#[test]
+fn every_checked_file_leaves_an_outcome() {
+    let dir = scratch("outcomes");
+    let edits = Edits::new(dir.join("store"));
+    edits
+        .before("s1", "c1", "echo x > a.txt; echo y > b.txt", at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "x\n").expect("write");
+    std::fs::write(dir.join("b.txt"), "not y\n").expect("write");
+    edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    let rows = outcomes(&dir);
+    let said: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row["path"].as_str().expect("path"),
+                row["outcome"].as_str().expect("outcome"),
+            )
+        })
+        .collect();
+    let (a, b) = (
+        dir.join("a.txt").display().to_string(),
+        dir.join("b.txt").display().to_string(),
+    );
+    assert_eq!(said, vec![(a.as_str(), "agreed"), (b.as_str(), "diverged")]);
+    assert!(rows.iter().all(|row| row.get("assumed").is_none()));
+}
+
+#[test]
+fn a_call_that_raised_leaves_its_files_unchecked() {
+    let dir = scratch("unchecked");
+    let edits = Edits::new(dir.join("store"));
+    edits
+        .before("s1", "c1", "echo x > a.txt", at(&dir))
+        .expect("predicted");
+    let response = serde_json::json!({"stderr": "Traceback (most recent call last):\n"});
+    assert!(edits.finished("c1", &response).is_none());
+    let rows = outcomes(&dir);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["outcome"], "unchecked");
+    assert_eq!(rows[0]["why"], "raised");
+}
+
+/// Found live: a Python edit, then `scripts/dev bash -c 'cd lean && lake build'`.
+/// The edit is drawn with the program it assumes, and checked like any other.
+#[test]
+fn a_file_an_unknown_program_may_have_touched_is_drawn_with_its_assumption() {
+    let dir = scratch("conditional");
+    let edits = Edits::new(dir.join("store"));
+    let edited = edits
+        .before("s1", "c1", "echo x > a.txt; ./build.sh", at(&dir))
+        .expect("predicted");
+    assert_eq!(edited.hunks.len(), 1);
+    assert_eq!(edited.hunks[0].after, "x\n");
+    let assumed = edited.hunks[0].assumed.as_ref().expect("conditional");
+    assert_eq!(assumed.after, vec!["build.sh".to_string()]);
+    assert!(assumed.before.is_empty());
+
+    std::fs::write(dir.join("a.txt"), "x\n").expect("write");
+    edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    let rows = outcomes(&dir);
+    assert_eq!(rows[0]["outcome"], "agreed");
+    assert_eq!(rows[0]["assumed"]["after"][0], "build.sh");
+}
+
+/// Either the evaluator or the program assumed harmless made the difference, so
+/// the divergence is kept with its assumption and is not a finding.
+#[test]
+fn a_conditional_prediction_that_diverged_is_kept_apart_from_findings() {
+    let dir = scratch("doubted");
+    let edits = Edits::new(dir.join("store"));
+    edits
+        .before("s1", "c1", "echo x > a.txt; ./build.sh", at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "built\n").expect("write");
+    let (_, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    assert_eq!(diverged.paths.len(), 1, "the drawn change did not happen");
+    assert!(!dir.join("store/findings.jsonl").exists());
+    let kept = std::fs::read_to_string(dir.join("store/conditional.jsonl")).expect("kept");
+    let row: serde_json::Value = serde_json::from_str(kept.trim()).expect("json");
+    assert_eq!(row["actual"], "built\n");
+    assert_eq!(row["assumed"]["after"][0], "build.sh");
+    assert_eq!(row["command"], "echo x > a.txt; ./build.sh");
 }

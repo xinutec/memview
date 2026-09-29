@@ -3,6 +3,7 @@
  * `scripts/gen-types.sh` — plus the one shape the client builds for itself.
  */
 
+import type { Assumed } from './generated/Assumed';
 import type { Question } from './generated/Question';
 import type { Call } from './generated/Call';
 import type { Event } from './generated/Event';
@@ -30,6 +31,7 @@ export type { Overview } from './generated/Overview';
 export type { Page } from './generated/Page';
 export type { Parsed } from './generated/Parsed';
 export type { Phase } from './generated/Phase';
+export type { Assumed } from './generated/Assumed';
 export type { Edited } from './generated/Edited';
 export type { Record as EditRecord } from './generated/Record';
 export type { Ranked } from './generated/Ranked';
@@ -176,6 +178,8 @@ export interface Change {
   readonly before: string;
   readonly after: string;
   readonly everywhere: boolean;
+  /** Predicted only if these unknown programs left the file alone. */
+  readonly assumed?: Assumed;
 }
 
 /** An ask the fold could not attach to a call, drawn as its own entry. */

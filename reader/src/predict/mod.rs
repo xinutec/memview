@@ -23,7 +23,9 @@
 //! then on, so a later append to it is not guessed at either. A program that
 //! writes files itself — `sed -i`, `cp`, `rm` — has them named by the shell
 //! tables and refused, so no write it knows of goes unmentioned. One the tables
-//! do not know may have written anything, and nothing known survives it. A
+//! do not know may have written anything, and nothing known survives it — unless
+//! it is assumed not to have: a second run makes that assumption, and each file
+//! only it predicts is a [`Conditional`] naming the programs assumed. A
 //! script handed to another shell — `bash -c`, `nix-shell --run` — is followed
 //! in place.
 //!
@@ -131,44 +133,85 @@ impl Why {
     }
 }
 
+/// The unknown programs a conditional prediction assumes left its file alone,
+/// by name, each once: those run before the file's last write, which may have
+/// changed what that write read, and those run after it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Assumed {
+    pub before: Vec<String>,
+    pub after: Vec<String>,
+}
+
+/// A file as it will be after the command, if the programs assumed did not
+/// touch it. The after-look says whether they did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conditional {
+    pub written: Written,
+    pub assumed: Assumed,
+}
+
 /// What a command will write, and what it writes that could not be followed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Prediction {
     /// In the order each file was first written.
     pub written: Vec<Written>,
     pub unfollowed: Vec<Unfollowed>,
+    /// Files refused only because an unknown program ran, predicted as if it
+    /// had left them alone.
+    pub conditional: Vec<Conditional>,
 }
 
 /// The files `predict` asked for and was shown nothing of, in the order it asked.
+/// Under the assumption, so files read after an unknown program are asked for.
 pub fn needs(script: &Script, cwd: &str, home: &str) -> Vec<String> {
     let nothing = Files::new();
-    let mut run = Run::new(cwd, home, &nothing);
+    let mut run = Run::new(cwd, home, &nothing, true);
     run.items(&script.items);
     run.asked
 }
 
 /// What `script`, run in `cwd`, will leave in the files it writes.
 pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Prediction {
-    let mut run = Run::new(cwd, home, sight);
+    let mut run = Run::new(cwd, home, sight, false);
     run.items(&script.items);
-    let written = run
-        .order
-        .iter()
-        .filter_map(|path| match run.now.get(path) {
-            Some(Held::Text(text)) => Some(Written {
-                path: path.clone(),
-                text: Some(text.clone()),
-            }),
-            Some(Held::Absent) => Some(Written {
-                path: path.clone(),
-                text: None,
-            }),
-            _ => None,
+    let written = run.written();
+    if run.assumed.is_empty() {
+        return Prediction {
+            written,
+            unfollowed: run.unfollowed,
+            conditional: Vec::new(),
+        };
+    }
+    let mut assuming = Run::new(cwd, home, sight, true);
+    assuming.items(&script.items);
+    let conditional = assuming
+        .written()
+        .into_iter()
+        .filter(|file| !written.iter().any(|sure| sure.path == file.path))
+        .map(|file| {
+            let at = assuming.written_at[&file.path];
+            let named = |keep: &dyn Fn(usize) -> bool| {
+                let mut names: Vec<String> = Vec::new();
+                for (when, program) in &assuming.assumed {
+                    if keep(*when) && !names.contains(program) {
+                        names.push(program.clone());
+                    }
+                }
+                names
+            };
+            Conditional {
+                assumed: Assumed {
+                    before: named(&|when| when < at),
+                    after: named(&|when| when > at),
+                },
+                written: file,
+            }
         })
         .collect();
     Prediction {
         written,
         unfollowed: run.unfollowed,
+        conditional,
     }
 }
 
@@ -201,10 +244,18 @@ struct Run<'a> {
     /// over a path decides what it holds.
     trees: Vec<(String, Held)>,
     unfollowed: Vec<Unfollowed>,
+    /// Whether an unknown program is assumed to leave every file alone.
+    assume: bool,
+    /// Counts writes and unknown programs, to put them in order.
+    clock: usize,
+    /// When each path was last written or removed.
+    written_at: BTreeMap<String, usize>,
+    /// Each unknown program run, and when.
+    assumed: Vec<(usize, String)>,
 }
 
 impl<'a> Run<'a> {
-    fn new(cwd: &str, home: &'a str, sight: &'a dyn Sight) -> Self {
+    fn new(cwd: &str, home: &'a str, sight: &'a dyn Sight, assume: bool) -> Self {
         Self {
             cwd: Some(cwd.to_string()),
             home,
@@ -217,6 +268,47 @@ impl<'a> Run<'a> {
             asked: Vec::new(),
             trees: Vec::new(),
             unfollowed: Vec::new(),
+            assume,
+            clock: 0,
+            written_at: BTreeMap::new(),
+            assumed: Vec::new(),
+        }
+    }
+
+    /// The files written, as the run left them, in first-write order.
+    fn written(&self) -> Vec<Written> {
+        self.order
+            .iter()
+            .filter_map(|path| match self.now.get(path) {
+                Some(Held::Text(text)) => Some(Written {
+                    path: path.clone(),
+                    text: Some(text.clone()),
+                }),
+                Some(Held::Absent) => Some(Written {
+                    path: path.clone(),
+                    text: None,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Stamps a write or removal of `path` with the time.
+    fn touched(&mut self, path: &str) {
+        self.clock += 1;
+        self.written_at.insert(path.to_string(), self.clock);
+    }
+
+    /// A program the tables do not know, which may have written any file. Under
+    /// the assumption it wrote none, and only its name is kept.
+    fn unknown_program(&mut self, program: String) {
+        self.clock += 1;
+        self.assumed.push((self.clock, program.clone()));
+        if self.assume {
+            // Its bindings are no more known under the assumption.
+            self.vars.clear();
+        } else {
+            self.forget_everything(Why::Program(program));
         }
     }
 
@@ -578,6 +670,7 @@ impl<'a> Run<'a> {
         if !self.order.iter().any(|seen| seen == path) {
             self.order.push(path.to_string());
         }
+        self.touched(path);
         let now = match (text, append) {
             (Ok(text), false) => Ok(text),
             (Ok(text), true) => match self.read(path) {
@@ -659,6 +752,7 @@ impl<'a> Run<'a> {
         if !self.order.iter().any(|seen| seen == path) {
             self.order.push(path.to_string());
         }
+        self.touched(path);
         self.now.insert(path.to_string(), Held::Absent);
     }
 
@@ -884,7 +978,7 @@ impl<'a> Run<'a> {
         if let Some(program) = writes_anything(&op, &argv) {
             // Named for the program whatever holds it: a pipe or a loop is not why
             // what came before is unknown.
-            self.forget_everything(Why::Program(program));
+            self.unknown_program(program);
             return;
         }
         let written: Vec<String> = files_of(&op, Reached::Always)

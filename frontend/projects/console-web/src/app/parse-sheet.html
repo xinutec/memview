@@ -4,7 +4,14 @@
 @if (about.diverged) {
   <p class="diverged">
     <mat-icon>report</mat-icon>
-    <span>The files did not end up as predicted. The reader was wrong about this call.</span>
+    <span>
+      The files did not end up as predicted.
+      @if (conditional()) {
+        Either the reader was wrong, or a program it assumed harmless changed them.
+      } @else {
+        The reader was wrong about this call.
+      }
+    </span>
   </p>
 }
 @for (edit of edits(); track $index) {
@@ -12,6 +19,9 @@
     <p class="file">
       {{ edit.file }} <span class="folder">{{ edit.folder }}</span>
     </p>
+    @if (edit.assumption; as condition) {
+      <p class="assumed">{{ condition }}</p>
+    }
   }
   <app-diff [change]="edit.change" />
 }

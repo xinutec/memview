@@ -8,6 +8,10 @@
 //! write that depends on a file's old contents counts as `not read`. Before a live
 //! call the console supplies those, and the same evaluator follows more.
 //!
+//! Live, the outcome of every file checked: agreed, diverged or never checked,
+//! apart for the files predicted on the condition that an unknown program left
+//! them alone — and for those, how often each program assumed harmless was.
+//!
 //! Beside the census, the commands the reconstruction (`shell_files`) knows to
 //! write a file and the evaluator neither predicted nor refused — the part of
 //! the denominator it cannot see yet. `--show unseen <n>` prints them.
@@ -220,14 +224,20 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if name.ends_with(".jsonl")
             && !name.ends_with(".diverged.jsonl")
-            && name != "findings.jsonl"
-            && name != "refused.jsonl"
+            && ![
+                "findings.jsonl",
+                "refused.jsonl",
+                "outcomes.jsonl",
+                "conditional.jsonl",
+            ]
+            .contains(&name)
         {
             predicted_calls += rows(dir, name).len();
         }
     }
 
     let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
+    let mut conditional = 0usize;
     let mut why: BTreeMap<String, usize> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;
@@ -240,6 +250,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
             continue;
         };
         let found = predict(&script, &kept.cwd, &home, &kept.files);
+        conditional += found.conditional.len();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
             if let Some((wanted, n)) = &show
@@ -308,6 +319,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     if unparsed > 0 {
         println!("  not parsed by the tree     {unparsed}  (not ranked)");
     }
+    println!("  files predicted if left alone by an unknown program  {conditional}");
     println!("findings                     {findings}");
     println!("  still diverging            {still}");
     println!("  agreeing now               {agrees}");
@@ -321,5 +333,49 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     for (name, n) in ranked.iter().take(40) {
         println!("  {n:7}  {name}");
     }
+    outcomes(&rows(dir, "outcomes.jsonl"));
     Ok(())
+}
+
+/// What became of the files checked, certain and conditional apart, and for
+/// the conditional ones each assumed program's record.
+fn outcomes(rows: &[serde_json::Value]) {
+    if rows.is_empty() {
+        return;
+    }
+    // (certain, outcome) -> files
+    let mut by: BTreeMap<(bool, String), usize> = BTreeMap::new();
+    // program -> (agreed, diverged)
+    let mut programs: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for row in rows {
+        let outcome = row["outcome"].as_str().unwrap_or("?").to_string();
+        let assumed = &row["assumed"];
+        *by.entry((assumed.is_null(), outcome.clone())).or_insert(0) += 1;
+        let names: BTreeSet<&str> = ["before", "after"]
+            .iter()
+            .flat_map(|side| assumed[side].as_array().into_iter().flatten())
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        for name in names {
+            let tally = programs.entry(name.to_string()).or_default();
+            match outcome.as_str() {
+                "agreed" => tally.0 += 1,
+                "diverged" => tally.1 += 1,
+                _ => {}
+            }
+        }
+    }
+    println!("files checked after their call:");
+    for ((certain, outcome), n) in &by {
+        let kind = if *certain { "certain" } else { "conditional" };
+        println!("  {n:7}  {kind} {outcome}");
+    }
+    if !programs.is_empty() {
+        println!("programs assumed to leave files alone, agreed / diverged:");
+        let mut ranked: Vec<(String, (usize, usize))> = programs.into_iter().collect();
+        ranked.sort_by(|a, b| (b.1.0 + b.1.1).cmp(&(a.1.0 + a.1.1)).then(a.0.cmp(&b.0)));
+        for (name, (agreed, diverged)) in ranked.iter().take(40) {
+            println!("  {agreed:7} / {diverged:<7}  {name}");
+        }
+    }
 }
