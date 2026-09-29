@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "ng build && ng build console-web",
-    "lint": "eslint src projects/*/src e2e projects/*/e2e playwright.config.ts projects/*/playwright*.config.ts",
+    "lint": "eslint src projects/*/src e2e projects/*/e2e playwright.config.ts projects/*/playwright*.config.ts && stylelint \"src/**/*.scss\" \"projects/*/src/**/*.scss\"",
     "ng": "ng",
     "prebuild": "node scripts/stamp-version.mjs",
     "prebuild:console": "node scripts/stamp-version.mjs",
@@ -22,7 +22,8 @@
     "publish:console": "pnpm run build:console && rsync -a dist/console-build/browser/ dist/console-live/ && node scripts/prune-live.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc -p tsconfig.e2e.json"
+    "typecheck": "tsc -p tsconfig.e2e.json",
+    "lint:styles": "stylelint \"src/**/*.scss\" \"projects/*/src/**/*.scss\""
   },
   "dependencies": {
     "@angular/cdk": "^22.1.7",
@@ -56,6 +57,8 @@
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.1.0",
     "prettier": "^3.9.9",
+    "stylelint": "^17.14.0",
+    "stylelint-config-recommended-scss": "^17.0.1",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.11"

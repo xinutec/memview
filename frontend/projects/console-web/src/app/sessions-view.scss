@@ -63,8 +63,8 @@
 }
 
 .place {
-  font-weight: 500;
   font: var(--mat-sys-title-small);
+  font-weight: 500;
 
   // Only the fallback is a hex string, and only it wants monospace — a name in
   // monospace reads as an identifier rather than as a word.
