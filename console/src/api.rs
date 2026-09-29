@@ -126,7 +126,7 @@ pub struct Overview {
     /// into each session because it covers the conversations on disk too.
     pub gists: std::collections::BTreeMap<String, crate::gist::Gist>,
     /// Who is holding what — see [`crate::tasks`]. Keyed by session id for the same
-    /// reason [`Self::gists`] is; the rest is Pippijn and the unassigned pile.
+    /// reason [`Self::gists`] is; the rest is the user and the unassigned pile.
     pub tasks: crate::tasks::Sweep,
     /// The unsent words each conversation is holding, by session id. Carried here
     /// because the roster is already polled every five seconds, and a draft is a

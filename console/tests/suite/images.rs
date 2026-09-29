@@ -548,7 +548,7 @@ async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
     // The bound on what this route can hand out. It will open any path,
     // which is deliberate (see `from_disk`) — what stops it being a way to read
     // a key or a transcript is that nothing which fails the sniff comes back.
-    let path = on_disk("secret", b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 pippijn@mac\n");
+    let path = on_disk("secret", b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 user@mac\n");
 
     let why = fetch(path.to_str().expect("a path"))
         .await

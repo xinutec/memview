@@ -2,10 +2,10 @@
 
 /**
  * Somebody holding tasks who is not one of this console's conversations —
- * Pippijn, and the unassigned pile, which appears on no card otherwise.
+ * the user, and the unassigned pile, which appears on no card otherwise.
  */
 export type Holder = { 
 /**
- * What to call them. The service's own word — `Pippijn`, `nobody`.
+ * What to call them. The service's own word — the account, or `nobody`.
  */
 name: string, open: number, total: number, };

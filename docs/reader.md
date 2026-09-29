@@ -176,7 +176,7 @@ Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 
 ```sh
 cargo run --release --bin agents        # → ~/.claude/memview/cache/agents.json + doing.json + effects.json
-cargo run --release --bin couse         # → ~/.claude/projects/-Users-pippijn-Code/couse.json
+cargo run --release --bin couse         # → ~/.claude/projects/-Users-user-Code/couse.json
 cargo run --release --bin bash-corpus > ~/.claude/memview/cache/bash-corpus.jsonl
 cargo run --release -p reader --bin reading-json   # → ~/.claude/memview/cache/reading.json
 ```
@@ -1300,7 +1300,7 @@ observes a call that ran anyway, so this is still no re-execution.
 
 ### Why this is not sound abstract interpretation
 
-Asked and settled twice — Pippijn 2026-08-13, and again 2026-08-23. **Do not
+Asked and settled twice — the user 2026-08-13, and again 2026-08-23. **Do not
 "fix" the reader into soundness.**
 
 Sound AI over-approximates so a property holds for *all* inputs: γ(abstract) ⊇

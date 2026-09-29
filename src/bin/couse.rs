@@ -23,7 +23,11 @@ fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
     let dir: PathBuf = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| format!("{home}/.claude/projects/-Users-pippijn-Code"))
+        .unwrap_or_else(|| {
+            reader::home::code_project_dir()
+                .to_string_lossy()
+                .into_owned()
+        })
         .into();
 
     // Filtered against the live corpus, and this is not a formality. The first

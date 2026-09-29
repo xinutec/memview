@@ -15,7 +15,7 @@
 //! one of them could be missed silently — a tool would simply find no artefact
 //! and report an empty corpus.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The directory holding memview's own files.
 ///
@@ -80,4 +80,42 @@ pub fn projects_dir() -> PathBuf {
         return PathBuf::from(set);
     }
     claude_dir().join("projects")
+}
+
+/// The checkout root the fleet's sessions run in. `CODE_ROOT` overrides it.
+pub fn code_root() -> PathBuf {
+    if let Ok(set) = std::env::var("CODE_ROOT") {
+        return PathBuf::from(set);
+    }
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Code")
+}
+
+/// What Claude Code names a project's directory: its path, every character
+/// that is not a letter, digit or `-` made a `-`.
+pub fn project_key(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// Claude Code's directory for the [`code_root`] project.
+pub fn code_project_dir() -> PathBuf {
+    claude_dir()
+        .join("projects")
+        .join(project_key(&code_root()))
+}
+
+/// The memory corpus. `MEMORY_DIR` overrides it.
+pub fn memory_dir() -> PathBuf {
+    if let Ok(set) = std::env::var("MEMORY_DIR") {
+        return PathBuf::from(set);
+    }
+    code_project_dir().join("memory")
 }

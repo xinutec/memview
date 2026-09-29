@@ -249,7 +249,7 @@ fn graph_edges_are_the_resolvable_wikilinks_only() {
 
 #[test]
 fn graph_sections_keep_the_index_order_not_alphabetical() {
-    // A legend follows the order Pippijn curated in MEMORY.md.
+    // A legend follows the order the user curated in MEMORY.md.
     assert_eq!(corpus().graph().sections, ["Projects", "Working rules"]);
 }
 

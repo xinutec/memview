@@ -53,10 +53,9 @@ fn settle(
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
-    let dir = std::env::args().nth(1).unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/.claude/projects/-Users-pippijn-Code/memory")
-    });
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| reader::home::memory_dir().to_string_lossy().into_owned());
     let corpus = Corpus::load(&dir)?;
     // Optional: the artefact reads gigabytes of transcripts and is absent on any
     // machine but the Mac.

@@ -108,7 +108,7 @@ fn leaving(store: &std::path::Path, session: &str, count: usize) {
 const HOLDERS: &str = r#"[{"kind":"session","id":"alive","name":"health","open":3,"total":47},
                           {"kind":"session","id":"cleared","open":0,"total":9},
                           {"kind":"session","id":"idle","open":0,"total":0},
-                          {"kind":"person","id":"pippijn","name":"Pippijn","open":1,"total":12},
+                          {"kind":"person","id":"user","name":"User","open":1,"total":12},
                           {"kind":"nobody","name":"nobody","open":23,"total":26}]"#;
 
 #[tokio::test]
@@ -156,11 +156,7 @@ async fn the_person_and_the_pile_are_kept_in_the_order_they_came() {
     let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
     let swept = reading(address).sweep().await;
     let named: Vec<_> = swept.elsewhere.iter().map(|held| &*held.name).collect();
-    assert_eq!(
-        named,
-        ["Pippijn", "nobody"],
-        "the service decides the order"
-    );
+    assert_eq!(named, ["User", "nobody"], "the service decides the order");
     assert_eq!(
         (swept.elsewhere[1].open, swept.elsewhere[1].total),
         (23, 26)

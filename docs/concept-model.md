@@ -88,7 +88,7 @@ structure. Lossless semantically, not syntactically — quoting, layout, and
 ultimately *the choice of language* normalise away, and everything that decided
 what happened to the world is carried.
 
-## Decided — 2026-09-03, with Pippijn
+## Decided — 2026-09-03, with the user
 
 Four questions this design left open were answered before any of it was built:
 

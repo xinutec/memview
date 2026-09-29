@@ -162,11 +162,7 @@ fn reads_and_writes_are_counted_apart_and_per_project() {
             "s1",
             vec![
                 call(Tool::Read, "/code/health/src/a.rs", "2026-07-01T10:00:00Z"),
-                call(
-                    Tool::Read,
-                    "/code/pippijn/k8s/b.yaml",
-                    "2026-07-01T10:01:00Z",
-                ),
+                call(Tool::Read, "/code/user/k8s/b.yaml", "2026-07-01T10:01:00Z"),
                 call(Tool::Write, "/code/health/src/c.rs", "2026-07-01T10:02:00Z"),
                 call(Tool::Edit, "/code/health/src/d.rs", "2026-07-01T10:03:00Z"),
             ],
@@ -181,9 +177,9 @@ fn reads_and_writes_are_counted_apart_and_per_project() {
     let a = &agents[0];
     assert_eq!(a.name, "health-agent");
     assert_eq!(a.reads.get("health"), Some(&1));
-    assert_eq!(a.reads.get("pippijn"), Some(&1));
+    assert_eq!(a.reads.get("user"), Some(&1));
     assert_eq!(a.writes.get("health"), Some(&2));
-    assert_eq!(a.writes.get("pippijn"), None);
+    assert_eq!(a.writes.get("user"), None);
     assert_eq!(a.first, "2026-07-01T10:00:00Z");
     assert_eq!(a.last, "2026-07-01T10:03:00Z");
 }
@@ -488,7 +484,7 @@ fn who_works_on_matches_a_directory_and_an_extension_alike() {
             vec![
                 call(
                     Tool::Write,
-                    "/code/pippijn/code/kubes/dhall/apps/home.dhall",
+                    "/code/user/code/kubes/dhall/apps/home.dhall",
                     "2026-07-01T10:00:00Z",
                 ),
                 call(

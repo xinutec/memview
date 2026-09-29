@@ -17,8 +17,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-pippijn-Code/memory}"
-COUSE_FILE="${COUSE_FILE:-$HOME/.claude/projects/-Users-pippijn-Code/couse.json}"
+# Claude Code names a project directory after its path, every `/` a `-`.
+project="$HOME/.claude/projects/$(printf %s "$HOME/Code" | tr -c 'A-Za-z0-9-' -)"
+MEMORY_DIR="${MEMORY_DIR:-$project/memory}"
+COUSE_FILE="${COUSE_FILE:-$project/couse.json}"
 AGENTS_FILE="${AGENTS_FILE:-$HOME/.claude/memview/cache/agents.json}"
 STATIC_DIR="${STATIC_DIR:-frontend/dist/memview-web/browser}"
 

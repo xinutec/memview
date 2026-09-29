@@ -1310,7 +1310,7 @@ export function groupGraph(
 }
 
 /**
- * Marks a group name this code invented, as opposed to one Pippijn wrote.
+ * Marks a group name this code invented, as opposed to one the user wrote.
  *
  * The two kinds of dot must stay tellable apart. An authored `##` heading
  * is a claim a person made and maintains; a derived group is a clustering's

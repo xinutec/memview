@@ -52,8 +52,7 @@ impl Where {
             // Overridable so nothing is welded to one machine's layout, and so
             // no public repo publishes a home directory.
             code_root: std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code")),
-            memory_dir: std::env::var("MEMORY_DIR")
-                .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory")),
+            memory_dir: reader::home::memory_dir().to_string_lossy().into_owned(),
             home,
             out: reader::home::cache("agents.json"),
         }

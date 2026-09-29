@@ -6,7 +6,7 @@ const ESC = '\x1b';
 
 describe('ANSI in tool output', () => {
   it('turns a colour code into a class rather than showing the code', () => {
-    // The shape Pippijn actually sees. vitest writes its summary in SGR,
+    // The shape the user actually sees. vitest writes its summary in SGR,
     // and with nothing reading it the ESC byte is invisible while the bracket
     // codes are not — so the phone showed `[2m Test Files [22m [1m[32m22 passed`.
     expect(colour(`${ESC}[32m22 passed${ESC}[39m`)).toBe(

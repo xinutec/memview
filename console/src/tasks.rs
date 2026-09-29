@@ -144,12 +144,12 @@ pub struct TaskCount {
 }
 
 /// Somebody holding tasks who is not one of this console's conversations —
-/// Pippijn, and the unassigned pile, which appears on no card otherwise.
+/// the user, and the unassigned pile, which appears on no card otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Holder {
-    /// What to call them. The service's own word — `Pippijn`, `nobody`.
+    /// What to call them. The service's own word — the account, or `nobody`.
     pub name: String,
     pub open: usize,
     pub total: usize,

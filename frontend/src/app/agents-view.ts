@@ -124,7 +124,7 @@ const KNOWS_SHOWN = 5;
  *
  * **Writes decide where an agent lives, not reads.** Reading a repository is
  * consulting it; writing there is being responsible for it. On the live data
- * the difference is not cosmetic: the `health` agent reads the `pippijn`
+ * the difference is not cosmetic: the `health` agent reads the home
  * monorepo more than anything else while doing its writing in `health`, so
  * ranking by reads would file it under the wrong project entirely.
  *

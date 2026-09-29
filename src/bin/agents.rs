@@ -63,8 +63,7 @@ fn main() -> Result<()> {
     // Where the corpus lives, so opening a memory is attributed to that memory
     // instead of being discarded as "outside the code root". Same override as
     // scripts/sync.sh uses, so the two cannot point at different corpora.
-    let memory_dir = std::env::var("MEMORY_DIR")
-        .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+    let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     let generated = stamp(
         std::time::SystemTime::now()

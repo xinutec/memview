@@ -9,7 +9,7 @@
 //! it, and whether it worked. A viewer that served the literal history would make
 //! the corpus depend on the transcripts instead of distilling them.
 //!
-//! Everything that happened, not the notable part of it — Pippijn's call.
+//! Everything that happened, not the notable part of it — the user's call.
 //! Reading a file is smaller work than running a build and the timeline does not say
 //! so: a record that quietly dropped the small things would answer "what was this
 //! session doing" with a curated version of it. Weighting belongs to whatever

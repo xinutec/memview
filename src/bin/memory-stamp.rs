@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     let dir = std::env::args()
         .nth(1)
         .filter(|a| a != "--apply")
-        .unwrap_or_else(|| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+        .unwrap_or_else(|| reader::home::memory_dir().to_string_lossy().into_owned());
     let root = format!("{home}/.claude/projects");
 
     let wanted = unstamped(Path::new(&dir))?;

@@ -28,7 +28,7 @@ fn findings(corpus: &Corpus, rule: &str) -> Vec<String> {
 
 #[test]
 fn a_memory_several_hops_from_the_index_is_reachable() {
-    // Pippijn: "MEMORY.md doesn't need to index everything. things
+    // The user: "MEMORY.md doesn't need to index everything. things
     // have to be reachable, but don't need to all be in MEMORY.md". The rule
     // used to demand an index line per memory and failed the gate on a corpus
     // that was perfectly navigable — three memories had just been consolidated
@@ -480,7 +480,7 @@ fn the_ceiling_rule_is_a_warning_while_the_corpus_is_over_it() {
 
 // ── The teaser: a memory's own line in the index (#1310) ─────────────────────
 //
-// Pippijn: "Let's make the teaser text part of the doc itself. The
+// The user: "Let's make the teaser text part of the doc itself. The
 // automation will be structural, not linguistic." So the field is where the
 // index line lives, and the only thing lint can say about it is whether it still
 // fits the shape the index needs — one line, and short enough that the ceiling
@@ -840,7 +840,7 @@ fn a_role_under_metadata_is_reported_and_a_top_level_one_is_not() {
 #[test]
 fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field() {
     // The whole frontmatter is defaulted when it does not parse, so EVERY field
-    // rule fires on a file that states the field perfectly well. Two of Pippijn's
+    // rule fires on a file that states the field perfectly well. Two of the user's
     // memories sat flagged `missing-description` for a day with descriptions in
     // them; serde_yaml had rejected a second `modified:` a stamping hook appended
     // (reference_an_api_error_can_blame_the_wrong_field).

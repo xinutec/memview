@@ -1923,7 +1923,7 @@ fn act(
 /// move is wrong in both — and taking it as a no-op is right in both, which is
 /// why one rule covers 90 of 90.
 ///
-/// Relative targets only. `cd /Users/pippijn/Code/observe/android` from inside
+/// Relative targets only. `cd /Users/user/Code/observe/android` from inside
 /// it is an ordinary, and truthful, no-op that needs no special reading.
 fn repeats(word: &str, cwd: Option<&str>) -> bool {
     let target = word.trim_end_matches('/');

@@ -7,7 +7,7 @@
 //!
 //! A derived artefact keyed to the timeline, not a mirror of the history.
 //! `scripts/sync.sh` removed a mined `history.json` for two reasons, and only one of
-//! them was privacy — Pippijn settled that, so the command text travels in full. The
+//! them was privacy — the user settled that, so the command text travels in full. The
 //! other reason stands on its own: memview is for reading the memory documents well,
 //! and a viewer that also served the literal history made the corpus depend on the
 //! transcripts instead of distilling them. So a command travels **because a claim

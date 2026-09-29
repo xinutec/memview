@@ -146,7 +146,7 @@ claude -p --input-format stream-json --output-format stream-json \
 User messages go in as JSON lines on stdin; assistant messages, tool calls, tool
 results and partial deltas come back as JSON lines on stdout.
 
-**The runner reads this stream itself, in Rust** — Pippijn's call, 2026-08-02,
+**The runner reads this stream itself, in Rust** — the user's call, 2026-08-02,
 over the TypeScript SDK. The SDK is a typed wrapper versioned in lockstep with
 the CLI (0.3.220 against 2.1.220), and the cost of declining it was accepted
 knowingly: the control protocol behind approvals had to be read off the wire
@@ -465,7 +465,7 @@ exist.
 
 **Supersedes the firewall exception, 2026-08-02.** Phase 3 reached the phone by
 opening one port on the Mac to one VPN peer. That works and was deployed on the
-hub, and Pippijn's objection to it was not that it is unsafe but that it need not
+hub, and the user's objection to it was not that it is unsafe but that it need not
 exist: _the Mac does not have to be reachable at all_. It can dial out, and then
 the one-way rule stands as written rather than as amended.
 
@@ -1474,7 +1474,7 @@ So the arrangement is: **every picture the console shows comes from the console.
   image format that carries script.
 
   ⚠ **The path half will open any file on the Mac that is a picture**, which is
-  Pippijn's decision (2026-09-02), taken over the narrower rule of "only under the
+  the user's decision (2026-09-02), taken over the narrower rule of "only under the
   session's own working directory" because sessions render into `/tmp` constantly
   and a session can copy a file into its own tree in one command anyway. It is
   bounded by the sniff, by who can ask — the phone's TLS terminates here against a

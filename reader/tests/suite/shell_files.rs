@@ -919,7 +919,7 @@ fn one_machine_under_its_several_names() {
     };
     assert_eq!(host("ssh root@isis.xinutec.org 'cat /etc/hosts'"), "isis");
     assert_eq!(host("ssh isis 'cat /etc/hosts'"), "isis");
-    assert_eq!(host("ssh -p 2222 pippijn@isis 'cat /etc/hosts'"), "isis");
+    assert_eq!(host("ssh -p 2222 user@isis 'cat /etc/hosts'"), "isis");
     assert_eq!(host("ssh 192.168.1.133 'cat /etc/hosts'"), "192.168.1.133");
 }
 

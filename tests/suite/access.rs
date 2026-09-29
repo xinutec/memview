@@ -22,7 +22,7 @@ fn app(dir: &std::path::Path) -> AppState {
             nc_client_id: "id".into(),
             nc_client_secret: "secret".into(),
             nc_redirect_uri: "https://memview.example/auth/callback".into(),
-            allowed_users: vec!["pippijn".into()],
+            allowed_users: vec!["user".into()],
         }),
         static_dir: None,
         couse_file: None,
@@ -179,8 +179,8 @@ fn corpus_with_an_origin(dir: &std::path::Path) -> String {
 /// The owner's cookie, signed the way the real login does.
 fn owner_cookie(secret: &str) -> String {
     let user = memview::session::UserSession {
-        user_id: "pippijn".into(),
-        display_name: "Pippijn".into(),
+        user_id: "user".into(),
+        display_name: "User".into(),
     };
     format!(
         "{}={}",

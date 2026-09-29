@@ -799,7 +799,7 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
 
 /// The slash command a message typed into the console is, if it is one — decided
 /// on the way in, since a prompt is echoed and a command is not. A leading slash
-/// and then a word running to whitespace: `/Users/pippijn/Code/…` is a path.
+/// and then a word running to whitespace: `/Users/user/Code/…` is a path.
 pub fn is_command(text: &str) -> bool {
     let Some(rest) = text.trim().strip_prefix('/') else {
         return false;

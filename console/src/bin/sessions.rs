@@ -14,8 +14,8 @@
 //! phone's gated door and answers a caller with no pinned key with
 //! `certificate_required`.
 //!
-//! `send` arrives as Pippijn, with nothing marking it as drafted, so it must be
-//! in his words.
+//! `send` arrives as the user, with nothing marking it as drafted, so it must be
+//! in their words.
 
 use anyhow::{Context, Result, bail};
 use console::config::Config;
@@ -157,11 +157,11 @@ fn usage() -> String {
   {me}                       the sessions: state, what they are doing, how long ago
   {me} log <session> [n]     the last n messages of the conversation, both sides
   {me} last <session> [n]    the last n things the session said, in full
-  {me} send <session> <text> send it a message, as Pippijn; `-` reads stdin
+  {me} send <session> <text> send it a message, as the user; `-` reads stdin
 
   `{me} who` is still accepted; the bare form is the same listing.
 
-  --user      with `last`, show what Pippijn said instead
+  --user      with `last`, show what the user said instead
   --full      with `log`, do not shorten long messages
   --since T   only messages at or after T — `22:00` today, or a full ISO stamp
 
@@ -373,7 +373,7 @@ async fn read(args: &[&str], mode: Mode) -> Result<()> {
         lines.retain(|line| line.at.as_str() >= since.as_str());
     }
     if let Mode::Last = mode {
-        let want = if mine { Voice::Pippijn } else { Voice::Session };
+        let want = if mine { Voice::User } else { Voice::Session };
         lines.retain(|line| line.voice == want);
     }
     if lines.is_empty() {
@@ -386,7 +386,7 @@ async fn read(args: &[&str], mode: Mode) -> Result<()> {
     let shown = lines.len().min(count);
     for line in &lines[lines.len() - shown..] {
         let who = match line.voice {
-            Voice::Pippijn => "pippijn",
+            Voice::User => "user",
             Voice::Session => row.label(),
         };
         let stamp = &line.at[..19.min(line.at.len())];
@@ -427,7 +427,7 @@ async fn send(args: &[&str]) -> Result<()> {
     };
     let text = text.trim();
     // An empty message is accepted by the API and reads to the session as though
-    // Pippijn sent whitespace.
+    // the user sent whitespace.
     if text.is_empty() {
         bail!("nothing to send");
     }

@@ -18,8 +18,7 @@ fn main() -> Result<()> {
     // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME").unwrap_or_default();
-    let memory_dir = std::env::var("MEMORY_DIR")
-        .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+    let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     // One call, not one per id.
     let listed = std::process::Command::new("task")

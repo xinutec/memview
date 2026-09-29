@@ -125,7 +125,7 @@ same name. A lint written against the wrong one can never fire.
 
 ```sh
 cd frontend && npm install && npm run build   # once, and after UI changes
-MEMORY_DIR=~/.claude/projects/-Users-pippijn-Code/memory \
+MEMORY_DIR=~/.claude/projects/-Users-user-Code/memory \
   STATIC_DIR=frontend/dist/memview-web/browser \
   nix develop -c cargo run
 # → http://192.168.1.81:8091

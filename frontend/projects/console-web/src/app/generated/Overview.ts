@@ -37,7 +37,7 @@ usage?: Reading,
 gists: { [key in string]: Gist }, 
 /**
  * Who is holding what — see [`crate::tasks`]. Keyed by session id for the same
- * reason [`Self::gists`] is; the rest is Pippijn and the unassigned pile.
+ * reason [`Self::gists`] is; the rest is the user and the unassigned pile.
  */
 tasks: Sweep, 
 /**

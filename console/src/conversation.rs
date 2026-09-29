@@ -8,7 +8,7 @@ pub const COMPACTED: &str = "This session is being continued from a previous con
 /// Who said it.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Voice {
-    Pippijn,
+    User,
     Session,
 }
 
@@ -48,7 +48,7 @@ pub fn conversation(bytes: &[u8]) -> Vec<Line> {
         .filter(|turn| !turn.text.starts_with(COMPACTED))
         .map(|turn| Line {
             at: turn.at,
-            voice: Voice::Pippijn,
+            voice: Voice::User,
             text: turn.text,
         })
         .collect();

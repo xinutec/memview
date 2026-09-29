@@ -31,12 +31,7 @@ fn main() -> Result<()> {
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
     let apply = std::env::args().any(|a| a == "--apply");
-    let memory_dir = std::env::var("MEMORY_DIR").unwrap_or_else(|_| {
-        reader::home::claude_dir()
-            .join("projects/-Users-pippijn-Code/memory")
-            .to_string_lossy()
-            .into_owned()
-    });
+    let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     let recovered_at = reader::home::cache("memory-created.json");
     let recovered: BTreeMap<String, serde_json::Value> = serde_json::from_str(

@@ -94,8 +94,8 @@ fn provenance(event: &Event) -> Provenance {
             "the tool result the answer produced, which IS in the transcript",
         )),
         Event::Accepted { .. } => Provenance::Runtime(Care::Covered(
-            "nothing — weighed with Pippijn 2026-08-24 and dropped: the marker \
-             lives only between the write and the CLI's echo, and he had never \
+            "nothing — weighed with the user 2026-08-24 and dropped: the marker \
+             lives only between the write and the CLI's echo, and they had never \
              seen it. The one entry here that admits a loss rather than naming a \
              source; if the chip is ever missed, this is the line to change.",
         )),

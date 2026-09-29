@@ -152,7 +152,7 @@ fn turns(lines: &[&str]) -> Vec<reader::transcript::Turn> {
 
 /// Fact 5, and the one that caused the incident: a message typed while the
 /// session is working arrives as a `queued_command` attachment, never as a
-/// `user` row. Reading only `user` rows reported messages of Pippijn's as LOST
+/// `user` row. Reading only `user` rows reported messages of the user's as LOST
 /// when they had been delivered normally.
 #[test]
 fn a_queued_message_is_a_human_turn() {

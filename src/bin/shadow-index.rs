@@ -21,9 +21,7 @@ fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--write"])?;
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dir = std::env::var("MEMORY_DIR")
-        .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+    let dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let write = std::env::args().any(|a| a == "--write");
 
     let corpus = Corpus::load(&dir)?;

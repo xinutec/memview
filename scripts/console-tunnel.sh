@@ -25,7 +25,7 @@
 # gives.
 set -euo pipefail
 
-HOST="${CONSOLE_TUNNEL_HOST:-pippijn@isis.xinutec.org}"
+HOST="${CONSOLE_TUNNEL_HOST:-$USER@isis.xinutec.org}"
 KEY="${CONSOLE_TUNNEL_KEY:-$HOME/.ssh/console-tunnel}"
 # isis's VPN address and the console's port. Both ends have to agree, and the
 # other end is nixos-config's network.nix.

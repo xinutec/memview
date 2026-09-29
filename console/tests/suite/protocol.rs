@@ -393,7 +393,7 @@ mod detail {
 #[test]
 fn a_task_notification_is_not_something_the_person_said() {
     // The harness files these as user messages, in the same place a typed
-    // instruction lands — so unfiltered they render as though Pippijn had said
+    // instruction lands — so unfiltered they render as though the user had said
     // them, which is how the console got a wall of XML in the transcript.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[SYSTEM NOTIFICATION]\n<task-notification>\n<task-id>b74zci1hw</task-id>\n<tool-use-id>toolu_011Cnk</tool-use-id>\n<status>completed</status>\n</task-notification>"}]}}"#;
     assert!(matches!(

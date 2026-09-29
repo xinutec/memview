@@ -5,8 +5,8 @@ use memview::session::{UserSession, create_session, get_session, sign_value, ver
 
 fn user() -> UserSession {
     UserSession {
-        user_id: "pippijn".into(),
-        display_name: "Pippijn".into(),
+        user_id: "user".into(),
+        display_name: "User".into(),
     }
 }
 
@@ -14,8 +14,8 @@ fn user() -> UserSession {
 fn round_trips_the_signed_identity() {
     let cookie = create_session("k", &user());
     let got = get_session("k", &cookie).expect("valid cookie");
-    assert_eq!(got.user_id, "pippijn");
-    assert_eq!(got.display_name, "Pippijn");
+    assert_eq!(got.user_id, "user");
+    assert_eq!(got.display_name, "User");
 }
 
 #[test]

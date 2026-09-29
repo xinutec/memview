@@ -24,7 +24,7 @@ import {
  * and tables that must scroll inside themselves rather than widening the page.
  */
 
-const ME = { user_id: 'pippijn', display_name: 'Pippijn', auth_enabled: true };
+const ME = { user_id: 'user', display_name: 'User', auth_enabled: true };
 
 /** The index as the backend renders it: dense interpunct-separated link runs
  *  with long slugs — the real MEMORY.md shape. */
@@ -255,7 +255,7 @@ const DOING = {
       verdict: 'ok',
       episode: 0,
       // The empty case, which is 12.6% of the live artefact and was the first
-      // row Pippijn happened to tap. It must SAY so on the row.
+      // row the user happened to tap. It must SAY so on the row.
       effects: 0,
     },
     {

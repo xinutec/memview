@@ -127,7 +127,7 @@ Two consequences worth stating plainly:
 
 ## Two populations belong at the root, and they earn it differently
 
-Pippijn's framing, 2026-08-27: the root is **direct memory**. Two kinds of thing
+The user's framing, 2026-08-27: the root is **direct memory**. Two kinds of thing
 belong in it, and conflating them is why cuts keep going wrong.
 
     RECENT      what is being worked on now. Belongs at the root because it is

@@ -795,7 +795,7 @@ fn each_tilde_form_reaches_its_own_node() {
     assert_eq!(head("cd ~/Code"), Tilde::Home);
     assert_eq!(head("cd ~+"), Tilde::Pwd);
     assert_eq!(head("cd ~-"), Tilde::OldPwd);
-    assert_eq!(head("cd ~pippijn/x"), Tilde::User("pippijn".into()));
+    assert_eq!(head("cd ~someone/x"), Tilde::User("someone".into()));
     // A directory-stack entry is a different construct and stays refused.
     assert_eq!(refusal("cd ~+2"), Reason::Tilde);
 }

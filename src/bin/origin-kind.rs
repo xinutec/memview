@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME")?;
-    let dir = format!("{home}/.claude/projects/-Users-pippijn-Code/memory");
+    let dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let root = format!("{home}/.claude/projects");
 
     let mut wanted = Vec::new();

@@ -1,7 +1,7 @@
 //! The `MEMORY.md` the corpus itself declares, beside the one a session wrote:
 //! the difference between two whole files shows what no per-line rule can.
 //!
-//! Pippijn: *"You write and maintain MEMORY.md, and we'll have an algorithm that
+//! The user: *"You write and maintain MEMORY.md, and we'll have an algorithm that
 //! generates the MEMORY.md we WOULD generate … but it's guiding you, not
 //! replacing you."* It never writes `MEMORY.md`; when the two disagree the
 //! ALGORITHM is the first suspect. Do not let it become authoritative by accident

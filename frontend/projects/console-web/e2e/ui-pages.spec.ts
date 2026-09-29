@@ -369,7 +369,7 @@ const TRANSCRIPT = [
     kind: 'tool',
     id: 'toolu_00',
     name: 'Bash',
-    does: { kind: 'bash', command: 'nix develop -c home-manager switch --flake .#pippijn' },
+    does: { kind: 'bash', command: 'nix develop -c home-manager switch --flake .#user' },
     at: LATE,
   },
   // Carries an `at`, as a real `Joined` always does — the runner pushes it through `push()`, which
@@ -2627,7 +2627,7 @@ test('session list — what each conversation still owes @ phone width', async (
           },
           // The holders that are on no card, because they are not conversations.
           elsewhere: [
-            { name: 'Pippijn', open: 1, total: 12 },
+            { name: 'User', open: 1, total: 12 },
             { name: 'nobody', open: 23, total: 26 },
           ],
         },
@@ -2679,7 +2679,7 @@ test('session list — what each conversation still owes @ phone width', async (
   // What is on no card, because it belongs to no conversation. The pile is
   // the one queue nobody is working, and every other thing on this page is drawn
   // per session — so without this line it is invisible here by construction.
-  await expect(page.locator('.elsewhere')).toContainText('Pippijn 1/12');
+  await expect(page.locator('.elsewhere')).toContainText('User 1/12');
   await expect(page.locator('.elsewhere')).toContainText('nobody 23/26');
 
   // The assertion this feature earned, twice. The chip shipped as an

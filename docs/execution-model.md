@@ -141,7 +141,7 @@ is still out of its sight.
 ### Sight
 
 The evaluator is a pure function of the text and of what it is shown. What it
-is shown is decided by these rules (Pippijn, 2026-09-28):
+is shown is decided by these rules (the user, 2026-09-28):
 
 - **It reads; it never runs.** A file's text, a directory's names, and nothing
   a process would have to compute. What a program does to text — `cat`, `sed`,

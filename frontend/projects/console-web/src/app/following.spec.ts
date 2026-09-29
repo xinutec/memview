@@ -405,7 +405,7 @@ describe('following · saying something', () => {
   });
 
   it('does not take a reader who had scrolled away back to the end', () => {
-    // Sending PROTECTS following, it does not restore it — Pippijn's rule.
+    // Sending PROTECTS following, it does not restore it — the user's rule.
     // A message sent from halfway up the morning arrives at the end whether or
     // not it is watched, and being yanked there is what this prevents.
     const following = new Following();

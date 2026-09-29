@@ -185,7 +185,7 @@ const RULES: &[(&str, Severity, &str)] = &[
         "no links in either direction — can only be found by already knowing its name",
     ),
     (
-        // Reachability, not membership, at Pippijn's word: things have to be reachable,
+        // Reachability, not membership, at the user's word: things have to be reachable,
         // but need not all be in MEMORY.md.
         "unreachable",
         Severity::Error,

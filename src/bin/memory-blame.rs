@@ -25,8 +25,7 @@ fn main() -> Result<()> {
 
     let home = std::env::var("HOME").unwrap_or_default();
     let root = std::env::var("CLAUDE_DIR").unwrap_or_else(|_| format!("{home}/.claude"));
-    let memory_dir = std::env::var("MEMORY_DIR")
-        .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
+    let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
 
     // Ask whether it can file BEFORE doing the work: the nightly runs under launchd

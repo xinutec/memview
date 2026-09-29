@@ -15,7 +15,9 @@
 # megabyte of markdown is not a trade worth making.
 set -euo pipefail
 
-MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-pippijn-Code/memory}"
+# Claude Code names a project directory after its path, every `/` a `-`.
+project="$HOME/.claude/projects/$(printf %s "$HOME/Code" | tr -c 'A-Za-z0-9-' -)"
+MEMORY_DIR="${MEMORY_DIR:-$project/memory}"
 HOST="${MEMVIEW_HOST:-root@isis.xinutec.org}"
 NAMESPACE=memview
 DEPLOY=deploy/memview
@@ -122,7 +124,7 @@ fi
 
 # The timeline: what each session did, in order, and how it turned out. Derived
 # and typed — an agent, a moment, a repository, a kind of work, a verdict — and
-# carrying no command line, no prompt and no output text. Pippijn lifted the
+# carrying no command line, no prompt and no output text. The user lifted the
 # no-timeline rule and left that half of it standing.
 DOING="${DOING_FILE:-$HOME/.claude/memview/cache/doing.json}"
 if [[ -f $DOING ]]; then
@@ -145,7 +147,7 @@ fi
 # carrying any". Half of that is no longer true and the half that is still holds,
 # so it is worth being exact about which.
 #
-# What changed: Pippijn settled the trust question — "Isis should be trusted.
+# What changed: the user settled the trust question — "Isis should be trusted.
 # Everything can go there." — so effects.json carries each command verbatim.
 # Prompts, replies and command OUTPUT are still not mined and still have no
 # artefact; the only text that travels is the command line itself.

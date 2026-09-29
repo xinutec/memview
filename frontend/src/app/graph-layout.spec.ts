@@ -1044,8 +1044,8 @@ describe('hybridGroups', () => {
   const authored = (name: string) => (name === 'filed' ? 'Rules — code & verify' : null);
 
   it('keeps an authored section exactly as written', () => {
-    // Verbatim, em dash and ampersand included: this is Pippijn's own heading
-    // and the overview must not restyle it into something he did not write.
+    // Verbatim, em dash and ampersand included: this is the user's own heading
+    // and the overview must not restyle it into something they did not write.
     const of = hybridGroups(NAMES, EDGES, authored);
     expect(of.get('filed')).toBe('Rules — code & verify');
   });

@@ -527,7 +527,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
     // `None` is the answer, not a fallback. When a conversation runs out
     // of context the CLI opens a fresh transcript with a summary and a
     // `This session is being continued…` message — the harness talking, not
-    // Pippijn. Measured on a real conversation: its first user text is hundreds
+    // the user. Measured on a real conversation: its first user text is hundreds
     // of kilobytes in and is exactly that. Leaving a recent prompt in its place
     // is the false
     // claim this whole change repairs, so the honest answer is to say nothing

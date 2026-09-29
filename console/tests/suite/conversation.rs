@@ -12,13 +12,13 @@ fn row(uuid: &str, at: &str, text: &str) -> String {
 fn his(bytes: &[u8]) -> Vec<String> {
     conversation(bytes)
         .into_iter()
-        .filter(|line| line.voice == Voice::Pippijn)
+        .filter(|line| line.voice == Voice::User)
         .map(|line| line.text)
         .collect()
 }
 
 /// A compaction summary wears the user's role. It reached `last --user` as
-/// Pippijn's words, which is the one question that flag exists to answer.
+/// the user's words, which is the one question that flag exists to answer.
 #[test]
 fn a_compaction_summary_is_not_something_he_said() {
     let typed = row(

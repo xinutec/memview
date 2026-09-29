@@ -157,7 +157,7 @@ export class SessionsView {
   }
 
   /**
-   * Who is holding tasks who is not a conversation: Pippijn, and the unassigned
+   * Who is holding tasks who is not a conversation: the user, and the unassigned
    * pile. In the service's order, so `task sessions`, the app and this agree.
    */
   readonly elsewhere = computed<readonly Holder[]>(() => this.state()?.tasks?.elsewhere ?? []);

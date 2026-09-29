@@ -12,7 +12,7 @@ import { TimelineView } from './timeline-view';
 /**
  * Routes for the SPA — a real table (fleet convention). Every screen but the
  * index is drilled into from it, the menu's included, so each declares up to it
- * (@xinutec/ui-scaffold; Pippijn, 2026-09-27):
+ * (@xinutec/ui-scaffold; the user, 2026-09-27):
  *
  *   /              → MEMORY.md index (the curated map)
  *   /m/:name       → one memory, rendered

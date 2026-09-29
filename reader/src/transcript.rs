@@ -671,7 +671,7 @@ pub struct Turn {
 /// 5. **A `queued_command` attachment IS a human turn.** A message typed while the
 ///    session is working is queued and handed to the running turn; the text lives in
 ///    an `attachment` row, never in a `user` one. Reading only `user` rows once
-///    produced a confident report that messages of Pippijn's had been LOST when they
+///    produced a confident report that messages of the user's had been LOST when they
 ///    had been delivered normally.
 pub fn human_turns(bytes: &[u8]) -> Vec<Turn> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();

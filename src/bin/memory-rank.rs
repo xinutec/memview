@@ -3,7 +3,7 @@
 //!     cargo run --release --bin memory-rank [-- --half-life 7]
 //!
 //! A REPORT, and deliberately not an editor: what is live is a judgement, and
-//! the cut stays Pippijn's (`feedback_memory_index_is_the_working_set`).
+//! the cut stays the user's (`feedback_memory_index_is_the_working_set`).
 //!
 //! ## What is counted
 //!
@@ -73,9 +73,7 @@ fn main() -> Result<()> {
     // printed the default ranking wearing a parameter's name.
     let half_life = memview::flags::value_of(&args, "--half-life", HALF_LIFE_DAYS)?;
 
-    let home = std::env::var("HOME").unwrap_or_default();
-    let memory_dir = std::env::var("MEMORY_DIR")
-        .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+    let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let artefact = std::env::var("AGENTS_FILE").unwrap_or_else(|_| {
         reader::home::cache("agents.json")
             .to_string_lossy()

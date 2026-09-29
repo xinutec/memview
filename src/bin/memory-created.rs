@@ -25,8 +25,12 @@ fn main() -> Result<()> {
     // absent (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME").unwrap_or_default();
-    let memory_dir = std::env::var("MEMORY_MARKER")
-        .unwrap_or_else(|_| "-Users-pippijn-Code/memory/".to_string());
+    let memory_dir = std::env::var("MEMORY_MARKER").unwrap_or_else(|_| {
+        format!(
+            "{}/memory/",
+            reader::home::project_key(&reader::home::code_root())
+        )
+    });
 
     let found = memview::blame::all_first_writes(&reader::home::projects_dir(), &memory_dir, &home);
     let out: serde_json::Map<String, serde_json::Value> = found
