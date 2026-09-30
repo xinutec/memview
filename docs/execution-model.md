@@ -198,7 +198,9 @@ followed on the same translation, a match's groups by number and name with
 positions in characters as Python counts them, and `re.sub` with a function
 or a module-level lambda calls it once per match. A function or lambda
 defined inside another function reads that function's names, which a call's
-own frame does not hold, so a call to one is not followed. `predict-report` lists what the
+own frame does not hold, so a call to one is not followed. `sys.argv` holds what the shell passed the interpreter
+where the text gives it (`python3 - "$d" x` is `['-', d, 'x']`); a flag or a
+wrapper before the program leaves it unknown. `predict-report` lists what the
 reconstruction knows is written and the evaluator never mentions, which is what
 is still out of its sight.
 
@@ -254,7 +256,9 @@ text that is not in it. "Never an approximation" therefore forbids two things:
 a single guess picked from the set, and a set padded with a text the command
 could not produce.
 
-- Built for the shell `if` and the Python `if` (2026-09-30): both arms run from the state
+- Built for the shell `if` and `case` and the Python `if` (2026-09-30); a
+  `case` whose word is known runs the arm it selects, and one whose word is
+  not runs every arm, and none where no pattern is `*`, joined alike: both arms run from the state
   before it and are joined, a file they leave differently holding one of
   their texts; appending to it appends to each, and reading it for its text
   is refused (`one of several texts`). Each file's set is exact on its own;

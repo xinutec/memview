@@ -430,6 +430,48 @@ fn cd_flags_are_not_directories() {
     assert_eq!(physical.written, vec![written("/repo/sub/a", "x\n")]);
 }
 
+/// A `case` runs the arm its word selects; with the word unknown, each arm
+/// and no arm are its outcomes.
+#[test]
+fn a_case_runs_the_arm_its_word_selects() {
+    let shown = known(&[("/repo/o", Some("old\n"))]);
+    let decided = run(
+        "x=b.txt\ncase $x in a*) echo a > o;; *.txt) echo t > o;; *) echo z > o;; esac",
+        &shown,
+    );
+    assert_eq!(decided.written, vec![written("/repo/o", "t\n")]);
+    let none = run("case q in a) echo a > o;; esac; echo n > p", &shown);
+    assert_eq!(none.written, vec![written("/repo/p", "n\n")]);
+    let undecided = run(
+        "case \"$UNSET\" in a) echo a > o;; b) echo b > o;; esac",
+        &shown,
+    );
+    let mut texts = undecided.alternatives[0].texts.clone();
+    texts.sort();
+    assert_eq!(
+        texts,
+        vec![
+            Some("a\n".to_string()),
+            Some("b\n".to_string()),
+            Some("old\n".to_string())
+        ]
+    );
+    let every = run(
+        "case \"$UNSET\" in a) echo a > o;; *) echo z > o;; esac",
+        &shown,
+    );
+    assert_eq!(
+        every.alternatives[0].texts.len(),
+        2,
+        "a `*` arm leaves no world where none matched"
+    );
+    let falls = run(
+        "case \"$UNSET\" in a) echo a > o;& b) echo b > o;; esac",
+        &shown,
+    );
+    assert!(falls.alternatives.is_empty() && !falls.written.iter().any(|w| w.path == "/repo/o"));
+}
+
 /// Everything an undecided `if` leaves joins: what its arms print into a
 /// `$( )`, and whether one of them may have ended the shell. An exit inside a
 /// subshell ends only the subshell.

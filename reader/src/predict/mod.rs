@@ -568,6 +568,63 @@ impl<'a> Run<'a> {
         status
     }
 
+    /// A `case`: the arm its word selects, where the word is known; otherwise
+    /// every arm, and no arm where none is sure to match, each from the state
+    /// before and joined. `false`, with nothing done, for what it does not
+    /// follow: an arm that falls through (`;&`, `;;&`), a pattern with more
+    /// than `*` and `?`, arms that end the shell differently.
+    fn case(&mut self, case: &crate::syntax::ast::Case) -> bool {
+        use crate::syntax::ast::ArmEnd;
+        let patterns: Option<Vec<Vec<Vec<Piece>>>> = case
+            .arms
+            .iter()
+            .map(|arm| arm.patterns.iter().map(glob).collect())
+            .collect();
+        let Some(patterns) = patterns else {
+            return false;
+        };
+        if case.arms.iter().any(|arm| arm.end != ArmEnd::Stop) {
+            return false;
+        }
+        self.expansions([&case.word], None);
+        if let Some(subject) = self.literal(&case.word) {
+            let chosen = patterns
+                .iter()
+                .position(|arm| arm.iter().any(|pattern| matches(pattern, &subject)));
+            if let Some(at) = chosen {
+                self.items(&case.arms[at].body);
+            }
+            return true;
+        }
+        let before = self.clone();
+        let mut worlds: Vec<Run<'a>> = Vec::new();
+        for arm in &case.arms {
+            *self = before.clone();
+            self.items(&arm.body);
+            worlds.push(self.clone());
+        }
+        // Where no arm is sure to match, the word may match none.
+        let catches_all = patterns
+            .iter()
+            .flatten()
+            .any(|pattern| matches!(pattern.as_slice(), [Piece::Any]));
+        if !catches_all {
+            worlds.push(before.clone());
+        }
+        let alike = worlds
+            .windows(2)
+            .all(|pair| pair[0].stopped == pair[1].stopped && pair[0].sink == pair[1].sink);
+        let Some(first) = worlds.first().cloned().filter(|_| alike) else {
+            *self = before;
+            return false;
+        };
+        *self = first;
+        for world in worlds.into_iter().skip(1) {
+            self.join(world, &before, &Why::Compound);
+        }
+        true
+    }
+
     /// Both arms of an `if` this cannot decide, each run from the state before
     /// it, and joined: a file they leave alike is that, one they leave
     /// differently is one of the texts. `false`, with nothing done, when the
@@ -939,6 +996,7 @@ impl<'a> Run<'a> {
         }
         match &command.kind {
             CommandKind::Simple(simple) => self.simple(command, simple),
+            CommandKind::Case(case) if command.redirects.is_empty() && self.case(case) => {}
             // An `if` whose condition this can decide runs that branch. Its
             // condition is not assumed to succeed: that is what it asks.
             CommandKind::If(branch) if command.redirects.is_empty() => {
