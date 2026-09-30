@@ -222,7 +222,11 @@ write read, and those run after it (the user, 2026-09-29).
 It is still exact: the text follows from the command and the assumption, and
 the assumption is named, not hidden. What a program writes itself (`./gen.sh >
 out`) is refused either way, since assuming it harmless says nothing about
-its own output. The after-look checks a conditional prediction like any other,
+its own output, and nor does it cover a file the program was told of: a path
+in its words or its environment (`OUT=/tmp/rows ./test.sh`), and everything
+under one, is refused either way. Found live (2026-09-30): the first two
+conditional divergences were both a test told its output file in an
+assignment. The after-look checks a conditional prediction like any other,
 but a divergence there has two suspects, the evaluator and the program assumed
 harmless, so it is kept apart (`conditional.jsonl`) and is not a finding until
 the evaluator is shown to be the one at fault. `predict-report --live` tallies

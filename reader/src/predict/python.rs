@@ -1883,8 +1883,24 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             .and_then(|head| head.split_whitespace().next().map(str::to_string))
             .map(|head| crate::shell_ops::basename(&head).to_string())
             .unwrap_or_else(|| "subprocess".to_string());
+            // The paths it was told, in its argv or its `env=`.
+            let mut words: Vec<Value> = match first {
+                Some(Value::Tuple(words)) => words.clone(),
+                _ => Vec::new(),
+            };
+            if let Some(Value::Dict(env)) = keyword.get("env") {
+                words.extend(env.iter().map(|(_, value)| value.clone()));
+            }
+            let told: Vec<String> = words
+                .iter()
+                .filter_map(text)
+                .filter(|word| {
+                    !word.contains(char::is_whitespace) && crate::shell_ops::looks_like_path(word)
+                })
+                .filter_map(|word| self.resolve(&word))
+                .collect();
             self.unnamed(why.unwrap_or_else(|| construct("subprocess")));
-            self.shell.unknown_program(program);
+            self.shell.unknown_program(program, &told);
         }
     }
 

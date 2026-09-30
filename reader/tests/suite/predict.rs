@@ -1451,6 +1451,29 @@ fn a_file_an_unknown_program_ran_after_is_predicted_if_it_left_it_alone() {
     );
 }
 
+/// The assumption covers only what the program was not told of: a path in its
+/// words or its environment is refused either way. Found live:
+/// `rm -f /tmp/rows; OUT=/tmp/rows scripts/dev cargo test` wrote the file it was
+/// told, which was predicted absent on the assumption that dev left it alone.
+#[test]
+fn a_file_an_unknown_program_was_told_of_is_not_assumed_left_alone() {
+    for command in [
+        "rm -f /tmp/rows; OUT=/tmp/rows ./test.sh",
+        "rm -f /tmp/rows; ./test.sh /tmp/rows",
+        "rm -f /tmp/rows; ./test.sh --out=/tmp/rows",
+        "rm -f /tmp/rows/a; ./test.sh --dir /tmp/rows",
+    ] {
+        let found = run(command, &nothing_known());
+        assert!(
+            found.conditional.is_empty(),
+            "{command}: {:?}",
+            found.conditional
+        );
+    }
+    let untold = run("rm -f /tmp/rows; ./test.sh /tmp/other", &nothing_known());
+    assert_eq!(untold.conditional.len(), 1);
+}
+
 /// Run before a file is read, the program may have changed what was read.
 #[test]
 fn a_file_read_after_an_unknown_program_is_predicted_if_it_left_the_input_alone() {

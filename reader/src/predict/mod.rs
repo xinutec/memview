@@ -41,7 +41,7 @@ pub mod sed;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
-use crate::shell_ops::{GitOp, Op, basename, classify, innermost, resolve};
+use crate::shell_ops::{GitOp, Op, basename, classify, innermost, looks_like_path, resolve};
 use crate::syntax::ast::{
     AndOr, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp, Pipeline, Redirect,
     RedirectOp, RedirectTarget, Script, SegmentKind, Simple, Tilde, Word,
@@ -300,13 +300,19 @@ impl<'a> Run<'a> {
     }
 
     /// A program the tables do not know, which may have written any file. Under
-    /// the assumption it wrote none, and only its name is kept.
-    pub(super) fn unknown_program(&mut self, program: String) {
+    /// the assumption it wrote none it was not told of, and only its name is
+    /// kept: a path in its words or its environment (`OUT=/tmp/rows`), and
+    /// everything under one, is refused either way. Found live: a test told its
+    /// output file in an assignment was assumed to leave that file alone.
+    pub(super) fn unknown_program(&mut self, program: String, told: &[String]) {
         self.clock += 1;
         self.assumed.push((self.clock, program.clone()));
         if self.assume {
             // Its bindings are no more known under the assumption.
             self.vars.clear();
+            for path in told {
+                self.forget_tree(path, Why::Program(program.clone()));
+            }
         } else {
             self.forget_everything(Why::Program(program));
         }
@@ -981,7 +987,8 @@ impl<'a> Run<'a> {
         if let Some(program) = writes_anything(&op, &argv) {
             // Named for the program whatever holds it: a pipe or a loop is not why
             // what came before is unknown.
-            self.unknown_program(program);
+            let told = self.told(simple, &literal);
+            self.unknown_program(program, &told);
             return;
         }
         let written: Vec<String> = files_of(&op, Reached::Always)
@@ -1166,6 +1173,28 @@ impl<'a> Run<'a> {
                 }
             }
         }
+    }
+
+    /// The paths a command names, in its words and in the assignments before it,
+    /// as absolute paths: a whole word, or what follows `=` in one
+    /// (`--out=dir`). Text with whitespace in it is not a path.
+    fn told(&self, simple: &Simple, literal: &[Option<String>]) -> Vec<String> {
+        let assigned = simple
+            .assignments
+            .iter()
+            .filter_map(|assignment| self.literal(&assignment.value));
+        literal
+            .iter()
+            .flatten()
+            .cloned()
+            .chain(assigned)
+            .flat_map(|word| {
+                let value = word.split_once('=').map(|(_, value)| value.to_string());
+                std::iter::once(word).chain(value)
+            })
+            .filter(|word| !word.contains(char::is_whitespace) && looks_like_path(word))
+            .filter_map(|word| self.resolve(&word))
+            .collect()
     }
 
     /// A word's value, when the text determines it: literal text, a home tilde,
