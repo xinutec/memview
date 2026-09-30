@@ -50,6 +50,9 @@ enum Value {
     Tuple(Vec<Value>),
     /// A `dict`, its pairs in insertion order, each key once.
     Dict(Vec<(Value, Value)>),
+    /// A `set`, each member once. Python gives it no order, so what depends on
+    /// one — iterating it, `list` of it — is refused; `sorted` of it is not.
+    Set(Vec<Value>),
     /// What `re.compile` returned: the pattern and its flags, compiled where used.
     Pattern {
         source: String,
@@ -101,6 +104,8 @@ enum Function {
     Reads,
     /// `dict()`, from nothing, a dict, pairs, or keywords.
     Dict,
+    /// `set()`, from nothing or what can be listed.
+    Set,
     /// `next(generator[, default])`, `any(...)`, `all(...)`: each stops where
     /// Python's does.
     Next,
@@ -137,6 +142,7 @@ impl Function {
             "zip" => Function::Zip,
             "sorted" => Function::Sorted,
             "list" | "tuple" => Function::List,
+            "set" | "frozenset" => Function::Set,
             "dict" => Function::Dict,
             "next" => Function::Next,
             "any" => Function::Any,
@@ -765,6 +771,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.escape(item, why);
                 }
             }
+            Value::Set(_) => self.shared(value, why),
             _ => {}
         }
     }
@@ -830,10 +837,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             return Ok(None);
         };
         let over = self.expr(&generator.iter)?;
-        let Value::Tuple(items) = self.iterable(over) else {
-            return Ok(Some(Value::Unknown(construct(
-                "comprehension over a value",
-            ))));
+        let items = match self.iterable(over) {
+            Value::Tuple(items) => items,
+            unlisted => return Ok(Some(unlisted)),
         };
         for item in items {
             if *budget == 0 {
@@ -1161,9 +1167,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 Ran::Unknown(value) => self.unfollowed_comprehension(expr, &value),
             },
-            // A set has no order; a generator runs as it is consumed, which is
-            // followed only where it is written as a call's argument.
-            Expr::SetComp { .. } | Expr::GeneratorExp { .. } => {
+            Expr::SetComp { elt, generators } => {
+                match self.comprehension(&[elt], generators, Consumed::Whole)? {
+                    Ran::Rows(rows) => {
+                        set_of(rows.into_iter().map(|mut row| row.remove(0)).collect())
+                    }
+                    Ran::Unknown(value) => self.unfollowed_comprehension(expr, &value),
+                }
+            }
+            // A generator runs as it is consumed, which is followed only where
+            // it is written as a call's argument.
+            Expr::GeneratorExp { .. } => {
                 self.escape_comprehension(expr, &construct("comprehension"));
                 self.forget_expr(expr, &construct("comprehension"), 0);
                 Value::Unknown(construct("comprehension"))
@@ -1192,6 +1206,13 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     }
                 }
                 Value::Dict(pairs)
+            }
+            Expr::Set(items) if !items.iter().any(|item| matches!(item, Expr::Starred(_))) => {
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    values.push(self.expr(item)?);
+                }
+                set_of(values)
             }
             Expr::Set(_) | Expr::Starred(_) => {
                 self.escape_names(expr, &construct("value"));
@@ -1284,6 +1305,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 if let Value::Dict(pairs) = receiver {
                     return self.dict_method(value, pairs, attr, positional, &keyword);
+                }
+                if let Value::Set(items) = receiver {
+                    return Ok(self.set_method(value, items, attr, positional, &keyword));
                 }
                 if let Value::Str(text) = &receiver {
                     return string_method(text, attr, &positional);
@@ -1439,6 +1463,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Some(Value::Dict(pairs)) if keyword.is_empty() => {
                     sorted(pairs.into_iter().map(|(at, _)| at).collect())
                 }
+                Some(Value::Set(items)) if keyword.is_empty() => sorted(items),
                 Some(other) => unknown(&other, "sorted"),
                 None => Value::Unknown(construct("sorted")),
             },
@@ -1458,6 +1483,14 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 first.unwrap_or(Value::None),
                 positional.get(1).cloned(),
             )?,
+            Some(Function::Set) => match first {
+                None => Value::Set(Vec::new()),
+                Some(Value::Set(items)) => Value::Set(items),
+                Some(other) => match self.iterable(other) {
+                    Value::Tuple(items) => set_of(items),
+                    other => unknown(&other, "set"),
+                },
+            },
             Some(Function::Dict) => {
                 let mut pairs = match first {
                     None => Vec::new(),
@@ -1551,6 +1584,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Some(Value::Str(text)) => Value::Int(text.chars().count() as i64),
                 Some(Value::Tuple(items)) => Value::Int(items.len() as i64),
                 Some(Value::Dict(pairs)) => Value::Int(pairs.len() as i64),
+                Some(Value::Set(items)) => Value::Int(items.len() as i64),
                 _ => Value::Unknown(construct("len")),
             },
             Some(Function::Print) => {
@@ -1906,6 +1940,46 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         };
         self.changed(target, &old, changed.map(Value::Dict), &why);
         Ok(result)
+    }
+
+    /// A method of a set: `add`, `discard` and `update` followed, the set
+    /// forgotten on any other.
+    fn set_method(
+        &mut self,
+        target: &Expr,
+        items: Vec<Value>,
+        method: &str,
+        args: Vec<Value>,
+        keyword: &BTreeMap<&str, Value>,
+    ) -> Value {
+        let old = Value::Set(items.clone());
+        let why = Why::Python(format!("set.{method}"));
+        let now = match (method, args.as_slice(), keyword.is_empty()) {
+            ("copy", [], true) => return old,
+            ("add", [member], true) if key(member).is_some() => {
+                Some(set_of(items.into_iter().chain([member.clone()]).collect()))
+            }
+            ("discard", [member], true) if key(member).is_some() => Some(Value::Set(
+                items
+                    .into_iter()
+                    .filter(|item| key(item) != key(member))
+                    .collect(),
+            )),
+            ("update", [more], true) => match self.iterable(more.clone()) {
+                Value::Tuple(more) | Value::Set(more) => {
+                    Some(set_of(items.into_iter().chain(more).collect()))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let followed = now.is_some();
+        self.changed(target, &old, now, &why);
+        if followed {
+            Value::None
+        } else {
+            Value::Unknown(why)
+        }
     }
 
     fn path_method(
@@ -2580,6 +2654,7 @@ fn truth(value: Value) -> Value {
         Value::None => Value::Bool(false),
         Value::Tuple(items) => Value::Bool(!items.is_empty()),
         Value::Dict(pairs) => Value::Bool(!pairs.is_empty()),
+        Value::Set(items) => Value::Bool(!items.is_empty()),
         Value::Unknown(why) => Value::Unknown(why),
         _ => Value::Unknown(construct("truth")),
     }
@@ -2592,6 +2667,17 @@ fn binary(left: Value, op: BinOp, right: Value) -> Value {
         (Value::Tuple(mut a), BinOp::Add, Value::Tuple(b)) => {
             a.extend(b);
             Value::Tuple(a)
+        }
+        (Value::Set(a), op @ (BinOp::BitOr | BinOp::BitAnd | BinOp::Sub), Value::Set(b)) => {
+            let within =
+                |items: &[Value], item: &Value| items.iter().any(|other| key(other) == key(item));
+            match op {
+                BinOp::BitOr => set_of(a.into_iter().chain(b).collect()),
+                BinOp::BitAnd => {
+                    Value::Set(a.into_iter().filter(|item| within(&b, item)).collect())
+                }
+                _ => Value::Set(a.into_iter().filter(|item| !within(&b, item)).collect()),
+            }
         }
         (Value::Int(a), op @ (BinOp::Add | BinOp::Sub | BinOp::Mult), Value::Int(b)) => {
             let n = match op {
@@ -2612,6 +2698,12 @@ fn compare(left: &Value, op: CmpOp, right: &Value) -> Value {
         (_, CmpOp::In | CmpOp::NotIn, Value::Dict(pairs)) => match key(left) {
             Some(_) => Value::Bool(find_key(pairs, left).is_some() == (op == CmpOp::In)),
             None => unknown(left, "dict key"),
+        },
+        (_, CmpOp::In | CmpOp::NotIn, Value::Set(items)) => match key(left) {
+            Some(wanted) => Value::Bool(
+                items.iter().any(|item| key(item).as_ref() == Some(&wanted)) == (op == CmpOp::In),
+            ),
+            None => unknown(left, "set member"),
         },
         (Value::Str(a), CmpOp::In, Value::Str(b)) => Value::Bool(b.contains(a.as_str())),
         (Value::Str(a), CmpOp::NotIn, Value::Str(b)) => Value::Bool(!b.contains(a.as_str())),
@@ -2956,6 +3048,7 @@ fn cause(value: &Value) -> String {
         Value::Defined(name) => format!("function {name}"),
         Value::Pattern { .. } => "a pattern".to_string(),
         Value::Callable => "a lambda".to_string(),
+        Value::Set(_) => "a set".to_string(),
         Value::Bool(_) | Value::None | Value::Dict(_) => "a value".to_string(),
     }
 }
@@ -2979,9 +3072,23 @@ fn holds(value: &Value, list: &Value) -> bool {
         }
 }
 
-/// A value the program can change in place: a list or a dict.
+/// A value the program can change in place: a list, a dict or a set.
 fn container(value: &Value) -> bool {
-    matches!(value, Value::Tuple(_) | Value::Dict(_))
+    matches!(value, Value::Tuple(_) | Value::Dict(_) | Value::Set(_))
+}
+
+/// A set of `values`, each once. A member that cannot be one refuses it.
+fn set_of(values: Vec<Value>) -> Value {
+    let mut members: Vec<Value> = Vec::with_capacity(values.len());
+    for value in values {
+        if key(&value).is_none() {
+            return unknown(&value, "set member");
+        }
+        if !members.iter().any(|member| key(member) == key(&value)) {
+            members.push(value);
+        }
+    }
+    Value::Set(members)
 }
 
 /// A dict's `keys()`, `values()` and `items()`, as this holds them.

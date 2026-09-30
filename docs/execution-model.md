@@ -142,7 +142,9 @@ Found live (2026-09-29): an insertion by `lines[i:i] = ins` and trailing lines
 popped in a `while` were both predicted as no change; in history the same
 blind spot had backed 118 file texts. A dict is followed the same way, in
 insertion order, through its items, its keys, `get`, `setdefault`, `pop` and
-`update`, and its views are forgotten with it. `json.load` of a file sight has
+`update`, and its views are forgotten with it. A set is followed where its
+order does not matter — `sorted` of it, `len`, `in`, `|`, `&`, `-`, `add`,
+`discard`, `update` — and refused where it does: Python gives it none. `json.load` of a file sight has
 shown is read by the evaluator's own reader (`python/json.rs`), with Python's
 rules for a repeated key, and `json.dump` writes CPython's exact text for the
 indent, separators, `sort_keys` and `ensure_ascii` it was given; a float, which

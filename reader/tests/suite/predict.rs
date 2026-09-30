@@ -634,6 +634,40 @@ fn a_python_comprehension_is_followed() {
     }
 }
 
+/// A set is followed where its order does not matter, and refused where it
+/// does: Python gives it none.
+#[test]
+fn a_python_set_is_followed_where_order_does_not_matter() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let w = "def w(t):\n    open('o', 'w').write(t)\n";
+    for (program, text) in [
+        (
+            "s = set(['b', 'a', 'b'])\ns.add('c')\ns.discard('a')\nw(','.join(sorted(s)) + str(len(s)))",
+            "b,c2",
+        ),
+        (
+            "s = {x for x in 'abca'} | {'z'}\nw(','.join(sorted(s)) + str('z' in s))",
+            "a,b,c,zTrue",
+        ),
+        ("s = {'a', 'b'} - {'b'}\nw(','.join(sorted(s)))", "a"),
+    ] {
+        let found = run(&py(&format!("{w}{program}")), &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/repo/o", text)],
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+    for program in [
+        "for x in {'a', 'b'}:\n    w(x)",
+        "w(','.join(list({'a', 'b'})))",
+    ] {
+        let found = run(&py(&format!("{w}{program}")), &nothing_known());
+        assert!(found.written.is_empty(), "{program}: {:?}", found.written);
+    }
+}
+
 /// Python shares a list between everything that holds it; this copies, so a
 /// change it cannot see through every holder forgets the list rather than
 /// write its old text.
