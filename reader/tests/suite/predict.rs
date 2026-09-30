@@ -2263,6 +2263,46 @@ fn what_an_unknown_program_writes_itself_stays_refused() {
     assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
 }
 
+/// Python's text is what Python reads and writes: its whitespace, and plain
+/// UTF-8 opened without `newline=` or another encoding. A text with `\r` in it
+/// is refused, since reading turns it into `\n`; so is an `open` taking an
+/// argument that changes the bytes.
+#[test]
+fn python_text_is_what_python_reads_and_writes() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[
+        ("/repo/crlf", Some("a\r\nb\r\n")),
+        ("/repo/plain", Some("a\nb\n")),
+    ]);
+    // Expected texts printed by CPython: '\x1ca b\x1f'.strip() and 'a\x1cb'.split().
+    let spaces = run(
+        &py("open('o', 'w').write('\\x1ca b\\x1f'.strip() + '|' + ','.join('a\\x1cb'.split()))"),
+        &shown,
+    );
+    assert_eq!(spaces.written, vec![written("/repo/o", "a b|a,b")]);
+    for program in [
+        "open('o', 'w').write(open('crlf').read())",
+        "open('o', 'w', newline='\\r\\n').write('x\\n')",
+        "open('o', 'w', encoding='latin-1').write('x')",
+        "from pathlib import Path\nPath('o').write_text('x', newline='')",
+    ] {
+        let found = run(&py(program), &shown);
+        assert!(found.written.is_empty(), "{program}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/o")),
+            "{program}"
+        );
+    }
+    let utf8 = run(
+        &py("open('o', 'w', encoding='utf-8').write(open('plain', encoding='UTF-8').read())"),
+        &shown,
+    );
+    assert_eq!(utf8.written, vec![written("/repo/o", "a\nb\n")]);
+}
+
 /// A dict is followed as Python holds it: insertion order, one place per key,
 /// and read back through its items, its keys and `get`.
 #[test]

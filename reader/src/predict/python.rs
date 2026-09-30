@@ -1636,7 +1636,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         Ok(match function {
             Some(Function::Open) => {
                 let mode = positional.get(1).or_else(|| keyword.get("mode")).cloned();
-                self.open(first, mode)
+                let plain = plain_text(&keyword, positional.len() > 2);
+                self.open_plain(first, mode, plain)
             }
             Some(Function::Path | Function::Join) => {
                 let mut path = String::new();
@@ -2442,14 +2443,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         keyword: &BTreeMap<&str, Value>,
     ) -> Value {
         match method {
-            "read_text" => match self.resolve(path) {
-                Some(resolved) => self.read_value(&resolved),
-                None => Value::Unknown(construct("path")),
+            "read_text" => match (self.resolve(path), plain_text(keyword, !args.is_empty())) {
+                (Some(resolved), Ok(())) => self.read_value(&resolved),
+                (_, Err(why)) => Value::Unknown(why),
+                (None, _) => Value::Unknown(construct("path")),
             },
             "write_text" => {
-                let written = match args.into_iter().next() {
-                    Some(Value::Str(text)) => Ok(text),
-                    Some(Value::Unknown(why)) => Err(why),
+                let plain = plain_text(keyword, args.len() > 1);
+                let written = match (args.into_iter().next(), plain) {
+                    (_, Err(why)) => Err(why),
+                    (Some(Value::Str(text)), Ok(())) => Ok(text),
+                    (Some(Value::Unknown(why)), Ok(())) => Err(why),
                     _ => Err(construct("write_text")),
                 };
                 match self.resolve(path) {
@@ -2459,11 +2463,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Value::None
             }
             "open" => {
+                let plain = plain_text(keyword, args.len() > 1);
                 let mode = args
                     .into_iter()
                     .next()
                     .or_else(|| keyword.get("mode").cloned());
-                self.open(Some(Value::Path(path.to_string())), mode)
+                self.open_plain(Some(Value::Path(path.to_string())), mode, plain)
             }
             "exists" | "is_file" => self.exists(path),
             "expanduser" => Value::Path(self.expand_user(path)),
@@ -2592,8 +2597,36 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// `open` of a plain UTF-8 text file, or, with `plain` the reason it is not,
+    /// a file this does not follow: written in a way it does not model when
+    /// opened to write.
+    fn open_plain(
+        &mut self,
+        file: Option<Value>,
+        mode: Option<Value>,
+        plain: Result<(), Why>,
+    ) -> Value {
+        let opened = self.open(file, mode);
+        match plain {
+            Ok(()) => opened,
+            Err(why) => {
+                if let Value::File {
+                    mode: Mode::Write, ..
+                } = &opened
+                {
+                    self.forget_value(&opened, &why);
+                }
+                Value::Unknown(why)
+            }
+        }
+    }
+
+    /// A text file's content as Python reads it. Text mode turns `\r\n` and
+    /// a lone `\r` into `\n`, which this does not model: such a text is
+    /// refused.
     fn read_value(&mut self, path: &str) -> Value {
         match self.shell.read(path) {
+            Held::Text(text) if text.contains('\r') => Value::Unknown(construct("carriage return")),
             Held::Text(text) => Value::Str(text),
             Held::Absent => Value::Unknown(Why::Missing),
             Held::Unknown => Value::Unknown(Why::NotRead),
@@ -3219,7 +3252,8 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
         }
         ("splitlines", []) => splitlines(text),
         ("split", []) => Value::Tuple(
-            text.split_whitespace()
+            text.split(python_space)
+                .filter(|word| !word.is_empty())
                 .map(|word| Value::Str(word.to_string()))
                 .collect(),
         ),
@@ -3241,9 +3275,9 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
                 None => Value::Unknown(construct("join")),
             }
         }
-        ("strip", []) => Value::Str(text.trim().to_string()),
-        ("rstrip", []) => Value::Str(text.trim_end().to_string()),
-        ("lstrip", []) => Value::Str(text.trim_start().to_string()),
+        ("strip", []) => Value::Str(text.trim_matches(python_space).to_string()),
+        ("rstrip", []) => Value::Str(text.trim_end_matches(python_space).to_string()),
+        ("lstrip", []) => Value::Str(text.trim_start_matches(python_space).to_string()),
         ("startswith", [Value::Str(prefix)]) => Value::Bool(text.starts_with(prefix.as_str())),
         ("endswith", [Value::Str(suffix)]) => Value::Bool(text.ends_with(suffix.as_str())),
         ("count", [Value::Str(needle)]) if !needle.is_empty() => {
@@ -3257,6 +3291,31 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
             None => Value::Unknown(Why::Python(format!("str.{method}"))),
         },
     })
+}
+
+/// Python's whitespace, `str.isspace`: Unicode's, and the separators `\x1c` to
+/// `\x1f`, which Rust does not count.
+fn python_space(c: char) -> bool {
+    c.is_whitespace() || ('\x1c'..='\x1f').contains(&c)
+}
+
+/// Whether an `open`, `read_text` or `write_text` is of plain UTF-8 text:
+/// only `mode` and a UTF-8 `encoding` are taken; `newline=`, another
+/// encoding, `errors=` or a further positional argument change what is read
+/// or written, and refuse it.
+fn plain_text(keyword: &BTreeMap<&str, Value>, more: bool) -> Result<(), Why> {
+    if more {
+        return Err(construct("open arguments"));
+    }
+    for (name, value) in keyword {
+        match (*name, value) {
+            ("mode", _) => {}
+            ("encoding", Value::Str(encoding))
+                if matches!(encoding.to_ascii_lowercase().as_str(), "utf-8" | "utf8") => {}
+            (name, _) => return Err(construct(&format!("open {name}"))),
+        }
+    }
+    Ok(())
 }
 
 /// `str.splitlines`: a break at `\n`, `\r` or `\r\n`, none kept, and no empty
