@@ -169,9 +169,130 @@ fn a_pipeline_into_a_file_is_not_followed() {
     assert_eq!(found.unfollowed.len(), 1);
 }
 
+/// What a word runs as it expands runs before the command: a `$( )` is
+/// followed as a subshell, and a program inside one may write any file.
+/// Found in history: `n=$(nix develop -c npx eslint …)` in a loop, whose
+/// later iterations could rewrite the files earlier ones removed.
+#[test]
+fn a_command_substitution_runs_before_its_command() {
+    let written_there = run("x=$(echo a > f; echo b); echo c > g", &nothing_known());
+    assert_eq!(
+        written_there.written,
+        vec![written("/repo/f", "a\n"), written("/repo/g", "c\n")]
+    );
+
+    let stray = run("echo x > f; n=$(./tool)", &nothing_known());
+    assert!(stray.written.is_empty(), "{:?}", stray.written);
+    assert!(
+        stray
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/f"))
+    );
+
+    let looped = run(
+        "for d in a b; do echo x > $d.p; n=$(./lint $d || true); rm -f $d.p; done",
+        &nothing_known(),
+    );
+    assert!(
+        !looped.written.iter().any(|w| w.path == "/repo/a.p"),
+        "{:?}",
+        looped.written
+    );
+
+    let maybe = run("echo x > f; y=${UNSET:-$(echo z > f)}", &nothing_known());
+    assert!(
+        !maybe.written.iter().any(|w| w.path == "/repo/f"),
+        "{:?}",
+        maybe.written
+    );
+
+    let heredoc = run(
+        "echo x > f; cat > g <<EOF\n$(./tool)\nEOF",
+        &nothing_known(),
+    );
+    assert!(
+        !heredoc.written.iter().any(|w| w.path == "/repo/f"),
+        "{:?}",
+        heredoc.written
+    );
+}
+
+/// A test this can decide steers `&&`, `||` and `if` exactly: from the text,
+/// from sight, and from what the run itself wrote. One it cannot decide is
+/// not assumed to succeed, since what it asks is whether it does.
+#[test]
+fn a_test_sight_decides_steers_the_list_and_the_if() {
+    let shown = Shown {
+        files: known(&[
+            ("/repo/here", Some("x")),
+            ("/repo/empty", Some("")),
+            ("/repo/gone", None),
+        ]),
+        dirs: Dirs::from([("/repo/d".to_string(), Some(Vec::new()))]),
+    };
+    for (command, a) in [
+        ("false || echo x > a", Some("x\n")),
+        ("true || echo x > a", None),
+        ("[ -f here ] && echo x > a", Some("x\n")),
+        ("[ -f gone ] && echo x > a", None),
+        ("[ -s empty ] || echo x > a", Some("x\n")),
+        ("[ ! -e gone ] && echo x > a", Some("x\n")),
+        ("[ -d d ] && echo x > a", Some("x\n")),
+        ("test -z '' && echo x > a", Some("x\n")),
+        ("[[ -f here && ! -f gone ]] && echo x > a", Some("x\n")),
+        ("v=b; [ \"$v\" = b ] && echo x > a", Some("x\n")),
+        (
+            "if [ -f gone ]; then echo y > a; else echo x > a; fi",
+            Some("x\n"),
+        ),
+        ("if [ -f here ]; then echo x > a; fi", Some("x\n")),
+        ("echo n > gone; [ -f gone ] && echo x > a", Some("x\n")),
+        ("[ 3 -gt 2 ] && echo x > a", Some("x\n")),
+    ] {
+        let parsed = reader::syntax::parse(command).expect("parses");
+        let found = predict(&parsed, CWD, HOME, &shown);
+        let file = found.written.iter().find(|w| w.path == "/repo/a");
+        assert_eq!(
+            file,
+            a.map(|a| written("/repo/a", a)).as_ref(),
+            "{command}: {:?}",
+            found.unfollowed
+        );
+        assert!(
+            !found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/a")),
+            "{command}"
+        );
+    }
+    for command in [
+        "[ -f unshown ] && echo x > a",
+        "[ -r here ] && echo x > a",
+        "if grep -q x here; then echo x > a; fi",
+        "! make && echo x > a",
+    ] {
+        let parsed = reader::syntax::parse(command).expect("parses");
+        let found = predict(&parsed, CWD, HOME, &shown);
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/a"),
+            "{command}: {:?}",
+            found.written
+        );
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/a")),
+            "{command}"
+        );
+    }
+}
+
 #[test]
 fn a_write_after_or_is_only_sometimes_made() {
-    let found = run("false || echo x > a", &nothing_known());
+    let found = run("make || echo x > a", &nothing_known());
     assert!(found.written.is_empty());
     assert_eq!(found.unfollowed.len(), 1);
 }
@@ -542,7 +663,7 @@ fn a_binding_is_unknown_after_anything_that_could_rebind_it() {
     for script in [
         "x=a; if c; then x=b; fi; echo y > $x.txt",
         "x=a; ((x++)); echo y > $x.txt",
-        "x=a; true || x=b; echo y > $x.txt",
+        "x=a; make || x=b; echo y > $x.txt",
         "x=a; printf -v x b; echo y > $x.txt",
         "x=a; bash -c 'echo y > $x.txt'",
     ] {
@@ -550,7 +671,7 @@ fn a_binding_is_unknown_after_anything_that_could_rebind_it() {
         assert!(found.written.is_empty(), "{script}: {:?}", found.written);
     }
     let kept = run(
-        "x=a; true || echo; bash -c 'x=b'; echo y > $x.txt",
+        "x=a; make || echo; bash -c 'x=b'; echo y > $x.txt",
         &nothing_known(),
     );
     assert_eq!(kept.written, vec![written("/repo/a.txt", "y\n")]);
@@ -1257,7 +1378,7 @@ fn a_cd_inside_a_forgotten_region_resolves_its_paths() {
     let piped = run("cd sub | cat; echo y > b.txt", &nothing_known());
     assert_eq!(piped.written, vec![written("/repo/b.txt", "y\n")]);
 
-    let sometimes = run("false || cd sub; echo y > b.txt", &nothing_known());
+    let sometimes = run("make || cd sub; echo y > b.txt", &nothing_known());
     assert!(sometimes.written.is_empty(), "{:?}", sometimes.written);
 }
 

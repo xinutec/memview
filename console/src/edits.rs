@@ -615,7 +615,9 @@ fn raised(response: &serde_json::Value) -> bool {
 /// read here — too large, not text, or not a regular file.
 fn read(path: &Path) -> Option<Option<String>> {
     match std::fs::metadata(path) {
-        Err(_) => Some(None),
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => Some(None),
+        // Not allowed to look is not the same as nothing there.
+        Err(_) => None,
         Ok(meta) if !meta.is_file() || meta.len() > LARGEST => None,
         Ok(_) => std::fs::read_to_string(path).ok().map(Some),
     }

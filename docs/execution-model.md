@@ -159,7 +159,14 @@ leaves the file refused under its name), a subshell keeps its
 `cd` and its bindings inside, and a variable is known while the text bound it
 to a literal and no builtin since could have rebound it; `$HOME` and `$PWD`
 are known, and `${x%%pat}` and its three siblings are computed when the
-pattern is spelled out.
+pattern is spelled out. A test is a question, not a command that might fail, so it
+is not assumed to succeed: one sight can answer (`[ -f x ]`, `[ -d x ]`,
+`test -z "$v"`, `[[ a == b ]]`, `true`, `false`) steers `&&`, `||` and `if`
+exactly, and after one it cannot, what follows is only sometimes run. What a
+word runs as it expands runs before its command: a `$( )` is followed as a
+subshell whose output is the word's, so a program inside one withdraws what
+came before as any unknown program does; one inside a parameter's operand
+runs only sometimes, and `<( )` beside the command.
 A command it runs is followed as the shell it amounts to. `re.sub` is followed
 where Python's `re` and Rust's `regex` mean the same thing, translated rather
 than copied, and refused by what differs where they do not: a backreference,

@@ -82,6 +82,11 @@ fn words<'t>(words: impl IntoIterator<Item = &'t Word>, each: &mut impl FnMut(&'
     }
 }
 
+/// Calls `each` on every command held inside one part of a word.
+pub fn segment_commands<'t>(segment: &'t Segment, each: &mut impl FnMut(&'t Command)) {
+    self::segment(segment, each);
+}
+
 fn segment<'t>(segment: &'t Segment, each: &mut impl FnMut(&'t Command)) {
     match &segment.kind {
         SegmentKind::Substitution(substitution) => commands(&substitution.items, each),

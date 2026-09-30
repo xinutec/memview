@@ -31,7 +31,10 @@
 //!
 //! **The prediction assumes each command succeeds.** A write after `||` is only
 //! sometimes made, and is not followed. Whether the call really went that way is
-//! for the check after it to say.
+//! for the check after it to say. A test is a question, not a command that
+//! might fail: one sight answers steers `&&`, `||` and `if` exactly, and after
+//! one it cannot, what follows is only sometimes run. What a word runs as it
+//! expands (`$( )`) runs before its command, followed as a subshell.
 
 use std::collections::BTreeMap;
 
@@ -43,8 +46,9 @@ use crate::shell::Reached;
 use crate::shell_files::files_of;
 use crate::shell_ops::{GitOp, Op, basename, classify, innermost, looks_like_path, resolve};
 use crate::syntax::ast::{
-    AndOr, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp, Pipeline, Redirect,
-    RedirectOp, RedirectTarget, Script, SegmentKind, Simple, Tilde, Word,
+    AndOr, BinaryTest, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp,
+    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, TestExpr,
+    Tilde, UnaryTest, Word,
 };
 use crate::syntax::embed::{Program, python_of};
 use crate::syntax::print::print_value;
@@ -242,6 +246,17 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
     }
 }
 
+/// What a command's exit status is known to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Status {
+    /// Decided: a test sight could answer, `true`, `false`.
+    Known(bool),
+    /// A command assumed to succeed, as the prediction assumes of every one.
+    Assumed,
+    /// A test this could not decide, or a list it could not follow.
+    Unknown,
+}
+
 /// A file as the run has left it so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Held {
@@ -404,28 +419,189 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn list(&mut self, list: &AndOr) {
+    /// A list, each link run or skipped by the status before it: a test this
+    /// can decide steers `&&` and `||` exactly; any other command is assumed
+    /// to succeed, so what follows `||` after it is only sometimes run; and
+    /// after a test it cannot decide, so is what follows either.
+    fn list(&mut self, list: &AndOr) -> Status {
         // A background job is a child: its `cd` stays with it.
         if list.background {
             let cwd = self.cwd.clone();
             self.forget_list(list, Why::Background);
             self.cwd = cwd;
-            return;
+            return Status::Unknown;
         }
-        self.pipeline(&list.first);
-        let mut sometimes = false;
+        let mut status = self.pipeline(&list.first);
         for link in &list.rest {
-            sometimes |= link.connector == Connector::Or;
-            if sometimes {
-                // A `cd` that only sometimes ran leaves the shell somewhere unknown.
-                let cwd = self.cwd.clone();
-                self.forget_pipeline(&link.pipeline, Why::Sometimes);
-                if self.cwd != cwd {
-                    self.cwd = None;
+            let runs = match (link.connector, status) {
+                (Connector::And, Status::Known(true) | Status::Assumed) => Some(true),
+                (Connector::And, Status::Known(false)) | (Connector::Or, Status::Known(true)) => {
+                    Some(false)
                 }
-            } else {
-                self.pipeline(&link.pipeline);
+                (Connector::Or, Status::Known(false)) => Some(true),
+                (Connector::Or, Status::Assumed) | (_, Status::Unknown) => None,
+            };
+            match runs {
+                Some(true) => status = self.pipeline(&link.pipeline),
+                // Skipped: the status stands.
+                Some(false) => {}
+                None => {
+                    // A `cd` that only sometimes ran leaves the shell somewhere unknown.
+                    let cwd = self.cwd.clone();
+                    self.forget_pipeline(&link.pipeline, Why::Sometimes);
+                    if self.cwd != cwd {
+                        self.cwd = None;
+                    }
+                    status = Status::Unknown;
+                }
             }
+        }
+        status
+    }
+
+    /// The status of the last list in `items`, each run in turn.
+    fn condition(&mut self, items: &[Item]) -> Status {
+        let mut status = Status::Known(true);
+        for item in items {
+            if self.stopped {
+                break;
+            }
+            if let Item::List(list) = item {
+                status = self.list(list);
+            }
+        }
+        status
+    }
+
+    /// What a command's status is known to be: a test decided by sight, or
+    /// `true` and `false`; any other command is assumed to succeed.
+    fn status(&mut self, command: &Command) -> Status {
+        match &command.kind {
+            CommandKind::Test(expr) => {
+                self.expansions(test_operands(expr), None);
+                self.test_expr(expr).map_or(Status::Unknown, Status::Known)
+            }
+            CommandKind::Simple(simple) if !simple.words.is_empty() => {
+                let argv: Option<Vec<String>> =
+                    simple.words.iter().map(|w| self.literal(w)).collect();
+                let Some(argv) = argv else {
+                    return match simple
+                        .words
+                        .first()
+                        .and_then(|w| self.literal(w))
+                        .as_deref()
+                    {
+                        Some("[" | "test") => Status::Unknown,
+                        _ => Status::Assumed,
+                    };
+                };
+                match argv[0].as_str() {
+                    "true" | ":" => Status::Known(true),
+                    "false" => Status::Known(false),
+                    "[" if argv.last().map(String::as_str) == Some("]") => self
+                        .test_words(&argv[1..argv.len() - 1])
+                        .map_or(Status::Unknown, Status::Known),
+                    "test" => self
+                        .test_words(&argv[1..])
+                        .map_or(Status::Unknown, Status::Known),
+                    "[" => Status::Unknown,
+                    _ => Status::Assumed,
+                }
+            }
+            _ => Status::Assumed,
+        }
+    }
+
+    /// `test` or `[ … ]` over its words: `None` when this cannot decide it.
+    fn test_words(&mut self, words: &[String]) -> Option<bool> {
+        match words {
+            [] => Some(false),
+            [bang, rest @ ..] if bang == "!" => self.test_words(rest).map(|b| !b),
+            [one] => Some(!one.is_empty()),
+            [op, operand] => match op.as_str() {
+                "-n" => Some(!operand.is_empty()),
+                "-z" => Some(operand.is_empty()),
+                file if file.len() == 2 && file.starts_with('-') => {
+                    self.file_test(file.chars().nth(1)?, operand)
+                }
+                _ => None,
+            },
+            [left, op, right] => match op.as_str() {
+                "=" | "==" => Some(left == right),
+                "!=" => Some(left != right),
+                "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge" => {
+                    let (a, b) = (
+                        left.trim().parse::<i64>().ok()?,
+                        right.trim().parse::<i64>().ok()?,
+                    );
+                    Some(match op.as_str() {
+                        "-eq" => a == b,
+                        "-ne" => a != b,
+                        "-lt" => a < b,
+                        "-le" => a <= b,
+                        "-gt" => a > b,
+                        _ => a >= b,
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// `[[ … ]]`: `None` when this cannot decide it.
+    fn test_expr(&mut self, expr: &TestExpr) -> Option<bool> {
+        match expr {
+            TestExpr::Not(inner) => self.test_expr(inner).map(|b| !b),
+            // `&&` and `||` short-circuit: an undecided side that is not reached
+            // does not matter.
+            TestExpr::And(a, b) => match self.test_expr(a)? {
+                false => Some(false),
+                true => self.test_expr(b),
+            },
+            TestExpr::Or(a, b) => match self.test_expr(a)? {
+                true => Some(true),
+                false => self.test_expr(b),
+            },
+            TestExpr::Unary { op, operand } => {
+                let operand = self.literal(operand)?;
+                match op {
+                    UnaryTest::NonEmpty => Some(!operand.is_empty()),
+                    UnaryTest::Empty => Some(operand.is_empty()),
+                    UnaryTest::File(letter) => self.file_test(*letter, &operand),
+                    _ => None,
+                }
+            }
+            // Only where the right side is literal text: an unquoted glob there
+            // is a pattern, and such a word is not literal.
+            TestExpr::Binary { op, left, right } => {
+                let (left, right) = (self.literal(left)?, self.literal(right)?);
+                match op {
+                    BinaryTest::Equal => Some(left == right),
+                    BinaryTest::NotEqual => Some(left != right),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// A file test as sight and this run show it: `-e`, `-f`, `-s`, `-d`. A
+    /// permission, a link, or a file sight cannot show is not decided.
+    fn file_test(&mut self, letter: char, operand: &str) -> Option<bool> {
+        let path = self.resolve(operand)?;
+        match letter {
+            'f' | 'e' | 's' => match self.read(&path) {
+                Held::Text(text) => Some(letter != 's' || !text.is_empty()),
+                // Shown absent: nothing is there, a directory neither — sight
+                // cannot show a directory as a file, and says so.
+                Held::Absent => Some(false),
+                Held::Unknown => None,
+            },
+            'd' => match self.listing(&path) {
+                Ok(listed) => Some(listed.is_some()),
+                Err(_) => None,
+            },
+            _ => None,
         }
     }
 
@@ -434,11 +610,21 @@ impl<'a> Run<'a> {
     /// were before the pipeline, and reads the pipe as its stdin. A path two
     /// members both change is left unknown, since their order is not. Found
     /// live: a heredoc edit followed by `2>&1 | grep` was refused whole.
-    fn pipeline(&mut self, pipeline: &Pipeline) {
+    fn pipeline(&mut self, pipeline: &Pipeline) -> Status {
+        let status = self.members(pipeline);
+        match (pipeline.negated, status) {
+            (false, status) => status,
+            (true, Status::Known(b)) => Status::Known(!b),
+            // A command assumed to succeed is not assumed to fail.
+            (true, _) => Status::Unknown,
+        }
+    }
+
+    fn members(&mut self, pipeline: &Pipeline) -> Status {
         let members = pipeline.commands.as_slice();
         if let [only] = members {
             self.command(only);
-            return;
+            return self.status(only);
         }
         let (cwd, vars, outer, stopped) = (
             self.cwd.clone(),
@@ -488,6 +674,8 @@ impl<'a> Run<'a> {
                 });
             }
         }
+        // The last member's status, which is assumed.
+        Status::Assumed
     }
 
     fn command(&mut self, command: &Command) {
@@ -500,6 +688,32 @@ impl<'a> Run<'a> {
         }
         match &command.kind {
             CommandKind::Simple(simple) => self.simple(command, simple),
+            // An `if` whose condition this can decide runs that branch. Its
+            // condition is not assumed to succeed: that is what it asks.
+            CommandKind::If(branch) if command.redirects.is_empty() => {
+                match self.condition(&branch.condition) {
+                    Status::Known(true) => self.items(&branch.then),
+                    Status::Known(false) => {
+                        if let Some(otherwise) = &branch.otherwise {
+                            self.items(otherwise);
+                        }
+                    }
+                    Status::Assumed | Status::Unknown => {
+                        let cwd = self.cwd.clone();
+                        let arms = std::iter::once(&branch.then).chain(branch.otherwise.as_ref());
+                        for arm in arms {
+                            for item in arm {
+                                if let Item::List(list) = item {
+                                    self.forget_list(list, Why::Compound);
+                                }
+                            }
+                        }
+                        if self.cwd != cwd {
+                            self.cwd = None;
+                        }
+                    }
+                }
+            }
             // A group is its commands; a subshell the same, with its `cd` and
             // its bindings kept inside.
             CommandKind::Group(items) if command.redirects.is_empty() => self.items(items),
@@ -514,6 +728,7 @@ impl<'a> Run<'a> {
             // the variable bound to each; it stays bound to the last, as bash
             // leaves it.
             CommandKind::For(it) if !it.select && command.redirects.is_empty() => {
+                self.expansions(&it.words, None);
                 let values: Option<Vec<String>> =
                     it.words.iter().map(|w| self.literal(w)).collect();
                 match values {
@@ -564,6 +779,7 @@ impl<'a> Run<'a> {
         if !outputs_only {
             return false;
         }
+        self.expansions(redirect_words(&command.redirects), None);
         let mut opened = Vec::new();
         for target in self.outputs(&command.redirects).unwrap_or_default() {
             match target {
@@ -593,6 +809,67 @@ impl<'a> Run<'a> {
         true
     }
 
+    /// What expanding `words` runs, left to right, before the command itself:
+    /// a `$( )` written plainly runs in a subshell, followed here (its output
+    /// is the word's, not a file's) or, with `why`, forgotten. One inside a
+    /// parameter's operand runs only when the parameter says, and `<( )` runs
+    /// beside the command: what either runs is forgotten.
+    fn expansions<'w>(&mut self, words: impl IntoIterator<Item = &'w Word>, why: Option<&Why>) {
+        for word in words {
+            for segment in &word.segments {
+                match &segment.kind {
+                    SegmentKind::Substitution(substitution) => {
+                        self.subshell(&substitution.items, why);
+                    }
+                    SegmentKind::ProcessSubstitution(_) => {
+                        self.forget_within(segment, why.cloned().unwrap_or(Why::Background));
+                    }
+                    _ => self.forget_within(segment, why.cloned().unwrap_or(Why::Sometimes)),
+                }
+            }
+        }
+    }
+
+    /// Items run in a subshell: followed, or with `why` forgotten; its `cd`,
+    /// bindings and `exit` stay inside, and what it prints is not a file's.
+    fn subshell(&mut self, items: &[Item], why: Option<&Why>) {
+        let (cwd, vars, stopped) = (self.cwd.clone(), self.vars.clone(), self.stopped);
+        let sink = self.sink.take();
+        match why {
+            None => self.items(items),
+            Some(why) => {
+                for item in items {
+                    if let Item::List(list) = item {
+                        self.forget_list(list, why.clone());
+                    }
+                }
+            }
+        }
+        self.cwd = cwd;
+        self.vars = vars;
+        self.stopped = stopped;
+        self.sink = sink;
+    }
+
+    /// Every command held inside one part of a word, forgotten for `why`.
+    fn forget_within(&mut self, segment: &Segment, why: Why) {
+        let mut inside = Vec::new();
+        crate::syntax::visit::segment_commands(segment, &mut |command| inside.push(command));
+        if inside.is_empty() {
+            return;
+        }
+        let (cwd, vars) = (self.cwd.clone(), self.vars.clone());
+        let sink = self.sink.take();
+        // The walk reaches every command, inner ones too: each is forgotten
+        // once, without its bodies.
+        for command in inside {
+            self.forget_command_with(command, why.clone(), false);
+        }
+        self.cwd = cwd;
+        self.vars = vars;
+        self.sink = sink;
+    }
+
     /// Appends what a command prints to the files a redirect around it opened.
     fn print_to_sink(
         &mut self,
@@ -618,6 +895,16 @@ impl<'a> Run<'a> {
 
     fn simple(&mut self, command: &Command, simple: &Simple) {
         let redirects = command.redirects.as_slice();
+        // Its words expand before it runs, and what they run runs first.
+        let words = simple
+            .assignments
+            .iter()
+            .map(|a| &a.value)
+            .chain(&simple.words);
+        self.expansions(words.chain(redirect_words(redirects)), None);
+        if heredoc_runs(redirects) {
+            self.unknown_program("heredoc substitution".to_string(), &[]);
+        }
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
         let name = argv.first().cloned().flatten();
         if self.change_dir(&argv) {
@@ -1317,6 +1604,29 @@ impl<'a> Run<'a> {
     }
 
     fn forget_command(&mut self, command: &Command, why: Why) {
+        self.forget_command_with(command, why, true);
+    }
+
+    /// `forget_command`, and with `deep` its bodies too; without, for a command
+    /// whose inner commands are each forgotten on their own.
+    fn forget_command_with(&mut self, command: &Command, why: Why, deep: bool) {
+        // What its words run would run too.
+        let words: Vec<&Word> = match &command.kind {
+            CommandKind::Simple(simple) => simple
+                .assignments
+                .iter()
+                .map(|a| &a.value)
+                .chain(&simple.words)
+                .collect(),
+            CommandKind::For(it) => it.words.iter().collect(),
+            CommandKind::Case(case) => vec![&case.word],
+            CommandKind::Test(expr) => test_operands(expr),
+            _ => Vec::new(),
+        };
+        self.expansions(
+            words.into_iter().chain(redirect_words(&command.redirects)),
+            Some(&why),
+        );
         // Its own redirects and words are expanded before it runs, with the
         // bindings as they stand; what its body binds is cleared after. Found in
         // history: a group binding a loop variable, redirected to `"$WATCH"`,
@@ -1354,6 +1664,9 @@ impl<'a> Run<'a> {
         // Whatever it bound, this did not see.
         if binds(command) {
             self.vars.clear();
+        }
+        if !deep {
+            return;
         }
         for items in bodies(&command.kind) {
             for item in items {
@@ -1743,6 +2056,41 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The words a redirect list expands: its file targets.
+fn redirect_words(redirects: &[Redirect]) -> impl Iterator<Item = &Word> {
+    redirects
+        .iter()
+        .filter_map(|redirect| match &redirect.target {
+            RedirectTarget::File(word) => Some(word),
+            _ => None,
+        })
+}
+
+/// A `[[ ]]` test's operands.
+fn test_operands(expr: &TestExpr) -> Vec<&Word> {
+    match expr {
+        TestExpr::Unary { operand, .. } => vec![operand],
+        TestExpr::Binary { left, right, .. } => vec![left, right],
+        TestExpr::Not(inner) => test_operands(inner),
+        TestExpr::And(a, b) | TestExpr::Or(a, b) => {
+            let mut words = test_operands(a);
+            words.extend(test_operands(b));
+            words
+        }
+    }
+}
+
+/// Whether an unquoted heredoc runs a command as it expands: its body is text
+/// here, not a tree, so what it runs is not followed.
+fn heredoc_runs(redirects: &[Redirect]) -> bool {
+    redirects.iter().any(|redirect| match &redirect.target {
+        RedirectTarget::Here(heredoc) => {
+            !heredoc.quoted && (heredoc.body.contains("$(") || heredoc.body.contains('`'))
+        }
+        _ => false,
+    })
 }
 
 /// Whether a redirect list sends stdout somewhere: `>`, `>>`, `>|`, `&>`,
