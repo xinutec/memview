@@ -1,4 +1,5 @@
-//! Python's `re.sub`, where Python's `re` and Rust's `regex` mean the same thing.
+//! Python's `re.sub` and its matching functions, where Python's `re` and
+//! Rust's `regex` mean the same thing.
 //!
 //! The pattern is translated, not copied: an escaped punctuation character is a
 //! literal in Python and re-escaped for Rust, `\Z` is Rust's `\z`, and inside a
@@ -36,12 +37,41 @@ pub(super) struct Pattern {
     regex: Regex,
     /// A `$` without `re.M`, which Python also matches before a final newline.
     bare_dollar: bool,
+    /// The translated source and flags, for the anchored forms.
+    translated: String,
+    flags: i64,
 }
+
+/// Where a match must lie: anywhere (`search`), at the start (`match`), or
+/// over the whole text (`fullmatch`).
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Anchor {
+    Anywhere,
+    Start,
+    Whole,
+}
+
+/// One match: each group's span in characters, as Python counts them, and
+/// `None` for a group that took no part.
+pub(super) type Spans = Vec<Option<(usize, usize)>>;
 
 /// Why a substitution is not followed, as the census names it.
 pub(super) type Refused = &'static str;
 
+/// A pattern for `sub`, `finditer` and `findall`, which step over a text and
+/// place an empty match where Rust does not: one that can match nothing is
+/// refused.
 pub(super) fn compile(source: &str, flags: i64) -> Result<Pattern, Refused> {
+    compile_with(source, flags, false)
+}
+
+/// A pattern for one match (`search`, `match`, `fullmatch`), where an empty
+/// match is found where Python finds it.
+pub(super) fn compile_once(source: &str, flags: i64) -> Result<Pattern, Refused> {
+    compile_with(source, flags, true)
+}
+
+fn compile_with(source: &str, flags: i64, empty: bool) -> Result<Pattern, Refused> {
     if flags & !(IGNORECASE | MULTILINE | DOTALL | UNICODE) != 0 {
         return Err("re flag");
     }
@@ -49,16 +79,83 @@ pub(super) fn compile(source: &str, flags: i64) -> Result<Pattern, Refused> {
     let hir = regex_syntax::Parser::new()
         .parse(&translated)
         .map_err(|_| "re pattern")?;
-    if hir.properties().minimum_len() == Some(0) {
+    if !empty && hir.properties().minimum_len() == Some(0) {
         return Err("re empty match");
     }
-    let regex = RegexBuilder::new(&translated)
+    let regex = build(&translated, flags)?;
+    Ok(Pattern {
+        regex,
+        bare_dollar,
+        translated,
+        flags,
+    })
+}
+
+fn build(translated: &str, flags: i64) -> Result<Regex, Refused> {
+    RegexBuilder::new(translated)
         .case_insensitive(flags & IGNORECASE != 0)
         .multi_line(flags & MULTILINE != 0)
         .dot_matches_new_line(flags & DOTALL != 0)
         .build()
-        .map_err(|_| "re pattern")?;
-    Ok(Pattern { regex, bare_dollar })
+        .map_err(|_| "re pattern")
+}
+
+/// The groups' names, by index; group 0 and unnamed groups have none.
+pub(super) fn names(pattern: &Pattern) -> Vec<Option<String>> {
+    pattern
+        .regex
+        .capture_names()
+        .map(|name| name.map(str::to_string))
+        .collect()
+}
+
+/// `re.search`, `re.match` or `re.fullmatch`: the first match where `anchor`
+/// allows one, or `None`.
+pub(super) fn find(
+    pattern: &Pattern,
+    text: &str,
+    anchor: Anchor,
+) -> Result<Option<Spans>, Refused> {
+    if pattern.bare_dollar && text.ends_with('\n') {
+        return Err("re $ before a final newline");
+    }
+    let anchored;
+    let regex = match anchor {
+        Anchor::Anywhere => &pattern.regex,
+        Anchor::Start => {
+            anchored = build(&format!("\\A(?:{})", pattern.translated), pattern.flags)?;
+            &anchored
+        }
+        Anchor::Whole => {
+            anchored = build(&format!("\\A(?:{})\\z", pattern.translated), pattern.flags)?;
+            &anchored
+        }
+    };
+    Ok(regex.captures(text).map(|captures| spans(&captures, text)))
+}
+
+/// `re.finditer`: every match, left to right, none overlapping.
+pub(super) fn find_all(pattern: &Pattern, text: &str) -> Result<Vec<Spans>, Refused> {
+    if pattern.bare_dollar && text.ends_with('\n') {
+        return Err("re $ before a final newline");
+    }
+    Ok(pattern
+        .regex
+        .captures_iter(text)
+        .map(|captures| spans(&captures, text))
+        .collect())
+}
+
+/// A match's groups as character spans.
+fn spans(captures: &regex::Captures<'_>, text: &str) -> Spans {
+    let at = |byte: usize| text[..byte].chars().count();
+    (0..captures.len())
+        .map(|index| {
+            captures
+                .get(index)
+                .map(|group| (at(group.start()), at(group.end())))
+        })
+        .collect()
 }
 
 /// `pattern.sub(template, text, count)`, with how many were replaced; `count` 0

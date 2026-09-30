@@ -58,8 +58,18 @@ enum Value {
         source: String,
         flags: i64,
     },
-    /// A function this does not follow, as a value: a `lambda`.
+    /// A function this does not follow, as a value: a `lambda` that closes
+    /// over a function's names, or takes defaults.
     Callable,
+    /// A `lambda` written at module level, by its place among the program's.
+    Lambda(usize),
+    /// What a match returned: the text searched, each group's span in
+    /// characters (`None` for one that took no part), and the groups' names.
+    Match {
+        text: String,
+        spans: python_re::Spans,
+        names: Vec<Option<String>>,
+    },
     /// Not determined by the text, and why.
     Unknown(Why),
 }
@@ -95,6 +105,8 @@ enum Function {
     },
     /// `re.compile`.
     Compile,
+    /// `re.search`, `re.match`, `re.fullmatch`, `re.finditer`, `re.findall`.
+    Matching(Matching),
     /// `re.escape`.
     Escape,
     /// A library call that only reads or computes: handed a path-shaped string,
@@ -165,19 +177,31 @@ impl Function {
             "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk"
             | "os.path.basename" | "os.path.dirname" | "os.path.splitext" | "os.path.isdir"
             | "os.path.relpath" | "os.getcwd" | "os.environ.get" | "sys.path.insert"
-            | "sys.path.append" | "re.search" | "re.match" | "re.fullmatch" | "re.findall"
-            | "re.finditer" | "re.split" | "shlex.quote" | "shlex.split" | "textwrap.dedent" => {
-                Function::Pure
-            }
+            | "sys.path.append" | "re.split" | "shlex.quote" | "shlex.split"
+            | "textwrap.dedent" => Function::Pure,
             "re.sub" => Function::Substitute { counted: false },
             "re.subn" => Function::Substitute { counted: true },
             "re.compile" => Function::Compile,
+            "re.search" => Function::Matching(Matching::Find(python_re::Anchor::Anywhere)),
+            "re.match" => Function::Matching(Matching::Find(python_re::Anchor::Start)),
+            "re.fullmatch" => Function::Matching(Matching::Find(python_re::Anchor::Whole)),
+            "re.finditer" => Function::Matching(Matching::Iter),
+            "re.findall" => Function::Matching(Matching::All),
             "re.escape" => Function::Escape,
             "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
             | "shutil.copyfile" => Function::Transfer,
             _ => return None,
         })
     }
+}
+
+/// What a matching function returns: one match or `None`, every match, or
+/// every match's text.
+#[derive(Debug, Clone, Copy)]
+enum Matching {
+    Find(python_re::Anchor),
+    Iter,
+    All,
 }
 
 /// The parts of a path read as attributes: `p.parent`, `p.name`.
@@ -259,6 +283,8 @@ struct Eval<'r, 'a, 'm> {
     /// Each function's default arguments by parameter, evaluated once where it
     /// was defined, as Python does.
     defaults: BTreeMap<String, BTreeMap<String, Value>>,
+    /// The module-level lambdas, as [`Value::Lambda`] numbers them.
+    lambdas: Vec<(&'m Params, &'m Expr)>,
 }
 
 /// One call's names, and the ones it declared `global`.
@@ -273,8 +299,9 @@ struct Frame {
 struct Def<'m> {
     params: &'m Params,
     body: &'m [Stmt],
-    /// A call to it is not followed: a decorator may change what it does, or
-    /// it was defined in a block this does not know ran.
+    /// A call to it is not followed: a decorator may change what it does, it
+    /// was defined in a block this does not know ran, or inside a function
+    /// whose names it may read.
     unfollowed: bool,
 }
 
@@ -292,6 +319,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             frames: Vec::new(),
             functions: BTreeMap::new(),
             defaults: BTreeMap::new(),
+            lambdas: Vec::new(),
         }
     }
 
@@ -978,7 +1006,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         names_read(expr, &mut names);
         for name in names {
             match self.name(&name) {
-                Value::Defined(_) | Value::Callable => self.forget_lists(why),
+                Value::Defined(_) | Value::Callable | Value::Lambda(_) => self.forget_lists(why),
                 held => self.escape(&held, why),
             }
         }
@@ -1023,7 +1051,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Def {
                 params,
                 body,
-                unfollowed: !decorators.is_empty(),
+                // Defined inside a function, it reads that function's names,
+                // which a call's own frame does not hold.
+                unfollowed: !decorators.is_empty() || !self.frames.is_empty(),
             },
         );
         self.set(name, Value::Defined(name.to_string()));
@@ -1135,6 +1165,18 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Value::Unknown(why) => Value::Unknown(why),
                 _ => Value::Unknown(construct("operator -")),
             },
+            // Followed where it can be: written at module level, with plain
+            // parameters. One inside a function reads that function's names.
+            Expr::Lambda { params, body }
+                if self.frames.is_empty()
+                    && params.kwonly.is_empty()
+                    && params.vararg.is_none()
+                    && params.kwarg.is_none()
+                    && params.args.iter().all(|param| param.default.is_none()) =>
+            {
+                self.lambdas.push((params, body));
+                Value::Lambda(self.lambdas.len() - 1)
+            }
             Expr::Lambda { .. } => Value::Callable,
             Expr::Bytes(_) => Value::Unknown(construct("bytes")),
             // A list or dict comprehension runs at once, in order.
@@ -1317,14 +1359,43 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 {
                     let arg =
                         |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
+                    let (pattern, flags) = (Value::Str(source.clone()), Value::Int(*flags));
+                    let repl = arg(0, "repl").unwrap_or(&Value::None).clone();
+                    let string = arg(1, "string").unwrap_or(&Value::None).clone();
+                    let count = arg(2, "count").unwrap_or(&Value::Int(0)).clone();
+                    if let Value::Defined(_) | Value::Lambda(_) = repl {
+                        return self.substitute_calling(
+                            &pattern,
+                            &flags,
+                            &repl,
+                            &string,
+                            &count,
+                            counted == "subn",
+                        );
+                    }
                     return Ok(substitute(
-                        &Value::Str(source.clone()),
-                        &Value::Int(*flags),
-                        arg(0, "repl").unwrap_or(&Value::None),
-                        arg(1, "string").unwrap_or(&Value::None),
-                        arg(2, "count").unwrap_or(&Value::Int(0)),
+                        &pattern,
+                        &flags,
+                        &repl,
+                        &string,
+                        &count,
                         counted == "subn",
                     ));
+                }
+                if let Value::Pattern { source, flags } = &receiver
+                    && let Some(kind) = Matching::of_method(attr)
+                    && positional.len() == 1
+                    && keyword.is_empty()
+                {
+                    return Ok(matching(
+                        kind,
+                        &Value::Str(source.clone()),
+                        &Value::Int(*flags),
+                        &positional[0],
+                    ));
+                }
+                if let Value::Match { text, spans, names } = &receiver {
+                    return match_method(text, spans, names, attr, &positional);
                 }
                 return Ok(self.method(receiver, attr, positional, &keyword));
             }
@@ -1361,6 +1432,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let name = match callee {
             Value::Name(name) => name,
             Value::Defined(defined) => return self.call_defined(&defined, positional, keyword),
+            Value::Lambda(at) => return self.call_lambda(at, positional, &keyword),
             // A function reached through an expression this does not follow
             // (`handlers[k](f)`, a lambda) may write a file handed to it, and a
             // lambda may change a list it closes over.
@@ -1620,6 +1692,32 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Some(Function::Reads | Function::Pure) => {
                 Value::Unknown(Why::Python(format!("call {name}")))
             }
+            Some(Function::Matching(kind)) => {
+                let arg = |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
+                matching(
+                    kind,
+                    arg(0, "pattern").unwrap_or(&Value::None),
+                    arg(2, "flags").unwrap_or(&Value::Int(0)),
+                    arg(1, "string").unwrap_or(&Value::None),
+                )
+            }
+            Some(Function::Substitute { counted })
+                if matches!(
+                    positional.get(1).or_else(|| keyword.get("repl")),
+                    Some(Value::Defined(_) | Value::Lambda(_))
+                ) =>
+            {
+                let arg = |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
+                let args = [
+                    arg(0, "pattern").unwrap_or(&Value::None).clone(),
+                    arg(4, "flags").unwrap_or(&Value::Int(0)).clone(),
+                    arg(1, "repl").unwrap_or(&Value::None).clone(),
+                    arg(2, "string").unwrap_or(&Value::None).clone(),
+                    arg(3, "count").unwrap_or(&Value::Int(0)).clone(),
+                ];
+                return self
+                    .substitute_calling(&args[0], &args[1], &args[2], &args[3], &args[4], counted);
+            }
             Some(Function::Substitute { counted }) => {
                 let arg = |at: usize, key: &str| positional.get(at).or_else(|| keyword.get(key));
                 substitute(
@@ -1669,6 +1767,100 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 Value::Unknown(why)
             }
+        })
+    }
+
+    /// A module-level lambda called: its body in a frame of its own. Too few or
+    /// too many arguments raise, as in Python.
+    fn call_lambda(
+        &mut self,
+        at: usize,
+        positional: Vec<Value>,
+        keyword: &BTreeMap<&str, Value>,
+    ) -> Result<Value, Stop> {
+        let (params, body) = self.lambdas[at];
+        if self.frames.len() >= DEPTH {
+            return Ok(Value::Unknown(construct("lambda")));
+        }
+        let mut frame = Frame::default();
+        let mut positional = positional.into_iter();
+        for param in &params.args {
+            let value = positional
+                .next()
+                .or_else(|| keyword.get(param.name.as_str()).cloned())
+                .ok_or(Stop::Ended)?;
+            frame.locals.insert(param.name.clone(), value);
+        }
+        if positional.next().is_some() {
+            return Err(Stop::Ended);
+        }
+        self.frames.push(frame);
+        let result = self.expr(body);
+        self.frames.pop();
+        result
+    }
+
+    /// `re.sub` with a function as the replacement: called once per match with
+    /// the match, each call's text put in its place.
+    fn substitute_calling(
+        &mut self,
+        pattern: &Value,
+        flags: &Value,
+        repl: &Value,
+        string: &Value,
+        count: &Value,
+        counted: bool,
+    ) -> Result<Value, Stop> {
+        let (Value::Str(source), Value::Int(flags), Value::Str(text), Value::Int(count)) =
+            (pattern, flags, string, count)
+        else {
+            for value in [pattern, flags, string, count] {
+                if let Value::Unknown(why) = value {
+                    return Ok(Value::Unknown(why.clone()));
+                }
+            }
+            return Ok(Value::Unknown(construct("re.sub")));
+        };
+        let found = python_re::compile(source, *flags).and_then(|compiled| {
+            Ok((
+                python_re::names(&compiled),
+                python_re::find_all(&compiled, text)?,
+            ))
+        });
+        let (names, found) = match found {
+            Ok(found) => found,
+            Err(why) => return Ok(Value::Unknown(construct(why))),
+        };
+        let chars: Vec<char> = text.chars().collect();
+        let (mut out, mut last, mut done) = (String::new(), 0, 0);
+        for spans in found {
+            if *count > 0 && done == *count {
+                break;
+            }
+            let (start, end) = spans[0].expect("group 0 always matches");
+            out.extend(&chars[last..start]);
+            let found = Value::Match {
+                text: text.clone(),
+                spans,
+                names: names.clone(),
+            };
+            let replaced = match repl {
+                Value::Defined(name) => self.call_defined(name, vec![found], BTreeMap::new())?,
+                Value::Lambda(at) => self.call_lambda(*at, vec![found], &BTreeMap::new())?,
+                other => return Ok(unknown(other, "re replacement function")),
+            };
+            match replaced {
+                Value::Str(replaced) => out.push_str(&replaced),
+                other => return Ok(unknown(&other, "re replacement function")),
+            }
+            last = end;
+            done += 1;
+        }
+        out.extend(&chars[last..]);
+        Ok(if counted {
+            Value::Tuple(vec![Value::Str(out), Value::Int(done)])
+        } else {
+            Value::Str(out)
         })
     }
 
@@ -2655,6 +2847,7 @@ fn truth(value: Value) -> Value {
         Value::Tuple(items) => Value::Bool(!items.is_empty()),
         Value::Dict(pairs) => Value::Bool(!pairs.is_empty()),
         Value::Set(items) => Value::Bool(!items.is_empty()),
+        Value::Match { .. } => Value::Bool(true),
         Value::Unknown(why) => Value::Unknown(why),
         _ => Value::Unknown(construct("truth")),
     }
@@ -2955,6 +3148,166 @@ fn slice(value: Value, lower: Option<Value>, upper: Option<Value>) -> Value {
     }
 }
 
+impl Matching {
+    /// A compiled pattern's method of the same name.
+    fn of_method(method: &str) -> Option<Self> {
+        Some(match method {
+            "search" => Matching::Find(python_re::Anchor::Anywhere),
+            "match" => Matching::Find(python_re::Anchor::Start),
+            "fullmatch" => Matching::Find(python_re::Anchor::Whole),
+            "finditer" => Matching::Iter,
+            "findall" => Matching::All,
+            _ => return None,
+        })
+    }
+}
+
+/// A matching function's result over a text: a match or `None`, every match,
+/// or `findall`'s texts (the whole match with no groups, the one group's text
+/// with one, a tuple of each group's text with more).
+fn matching(kind: Matching, pattern: &Value, flags: &Value, string: &Value) -> Value {
+    let (Value::Str(source), Value::Int(flags), Value::Str(text)) = (pattern, flags, string) else {
+        for value in [pattern, flags, string] {
+            if let Value::Unknown(why) = value {
+                return Value::Unknown(why.clone());
+            }
+        }
+        return Value::Unknown(construct("re match"));
+    };
+    let compiled = match kind {
+        Matching::Find(_) => python_re::compile_once(source, *flags),
+        Matching::Iter | Matching::All => python_re::compile(source, *flags),
+    };
+    let compiled = match compiled {
+        Ok(compiled) => compiled,
+        Err(why) => return Value::Unknown(construct(why)),
+    };
+    let names = python_re::names(&compiled);
+    let found = |spans: python_re::Spans| Value::Match {
+        text: text.clone(),
+        spans,
+        names: names.clone(),
+    };
+    let result = match kind {
+        Matching::Find(anchor) => {
+            python_re::find(&compiled, text, anchor).map(|spans| spans.map_or(Value::None, found))
+        }
+        Matching::Iter => python_re::find_all(&compiled, text)
+            .map(|all| Value::Tuple(all.into_iter().map(found).collect())),
+        Matching::All => python_re::find_all(&compiled, text).map(|all| {
+            Value::Tuple(
+                all.into_iter()
+                    .map(|spans| {
+                        let texts: Vec<Value> = spans
+                            .iter()
+                            .map(|span| match group_text(text, *span) {
+                                Value::None => Value::Str(String::new()),
+                                found => found,
+                            })
+                            .collect();
+                        match texts.len() {
+                            1 => texts[0].clone(),
+                            2 => texts[1].clone(),
+                            _ => Value::Tuple(texts[1..].to_vec()),
+                        }
+                    })
+                    .collect(),
+            )
+        }),
+    };
+    result.unwrap_or_else(|why| Value::Unknown(construct(why)))
+}
+
+/// A group's text, or `None` for one that took no part.
+fn group_text(text: &str, span: Option<(usize, usize)>) -> Value {
+    span.map_or(Value::None, |(start, end)| {
+        Value::Str(text.chars().skip(start).take(end - start).collect())
+    })
+}
+
+/// Which group an argument names: its number, or its name. `Err` where Python
+/// raises, `Ok(None)` when the argument is not known.
+fn group_index(names: &[Option<String>], wanted: &Value) -> Result<Option<usize>, Stop> {
+    match wanted {
+        Value::Int(at) => usize::try_from(*at)
+            .ok()
+            .filter(|at| *at < names.len())
+            .map(Some)
+            .ok_or(Stop::Ended),
+        Value::Str(name) => names
+            .iter()
+            .position(|named| named.as_deref() == Some(name.as_str()))
+            .map(Some)
+            .ok_or(Stop::Ended),
+        _ => Ok(None),
+    }
+}
+
+/// A method of a match.
+fn match_method(
+    text: &str,
+    spans: &python_re::Spans,
+    names: &[Option<String>],
+    method: &str,
+    args: &[Value],
+) -> Result<Value, Stop> {
+    let group = |wanted: &Value| -> Result<Option<Option<(usize, usize)>>, Stop> {
+        Ok(group_index(names, wanted)?.map(|at| spans[at]))
+    };
+    let whole = Value::Int(0);
+    Ok(match (method, args) {
+        ("group", []) => group_text(text, spans[0]),
+        ("group", [one]) => match group(one)? {
+            Some(span) => group_text(text, span),
+            None => unknown(one, "match.group"),
+        },
+        ("group", many) => {
+            let mut texts = Vec::with_capacity(many.len());
+            for wanted in many {
+                match group(wanted)? {
+                    Some(span) => texts.push(group_text(text, span)),
+                    None => return Ok(unknown(wanted, "match.group")),
+                }
+            }
+            Value::Tuple(texts)
+        }
+        ("groups", [] | [_]) => {
+            let default = args.first().cloned().unwrap_or(Value::None);
+            Value::Tuple(
+                spans[1..]
+                    .iter()
+                    .map(|span| match group_text(text, *span) {
+                        Value::None => default.clone(),
+                        found => found,
+                    })
+                    .collect(),
+            )
+        }
+        ("groupdict", []) => Value::Dict(
+            names
+                .iter()
+                .zip(spans)
+                .filter_map(|(name, span)| {
+                    Some((Value::Str(name.clone()?), group_text(text, *span)))
+                })
+                .collect(),
+        ),
+        (edge @ ("start" | "end" | "span"), [] | [_]) => {
+            let wanted = args.first().unwrap_or(&whole);
+            let Some(span) = group(wanted)? else {
+                return Ok(unknown(wanted, "match span"));
+            };
+            let (start, end) = span.map_or((-1, -1), |(start, end)| (start as i64, end as i64));
+            match edge {
+                "start" => Value::Int(start),
+                "end" => Value::Int(end),
+                _ => Value::Tuple(vec![Value::Int(start), Value::Int(end)]),
+            }
+        }
+        _ => Value::Unknown(Why::Python(format!("match.{method}"))),
+    })
+}
+
 /// `next`, `any` or `all` of what a generator produced (run only as far as
 /// each looks) or of a list: `next` of a list raises in Python.
 fn consume(
@@ -3047,7 +3400,8 @@ fn cause(value: &Value) -> String {
         Value::Name(name) => name.clone(),
         Value::Defined(name) => format!("function {name}"),
         Value::Pattern { .. } => "a pattern".to_string(),
-        Value::Callable => "a lambda".to_string(),
+        Value::Callable | Value::Lambda(_) => "a lambda".to_string(),
+        Value::Match { .. } => "a match".to_string(),
         Value::Set(_) => "a set".to_string(),
         Value::Bool(_) | Value::None | Value::Dict(_) => "a value".to_string(),
     }
@@ -3295,6 +3649,10 @@ fn item(value: Value, index: Value) -> Result<Value, Stop> {
             let at = position(items.len(), index)?;
             items.swap_remove(at)
         }
+        (Value::Match { text, spans, names }, wanted) => match group_index(&names, &wanted)? {
+            Some(at) => group_text(&text, spans[at]),
+            None => unknown(&wanted, "match.group"),
+        },
         (Value::Dict(_), Value::Unknown(why)) => Value::Unknown(why),
         (Value::Dict(mut pairs), at) => match find_key(&pairs, &at) {
             Some(found) => pairs.swap_remove(found).1,

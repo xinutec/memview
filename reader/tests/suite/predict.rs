@@ -634,6 +634,57 @@ fn a_python_comprehension_is_followed() {
     }
 }
 
+/// A match is followed as Python's `re` gives it: groups by number and name,
+/// positions in characters, `finditer`, `findall`, and `re.sub` calling a
+/// function or a lambda once per match.
+#[test]
+fn a_python_regex_match_is_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let head = "import re, json\ndef w(t):\n    open('o', 'w').write(t)\n";
+    for (program, text) in [
+        (
+            "m = re.search(r'v(\\d+)', 'app v12 x')\nw(m.group(1) + str(m.start()) + m[0])",
+            "124v12",
+        ),
+        (
+            "w(str(re.match('x', 'ax')) + str(re.fullmatch('a.', 'ax').end()))",
+            "None2",
+        ),
+        (
+            "m = re.search(r'(?P<k>\\w+)=(?P<v>\\w+)', 'a=1')\nw(m.group('v') + json.dumps(m.groupdict()))",
+            "1{\"k\": \"a\", \"v\": \"1\"}",
+        ),
+        (
+            "w(''.join([m.group() for m in re.finditer(r'\\d', 'a1b2')]))",
+            "12",
+        ),
+        (
+            "w(json.dumps(re.findall(r'(\\w)=(\\d)', 'a=1 b=2')) + json.dumps(re.findall(r'\\d', 'a1b2')))",
+            "[[\"a\", \"1\"], [\"b\", \"2\"]][\"1\", \"2\"]",
+        ),
+        (
+            "w(re.sub(r'\\d', lambda m: '<' + m.group() + '>', 'a1b2'))",
+            "a<1>b<2>",
+        ),
+        (
+            "def br(m):\n    return '[' + m.group(1) + ']'\nw(re.sub(r'(\\d)', br, 'a1b2', count=1))",
+            "a[1]b2",
+        ),
+        (
+            "p = re.compile(r'b')\nw(str(p.search('abc').start()) + str(re.search('é', 'aé').start()))",
+            "11",
+        ),
+    ] {
+        let found = run(&py(&format!("{head}{program}")), &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/repo/o", text)],
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
 /// A set is followed where its order does not matter, and refused where it
 /// does: Python gives it none.
 #[test]
@@ -1420,10 +1471,7 @@ fn a_regex_the_engines_disagree_on_is_refused() {
     for (call, why) in [
         (r"re.sub(r'x*', '-', 'ab')", "re empty match"),
         (r"re.sub(r'(a)\1', 'b', 'aa')", "re backreference"),
-        (
-            r"re.sub('a', lambda m: 'b', 'a')",
-            "re replacement function",
-        ),
+        (r"re.sub('a', str.upper, 'a')", "re replacement function"),
         (r"re.sub('a', r'\q', 'a')", "re replacement escape"),
         (r"re.sub('a b', 'c', 'a b', flags=re.X)", "re flag"),
     ] {
@@ -1857,6 +1905,26 @@ fn a_python_default_argument_is_the_value_at_definition() {
         &nothing_known(),
     );
     assert_eq!(fixed.written, vec![written("/repo/a", "x")]);
+}
+
+/// A function defined inside another reads that function's names, which the
+/// evaluator does not keep for it: a call to one is not followed, rather than
+/// followed against the module's names.
+#[test]
+fn a_python_function_defined_inside_another_is_not_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let found = run(
+        &py(
+            "x = 'outer'\ndef f():\n    x = 'inner'\n    def g():\n        open(x, 'w').write('y')\n    g()\nf()",
+        ),
+        &nothing_known(),
+    );
+    assert!(
+        !found.written.iter().any(|w| w.path == "/repo/outer"),
+        "{:?}",
+        found.written
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
 }
 
 /// A function reached through an expression may write a file handed to it.

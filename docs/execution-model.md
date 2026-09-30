@@ -163,7 +163,13 @@ pattern is spelled out.
 A command it runs is followed as the shell it amounts to. `re.sub` is followed
 where Python's `re` and Rust's `regex` mean the same thing, translated rather
 than copied, and refused by what differs where they do not: a backreference,
-a pattern that can match the empty string, a `$` before a final newline. `predict-report` lists what the
+a pattern that can match the empty string, a `$` before a final newline.
+`re.search`, `re.match`, `re.fullmatch`, `re.finditer` and `re.findall` are
+followed on the same translation, a match's groups by number and name with
+positions in characters as Python counts them, and `re.sub` with a function
+or a module-level lambda calls it once per match. A function or lambda
+defined inside another function reads that function's names, which a call's
+own frame does not hold, so a call to one is not followed. `predict-report` lists what the
 reconstruction knows is written and the evaluator never mentions, which is what
 is still out of its sight.
 
