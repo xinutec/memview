@@ -413,6 +413,70 @@ fn a_command_substitution_runs_before_its_command() {
     );
 }
 
+/// A `$( )` has the value of what it printed, its trailing newlines removed;
+/// unquoted, only where splitting and globbing change nothing.
+#[test]
+fn a_command_substitution_has_the_value_it_printed() {
+    let shown = known(&[("/repo/f", Some("first\nsecond x\n"))]);
+    for (command, text) in [
+        ("x=$(echo hi); echo $x > o", "hi\n"),
+        ("d=$(dirname /a/b/c.txt); echo \"$d\" > o", "/a/b\n"),
+        ("echo \"$(head -1 f)\" > o", "first\n"),
+        ("echo \"$(cat f)\" > o", "first\nsecond x\n"),
+        ("n=$(grep -c x f); echo \"n=$n\" > o", "n=1\n"),
+        ("echo \"$(echo a | tr a-z A-Z)\" > o", "A\n"),
+        ("b=$(basename \"$(dirname /x/y/z)\"); echo $b > o", "y\n"),
+    ] {
+        let found = run(command, &shown);
+        let file = found.written.iter().find(|w| w.path == "/repo/o");
+        assert_eq!(
+            file,
+            Some(&written("/repo/o", text)),
+            "{command}: {:?}",
+            found.unfollowed
+        );
+    }
+    for command in [
+        "echo $(tail -1 f) > o",
+        "x=$(./tool); echo $x > o",
+        "echo \"$(date)\" > o",
+    ] {
+        let found = run(command, &shown);
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/o"),
+            "{command}: {:?}",
+            found.written
+        );
+    }
+}
+
+/// A loop this does not follow forgets only the names it binds, so a write in
+/// it still reaches the file a name bound before it names; and a write to a
+/// path the text does not determine withdraws what came before. Found in
+/// history: `: > "$out"` then a glob loop appending to "$out" was predicted
+/// empty.
+#[test]
+fn a_loop_not_followed_still_writes_where_its_names_say() {
+    let found = run(
+        "out=o\n: > \"$out\"\nfor f in *.rs; do b=$f; echo \"mod $b;\" >> \"$out\"; done",
+        &nothing_known(),
+    );
+    assert!(
+        !found.written.iter().any(|w| w.path == "/repo/o"),
+        "{:?}",
+        found.written
+    );
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/o"))
+    );
+
+    let unnamed = run("echo x > a; echo y > \"$UNKNOWN\"", &nothing_known());
+    assert!(unnamed.written.is_empty(), "{:?}", unnamed.written);
+}
+
 /// A test this can decide steers `&&`, `||` and `if` exactly: from the text,
 /// from sight, and from what the run itself wrote. One it cannot decide is
 /// not assumed to succeed, since what it asks is whether it does.

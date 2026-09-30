@@ -342,6 +342,12 @@ struct Run<'a> {
     /// files a redirected group, subshell or loop around it opened. `None`
     /// outside one.
     sink: Option<Vec<String>>,
+    /// Inside a `$( )` being expanded: what it has printed so far, or why
+    /// that is not known.
+    buffer: Option<Result<String, Why>>,
+    /// What each `$( )` printed, by the node it is, as the command that holds
+    /// it expanded it: a word's value is read from here.
+    substituted: BTreeMap<usize, Result<String, Why>>,
     /// Whether an unknown program is assumed to leave every file alone.
     assume: bool,
     /// Counts writes and unknown programs, to put them in order.
@@ -376,6 +382,8 @@ impl<'a> Run<'a> {
             trees: Vec::new(),
             unfollowed: Vec::new(),
             sink: None,
+            buffer: None,
+            substituted: BTreeMap::new(),
             assume,
             clock: 0,
             written_at: BTreeMap::new(),
@@ -472,6 +480,13 @@ impl<'a> Run<'a> {
     fn touched(&mut self, path: &str) {
         self.clock += 1;
         self.written_at.insert(path.to_string(), self.clock);
+    }
+
+    /// A write to a path the text does not determine may have gone to any
+    /// file: nothing known survives it.
+    fn unnamed_write(&mut self, why: Why) {
+        self.forget_everything(why.clone());
+        self.unfollowed.push(Unfollowed { path: None, why });
     }
 
     /// A program the tables do not know, which may have written any file. Under
@@ -835,6 +850,7 @@ impl<'a> Run<'a> {
         let (base_now, base_trees) = (self.now.clone(), self.trees.clone());
         // Only the last member's stdout leaves the pipeline.
         let sink = self.sink.take();
+        let mut buffer = self.buffer.take();
         let mut merged = base_now.clone();
         let mut merged_trees = base_trees.clone();
         let mut changed_by: BTreeMap<String, usize> = BTreeMap::new();
@@ -849,6 +865,9 @@ impl<'a> Run<'a> {
             };
             self.stopped = stopped;
             self.sink = if last { sink.clone() } else { None };
+            if last {
+                self.buffer = buffer.take();
+            }
             // The last prints where the pipeline does, into one around it. What
             // a compound member prints is not followed, so only a simple
             // command's output is kept: never one nested inside another.
@@ -861,6 +880,7 @@ impl<'a> Run<'a> {
             self.command(member);
             if last {
                 status = self.status(member);
+                buffer = self.buffer.take();
             } else {
                 // A compound member's output is not followed.
                 previous = self.printed.take().unwrap_or(Err(Why::Compound));
@@ -880,6 +900,7 @@ impl<'a> Run<'a> {
         self.capture = capture;
         self.stopped = stopped;
         self.sink = sink;
+        self.buffer = buffer;
         self.now = merged;
         self.trees = merged_trees;
         for (path, members) in changed_by {
@@ -1005,7 +1026,7 @@ impl<'a> Run<'a> {
                     self.write(&path, append, Ok(String::new()));
                     opened.push(path);
                 }
-                Target::Unnamed(why) => self.unfollowed.push(Unfollowed { path: None, why }),
+                Target::Unnamed(why) => self.unnamed_write(why),
                 // What goes to stderr is not modelled.
                 Target::Other(path) => self.write(&path, false, Err(Why::Descriptor)),
             }
@@ -1019,6 +1040,12 @@ impl<'a> Run<'a> {
         };
         let outer = std::mem::replace(&mut self.sink, sink);
         let capture = std::mem::replace(&mut self.capture, false);
+        // Printing into its own files, a stdout redirect prints nothing out.
+        let buffer = if prints_to_redirect(&command.redirects) {
+            self.buffer.take()
+        } else {
+            None
+        };
         let bare = Command {
             redirects: Vec::new(),
             ..command.clone()
@@ -1026,6 +1053,9 @@ impl<'a> Run<'a> {
         self.command(&bare);
         self.sink = outer;
         self.capture = capture;
+        if let Some(buffer) = buffer {
+            self.buffer = Some(buffer);
+        }
         true
     }
 
@@ -1039,7 +1069,14 @@ impl<'a> Run<'a> {
             for segment in &word.segments {
                 match &segment.kind {
                     SegmentKind::Substitution(substitution) => {
-                        self.subshell(&substitution.items, why);
+                        let printed = match why {
+                            None => self.captured(&substitution.items),
+                            Some(why) => {
+                                self.subshell(&substitution.items, Some(why));
+                                Err(why.clone())
+                            }
+                        };
+                        self.substituted.insert(node(substitution), printed);
                     }
                     SegmentKind::ProcessSubstitution(_) => {
                         self.forget_within(segment, why.cloned().unwrap_or(Why::Background));
@@ -1073,6 +1110,14 @@ impl<'a> Run<'a> {
         self.capture = capture;
     }
 
+    /// A `$( )` run as its subshell, and what it printed.
+    fn captured(&mut self, items: &[Item]) -> Result<String, Why> {
+        let outer = self.buffer.replace(Ok(String::new()));
+        self.subshell(items, None);
+        let printed = std::mem::replace(&mut self.buffer, outer);
+        printed.unwrap_or(Err(Why::Expansion))
+    }
+
     /// Every command held inside one part of a word, forgotten for `why`.
     fn forget_within(&mut self, segment: &Segment, why: Why) {
         let mut inside = Vec::new();
@@ -1099,10 +1144,7 @@ impl<'a> Run<'a> {
         argv: &[Option<String>],
         redirects: &[Redirect],
     ) {
-        let Some(sink) = self.sink.clone() else {
-            return;
-        };
-        if prints_to_redirect(redirects) {
+        if (self.sink.is_none() && self.buffer.is_none()) || prints_to_redirect(redirects) {
             return;
         }
         let text = if quiet(name, argv) {
@@ -1110,8 +1152,14 @@ impl<'a> Run<'a> {
         } else {
             self.stdout(name, argv, redirects)
         };
-        for path in sink {
+        for path in self.sink.clone().unwrap_or_default() {
             self.write(&path, true, text.clone());
+        }
+        if let Some(buffer) = &mut self.buffer {
+            *buffer = match (std::mem::replace(buffer, Ok(String::new())), text) {
+                (Ok(before), Ok(text)) => Ok(before + &text),
+                (Err(why), _) | (_, Err(why)) => Err(why),
+            };
         }
     }
 
@@ -1190,7 +1238,7 @@ impl<'a> Run<'a> {
         for target in out {
             match target {
                 Target::File { path, append } => self.write(&path, append, written.clone()),
-                Target::Unnamed(why) => self.unfollowed.push(Unfollowed { path: None, why }),
+                Target::Unnamed(why) => self.unnamed_write(why),
                 Target::Other(path) => self.write(&path, false, Err(Why::Descriptor)),
             }
         }
@@ -1992,12 +2040,14 @@ impl<'a> Run<'a> {
         // history: a group binding a loop variable, redirected to `"$WATCH"`,
         // lost its target and the earlier `: > "$WATCH"` stood as predicted.
         let targets = self.outputs(&command.redirects).unwrap_or_default();
-        // What it prints into a redirect around it is not known either.
-        if !prints_to_redirect(&command.redirects)
-            && let Some(sink) = self.sink.clone()
-        {
-            for path in sink {
+        // What it prints into a redirect or a `$( )` around it is not known
+        // either.
+        if !prints_to_redirect(&command.redirects) {
+            for path in self.sink.clone().unwrap_or_default() {
                 self.write(&path, true, Err(why.clone()));
+            }
+            if let Some(buffer) = &mut self.buffer {
+                *buffer = Err(why.clone());
             }
         }
         if let CommandKind::Simple(simple) = &command.kind {
@@ -2015,15 +2065,18 @@ impl<'a> Run<'a> {
                 Target::File { path, .. } | Target::Other(path) => {
                     self.write(&path, false, Err(why.clone()));
                 }
-                Target::Unnamed(_) => self.unfollowed.push(Unfollowed {
-                    path: None,
-                    why: why.clone(),
-                }),
+                Target::Unnamed(_) => self.unnamed_write(why.clone()),
             }
         }
-        // Whatever it bound, this did not see.
-        if binds(command) {
-            self.vars.clear();
+        // Whatever it bound, this did not see: those names, or every name
+        // where which cannot be told.
+        match bound_names(command) {
+            Some(names) => {
+                for name in names {
+                    self.vars.remove(&name);
+                }
+            }
+            None => self.vars.clear(),
         }
         // An exit that succeeds may have been taken; one that fails the call
         // leaves it unchecked, so the success assumed excludes it.
@@ -2088,6 +2141,18 @@ impl<'a> Run<'a> {
                 SegmentKind::Tilde(Tilde::Home) if at == 0 => out.push_str(self.home),
                 SegmentKind::Parameter(parameter) if parameter.subscript.is_none() => {
                     out.push_str(&self.parameter(parameter)?);
+                }
+                // What it printed, its trailing newlines removed. Unquoted, it
+                // is split and globbed: known only where that changes nothing.
+                SegmentKind::Substitution(substitution) => {
+                    let printed = self.substituted.get(&node(substitution))?.as_ref().ok()?;
+                    let value = printed.trim_end_matches('\n');
+                    let splits = value.is_empty()
+                        || value.contains(|c: char| c.is_whitespace() || "*?[".contains(c));
+                    if !substitution.quoted && splits {
+                        return None;
+                    }
+                    out.push_str(value);
                 }
                 _ => return None,
             }
@@ -2378,20 +2443,37 @@ fn controls_flow(body: &[Item]) -> bool {
 
 /// Whether a command this does not follow could bind a name: an assignment, a
 /// builtin that binds, arithmetic, a loop's variable, or any of those inside.
-fn binds(command: &Command) -> bool {
+/// The names a command binds: `None` where which cannot be told — a builtin
+/// that binds names of its own choosing, arithmetic, a function.
+fn bound_names(command: &Command) -> Option<BTreeSet<String>> {
+    let mut names = BTreeSet::new();
     match &command.kind {
         CommandKind::Simple(simple) => {
-            !simple.assignments.is_empty()
-                || named(command).is_some_and(|name| REBINDS.contains(&name) || name == "printf")
+            if named(command).is_some_and(|name| REBINDS.contains(&name) || name == "printf") {
+                return None;
+            }
+            names.extend(simple.assignments.iter().map(|a| a.name.clone()));
         }
-        CommandKind::Arithmetic(_)
-        | CommandKind::ForArith(_)
-        | CommandKind::For(_)
-        | CommandKind::Function(_) => true,
-        kind => bodies(kind)
-            .into_iter()
-            .any(|body| any_command(body, &binds)),
+        CommandKind::Arithmetic(_) | CommandKind::ForArith(_) | CommandKind::Function(_) => {
+            return None;
+        }
+        kind => {
+            if let CommandKind::For(it) = kind {
+                names.insert(it.name.clone());
+            }
+            for body in bodies(kind) {
+                for item in body {
+                    let Item::List(list) = item else { continue };
+                    let pipelines =
+                        std::iter::once(&list.first).chain(list.rest.iter().map(|l| &l.pipeline));
+                    for command in pipelines.flat_map(|pipeline| &pipeline.commands) {
+                        names.extend(bound_names(command)?);
+                    }
+                }
+            }
+        }
     }
+    Some(names)
 }
 
 /// A file that did not end up holding what was predicted.
@@ -2454,6 +2536,13 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// A `$( )` node's identity while its tree lives: where it is. Every word
+/// expanded records its substitutions afresh, so an address a dropped tree
+/// once had is overwritten before it is read.
+fn node(substitution: &crate::syntax::ast::Substitution) -> usize {
+    std::ptr::from_ref(substitution) as usize
 }
 
 /// The words a redirect list expands: its file targets.

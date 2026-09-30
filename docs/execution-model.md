@@ -166,7 +166,12 @@ exactly, and after one it cannot, what follows is only sometimes run. What a
 word runs as it expands runs before its command: a `$( )` is followed as a
 subshell whose output is the word's, so a program inside one withdraws what
 came before as any unknown program does; one inside a parameter's operand
-runs only sometimes, and `<( )` beside the command. A pipeline carries what each
+runs only sometimes, and `<( )` beside the command. A `$( )` has the value of
+what it printed, its trailing newlines removed — unquoted, only where
+splitting and globbing change nothing. A loop or branch not followed forgets
+only the names it binds (all of them after `read`, `declare` and the like),
+and a redirect to a path the text does not determine withdraws what came
+before, as any write to an unknown path does. A pipeline carries what each
 member printed to the next: `echo`, `printf`, `cat` and the text tools
 reimplemented in `reader/src/predict/text.rs` — `grep`, `head`, `tail`,
 `cut`, `tr`, `uniq`, `basename`, `dirname`, and `sort` only under
