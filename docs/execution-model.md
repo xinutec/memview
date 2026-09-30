@@ -166,7 +166,17 @@ exactly, and after one it cannot, what follows is only sometimes run. What a
 word runs as it expands runs before its command: a `$( )` is followed as a
 subshell whose output is the word's, so a program inside one withdraws what
 came before as any unknown program does; one inside a parameter's operand
-runs only sometimes, and `<( )` beside the command.
+runs only sometimes, and `<( )` beside the command. A pipeline carries what each
+member printed to the next: `echo`, `printf`, `cat` and the text tools
+reimplemented in `reader/src/predict/text.rs` — `grep`, `head`, `tail`,
+`cut`, `tr`, `uniq`, `basename`, `dirname`, and `sort` only under
+`LC_ALL=C`, since its order is otherwise the host's collation — each held
+to what the real tools print by a test whose expected texts they printed.
+`wc` is refused: GNU and BSD pad it differently. `grep` answers whether it
+selected a line, which steers `&&`, `||` and `if` like a test; one this cannot
+run is not assumed to have matched. Note that in a Claude Code session
+`grep` is a shell function running an embedded `ugrep`, and in a `bash -c`
+child it is `/usr/bin/grep`: the modelled subset agrees with both.
 A command it runs is followed as the shell it amounts to. `re.sub` is followed
 where Python's `re` and Rust's `regex` mean the same thing, translated rather
 than copied, and refused by what differs where they do not: a backreference,

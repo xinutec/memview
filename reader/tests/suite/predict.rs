@@ -182,19 +182,16 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
     };
     for (command, texts) in [
         (
-            "if grep -q x f; then echo a > o; else echo b > o; fi",
+            "if [ -r f ]; then echo a > o; else echo b > o; fi",
             vec![Some("a\n"), Some("b\n")],
         ),
+        ("if [ -r f ]; then echo a > o; fi", vec![None, Some("a\n")]),
         (
-            "if grep -q x f; then echo a > o; fi",
-            vec![None, Some("a\n")],
-        ),
-        (
-            "if grep -q x f; then echo a > o; else echo b > o; fi; echo c >> o",
+            "if [ -r f ]; then echo a > o; else echo b > o; fi; echo c >> o",
             vec![Some("a\nc\n"), Some("b\nc\n")],
         ),
         (
-            "if grep -q x f; then echo a > o; elif grep -q y f; then echo b > o; else echo c > o; fi",
+            "if [ -r f ]; then echo a > o; elif [ -w f ]; then echo b > o; else echo c > o; fi",
             vec![Some("b\n"), Some("c\n"), Some("a\n")],
         ),
     ] {
@@ -216,23 +213,17 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
             found.unfollowed
         );
     }
-    let same = run(
-        "if grep -q x f; then echo a > o; else echo a > o; fi",
-        &shown,
-    );
+    let same = run("if [ -r f ]; then echo a > o; else echo a > o; fi", &shown);
     assert_eq!(same.written, vec![written("/repo/o", "a\n")]);
 
-    let read = run("if grep -q x f; then echo a > o; fi; cat o > p", &shown);
+    let read = run("if [ -r f ]; then echo a > o; fi; cat o > p", &shown);
     assert!(
         read.unfollowed
             .iter()
             .any(|u| u.path.as_deref() == Some("/repo/p") && u.why == Why::Branches)
     );
 
-    let bound = run(
-        "if grep -q x f; then v=a; else v=b; fi; echo z > $v",
-        &shown,
-    );
+    let bound = run("if [ -r f ]; then v=a; else v=b; fi; echo z > $v", &shown);
     assert!(
         bound
             .written
@@ -242,7 +233,7 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
         bound.written
     );
 
-    let stops = run("if grep -q x f; then exit; fi; echo a > o", &shown);
+    let stops = run("if [ -r f ]; then exit; fi; echo a > o", &shown);
     assert!(
         !stops.written.iter().any(|w| w.path == "/repo/o"),
         "{:?}",
@@ -252,8 +243,8 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
     // An exit that fails the call leaves it unchecked: the success the
     // prediction assumes is the world where it was not taken.
     for command in [
-        "if grep -q x f; then exit 1; fi; echo a > o",
-        "grep -q x f || exit 1; echo a > o",
+        "if [ -r f ]; then exit 1; fi; echo a > o",
+        "[ -r f ] || exit 1; echo a > o",
     ] {
         assert_eq!(
             run(command, &shown).written,
@@ -261,12 +252,9 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
             "{command}"
         );
     }
-    let bare = run("grep -q x f || exit; echo a > o", &shown);
+    let bare = run("[ -r f ] || exit; echo a > o", &shown);
     assert!(bare.written.is_empty(), "{:?}", bare.written);
-    let defined = run(
-        "f() { if grep -q x f; then return; fi; }; echo a > o",
-        &shown,
-    );
+    let defined = run("f() { if [ -r f ]; then return; fi; }; echo a > o", &shown);
     assert_eq!(
         defined.written,
         vec![written("/repo/o", "a\n")],
@@ -456,6 +444,8 @@ fn a_test_sight_decides_steers_the_list_and_the_if() {
         ("if [ -f here ]; then echo x > a; fi", Some("x\n")),
         ("echo n > gone; [ -f gone ] && echo x > a", Some("x\n")),
         ("[ 3 -gt 2 ] && echo x > a", Some("x\n")),
+        ("if grep -q x here; then echo x > a; fi", Some("x\n")),
+        ("grep -q nothing here && echo x > a", None),
     ] {
         let parsed = reader::syntax::parse(command).expect("parses");
         let found = predict(&parsed, CWD, HOME, &shown);
@@ -477,7 +467,7 @@ fn a_test_sight_decides_steers_the_list_and_the_if() {
     for command in [
         "[ -f unshown ] && echo x > a",
         "[ -r here ] && echo x > a",
-        "if grep -q x here; then echo x > a; fi",
+        "if grep -q x unshown; then echo x > a; fi",
         "! make && echo x > a",
     ] {
         let parsed = reader::syntax::parse(command).expect("parses");
@@ -731,14 +721,17 @@ fn each_member_of_a_pipeline_is_followed_in_its_own_subshell() {
         ]
     );
 
-    // A member reading the pipe, and a path two members both change.
+    // A member reading what the one before printed, and a path two members
+    // both change.
     let piped = run("echo x | cat > d.txt", &nothing_known());
-    assert!(piped.written.is_empty());
+    assert_eq!(piped.written, vec![written("/repo/d.txt", "x\n")]);
+    let unread = run("./tool | cat > d.txt", &nothing_known());
+    assert!(unread.written.is_empty());
     assert_eq!(
-        piped.unfollowed,
+        unread.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/d.txt".to_string()),
-            why: Why::Pipeline,
+            why: Why::Program("tool".to_string()),
         }]
     );
     let raced = run("echo x > e.txt | echo y > e.txt", &nothing_known());
@@ -746,12 +739,12 @@ fn each_member_of_a_pipeline_is_followed_in_its_own_subshell() {
     assert_eq!(raced.unfollowed.last().unwrap().why, Why::Pipeline);
 
     // A program's output in a pipeline is refused for the program, as alone.
-    let output = run("cat a.txt | grep x > g.txt", &nothing_known());
+    let output = run("echo a | awk '{print}' > g.txt", &nothing_known());
     assert_eq!(
         output.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/g.txt".to_string()),
-            why: Why::Program("grep".to_string()),
+            why: Why::Program("awk".to_string()),
         }]
     );
 }
@@ -1958,6 +1951,7 @@ fn a_redirected_group_or_loop_collects_what_its_commands_print() {
         ),
         ("{ echo a; echo b >&2; } > f 2>/dev/null", "/repo/f", "a\n"),
         ("{ echo a; echo b 1>&2; } > f", "/repo/f", "a\n"),
+        ("{ echo a | cat; } > f", "/repo/f", "a\n"),
     ] {
         let found = run(command, &shown);
         let file = found.written.iter().find(|w| w.path == path);
@@ -2001,8 +1995,6 @@ fn a_redirected_group_with_output_it_cannot_follow_is_refused() {
             "{ echo a | ./tool; echo c; } > f",
             Why::Program("tool".to_string()),
         ),
-        // What flows through a pipe is not modelled.
-        ("{ echo a | cat; } > f", Why::Pipeline),
         ("{ rm -v x; } > f", Why::Program("rm".to_string())),
         ("{ echo a & } > f", Why::Background),
         ("{ echo a; } 2> f", Why::Descriptor),
@@ -2576,5 +2568,103 @@ fn a_withdrawal_inside_a_pipeline_names_the_program() {
         }),
         "{:?}",
         found.unfollowed
+    );
+}
+
+/// The text tools, held to what the real ones print: each expected text here
+/// was printed by the tools on this machine — the `grep` Claude Code's shell
+/// wraps (`ugrep`), macOS's own `/usr/bin/grep` in a `bash -c` child, and GNU
+/// coreutils — and all agreed.
+#[test]
+fn the_text_tools_print_what_the_real_ones_print() {
+    let shown = known(&[
+        (
+            "/repo/a.txt",
+            Some("alpha 1\nbeta 2\nAlpha 3\ngamma:x:y\n\nbeta 2\nlast"),
+        ),
+        ("/repo/b.txt", Some("one\ntwo\n")),
+    ]);
+    for (case, printed) in [
+        ("grep beta a.txt", "beta 2\nbeta 2\n"),
+        (
+            "grep -v beta a.txt",
+            "alpha 1\nAlpha 3\ngamma:x:y\n\nlast\n",
+        ),
+        ("grep -c beta a.txt", "2\n"),
+        (
+            "grep -n a a.txt",
+            "1:alpha 1\n2:beta 2\n3:Alpha 3\n4:gamma:x:y\n6:beta 2\n7:last\n",
+        ),
+        ("grep -o 'a[a-z]*' a.txt", "alpha\na\na\namma\na\nast\n"),
+        ("grep -x 'beta 2' a.txt", "beta 2\nbeta 2\n"),
+        ("grep -F 'a 1' a.txt", "alpha 1\n"),
+        ("grep -i alpha a.txt", "alpha 1\nAlpha 3\n"),
+        ("grep -l beta a.txt b.txt", "a.txt\n"),
+        ("grep o a.txt b.txt", "b.txt:one\nb.txt:two\n"),
+        ("grep -h o a.txt b.txt", "one\ntwo\n"),
+        ("grep -q beta a.txt && echo yes", "yes\n"),
+        ("grep '^[ab]' a.txt", "alpha 1\nbeta 2\nbeta 2\n"),
+        ("grep 'a$' a.txt", ""),
+        ("cat a.txt | grep beta", "beta 2\nbeta 2\n"),
+        ("head -3 a.txt", "alpha 1\nbeta 2\nAlpha 3\n"),
+        ("head -n 2 a.txt", "alpha 1\nbeta 2\n"),
+        ("tail -2 a.txt", "beta 2\nlast"),
+        ("tail -n +5 a.txt", "\nbeta 2\nlast"),
+        (
+            "cut -d: -f2 a.txt",
+            "alpha 1\nbeta 2\nAlpha 3\nx\n\nbeta 2\nlast\n",
+        ),
+        (
+            "cut -d' ' -f1 a.txt",
+            "alpha\nbeta\nAlpha\ngamma:x:y\n\nbeta\nlast\n",
+        ),
+        ("cut -c1-3 a.txt", "alp\nbet\nAlp\ngam\n\nbet\nlas\n"),
+        (
+            "tr a-z A-Z < a.txt",
+            "ALPHA 1\nBETA 2\nALPHA 3\nGAMMA:X:Y\n\nBETA 2\nLAST",
+        ),
+        (
+            "tr -d 'a' < a.txt",
+            "lph 1\nbet 2\nAlph 3\ngmm:x:y\n\nbet 2\nlst",
+        ),
+        (
+            "uniq a.txt",
+            "alpha 1\nbeta 2\nAlpha 3\ngamma:x:y\n\nbeta 2\nlast\n",
+        ),
+        (
+            "LC_ALL=C sort a.txt",
+            "\nAlpha 3\nalpha 1\nbeta 2\nbeta 2\ngamma:x:y\nlast\n",
+        ),
+        (
+            "LC_ALL=C sort -r -u a.txt",
+            "last\ngamma:x:y\nbeta 2\nalpha 1\nAlpha 3\n\n",
+        ),
+        ("basename /x/y/z.txt .txt", "z\n"),
+        ("dirname /x/y/z.txt", "/x/y\n"),
+        ("head -2 a.txt | tail -1", "beta 2\n"),
+        (
+            "grep a a.txt | cut -d' ' -f2 | uniq",
+            "1\n2\n3\ngamma:x:y\n2\nlast\n",
+        ),
+    ] {
+        let found = run(&format!("{{ {case}; }} > out"), &shown);
+        assert_eq!(
+            found.written,
+            vec![written("/repo/out", printed)],
+            "{case}: {:?}",
+            found.unfollowed
+        );
+    }
+    // What a loop prints into a pipe is not followed: not the last line of it.
+    let looped = run("for i in 1 2; do echo $i; done | tee out", &shown);
+    assert!(
+        !looped.written.iter().any(|w| w.path == "/repo/out"),
+        "{:?}",
+        looped.written
+    );
+    let alternation = run("grep -E 'bet+a|gam' a.txt > out", &shown);
+    assert!(
+        alternation.written.is_empty(),
+        "alternation is refused, not guessed"
     );
 }

@@ -447,7 +447,8 @@ fn a_file_one_of_several_texts_is_drawn_per_text_and_agrees_on_any() {
     std::fs::write(dir.join("f"), "x\n").expect("seed");
     std::fs::write(dir.join("o"), "old\n").expect("seed");
     let edits = Edits::new(dir.join("store"));
-    let command = "if grep -q x f; then echo a > o; else echo b > o; fi";
+    // A permission sight does not decide.
+    let command = "if [ -r f ]; then echo a > o; else echo b > o; fi";
     let edited = edits
         .before("s1", "c1", command, at(&dir))
         .expect("predicted");

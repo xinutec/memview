@@ -122,7 +122,7 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
 
 /// A sed pattern, matched the way sed matches it.
 #[derive(Debug)]
-struct Matcher {
+pub(super) struct Matcher {
     /// The pattern without its anchors, for where a match can start.
     core: Regex,
     /// The same, anchored at both ends, for whether a span is a match.
@@ -136,7 +136,7 @@ struct Matcher {
 impl Matcher {
     /// The leftmost match starting at or after `from`, and the longest from
     /// there.
-    fn find(&self, text: &str, from: usize) -> Option<(usize, usize)> {
+    pub(super) fn find(&self, text: &str, from: usize) -> Option<(usize, usize)> {
         let len = text.len();
         let boundaries = |range: std::ops::RangeInclusive<usize>| {
             range.filter(move |at| text.is_char_boundary(*at))
@@ -163,7 +163,7 @@ impl Matcher {
         None
     }
 
-    fn is_match(&self, text: &str) -> bool {
+    pub(super) fn is_match(&self, text: &str) -> bool {
         self.find(text, 0).is_some()
     }
 
@@ -500,7 +500,11 @@ fn substitute(
 }
 
 /// A sed pattern as a [`Matcher`] that finds the same spans.
-fn compile(pattern: &str, extended: bool, ignore_case: bool) -> Result<Matcher, Refused> {
+pub(super) fn compile(
+    pattern: &str,
+    extended: bool,
+    ignore_case: bool,
+) -> Result<Matcher, Refused> {
     let (translated, at_start, at_end) = translate(pattern, extended)?;
     let hir = regex_syntax::Parser::new()
         .parse(&translated)

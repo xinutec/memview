@@ -41,6 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod python;
 mod python_re;
 pub mod sed;
+mod text;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
@@ -314,8 +315,16 @@ struct Run<'a> {
     sight: &'a dyn Sight,
     /// Variables the text bound to a literal, still known to hold it.
     vars: BTreeMap<String, String>,
-    /// Inside a pipeline member after the first: stdin is the pipe.
-    piped: bool,
+    /// Inside a pipeline member after the first: stdin is the pipe, carrying
+    /// what the member before it printed, or why that is not known.
+    pipe: Option<Result<String, Why>>,
+    /// A pipeline member before the last: what it prints is kept in
+    /// `printed`, for the next one's stdin.
+    capture: bool,
+    printed: Option<Result<String, Why>>,
+    /// The command running now is prefixed `LC_ALL=C` or `LC_COLLATE=C`:
+    /// `sort` orders by bytes.
+    bytewise: bool,
     /// An unconditional `exit` or `return` was reached: nothing after it runs.
     stopped: bool,
     /// Files this run has written or found out about, by path.
@@ -356,7 +365,10 @@ impl<'a> Run<'a> {
             home,
             sight,
             vars: BTreeMap::new(),
-            piped: false,
+            pipe: None,
+            capture: false,
+            printed: None,
+            bytewise: false,
             stopped: false,
             now: BTreeMap::new(),
             order: Vec::new(),
@@ -564,7 +576,6 @@ impl<'a> Run<'a> {
         }
         self.vars
             .retain(|name, value| other.vars.get(name) == Some(value));
-        self.piped |= other.piped;
         let paths: BTreeSet<String> = self.now.keys().chain(other.now.keys()).cloned().collect();
         let mut before = before.clone();
         for path in paths {
@@ -666,6 +677,15 @@ impl<'a> Run<'a> {
                     "test" => self
                         .test_words(&argv[1..])
                         .map_or(Status::Unknown, Status::Known),
+                    // Whether it selected a line is what `grep` answers, not
+                    // whether it failed.
+                    "grep" => match self.tool("grep", &argv[1..], &command.redirects) {
+                        Ok(text::Printed {
+                            selected: Some(selected),
+                            ..
+                        }) => Status::Known(selected),
+                        _ => Status::Unknown,
+                    },
                     "[" => Status::Unknown,
                     _ => Status::Assumed,
                 }
@@ -802,12 +822,16 @@ impl<'a> Run<'a> {
             self.command(only);
             return self.status(only);
         }
-        let (cwd, vars, outer, stopped) = (
+        let (cwd, vars, outer, capture, stopped) = (
             self.cwd.clone(),
             self.vars.clone(),
-            self.piped,
+            self.pipe.clone(),
+            self.capture,
             self.stopped,
         );
+        // What the member before printed, fed to the next.
+        let mut previous: Result<String, Why> = Err(Why::Pipeline);
+        let mut status = Status::Assumed;
         let (base_now, base_trees) = (self.now.clone(), self.trees.clone());
         // Only the last member's stdout leaves the pipeline.
         let sink = self.sink.take();
@@ -817,14 +841,30 @@ impl<'a> Run<'a> {
         for (at, member) in members.iter().enumerate() {
             self.now = base_now.clone();
             self.trees = base_trees.clone();
-            self.piped = outer || at > 0;
-            self.stopped = stopped;
-            self.sink = if at + 1 == members.len() {
-                sink.clone()
+            let last = at + 1 == members.len();
+            self.pipe = if at == 0 {
+                outer.clone()
             } else {
-                None
+                Some(previous.clone())
             };
+            self.stopped = stopped;
+            self.sink = if last { sink.clone() } else { None };
+            // The last prints where the pipeline does, into one around it. What
+            // a compound member prints is not followed, so only a simple
+            // command's output is kept: never one nested inside another.
+            self.capture = if last {
+                capture
+            } else {
+                matches!(member.kind, CommandKind::Simple(_))
+            };
+            self.printed = None;
             self.command(member);
+            if last {
+                status = self.status(member);
+            } else {
+                // A compound member's output is not followed.
+                previous = self.printed.take().unwrap_or(Err(Why::Compound));
+            }
             self.cwd = cwd.clone();
             self.vars = vars.clone();
             for (path, held) in &self.now {
@@ -836,7 +876,8 @@ impl<'a> Run<'a> {
             }
             merged_trees.extend(self.trees.iter().skip(base_trees.len()).cloned());
         }
-        self.piped = outer;
+        self.pipe = outer;
+        self.capture = capture;
         self.stopped = stopped;
         self.sink = sink;
         self.now = merged;
@@ -850,8 +891,7 @@ impl<'a> Run<'a> {
                 });
             }
         }
-        // The last member's status, which is assumed.
-        Status::Assumed
+        status
     }
 
     fn command(&mut self, command: &Command) {
@@ -978,12 +1018,14 @@ impl<'a> Run<'a> {
             self.sink.clone()
         };
         let outer = std::mem::replace(&mut self.sink, sink);
+        let capture = std::mem::replace(&mut self.capture, false);
         let bare = Command {
             redirects: Vec::new(),
             ..command.clone()
         };
         self.command(&bare);
         self.sink = outer;
+        self.capture = capture;
         true
     }
 
@@ -1013,6 +1055,7 @@ impl<'a> Run<'a> {
     fn subshell(&mut self, items: &[Item], why: Option<&Why>) {
         let (cwd, vars, stopped) = (self.cwd.clone(), self.vars.clone(), self.stopped);
         let sink = self.sink.take();
+        let capture = std::mem::replace(&mut self.capture, false);
         match why {
             None => self.items(items),
             Some(why) => {
@@ -1027,6 +1070,7 @@ impl<'a> Run<'a> {
         self.vars = vars;
         self.stopped = stopped;
         self.sink = sink;
+        self.capture = capture;
     }
 
     /// Every command held inside one part of a word, forgotten for `why`.
@@ -1073,6 +1117,10 @@ impl<'a> Run<'a> {
 
     fn simple(&mut self, command: &Command, simple: &Simple) {
         let redirects = command.redirects.as_slice();
+        self.bytewise = simple.assignments.iter().any(|assignment| {
+            matches!(assignment.name.as_str(), "LC_ALL" | "LC_COLLATE")
+                && self.literal(&assignment.value).as_deref() == Some("C")
+        });
         // Its words expand before it runs, and what they run runs first.
         let words = simple
             .assignments
@@ -1125,6 +1173,15 @@ impl<'a> Run<'a> {
         }
         if !simple.words.is_empty() {
             self.print_to_sink(name.as_deref(), &argv, redirects);
+        }
+        // A member before the last: what it prints feeds the next.
+        if self.capture && !simple.words.is_empty() {
+            let printed = if prints_to_redirect(redirects) || quiet(name.as_deref(), &argv) {
+                Ok(String::new())
+            } else {
+                self.stdout(name.as_deref(), &argv, redirects)
+            };
+            self.printed = Some(printed);
         }
         let Some(out) = self.outputs(redirects) else {
             return;
@@ -1199,6 +1256,12 @@ impl<'a> Run<'a> {
             Some("true" | ":") => Ok(String::new()),
             Some("cat") => self.cat(&args, redirects),
             Some("tee") => self.stdin(redirects),
+            Some(
+                tool @ ("grep" | "head" | "tail" | "cut" | "tr" | "uniq" | "sort" | "basename"
+                | "dirname"),
+            ) => self
+                .tool(tool, &args, redirects)
+                .map(|printed| printed.text),
             // Named for the program that prints, behind any carrier.
             Some(other) => {
                 let words: Vec<String> = std::iter::once(other.to_string()).chain(args).collect();
@@ -1209,6 +1272,111 @@ impl<'a> Run<'a> {
             }
             None => Err(Why::Expansion),
         }
+    }
+
+    /// What a text tool prints over its input: the files it names, or stdin.
+    fn tool(
+        &mut self,
+        tool: &str,
+        args: &[String],
+        redirects: &[Redirect],
+    ) -> Result<text::Printed, Why> {
+        let refused = |why: String| Why::Option(why);
+        let (flags, mut operands) = text::split(args);
+        match tool {
+            "grep" => {
+                let Some((pattern, files)) = operands.split_first() else {
+                    return Err(Why::Option("grep".to_string()));
+                };
+                let inputs = self.inputs(files, redirects)?;
+                text::grep(&flags, pattern, &inputs).map_err(refused)
+            }
+            "head" | "tail" => {
+                let input = self.one_input(&mut operands, &flags, tool, redirects)?;
+                let run = if tool == "head" {
+                    text::head
+                } else {
+                    text::tail
+                };
+                run(&flags, &mut operands, &input).map_err(refused)
+            }
+            "cut" | "uniq" | "sort" | "tr" => {
+                if tool == "sort" && !self.bytewise {
+                    return Err(Why::Option("sort in the host's collation".to_string()));
+                }
+                let input = if tool == "tr" {
+                    self.stdin(redirects)?
+                } else {
+                    self.one_input(&mut operands, &flags, tool, redirects)?
+                };
+                let flags_owned: Vec<String> = flags.iter().map(|flag| (*flag).clone()).collect();
+                match tool {
+                    "cut" => text::cut(&flags_owned, &input),
+                    "uniq" => text::uniq(&flags, &input),
+                    "sort" => text::sort(&flags, &input),
+                    _ => text::tr(args, &input),
+                }
+                .map_err(refused)
+            }
+            "basename" => text::basename(args).map_err(refused),
+            _ => text::dirname(args).map_err(refused),
+        }
+    }
+
+    /// A tool's one input: the file it names, or stdin. `head` and `tail`
+    /// take their count from the operands first.
+    fn one_input(
+        &mut self,
+        operands: &mut [&String],
+        flags: &[&String],
+        tool: &str,
+        redirects: &[Redirect],
+    ) -> Result<String, Why> {
+        // `head -n 5 f`: the count is the first operand after `-n`.
+        let counted = matches!(tool, "head" | "tail")
+            && flags.last().is_some_and(|flag| flag.as_str() == "-n");
+        let files = &operands[usize::from(counted).min(operands.len())..];
+        match files {
+            [] => self.stdin(redirects),
+            [file] => {
+                let inputs = self.inputs(&[*file], redirects)?;
+                Ok(inputs
+                    .into_iter()
+                    .next()
+                    .map(|input| input.text)
+                    .unwrap_or_default())
+            }
+            _ => Err(Why::Option(format!("{tool} over several files"))),
+        }
+    }
+
+    /// The inputs a tool reads: the files it names, each with its name, or stdin.
+    fn inputs(
+        &mut self,
+        files: &[&String],
+        redirects: &[Redirect],
+    ) -> Result<Vec<text::Input>, Why> {
+        if files.is_empty() {
+            return Ok(vec![text::Input {
+                name: None,
+                text: self.stdin(redirects)?,
+            }]);
+        }
+        let mut inputs = Vec::with_capacity(files.len());
+        for file in files {
+            let path = self.resolve(file).ok_or(Why::Directory)?;
+            let text = match self.read(&path) {
+                Held::Text(text) => text,
+                Held::Absent => return Err(Why::Missing),
+                Held::Unknown => return Err(Why::NotRead),
+                Held::OneOf(_) => return Err(Why::Branches),
+            };
+            inputs.push(text::Input {
+                name: Some((*file).clone()),
+                text,
+            });
+        }
+        Ok(inputs)
     }
 
     fn cat(&mut self, args: &[String], redirects: &[Redirect]) -> Result<String, Why> {
@@ -1266,10 +1434,9 @@ impl<'a> Run<'a> {
             }
         }
         // Nothing redirected in: the pipe, or the terminal.
-        input.unwrap_or(if self.piped {
-            Err(Why::Pipeline)
-        } else {
-            Err(Why::Program("stdin".to_string()))
+        input.unwrap_or_else(|| match &self.pipe {
+            Some(piped) => piped.clone(),
+            None => Err(Why::Program("stdin".to_string())),
         })
     }
 
