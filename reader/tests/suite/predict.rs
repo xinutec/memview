@@ -1400,6 +1400,90 @@ fn a_pure_library_call_writes_nothing() {
     assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
 }
 
+/// A redirect on a group, a subshell or a loop opens the file once, and what
+/// each command inside prints without a redirect of its own lands in it.
+#[test]
+fn a_redirected_group_or_loop_collects_what_its_commands_print() {
+    let shown = known(&[("/repo/f", Some("0\n"))]);
+    for (command, path, text) in [
+        ("{ echo a; echo b; } > f", "/repo/f", "a\nb\n"),
+        ("for x in a b; do echo $x; done > f", "/repo/f", "a\nb\n"),
+        ("( cd sub; echo x ) >> f", "/repo/f", "0\nx\n"),
+        ("{ echo a > g; echo b; } > f", "/repo/f", "b\n"),
+        ("{ echo a > g; echo b; } > f", "/repo/g", "a\n"),
+        (
+            "{ rm -f x; mkdir -p d; echo done; } > f",
+            "/repo/f",
+            "done\n",
+        ),
+        ("{ echo a; echo b >&2; } > f 2>/dev/null", "/repo/f", "a\n"),
+        ("{ echo a; echo b 1>&2; } > f", "/repo/f", "a\n"),
+    ] {
+        let found = run(command, &shown);
+        let file = found.written.iter().find(|w| w.path == path);
+        assert_eq!(
+            file,
+            Some(&written(path, text)),
+            "{command}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
+/// A compound this does not follow still writes where its own redirect says,
+/// expanded before its body rebinds anything.
+#[test]
+fn a_compound_not_followed_is_refused_at_its_own_redirect() {
+    let found = run(
+        "W=log\n: > \"$W\"\nwhile read x; do W=other; echo $x; done >> \"$W\"",
+        &nothing_known(),
+    );
+    assert!(
+        !found.written.iter().any(|w| w.path == "/repo/log"),
+        "{:?}",
+        found.written
+    );
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/log"))
+    );
+}
+
+/// What the evaluator cannot say a command prints leaves the file refused, named
+/// for that command.
+#[test]
+fn a_redirected_group_with_output_it_cannot_follow_is_refused() {
+    for (command, why) in [
+        ("{ echo a; ./tool; } > f", Why::Program("tool".to_string())),
+        (
+            "{ echo a | ./tool; echo c; } > f",
+            Why::Program("tool".to_string()),
+        ),
+        // What flows through a pipe is not modelled.
+        ("{ echo a | cat; } > f", Why::Pipeline),
+        ("{ rm -v x; } > f", Why::Program("rm".to_string())),
+        ("{ echo a & } > f", Why::Background),
+        ("{ echo a; } 2> f", Why::Descriptor),
+    ] {
+        let found = run(command, &nothing_known());
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/f"),
+            "{command}: {:?}",
+            found.written
+        );
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/f") && u.why == why),
+            "{command}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
 /// A file is refused once, for what first made it unknown: a later append
 /// adds no second reason. Found live: `echo "rc=$?" >> log` after a program
 /// wrote the log ranked `expansion` for a file `$?` could not have saved.

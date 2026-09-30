@@ -145,7 +145,11 @@ indent, separators, `sort_keys` and `ensure_ascii` it was given; a float, which
 the evaluator does not model, is refused. A subprocess whose command it cannot
 read is an unknown program like any other: what was predicted before it is
 withdrawn, or held on the condition that it left the file alone. The shell side follows the same shapes: a `for` over words the text spells
-out runs once per word, a brace group is its commands, a subshell keeps its
+out runs once per word, a brace group is its commands, and a group, a
+subshell or a loop with an output redirect opens its file once and collects
+what each command inside prints without a redirect of its own (only the last
+member of a pipeline prints into it; a command whose output is not modelled
+leaves the file refused under its name), a subshell keeps its
 `cd` and its bindings inside, and a variable is known while the text bound it
 to a literal and no builtin since could have rebound it; `$HOME` and `$PWD`
 are known, and `${x%%pat}` and its three siblings are computed when the

@@ -244,6 +244,10 @@ struct Run<'a> {
     /// over a path decides what it holds.
     trees: Vec<(String, Held)>,
     unfollowed: Vec<Unfollowed>,
+    /// Where a command's stdout goes when it redirects none of its own: the
+    /// files a redirected group, subshell or loop around it opened. `None`
+    /// outside one.
+    sink: Option<Vec<String>>,
     /// Whether an unknown program is assumed to leave every file alone.
     assume: bool,
     /// Counts writes and unknown programs, to put them in order.
@@ -268,6 +272,7 @@ impl<'a> Run<'a> {
             asked: Vec::new(),
             trees: Vec::new(),
             unfollowed: Vec::new(),
+            sink: None,
             assume,
             clock: 0,
             written_at: BTreeMap::new(),
@@ -372,6 +377,8 @@ impl<'a> Run<'a> {
             self.stopped,
         );
         let (base_now, base_trees) = (self.now.clone(), self.trees.clone());
+        // Only the last member's stdout leaves the pipeline.
+        let sink = self.sink.take();
         let mut merged = base_now.clone();
         let mut merged_trees = base_trees.clone();
         let mut changed_by: BTreeMap<String, usize> = BTreeMap::new();
@@ -380,6 +387,11 @@ impl<'a> Run<'a> {
             self.trees = base_trees.clone();
             self.piped = outer || at > 0;
             self.stopped = stopped;
+            self.sink = if at + 1 == members.len() {
+                sink.clone()
+            } else {
+                None
+            };
             self.command(member);
             self.cwd = cwd.clone();
             self.vars = vars.clone();
@@ -394,6 +406,7 @@ impl<'a> Run<'a> {
         }
         self.piped = outer;
         self.stopped = stopped;
+        self.sink = sink;
         self.now = merged;
         self.trees = merged_trees;
         for (path, members) in changed_by {
@@ -408,6 +421,13 @@ impl<'a> Run<'a> {
     }
 
     fn command(&mut self, command: &Command) {
+        let compound = matches!(
+            command.kind,
+            CommandKind::Group(_) | CommandKind::Subshell(_) | CommandKind::For(_)
+        );
+        if compound && !command.redirects.is_empty() && self.redirected(command) {
+            return;
+        }
         match &command.kind {
             CommandKind::Simple(simple) => self.simple(command, simple),
             // A group is its commands; a subshell the same, with its `cd` and
@@ -455,6 +475,77 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// `{ …; } > f`, `( … ) >> f`, `for …; done > f`: the file is opened once,
+    /// and what each command inside prints without a redirect of its own is
+    /// appended to it. `false` when a redirect is not an output this follows —
+    /// input into the group — and nothing was done.
+    fn redirected(&mut self, command: &Command) -> bool {
+        let outputs_only = command.redirects.iter().all(|redirect| {
+            !matches!(
+                redirect.op,
+                RedirectOp::Read
+                    | RedirectOp::ReadWrite
+                    | RedirectOp::DupIn
+                    | RedirectOp::Here
+                    | RedirectOp::HereDash
+                    | RedirectOp::HereString
+            )
+        });
+        if !outputs_only {
+            return false;
+        }
+        let mut opened = Vec::new();
+        for target in self.outputs(&command.redirects).unwrap_or_default() {
+            match target {
+                Target::File { path, append } => {
+                    self.write(&path, append, Ok(String::new()));
+                    opened.push(path);
+                }
+                Target::Unnamed(why) => self.unfollowed.push(Unfollowed { path: None, why }),
+                // What goes to stderr is not modelled.
+                Target::Other(path) => self.write(&path, false, Err(Why::Descriptor)),
+            }
+        }
+        // A stdout redirect replaces where the body prints, even to a file this
+        // does not keep (`> /dev/null`); a stderr one leaves it.
+        let sink = if prints_to_redirect(&command.redirects) {
+            Some(opened)
+        } else {
+            self.sink.clone()
+        };
+        let outer = std::mem::replace(&mut self.sink, sink);
+        let bare = Command {
+            redirects: Vec::new(),
+            ..command.clone()
+        };
+        self.command(&bare);
+        self.sink = outer;
+        true
+    }
+
+    /// Appends what a command prints to the files a redirect around it opened.
+    fn print_to_sink(
+        &mut self,
+        name: Option<&str>,
+        argv: &[Option<String>],
+        redirects: &[Redirect],
+    ) {
+        let Some(sink) = self.sink.clone() else {
+            return;
+        };
+        if prints_to_redirect(redirects) {
+            return;
+        }
+        let text = if quiet(name, argv) {
+            Ok(String::new())
+        } else {
+            self.stdout(name, argv, redirects)
+        };
+        for path in sink {
+            self.write(&path, true, text.clone());
+        }
+    }
+
     fn simple(&mut self, command: &Command, simple: &Simple) {
         let redirects = command.redirects.as_slice();
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
@@ -496,6 +587,9 @@ impl<'a> Run<'a> {
             self.python(embedded.program, None);
         } else {
             self.forget_program_writes(simple, redirects, None);
+        }
+        if !simple.words.is_empty() {
+            self.print_to_sink(name.as_deref(), &argv, redirects);
         }
         let Some(out) = self.outputs(redirects) else {
             return;
@@ -1147,9 +1241,18 @@ impl<'a> Run<'a> {
     }
 
     fn forget_command(&mut self, command: &Command, why: Why) {
-        // Whatever it bound, this did not see.
-        if binds(command) {
-            self.vars.clear();
+        // Its own redirects and words are expanded before it runs, with the
+        // bindings as they stand; what its body binds is cleared after. Found in
+        // history: a group binding a loop variable, redirected to `"$WATCH"`,
+        // lost its target and the earlier `: > "$WATCH"` stood as predicted.
+        let targets = self.outputs(&command.redirects).unwrap_or_default();
+        // What it prints into a redirect around it is not known either.
+        if !prints_to_redirect(&command.redirects)
+            && let Some(sink) = self.sink.clone()
+        {
+            for path in sink {
+                self.write(&path, true, Err(why.clone()));
+            }
         }
         if let CommandKind::Simple(simple) = &command.kind {
             let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
@@ -1161,7 +1264,7 @@ impl<'a> Run<'a> {
                 None => self.forget_program_writes(simple, &command.redirects, Some(why.clone())),
             }
         }
-        for target in self.outputs(&command.redirects).unwrap_or_default() {
+        for target in targets {
             match target {
                 Target::File { path, .. } | Target::Other(path) => {
                     self.write(&path, false, Err(why.clone()));
@@ -1171,6 +1274,10 @@ impl<'a> Run<'a> {
                     why: why.clone(),
                 }),
             }
+        }
+        // Whatever it bound, this did not see.
+        if binds(command) {
+            self.vars.clear();
         }
         for items in bodies(&command.kind) {
             for item in items {
@@ -1559,6 +1666,42 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
             Some(format!("git {subcommand}"))
         }
         _ => None,
+    }
+}
+
+/// Whether a redirect list sends stdout somewhere: `>`, `>>`, `>|`, `&>`,
+/// `&>>`, `1>&2`.
+fn prints_to_redirect(redirects: &[Redirect]) -> bool {
+    redirects.iter().any(|redirect| {
+        matches!(
+            (redirect.op, redirect.fd),
+            (
+                RedirectOp::Write | RedirectOp::Append | RedirectOp::Clobber | RedirectOp::DupOut,
+                Some(1),
+            ) | (
+                RedirectOp::Both | RedirectOp::BothAppend | RedirectOp::BothWord,
+                _
+            )
+        )
+    })
+}
+
+/// Commands that print nothing when they succeed, which the prediction
+/// assumes: a builtin that binds or moves, and a file utility without `-v`.
+fn quiet(name: Option<&str>, argv: &[Option<String>]) -> bool {
+    const BUILTINS: &[&str] = &[
+        "cd", "set", "export", "unset", "shift", "local", "declare", "exit", "return",
+    ];
+    const UTILITIES: &[&str] = &["rm", "mkdir", "cp", "mv", "touch", "chmod", "ln", "rmdir"];
+    match name {
+        Some(name) if BUILTINS.contains(&name) => true,
+        Some(name) if UTILITIES.contains(&name) => argv.iter().skip(1).all(|arg| {
+            arg.as_deref().is_some_and(|arg| {
+                !(arg.starts_with('-') && !arg.starts_with("--") && arg.contains('v'))
+                    && arg != "--verbose"
+            })
+        }),
+        _ => false,
     }
 }
 
