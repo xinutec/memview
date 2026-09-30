@@ -496,8 +496,10 @@ impl<'a> Run<'a> {
     /// A program the tables do not know, which may have written any file. Under
     /// the assumption it wrote none it was not told of, and only its name is
     /// kept: a path in its words or its environment (`OUT=/tmp/rows`), and
-    /// everything under one, is refused either way. Found live: a test told its
-    /// output file in an assignment was assumed to leave that file alone.
+    /// everything under one, is refused either way, and so is a file the
+    /// command removed before it. Found live: a test told its output file in
+    /// an assignment, and a golden removed before its blessing run, were each
+    /// assumed left alone.
     pub(super) fn unknown_program(&mut self, program: String, told: &[String]) {
         self.clock += 1;
         self.assumed.push((self.clock, program.clone()));
@@ -506,6 +508,27 @@ impl<'a> Run<'a> {
             self.vars.clear();
             for path in told {
                 self.forget_tree(path, Why::Program(program.clone()));
+            }
+            // Nor one the command removed before running it: clearing an
+            // output is how a program is asked to write it again.
+            let removed: Vec<String> = self
+                .now
+                .iter()
+                .filter(|(_, held)| match held {
+                    Held::Absent => true,
+                    Held::OneOf(members) => members.contains(&Held::Absent),
+                    _ => false,
+                })
+                .map(|(path, _)| path.clone())
+                .chain(
+                    self.trees
+                        .iter()
+                        .filter(|(_, held)| *held == Held::Absent)
+                        .map(|(tree, _)| tree.clone()),
+                )
+                .collect();
+            for path in removed {
+                self.forget_tree(&path, Why::Program(program.clone()));
             }
         } else {
             self.forget_everything(Why::Program(program));

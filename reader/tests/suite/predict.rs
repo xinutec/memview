@@ -2271,8 +2271,39 @@ fn a_file_an_unknown_program_was_told_of_is_not_assumed_left_alone() {
             found.conditional
         );
     }
-    let untold = run("rm -f /tmp/rows; ./test.sh /tmp/other", &nothing_known());
+    let untold = run("echo x > /tmp/rows; ./test.sh /tmp/other", &nothing_known());
     assert_eq!(untold.conditional.len(), 1);
+}
+
+/// Nor a file the command removed before running it: clearing an output is
+/// how a program is asked to write it again. Found live, three times in a day:
+/// `rm -f tests/golden/x.jsonl && X_BLESS=1 scripts/dev cargo nextest …`, the
+/// golden predicted absent on the assumption that dev left it alone.
+#[test]
+fn a_file_removed_before_an_unknown_program_is_not_assumed_left_alone() {
+    let shown = known(&[
+        ("/repo/g", Some("old\n")),
+        ("/repo/d/a", Some("x\n")),
+        ("/repo/m", Some("m\n")),
+    ]);
+    for command in [
+        "rm -f g && BLESS=1 ./test.sh",
+        "rm -rf d; ./build.sh",
+        "mv m n; ./test.sh",
+        "if [ -r m ]; then rm g; fi; ./test.sh",
+    ] {
+        let found = run(command, &shown);
+        let removed: Vec<&str> = found
+            .conditional
+            .iter()
+            .map(|c| c.written.path.as_str())
+            .filter(|path| ["/repo/g", "/repo/d/a", "/repo/m"].contains(path))
+            .collect();
+        assert!(removed.is_empty(), "{command}: {removed:?}");
+    }
+    // An edit before a build is still the assumption's to hold.
+    let edited = run("echo x > a; ./build.sh", &shown);
+    assert_eq!(edited.conditional.len(), 1);
 }
 
 /// Run before a file is read, the program may have changed what was read.

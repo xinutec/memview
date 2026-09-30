@@ -297,7 +297,10 @@ the assumption is named, not hidden. What a program writes itself (`./gen.sh >
 out`) is refused either way, since assuming it harmless says nothing about
 its own output, and nor does it cover a file the program was told of: a path
 in its words or its environment (`OUT=/tmp/rows ./test.sh`), and everything
-under one, is refused either way. Found live (2026-09-30): the first two
+under one, is refused either way, and so is a file the command removed
+before running it: clearing an output is how a program is asked to write it
+again (`rm -f tests/golden/x && X_BLESS=1 scripts/dev cargo nextest`, three
+times on 2026-09-30). Found live (2026-09-30): the first two
 conditional divergences were both a test told its output file in an
 assignment. The after-look checks a conditional prediction like any other,
 but a divergence there has two suspects, the evaluator and the program assumed
