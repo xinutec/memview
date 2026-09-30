@@ -278,7 +278,8 @@ impl Edits {
         let home = std::env::var("HOME").unwrap_or_default();
         let seen = Seen::default();
         let prediction = predict(&script, cwd, &home, &seen);
-        let (files, dirs) = (seen.files.into_inner(), seen.dirs.into_inner());
+        let (mut files, dirs) = (seen.files.into_inner(), seen.dirs.into_inner());
+        named_files(command, cwd, &home, &mut files);
         if !prediction.unfollowed.is_empty() {
             let refused = Refused {
                 session: session.to_string(),
@@ -662,6 +663,35 @@ impl Sight for Seen {
             .borrow_mut()
             .insert(path.to_string(), shown.clone());
         Some(shown)
+    }
+}
+
+/// The most text [`named_files`] keeps beside what the evaluator asked for.
+const NAMED_KEPT: usize = 4 * 1024 * 1024;
+
+/// Every file the command names, as the reconstruction reads it, added as it
+/// is before the call to what the evaluator was shown: a later evaluator that
+/// reaches further is replayed on them, rather than finding them unread. Kept
+/// up to [`NAMED_KEPT`]; reads only.
+fn named_files(command: &str, cwd: &str, home: &str, files: &mut Files) {
+    let Ok(parsed) = reader::project::read(command) else {
+        return;
+    };
+    let named = reader::shell_files::extract_knowing(&parsed, Some(cwd), home, &[]);
+    let mut budget = NAMED_KEPT;
+    for file in named.files {
+        if files.contains_key(&file.path) {
+            continue;
+        }
+        let Some(shown) = read(Path::new(&file.path)) else {
+            continue;
+        };
+        let size = shown.as_ref().map_or(0, String::len);
+        if size > budget {
+            continue;
+        }
+        budget -= size;
+        files.insert(file.path, shown);
     }
 }
 

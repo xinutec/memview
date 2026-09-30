@@ -64,7 +64,10 @@ evaluator: `predict-report --live` does, and sorts the findings into still
 diverging, agreeing now, and no longer predicted. A finding kept without its
 inputs cannot become a test, which the first 48 showed: the edits behind them
 were Python over files too large to rebuild by hand. Nothing kept under
-`.console` is golden: a finding is an inbox item, deleted once its test is in
+`.console` is golden. Beside what the evaluator asked for, the console keeps
+each file the command names, as the reconstruction reads it (up to 4 MB): a
+later evaluator reaches further, and replayed on only the old asks it would
+find those files unread. A finding is an inbox item, deleted once its test is in
 `reader/tests`, and a refusal row is pruned after thirty days, since the
 command is in the transcript and only recent ones rank. The one row kept for
 good is an outcome (`outcomes.jsonl`): each file checked, agreed or diverged,

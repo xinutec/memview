@@ -485,3 +485,22 @@ fn a_file_one_of_several_texts_is_drawn_per_text_and_agrees_on_any() {
     assert_eq!(finding["actual"], "c\n");
     assert_eq!(finding["alternatives"].as_array().map(Vec::len), Some(2));
 }
+
+/// A file the command names that the evaluator did not ask for is kept with
+/// the row too, as it was before the call: a later evaluator replays on it.
+#[test]
+fn a_file_the_command_names_is_kept_with_the_row() {
+    let dir = scratch("named");
+    std::fs::write(dir.join("in.txt"), "before\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    // `./tool` withdraws what came before, so the row is a refusal; the
+    // evaluator never reads `in.txt`, and the reconstruction names it.
+    edits.before("s1", "c1", "echo x > out; ./tool; cat in.txt", at(&dir));
+    let kept = std::fs::read_to_string(dir.join("store/refused.jsonl")).expect("kept");
+    let row: serde_json::Value = serde_json::from_str(kept.trim()).expect("json");
+    assert_eq!(
+        row["files"][dir.join("in.txt").display().to_string()],
+        "before\n",
+        "{row}"
+    );
+}
