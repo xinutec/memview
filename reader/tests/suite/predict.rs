@@ -269,7 +269,7 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
 fn an_undecided_python_if_leaves_a_file_one_of_its_arms_texts() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
     let shown = known(&[("/repo/o", Some("old"))]);
-    let head = "import sys\nflag = sys.argv\n";
+    let head = "import os, sys\nflag = os.environ.get('F')\n";
     let set = |found: &Prediction| -> Vec<Option<String>> {
         let mut texts = found
             .alternatives
@@ -331,7 +331,7 @@ fn an_undecided_python_if_leaves_a_file_one_of_its_arms_texts() {
 #[test]
 fn a_python_jump_not_followed_makes_what_follows_sometimes() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
-    let head = "import sys\nflag = sys.argv\n";
+    let head = "import os, sys\nflag = os.environ.get('F')\n";
     for program in [
         "if flag:\n    sys.exit(0)\nopen('o', 'w').write('x')",
         "if flag:\n    sys.exit()\nopen('o', 'w').write('x')",
@@ -1533,7 +1533,7 @@ fn the_shell_reads_what_python_wrote() {
 #[test]
 fn a_write_under_an_undecided_if_is_refused() {
     let found = run(
-        "python3 - <<'PY'\nimport sys\nif sys.argv:\n    open('b.txt', 'w').write('x')\nPY",
+        "python3 - <<'PY'\nimport os\nif os.environ.get('X'):\n    open('b.txt', 'w').write('x')\nPY",
         &nothing_known(),
     );
     assert!(found.written.is_empty());
@@ -1541,7 +1541,7 @@ fn a_write_under_an_undecided_if_is_refused() {
         found.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/b.txt".to_string()),
-            why: Why::Python("if on sys.argv".to_string()),
+            why: Why::Python("if on call os.environ.get".to_string()),
         }]
     );
 }
@@ -1895,7 +1895,7 @@ fn a_commands_working_directory_is_its_own() {
 #[test]
 fn an_unknown_or_concurrent_command_is_refused() {
     let unknown = run(
-        "python3 - <<'PY'\nimport os, sys\nos.system(sys.argv[1])\nPY",
+        "python3 - <<'PY'\nimport os\nos.system(os.environ.get('CMD'))\nPY",
         &nothing_known(),
     );
     assert_eq!(
@@ -2265,6 +2265,27 @@ fn what_an_unknown_program_writes_itself_stays_refused() {
     assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
 }
 
+/// `sys.argv` holds what the shell passed the interpreter, where the text
+/// gives it. Found live: `python3 - "$S" <<'EOF'` then `p = sys.argv[1] + …`.
+#[test]
+fn python_sys_argv_is_what_the_shell_passed() {
+    let found = run(
+        "S=/tmp/x\npython3 - \"$S\" b <<'PY'\nimport sys\nfrom sys import argv\nopen(sys.argv[1] + '/o', 'w').write(argv[0] + argv[2] + str(len(sys.argv)))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/tmp/x/o", "-b3")],
+        "{:?}",
+        found.unfollowed
+    );
+    let flagged = run(
+        "python3 -u - /tmp/x <<'PY'\nimport sys\nopen(sys.argv[1], 'w').write('x')\nPY",
+        &nothing_known(),
+    );
+    assert!(flagged.written.is_empty(), "{:?}", flagged.written);
+}
+
 /// `find` and `index` with a start and an end, as CPython answers them.
 #[test]
 fn python_find_takes_a_start_and_an_end() {
@@ -2579,7 +2600,7 @@ fn a_python_subprocess_this_cannot_read_is_an_unknown_program() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
     let found = run(
         &py(
-            "import subprocess, sys\nopen('a', 'w').write('x')\nsubprocess.run(['python3', 'apply.py', sys.argv[0]])",
+            "import os, subprocess\nopen('a', 'w').write('x')\nsubprocess.run(['python3', 'apply.py', os.environ.get('F')])",
         ),
         &nothing_known(),
     );

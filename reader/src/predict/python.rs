@@ -466,7 +466,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                         _ => alias.name.clone(),
                     };
                     let bound = alias.asname.as_ref().unwrap_or(&alias.name);
-                    self.set(bound, Value::Name(dotted));
+                    let value = if dotted == "sys.argv" {
+                        self.argv()
+                    } else {
+                        Value::Name(dotted)
+                    };
+                    self.set(bound, value);
                 }
             }
             StmtKind::Assert { test, .. } => {
@@ -1216,6 +1221,14 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// `sys.argv`, where the shell passed words it knows.
+    fn argv(&self) -> Value {
+        match &self.shell.python_argv {
+            Some(argv) => Value::Tuple(argv.iter().cloned().map(Value::Str).collect()),
+            None => Value::Name("sys.argv".to_string()),
+        }
+    }
+
     fn name(&self, name: &str) -> Value {
         let local = self
             .frames
@@ -1475,6 +1488,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Value::Name(dotted) if dotted == "re" && python_re::flag(attr).is_some() => {
                 Value::Int(python_re::flag(attr).unwrap_or_default())
             }
+            Value::Name(dotted) if dotted == "sys" && attr == "argv" => self.argv(),
             Value::Name(dotted) => Value::Name(format!("{dotted}.{attr}")),
             Value::Path(path) => match PathPart::of(attr) {
                 Some(PathPart::Parent) => Value::Path(parent(&path)),

@@ -325,6 +325,9 @@ struct Run<'a> {
     /// The command running now is prefixed `LC_ALL=C` or `LC_COLLATE=C`:
     /// `sort` orders by bytes.
     bytewise: bool,
+    /// While a Python program the command gives runs: its `sys.argv`, where
+    /// the shell passed it words it knows.
+    python_argv: Option<Vec<String>>,
     /// An unconditional `exit` or `return` was reached: nothing after it runs.
     stopped: bool,
     /// Files this run has written or found out about, by path.
@@ -375,6 +378,7 @@ impl<'a> Run<'a> {
             capture: false,
             printed: None,
             bytewise: false,
+            python_argv: None,
             stopped: false,
             now: BTreeMap::new(),
             order: Vec::new(),
@@ -1232,7 +1236,9 @@ impl<'a> Run<'a> {
         if name.as_deref() == Some("tee") {
             self.tee(&argv, redirects);
         } else if let Some(embedded) = python_of(command) {
+            self.python_argv = python_argv(&argv);
             self.python(embedded.program, None);
+            self.python_argv = None;
         } else {
             self.forget_program_writes(simple, redirects, None);
         }
@@ -2561,6 +2567,31 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// `sys.argv` for a Python program run straight from its interpreter:
+/// `python3 - a b` gives `['-', 'a', 'b']`, `python3 -c code a` gives
+/// `['-c', 'a']`, a bare `python3` reading stdin `['']`. A flag, a wrapper,
+/// or a word the text does not give leaves it unknown.
+fn python_argv(argv: &[Option<String>]) -> Option<Vec<String>> {
+    let words: Vec<&str> = argv.iter().map(Option::as_deref).collect::<Option<_>>()?;
+    let (head, rest) = words.split_first()?;
+    let interpreter = basename(head);
+    if interpreter != "python" && !interpreter.starts_with("python3") {
+        return None;
+    }
+    let (first, args) = match rest {
+        [] => ("", &[][..]),
+        ["-", args @ ..] => ("-", args),
+        ["-c", _, args @ ..] => ("-c", args),
+        _ => return None,
+    };
+    Some(
+        std::iter::once(first)
+            .chain(args.iter().copied())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// A `$( )` node's identity while its tree lives: where it is. Every word
