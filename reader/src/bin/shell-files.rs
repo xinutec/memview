@@ -14,6 +14,7 @@
 //! calculations of "how much is understood" drift apart silently, and nothing in
 //! either would say so.
 
+use clap::Parser;
 use reader::reading::Reading;
 
 /// Shorten for display, on character boundaries.
@@ -24,25 +25,26 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect::<String>().replace('\n', "⏎") + "…"
 }
 
+/// What the semantics table can read out of the history's shell, and what it
+/// cannot.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 25)]
+    show: usize,
+    /// Also list this many of the busiest paths.
+    #[arg(long, default_value_t = 0)]
+    paths: usize,
+    /// Collect the commands behind paths matching this.
+    #[arg(long, value_name = "SUBSTRING")]
+    why: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: shell-files <corpus.jsonl> [--show <n>] [--paths <n>]");
-    };
-    let count = |flag: &str, default: usize| -> usize {
-        args.iter()
-            .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1))
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(default)
-    };
-    let show = count("--show", 25);
-    let paths = count("--paths", 0);
-    let why = args
-        .iter()
-        .position(|a| a == "--why")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let cli = Cli::parse();
+    let (path, show, paths, why) = (&cli.corpus, cli.show, cli.paths, cli.why.clone());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;

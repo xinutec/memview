@@ -3,12 +3,18 @@
 //!
 //!     cargo run --release -p reader --example python-sources -- <corpus.jsonl> > programs.jsonl
 
+use clap::Parser;
 use reader::shell_ops::Op;
 
+/// Every Python program the corpus runs, one JSON string per line.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("usage: python-sources <corpus.jsonl>"))?;
+    let path = Cli::parse().corpus;
     let home = std::env::var("HOME").unwrap_or_default();
     let mut seen = std::collections::BTreeSet::new();
     for line in std::fs::read_to_string(path)?.lines() {

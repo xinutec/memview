@@ -34,6 +34,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::concept::{self, Concept, Why};
 use reader::reading::op_name;
 use reader::shell_files::{Step, trace};
@@ -136,15 +138,23 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect::<String>().replace('\n', "⏎") + "…"
 }
 
+/// The concept census: what lifts, what the lens refused, and what is biggest
+/// in the remainder.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 30)]
+    show: usize,
+    /// Print sample commands containing this.
+    #[arg(long, value_name = "SUBSTRING")]
+    sample: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: concept-report <corpus.jsonl> [--show <n>] [--sample SUBSTRING]");
-    };
-    let show: usize = flag(&args, "--show")
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(30);
-    let sample = flag(&args, "--sample");
+    let cli = Cli::parse();
+    let (path, show, sample) = (&cli.corpus, cli.show, cli.sample.clone());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;
@@ -261,11 +271,4 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
 }

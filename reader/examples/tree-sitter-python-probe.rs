@@ -43,20 +43,24 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 use reader::{python, shell_files};
 
+/// What a real Python parser makes of the Python our reader accepts.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many examples of each.
+    #[arg(long, default_value_t = 6)]
+    show: usize,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: tree-sitter-python-probe <corpus.jsonl> [--show <n>]");
-    };
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(6);
+    let cli = Cli::parse();
+    let (path, show) = (&cli.corpus, cli.show);
     let home = std::env::var("HOME").unwrap_or_default();
 
     let mut parser = tree_sitter::Parser::new();

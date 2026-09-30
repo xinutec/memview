@@ -23,6 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::agents::{MemoryDays, day_number};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
@@ -42,27 +43,27 @@ const HARVEST: &str = "2026-09-11";
 /// How far back a lease crossing still counts as news.
 const CROSSED_WITHIN: i64 = 7;
 
+/// What the root is made of, what has fallen out of its lease, and the one
+/// exchange that would change it (#1210).
+#[derive(Parser)]
+struct Cli {
+    /// Days an entry is exempt from expiry [default: the tiering's own].
+    #[arg(long)]
+    lease_days: Option<i64>,
+    /// Distinct agents that must have opened an entry for tenure [default:
+    /// the tiering's own].
+    #[arg(long)]
+    breadth: Option<usize>,
+    /// Ask what the tiering says without this agent's opens.
+    #[arg(long, value_name = "AGENT")]
+    excluding: Option<String>,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(
-        &std::env::args().collect::<Vec<_>>(),
-        &["--breadth", "--lease-days", "--excluding"],
-    )?;
-    let args: Vec<String> = std::env::args().collect();
-    // Both refuse a bad value rather than defaulting past it: a defaulted
-    // `--breadth bogus` would produce the default tiering while reading as
-    // parameterised.
+    let cli = Cli::parse();
     let at = Thresholds {
-        lease_days: memview::flags::value_of(
-            &args,
-            "--lease-days",
-            Thresholds::default().lease_days,
-        )?,
-        tenure_breadth: memview::flags::value_of(
-            &args,
-            "--breadth",
-            Thresholds::default().tenure_breadth,
-        )?,
+        lease_days: cli.lease_days.unwrap_or(Thresholds::default().lease_days),
+        tenure_breadth: cli.breadth.unwrap_or(Thresholds::default().tenure_breadth),
         ..Thresholds::default()
     };
 
@@ -137,8 +138,7 @@ fn main() -> Result<()> {
 
     // Ask what the tiering says without one agent's opens — see [`tiers::breadth`]
     // for why the session running this is the one worth subtracting.
-    let excluding = memview::flags::value_of::<String>(&args, "--excluding", String::new())?;
-    let excluding = (!excluding.is_empty()).then_some(excluding);
+    let excluding = cli.excluding.filter(|e| !e.is_empty());
     let entries: Vec<Entry> = corpus
         .docs
         .keys()

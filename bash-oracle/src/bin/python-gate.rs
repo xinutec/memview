@@ -13,6 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 use reader::syntax::python::{canonical, parse, print};
 
@@ -101,17 +103,33 @@ for line in open(sys.argv[1]):
     print(json.dumps(answer))
 "#;
 
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: python-gate <corpus.jsonl> [--show <verdict> <n>]");
+/// The Python tree's second and third gates: CPython's own parse of each
+/// corpus program.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// Print the first N programs with one verdict.
+    #[arg(long, num_args = 2, value_names = ["VERDICT", "N"])]
+    show: Option<Vec<String>>,
+}
+
+/// `--show <verdict> <n>`, with the count typed: a bad one is refused, not
+/// dropped.
+fn label_and_count(show: Option<Vec<String>>) -> anyhow::Result<Option<(String, usize)>> {
+    let Some([label, n]) = show.as_deref() else {
+        return Ok(None);
     };
-    let show = args.iter().position(|a| a == "--show").and_then(|at| {
-        Some((
-            args.get(at + 1)?.clone(),
-            args.get(at + 2)?.parse::<usize>().ok()?,
-        ))
-    });
+    let n = n
+        .parse()
+        .map_err(|e| anyhow::anyhow!("--show {label} {n}: not a count ({e})"))?;
+    Ok(Some((label.clone(), n)))
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    let path = &cli.corpus;
+    let show = label_and_count(cli.show.clone())?;
     let home = std::env::var("HOME").unwrap_or_default();
 
     let mut programs = BTreeSet::new();

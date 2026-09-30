@@ -20,6 +20,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::reading::Reading;
 
 /// What produced a subject, and therefore what is knowable about it.
@@ -203,10 +205,16 @@ fn classify(word: &str) -> Shape {
     Shape::Unclassified
 }
 
+/// What the unnamed subjects actually ARE, by the thing that generated them.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    corpus: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
     let home = std::env::var("HOME").unwrap_or_default();
-    let path = args.get(1).cloned().unwrap_or_else(|| {
+    let path = Cli::parse().corpus.unwrap_or_else(|| {
         reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()

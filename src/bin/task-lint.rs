@@ -11,12 +11,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::cites::{citations, cited_paths, is_ours, repo_of, still_asks};
 use memview::store::Corpus;
 
+/// Two text claims about tickets, checked against the service that holds them.
+#[derive(Parser)]
+struct Cli {}
+
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 

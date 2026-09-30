@@ -20,13 +20,19 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::index_history::{Readings, is_the_index, names_in};
 
+/// Rebuild MEMORY.md's membership over time from the transcripts.
+#[derive(Parser)]
+struct Cli {
+    /// Write the rebuilt history; without it, report.
+    #[arg(long)]
+    apply: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
-    let apply = std::env::args().any(|a| a == "--apply");
+    let apply = Cli::parse().apply;
     let at = reader::home::file("index-history.json");
 
     let mut readings = Readings::default();

@@ -11,6 +11,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use clap::Parser;
+
 /// Could this Bash command have CREATED the file, or does it require one?
 ///
 /// A text test, and it is named as one. `FileUse` carries `write` and not
@@ -34,10 +36,14 @@ fn bash_could_create(cmd: &str, name: &str) -> bool {
     !mentions_append
 }
 
+/// How much of the corpus's recorded authorship is a creation, and how much a later write (memview#1503).
+#[derive(Parser)]
+struct Cli {}
+
 fn main() -> anyhow::Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    Cli::parse();
     let home = std::env::var("HOME")?;
     let dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let root = format!("{home}/.claude/projects");

@@ -5,6 +5,7 @@
 //! Defaults to the live corpus. Exits non-zero only on ERROR findings; a rule is
 //! introduced as a warning, worked to zero, and promoted in `lint.rs`.
 use anyhow::Result;
+use clap::Parser;
 use memview::couse::CoUse;
 use memview::lint;
 use memview::store::Corpus;
@@ -50,11 +51,16 @@ fn settle(
     Ok((corpus, findings))
 }
 
+/// Static analysis for the memory corpus.
+#[derive(Parser)]
+struct Cli {
+    /// The memory directory [default: the corpus].
+    dir: Option<String>,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
-    let dir = std::env::args()
-        .nth(1)
+    let dir = Cli::parse()
+        .dir
         .unwrap_or_else(|| reader::home::memory_dir().to_string_lossy().into_owned());
     let corpus = Corpus::load(&dir)?;
     // Optional: the artefact reads gigabytes of transcripts and is absent on any

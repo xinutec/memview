@@ -28,6 +28,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::agents::{HALF_LIFE_DAYS, day_number, weighted};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
@@ -65,13 +66,16 @@ struct Standing {
     role: Option<Role>,
 }
 
+/// Which memories the index is still earning its size on, from history.
+#[derive(Parser)]
+struct Cli {
+    /// Days for an open's weight to halve.
+    #[arg(long, default_value_t = HALF_LIFE_DAYS)]
+    half_life: f64,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--half-life"])?;
-    let args: Vec<String> = std::env::args().collect();
-    // Refuses a bad value rather than defaulting past it: `--half-life bogus` once
-    // printed the default ranking wearing a parameter's name.
-    let half_life = memview::flags::value_of(&args, "--half-life", HALF_LIFE_DAYS)?;
+    let half_life = Cli::parse().half_life;
 
     let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
     let artefact = std::env::var("AGENTS_FILE").unwrap_or_else(|_| {

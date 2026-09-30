@@ -43,27 +43,38 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell;
 
+/// Does a maintained grammar read this corpus better than ours?
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    #[arg(required_unless_present = "parse_file")]
+    corpus: Option<String>,
+    /// How many examples of each.
+    #[arg(long, default_value_t = 8)]
+    show: usize,
+    /// Parse this one file and print its tree whole, instead of the corpus.
+    #[arg(long, value_name = "FILE")]
+    parse_file: Option<std::path::PathBuf>,
+    /// Write the commands only our grammar reads to this file.
+    #[arg(long, value_name = "FILE")]
+    dump_lost: Option<std::path::PathBuf>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: tree-sitter-probe <corpus.jsonl> [--show <n>]");
-    };
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(8);
+    let cli = Cli::parse();
+    let show = cli.show;
 
     let mut parser = tree_sitter::Parser::new();
     parser.set_language(&tree_sitter_bash::LANGUAGE.into())?;
 
     // One file, one tree, printed whole. The summary names the node an error sits
     // in; twice now on this project the surroundings were the actual problem.
-    if let Some(i) = args.iter().position(|a| a == "--parse-file") {
-        let text = std::fs::read_to_string(args.get(i + 1).expect("a path to parse"))?;
+    if let Some(file) = &cli.parse_file {
+        let text = std::fs::read_to_string(file)?;
         let tree = parser.parse(&text, None).expect("bash always parses");
         println!("{}", tree.root_node().to_sexp());
         // And the text under each error, which the s-expression does not carry —
@@ -90,14 +101,13 @@ fn main() -> anyhow::Result<()> {
 
     // Whole failing commands, for reading — the same escape hatch `shell-report`
     // has, and needed here for the same reason.
-    let mut dump = args
-        .iter()
-        .position(|a| a == "--dump-lost")
-        .and_then(|i| args.get(i + 1))
+    let mut dump = cli
+        .dump_lost
+        .as_ref()
         .map(std::fs::File::create)
         .transpose()?;
 
-    let text = std::fs::read_to_string(path)?;
+    let text = std::fs::read_to_string(cli.corpus.as_deref().unwrap_or_default())?;
     let mut seen = std::collections::BTreeSet::new();
     // The four cells, and examples from the two that decide the question.
     let (mut both, mut ours_only, mut theirs_only, mut neither) = (0usize, 0usize, 0usize, 0usize);

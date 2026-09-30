@@ -62,15 +62,25 @@
 
 use std::collections::BTreeSet;
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 use reader::{javascript, shell_files};
 
+/// The JavaScript programs the reader says never ran, handed out to be checked.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// Every program, not only the ones the reader says never ran: checks what
+    /// it kept, where the default checks what it discards.
+    #[arg(long)]
+    all: bool,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let path = args
-        .get(1)
-        .expect("usage: javascript-raised <corpus.jsonl> [--all]");
-    let everything = args.iter().any(|a| a == "--all");
+    let cli = Cli::parse();
+    let (path, everything) = (&cli.corpus, cli.all);
     let home = std::env::var("HOME").unwrap_or_default();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut occurrences = 0usize;

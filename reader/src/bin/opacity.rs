@@ -53,6 +53,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_files;
 use reader::shell_ops::Op;
 use reader::sniff::looks_like;
@@ -76,33 +78,32 @@ impl Weighed {
     }
 }
 
+/// What the fleet's commands carry that nothing looks inside.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 12)]
+    show: usize,
+    /// Open up one sniffed label, rather than count.
+    #[arg(long, value_name = "LABEL", conflicts_with = "dump")]
+    why: Option<String>,
+    /// Write one label's bodies out NUL-separated, for whatever can read them.
+    #[arg(long, value_name = "LABEL")]
+    dump: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: opacity <corpus.jsonl> [--show <n>] [--why|--dump <label>]");
-    };
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(12);
-    // Which sniffed label to open up, rather than count.
-    let why: Option<String> = args
-        .iter()
-        .position(|a| a == "--why")
-        .and_then(|i| args.get(i + 1))
-        .map(|label| label.to_lowercase());
+    let cli = Cli::parse();
+    let (path, show) = (&cli.corpus, cli.show);
+    let why = cli.why.as_deref().map(str::to_lowercase);
     // A bucket's size never says whether reading it is worth it. That
     // takes looking at what the bodies *do*, and no reader exists for the
     // language in question — which is the very thing being decided. So the
     // bodies go out NUL-separated for whatever can answer, the same bargain
     // `nested-why` and `python-raised` strike with `bash -n` and `ast.parse`.
-    let dump: Option<String> = args
-        .iter()
-        .position(|a| a == "--dump")
-        .and_then(|i| args.get(i + 1))
-        .map(|label| label.to_lowercase());
+    let dump = cli.dump.as_deref().map(str::to_lowercase);
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;

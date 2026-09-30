@@ -13,13 +13,18 @@
 use std::io::Read;
 
 use anyhow::Result;
+use clap::Parser;
+
+/// Warn when the index holds work another session wrote. Paths on stdin.
+#[derive(Parser)]
+struct Cli {
+    /// The repository's absolute path [default: the working directory].
+    repo: Option<String>,
+}
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     // The ABSOLUTE repository path: the artefact keys paths that way.
-    let repo = std::env::args().nth(1).unwrap_or_else(|| {
+    let repo = Cli::parse().repo.unwrap_or_else(|| {
         std::env::current_dir()
             .map(|d| d.display().to_string())
             .unwrap_or_default()

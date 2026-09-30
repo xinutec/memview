@@ -13,16 +13,22 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use clap::Parser;
 use memview::couse;
 use memview::store::Corpus;
 
+/// Mine the session transcripts for memories used together.
+#[derive(Parser)]
+struct Cli {
+    /// The transcripts' project directory [default: this machine's code project].
+    dir: Option<String>,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let dir: PathBuf = std::env::args()
-        .nth(1)
+    let dir: PathBuf = cli
+        .dir
         .unwrap_or_else(|| {
             reader::home::code_project_dir()
                 .to_string_lossy()

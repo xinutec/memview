@@ -18,12 +18,17 @@
 //! recorded somewhere.
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use serde_json::json;
+
+/// Rebuild the record of when each memory was first written.
+#[derive(Parser)]
+struct Cli {}
 
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = std::env::var("MEMORY_MARKER").unwrap_or_else(|_| {
         format!(

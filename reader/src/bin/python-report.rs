@@ -11,36 +11,33 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 use reader::{python, shell_files};
 
+/// What the Python reader can make of the history's Python, and what it
+/// cannot.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 25)]
+    show: usize,
+    /// Print whole the programs that named a path containing this: the check
+    /// that settles doubt about a path.
+    #[arg(long, value_name = "SUBSTRING")]
+    why: Option<String>,
+    /// Print the programs that call an unknown function containing this.
+    #[arg(long, value_name = "SUBSTRING")]
+    sample: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: python-report <corpus.jsonl> [--show <n>] [--why <substring>]");
-    };
-    let show = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(25);
-    // The check that settles doubt about a path: the program that named it,
-    // printed whole. Every argument about invented paths in the shell reader was
-    // ended by reading six lines of the equivalent.
-    let why = args
-        .iter()
-        .position(|a| a == "--why")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
-    // The same question asked of the worklist: which program is it that calls
-    // this thing I have never heard of. An unknown call is only worth teaching
-    // once you have seen the code it came from.
-    let sample = args
-        .iter()
-        .position(|a| a == "--sample")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let cli = Cli::parse();
+    let (path, show) = (&cli.corpus, cli.show);
+    let (why, sample) = (cli.why.clone(), cli.sample.clone());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;

@@ -15,14 +15,20 @@
 //! somebody maintains by hand.
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::store::Corpus;
 
+/// The `MEMORY.md` the corpus declares, beside the one a session wrote.
+#[derive(Parser)]
+struct Cli {
+    /// Also drop the assembled file in memview's cache.
+    #[arg(long)]
+    write: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--write"])?;
+    let write = Cli::parse().write;
     let dir = reader::home::memory_dir().to_string_lossy().into_owned();
-    let write = std::env::args().any(|a| a == "--write");
 
     let corpus = Corpus::load(&dir)?;
     let shadow = memview::shadow::assemble(&corpus);

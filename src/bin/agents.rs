@@ -8,50 +8,35 @@
 //! anything parked there is destroyed on the next sync.
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::agents;
 use memview::couse::stamp;
 
+/// Mine the session transcripts for which agent works where.
+#[derive(Parser)]
+struct Cli {
+    /// The projects root [default: ~/.claude/projects].
+    root: Option<String>,
+    /// Where to write [default: agents.json in memview's cache].
+    out: Option<String>,
+    /// Where `doing.json` and `effects.json` go, or `none` to skip them (and
+    /// then no timeline is written either) [default: beside OUT].
+    #[arg(long, value_name = "DIR|none")]
+    exports: Option<String>,
+    /// Resume from the recorded marks rather than reading every transcript
+    /// whole. Opt-in until parity is shown on the real corpus.
+    #[arg(long)]
+    resume: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(
-        &std::env::args().collect::<Vec<_>>(),
-        &["--exports", "--resume"],
-    )?;
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    // Flags taken out before the positionals are counted. `root` and `out`
-    // are read by position, so a bare `--resume` would otherwise become the
-    // projects root and the mine would read an empty directory and report a
-    // corpus of nothing — a wrong answer with no error.
-    // A flag's VALUE is not a positional argument, and getting this wrong is
-    // silent. `--exports /tmp/x` left `/tmp/x` looking positional, so it became
-    // the projects ROOT: the mine read an empty directory, found no transcripts,
-    // and wrote a resume state with zero marks over a good one. Green, fast, and
-    // entirely wrong — the exact failure the `--resume` note warned about, then
-    // reintroduced by adding a flag that takes a value.
-    let positional: Vec<String> = {
-        const TAKES_VALUE: &[&str] = &["--exports"];
-        let all: Vec<String> = std::env::args().skip(1).collect();
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < all.len() {
-            if TAKES_VALUE.contains(&all[i].as_str()) {
-                i += 2; // the flag and the value it owns
-            } else if all[i].starts_with("--") {
-                i += 1;
-            } else {
-                out.push(all[i].clone());
-                i += 1;
-            }
-        }
-        out
-    };
-    let root = positional
-        .first()
-        .cloned()
+    let root = cli
+        .root
         .unwrap_or_else(|| format!("{home}/.claude/projects"));
     let sessions = format!("{home}/.claude/sessions");
-    let out = positional.get(1).cloned().unwrap_or_else(|| {
+    let out = cli.out.unwrap_or_else(|| {
         reader::home::cache("agents.json")
             .to_string_lossy()
             .into_owned()
@@ -77,7 +62,7 @@ fn main() -> Result<()> {
     // is not 6.28 GB of transcripts, and a wrong resume reads no error — it
     // mines from an offset that means something else and the artefact simply
     // becomes untrue. `--resume` is how that comparison gets run at all.
-    let want_resume = std::env::args().any(|a| a == "--resume");
+    let want_resume = cli.resume;
     // `doing.json` and `effects.json` are EXPORTS, not local data. 130 MB
     // that exists only to be pushed to the console — nothing on this Mac reads
     // them except this miner, to resume the timeline. `--exports <dir>` sends
@@ -89,15 +74,10 @@ fn main() -> Result<()> {
     // previous timeline produces a wrong one — measured: 78 orphaned rows and
     // renumbered episodes (memview#1240). So it does not pretend to produce one.
     // Only a FULL mine writes a timeline anybody should read.
-    let exports: Option<std::path::PathBuf> = {
-        let args: Vec<String> = std::env::args().collect();
-        match args.iter().position(|a| a == "--exports") {
-            None => Some(std::path::Path::new(&out).with_file_name(".").to_path_buf()),
-            Some(i) => match args.get(i + 1).map(String::as_str) {
-                Some("none") | None => None,
-                Some(dir) => Some(std::path::PathBuf::from(dir)),
-            },
-        }
+    let exports: Option<std::path::PathBuf> = match cli.exports.as_deref() {
+        None => Some(std::path::Path::new(&out).with_file_name(".").to_path_buf()),
+        Some("none") => None,
+        Some(dir) => Some(std::path::PathBuf::from(dir)),
     };
     let resume_file = reader::home::cache(memview::mine::FILE);
     let from = if want_resume {

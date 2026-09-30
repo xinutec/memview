@@ -18,6 +18,7 @@
 //! in their words.
 
 use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand};
 use console::config::Config;
 use console::conversation::{Voice, conversation};
 use serde::Deserialize;
@@ -126,6 +127,50 @@ impl Row {
     }
 }
 
+/// The live Claude Code sessions on this Mac: list them, read a conversation,
+/// send one a message. A <SESSION> is a name (`home`) or the start of an id
+/// (`1b6f2e45`).
+#[derive(Parser)]
+struct Cli {
+    /// The listing when absent.
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// The sessions: state, what they are doing, how long ago.
+    Who,
+    /// The last N messages of the conversation, both sides.
+    Log(Conversation),
+    /// The last N things the session said, in full.
+    Last(Conversation),
+    /// Send it a message, as the user; `-` reads stdin.
+    Send {
+        session: String,
+        /// The message, every word after the session taken literally.
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        text: Vec<String>,
+    },
+}
+
+/// Which conversation, and how much of it.
+#[derive(clap::Args)]
+struct Conversation {
+    session: String,
+    /// How many [default: 10 for log, 1 for last].
+    n: Option<usize>,
+    /// With `last`, show what the user said instead.
+    #[arg(short, long)]
+    user: bool,
+    /// With `log`, do not shorten long messages.
+    #[arg(short, long)]
+    full: bool,
+    /// Only messages at or after T: `22:00` today, or a full ISO stamp.
+    #[arg(long, value_name = "T")]
+    since: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // `reqwest` here is a rustls build with no default provider, so nothing in this
@@ -133,40 +178,12 @@ async fn main() -> Result<()> {
     // on the first request. `main.rs` does the same.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let rest: Vec<&str> = args.iter().map(String::as_str).collect();
-    match rest.split_first() {
-        None | Some((&"who", [])) => who().await,
-        Some((&"log", tail)) => read(tail, Mode::Log).await,
-        Some((&"last", tail)) => read(tail, Mode::Last).await,
-        Some((&"send", tail)) => send(tail).await,
-        Some((&("-h" | "--help" | "help"), _)) => {
-            println!("{}", usage());
-            Ok(())
-        }
-        Some((other, _)) => bail!("no such command {other:?}\n\n{}", usage()),
+    match Cli::parse().command.unwrap_or(Command::Who) {
+        Command::Who => who().await,
+        Command::Log(args) => read(args, Mode::Log).await,
+        Command::Last(args) => read(args, Mode::Last).await,
+        Command::Send { session, text } => send(&session, &text).await,
     }
-}
-
-/// What to type, with the binary's own name in it: `CARGO_BIN_NAME`, so a rename
-/// cannot leave the old name behind.
-fn usage() -> String {
-    let me = env!("CARGO_BIN_NAME");
-    format!(
-        "usage:
-  {me}                       the sessions: state, what they are doing, how long ago
-  {me} log <session> [n]     the last n messages of the conversation, both sides
-  {me} last <session> [n]    the last n things the session said, in full
-  {me} send <session> <text> send it a message, as the user; `-` reads stdin
-
-  `{me} who` is still accepted; the bare form is the same listing.
-
-  --user      with `last`, show what the user said instead
-  --full      with `log`, do not shorten long messages
-  --since T   only messages at or after T — `22:00` today, or a full ISO stamp
-
-<session> is a name (`home`) or the start of an id (`1b6f2e45`)."
-    )
 }
 
 enum Mode {
@@ -309,60 +326,28 @@ fn tail_of(path: &Path) -> Result<Vec<u8>> {
 
 /// `--since 22:00` means today at 22:00, in whatever the transcript's stamps
 /// are; a longer value is compared as the prefix it is.
-fn since_of(args: &[&str]) -> Option<String> {
-    let at = args.iter().position(|arg| *arg == "--since")?;
-    let value = args.get(at + 1)?;
+fn since(value: &str) -> String {
     if value.len() == 5 && value.as_bytes()[2] == b':' {
         let today = &time::OffsetDateTime::now_utc();
-        let stamp = format!(
+        format!(
             "{:04}-{:02}-{:02}T{value}",
             today.year(),
             today.month() as u8,
             today.day()
-        );
-        Some(stamp)
+        )
     } else {
-        Some((*value).to_string())
+        value.to_string()
     }
 }
 
-async fn read(args: &[&str], mode: Mode) -> Result<()> {
-    let mine = args.iter().any(|arg| *arg == "--user" || *arg == "-u");
-    let full = args.iter().any(|arg| *arg == "--full" || *arg == "-f");
-    let since = since_of(args);
-    // Skip the flags and the value `--since` consumed.
-    let mut positional: Vec<&str> = Vec::new();
-    let mut skip = false;
-    for arg in args {
-        if skip {
-            skip = false;
-            continue;
-        }
-        if *arg == "--since" {
-            skip = true;
-        } else if !arg.starts_with('-') {
-            positional.push(arg);
-        }
-    }
-    let Some(needle) = positional.first() else {
-        bail!(
-            "usage: {} {} <session> [n]",
-            env!("CARGO_BIN_NAME"),
-            match mode {
-                Mode::Log => "log",
-                Mode::Last => "last",
-            }
-        );
-    };
-    let count: usize = match positional.get(1) {
-        Some(n) => n
-            .parse()
-            .with_context(|| format!("{n:?} is not a number"))?,
-        None => match mode {
-            Mode::Log => 10,
-            Mode::Last => 1,
-        },
-    };
+async fn read(args: Conversation, mode: Mode) -> Result<()> {
+    let (mine, full) = (args.user, args.full);
+    let since = args.since.as_deref().map(since);
+    let needle = args.session.as_str();
+    let count = args.n.unwrap_or(match mode {
+        Mode::Log => 10,
+        Mode::Last => 1,
+    });
 
     let sessions = overview().await?;
     let row = resolve(&sessions, needle)?;
@@ -411,13 +396,7 @@ async fn read(args: &[&str], mode: Mode) -> Result<()> {
     Ok(())
 }
 
-async fn send(args: &[&str]) -> Result<()> {
-    let Some((needle, words)) = args.split_first() else {
-        bail!("usage: {} send <session> <text>", env!("CARGO_BIN_NAME"));
-    };
-    if words.is_empty() {
-        bail!("nothing to send");
-    }
+async fn send(needle: &str, words: &[String]) -> Result<()> {
     let text = if words == ["-"] {
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf)?;

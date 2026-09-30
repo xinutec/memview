@@ -13,29 +13,31 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell;
 
+/// How much of the history's shell the grammar can read, and what it cannot.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many examples of each construct.
+    #[arg(long, default_value_t = 5)]
+    show: usize,
+    /// Write the whole failing commands to this file.
+    #[arg(long, value_name = "FILE")]
+    dump: Option<std::path::PathBuf>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: shell-report <corpus.jsonl> [--show <n>]");
-    };
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(5);
+    let cli = Cli::parse();
+    let (path, show) = (&cli.corpus, cli.show);
 
     // Whole failing commands, for reading. The 24-character window in the
     // summary names the construct; it does not show what surrounds it, and twice
     // now the surroundings were the actual problem.
-    let mut dump = args
-        .iter()
-        .position(|a| a == "--dump")
-        .and_then(|i| args.get(i + 1))
-        .map(std::fs::File::create)
-        .transpose()?;
+    let mut dump = cli.dump.as_ref().map(std::fs::File::create).transpose()?;
 
     let text = std::fs::read_to_string(path)?;
     let mut seen = std::collections::BTreeSet::new();

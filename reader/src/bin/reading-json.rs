@@ -26,17 +26,27 @@
 //! deliberate — this file is small enough to be embedded in a page, so it is
 //! held to what a page may safely carry.
 
+use clap::Parser;
 use reader::reading::Reading;
 
+/// The corpus survey as a small JSON artefact, for the apps to draw.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    corpus: Option<String>,
+    /// Where to write [default: reading.json in the cache].
+    out: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let corpus = args.get(1).cloned().unwrap_or_else(|| {
+    let corpus = cli.corpus.unwrap_or_else(|| {
         reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()
     });
-    let out = args.get(2).cloned().unwrap_or_else(|| {
+    let out = cli.out.unwrap_or_else(|| {
         reader::home::cache("reading.json")
             .to_string_lossy()
             .into_owned()

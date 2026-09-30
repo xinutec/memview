@@ -12,6 +12,8 @@
 
 use std::io::Write;
 
+use clap::Parser;
+
 use memview::agents;
 use reader::doing::Verdict;
 
@@ -29,20 +31,23 @@ fn said_row(at: &Option<String>, command: &str, description: &str) -> serde_json
     row
 }
 
+/// Extract every `Bash` call from the session transcripts, for the shell report.
+#[derive(Parser)]
+struct Cli {
+    /// The projects root [default: ~/.claude/projects].
+    root: Option<String>,
+    /// Also write what the author said each command was for, to this file.
+    #[arg(long, value_name = "FILE")]
+    said: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--said"])?;
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let mut args = std::env::args().skip(1);
-    let mut root = None;
-    let mut said_to = None;
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--said" => said_to = args.next(),
-            _ => root = Some(arg),
-        }
-    }
-    let root = root.unwrap_or_else(|| format!("{home}/.claude/projects"));
+    let root = cli
+        .root
+        .unwrap_or_else(|| format!("{home}/.claude/projects"));
+    let said_to = cli.said;
     // Opened before the walk, so a bad path fails in a second.
     let mut said = match &said_to {
         Some(path) => Some(std::io::BufWriter::new(std::fs::File::create(path)?)),

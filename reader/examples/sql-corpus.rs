@@ -6,12 +6,20 @@
 //! measured by what was UNDERSTOOD, and the worklist is what to teach it next.
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 use reader::{project, shell_files, sql};
 
+/// What the SQL reader finds across a whole corpus, and what it still cannot.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    corpus: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let path = args.get(1).cloned().unwrap_or_else(|| {
+    let path = Cli::parse().corpus.unwrap_or_else(|| {
         reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()

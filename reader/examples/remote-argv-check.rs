@@ -13,6 +13,8 @@
 //! a model nothing believes should not have a maintained implementation.
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_ops::{Op, classify};
 
 /// The paths one op names, flattened — direction dropped, since the question is
@@ -30,10 +32,15 @@ fn subjects(op: &Op) -> Vec<String> {
     }
 }
 
+/// What changed when a container payload stopped being joined into a script.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .expect("usage: remote-argv-check <corpus.jsonl>");
+    let path = Cli::parse().corpus;
     let home = "/home/example";
     let mut payloads = 0usize;
     let mut agree = 0usize;

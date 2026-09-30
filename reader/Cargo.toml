@@ -23,6 +23,9 @@ pest = "2.8"
 pest_derive = "2.8"
 base64 = "0.23"
 anyhow = "1"
+# The report binaries' argv (dev-lint#761); `tests/suite/leaf.rs` says why it
+# stays inside the boundary.
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Python's `re.sub`, followed where the two engines agree; see src/predict/python_re.rs.

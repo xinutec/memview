@@ -14,16 +14,32 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand};
 use console::api;
 use console::config::Config;
 use console::roster::Roster;
 use tower_http::services::ServeDir;
 
+/// The agent console: the service, or with `hook`, Claude Code's hook for
+/// `Bash`.
+#[derive(Parser)]
+struct Cli {
+    /// The service when absent.
+    #[command(subcommand)]
+    verb: Option<Verb>,
+}
+
+#[derive(Subcommand)]
+enum Verb {
+    /// Claude Code's hook for `Bash`, run by every session on this Mac.
+    Hook,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // `agent-console hook`: Claude Code's hook for `Bash`, run by every session on
     // this Mac. See [`hook`].
-    if std::env::args().nth(1).as_deref() == Some("hook") {
+    if let Some(Verb::Hook) = Cli::parse().verb {
         let _ = rustls::crypto::ring::default_provider().install_default();
         if let Err(why) = hook().await {
             // Exit 2 blocks the call and hands the session this sentence: a console

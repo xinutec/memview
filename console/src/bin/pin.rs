@@ -9,12 +9,18 @@
 //! secure element is the thing that cannot be replaced.
 
 use anyhow::{Context, Result, bail};
+use clap::Parser;
 use console::tls::pin_of;
 
+/// Print the fingerprint of a certificate's public key: the enrolment tool.
+#[derive(Parser)]
+struct Cli {
+    /// The certificate, as PEM.
+    certificate: String,
+}
+
 fn main() -> Result<()> {
-    let Some(path) = std::env::args().nth(1) else {
-        bail!("usage: pin <certificate.pem>");
-    };
+    let path = Cli::parse().certificate;
     let pem = std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?;
     let mut found = 0;
     for cert in rustls_pemfile::certs(&mut pem.as_bytes()) {

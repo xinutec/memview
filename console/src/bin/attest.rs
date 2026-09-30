@@ -8,14 +8,27 @@
 //! good one forever after.
 
 use anyhow::{Context, Result, bail};
+use clap::Parser;
 use console::attest::examine;
 
+/// Check a phone's attestation chain, and print the pin if it holds up.
+#[derive(Parser)]
+struct Cli {
+    /// The attestation chain, as PEM.
+    chain: String,
+    /// The challenge the phone signed, in hex.
+    challenge: String,
+    /// Google's attestation revocation list, as JSON. Without it the check
+    /// fails: a revocation check skipped reads as done.
+    status: Option<String>,
+}
+
 fn main() -> Result<()> {
-    let mut args = std::env::args().skip(1);
-    let (Some(chain), Some(challenge)) = (args.next(), args.next()) else {
-        bail!("usage: attest <chain.pem> <challenge-hex> [status.json]");
-    };
-    let status = args.next();
+    let Cli {
+        chain,
+        challenge,
+        status,
+    } = Cli::parse();
 
     let pem = std::fs::read_to_string(&chain).with_context(|| format!("reading {chain}"))?;
     let challenge = unhex(&challenge).context("the challenge must be hex")?;

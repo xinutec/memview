@@ -19,35 +19,51 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use clap::Parser;
+
 use reader::predict::{Files, Shown, predict};
 
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: predict-report <corpus.jsonl> [--show <why> <n>]");
+/// What the evaluator predicts over the history's commands, and what it does
+/// not follow yet, ranked.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    #[arg(required_unless_present = "live")]
+    corpus: Option<String>,
+    /// Read the console's recorded edits instead of the corpus.
+    #[arg(long, value_name = "EDITS_DIR", conflicts_with = "corpus")]
+    live: Option<std::path::PathBuf>,
+    /// Print whole the first N commands behind one reason (or finding).
+    #[arg(long, num_args = 2, value_names = ["WHY", "N"])]
+    show: Option<Vec<String>>,
+    /// Only the commands containing this.
+    #[arg(long, value_name = "TEXT")]
+    only: Option<String>,
+}
+
+/// `--show <label> <n>`, with the count typed: a bad one is refused, not
+/// dropped.
+fn label_and_count(show: Option<Vec<String>>) -> anyhow::Result<Option<(String, usize)>> {
+    let Some([label, n]) = show.as_deref() else {
+        return Ok(None);
     };
+    let n = n
+        .parse()
+        .map_err(|e| anyhow::anyhow!("--show {label} {n}: not a count ({e})"))?;
+    Ok(Some((label.clone(), n)))
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
     // The commands behind one reason, printed whole — the check that a reason is
     // what it says.
-    let show = args.iter().position(|a| a == "--show").and_then(|at| {
-        Some((
-            args.get(at + 1)?.clone(),
-            args.get(at + 2)?.parse::<usize>().ok()?,
-        ))
-    });
-    if path == "--live" {
-        let Some(path) = args.get(2) else {
-            anyhow::bail!("usage: predict-report --live <edits dir> [--show <why|finding> <n>]");
-        };
-        return live(Path::new(path), show);
+    let show = label_and_count(cli.show)?;
+    if let Some(dir) = &cli.live {
+        return live(dir, show);
     }
+    let path = cli.corpus.as_deref().unwrap_or_default();
     let home = std::env::var("HOME").unwrap_or_default();
-    // `--only <text>`: just the commands containing it.
-    let filter = args
-        .iter()
-        .position(|a| a == "--only")
-        .and_then(|at| args.get(at + 1))
-        .cloned()
-        .unwrap_or_default();
+    let filter = cli.only.unwrap_or_default();
 
     let mut commands = 0usize;
     let mut unparsed = 0usize;

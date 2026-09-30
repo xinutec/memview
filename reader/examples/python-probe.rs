@@ -36,10 +36,16 @@ fn show(p: Pair<Rule>, depth: usize) {
     }
 }
 
+/// What the Python grammar makes of one program — the parse tree, printed.
+#[derive(clap::Parser)]
+struct Cli {
+    /// The program.
+    #[arg(default_value = "for p in glob.glob('captures/*.json'): open(p)")]
+    program: String,
+}
+
 fn main() {
-    let src = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "for p in glob.glob('captures/*.json'): open(p)".to_string());
+    let src = <Cli as clap::Parser>::parse().program;
     match P::parse(Rule::program, &src) {
         Ok(mut got) => show(got.next().expect("one program"), 0),
         Err(e) => println!("refused: {e}"),

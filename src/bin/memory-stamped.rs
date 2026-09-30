@@ -24,11 +24,16 @@
 use std::io::Read;
 
 use anyhow::Result;
+use clap::Parser;
+
+/// Did every memory the staged diff (on stdin) changes also move its `modified:` stamp?
+#[derive(Parser)]
+struct Cli {}
 
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    Cli::parse();
     let mut diff = String::new();
     std::io::stdin().read_to_string(&mut diff)?;
 

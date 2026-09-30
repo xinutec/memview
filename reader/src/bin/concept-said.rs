@@ -30,6 +30,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::concept::{self, Concept};
 use reader::shell_files::trace;
 
@@ -61,17 +63,21 @@ fn leading_word(said: &str) -> String {
         .to_lowercase()
 }
 
+/// **Gate 4**: the concept beside the description its author wrote.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// What the author said each command was for, from `bash-corpus --said`.
+    said: String,
+    /// How many examples of each.
+    #[arg(long, default_value_t = 6)]
+    show: usize,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let (Some(corpus), Some(said_path)) = (args.get(1), args.get(2)) else {
-        anyhow::bail!("usage: concept-said <corpus.jsonl> <said.jsonl> [--show <n>]");
-    };
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(6);
+    let cli = Cli::parse();
+    let (corpus, said_path, show) = (&cli.corpus, &cli.said, cli.show);
     let home = std::env::var("HOME").unwrap_or_default();
 
     let mut said: BTreeMap<(String, String), String> = BTreeMap::new();

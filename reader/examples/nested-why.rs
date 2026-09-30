@@ -17,6 +17,8 @@
 //! found; nothing is cut off when it grows. See `feedback_no_fuel_limits`.
 use std::collections::{BTreeMap, BTreeSet};
 
+use clap::Parser;
+
 use reader::shell_ops::Op;
 
 /// What one walk of the corpus found, keyed so a reason can be read per depth.
@@ -106,17 +108,19 @@ fn walk(script: &str, depth: usize, want: &str, found: &mut Found) {
     }
 }
 
+/// Which nested scripts will not read, at every depth, and what they look like.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// Which refusal reason to show.
+    #[arg(long, value_name = "NAME", default_value = "Grouping")]
+    reason: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let path = args
-        .get(1)
-        .expect("usage: nested-why <corpus.jsonl> [--reason NAME]");
-    let want = args
-        .iter()
-        .position(|a| a == "--reason")
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_else(|| "Grouping".to_string());
+    let cli = Cli::parse();
+    let (path, want) = (&cli.corpus, cli.reason.clone());
 
     let mut found = Found::default();
     for line in std::fs::read_to_string(path)?.lines() {

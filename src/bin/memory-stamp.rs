@@ -29,19 +29,27 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use clap::Parser;
 use memview::atomic;
 use memview::blame::{Author, attribute};
 use memview::stamped::{Missing, missing, modified_from_mtime};
 
+/// Give an unstamped memory back its `modified:` and its author.
+#[derive(Parser)]
+struct Cli {
+    /// The memory directory [default: the corpus].
+    dir: Option<String>,
+    /// Write the stamps; without it, say what would change.
+    #[arg(long)]
+    apply: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let apply = std::env::args().any(|a| a == "--apply");
-    let dir = std::env::args()
-        .nth(1)
-        .filter(|a| a != "--apply")
+    let apply = cli.apply;
+    let dir = cli
+        .dir
         .unwrap_or_else(|| reader::home::memory_dir().to_string_lossy().into_owned());
     let root = format!("{home}/.claude/projects");
 

@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::BufRead;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::bytes::{Bytes, Copy, Kind, absorb};
 
 fn label(kind: &Kind) -> String {
@@ -28,13 +29,21 @@ fn label(kind: &Kind) -> String {
     }
 }
 
+/// What the bytes in `~/.claude/projects` actually are.
+#[derive(Parser)]
+struct Cli {
+    /// One transcript [default: every transcript].
+    file: Option<String>,
+    /// Write the artefact a collector reads: `claude_disk.py` runs every 600 s
+    /// off 0.7 s of stat calls, and a 33-second walk cannot ride that.
+    #[arg(long)]
+    json: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--json"])?;
-    // `--json` writes the artefact a collector reads; `claude_disk.py` runs every
-    // 600 s off 0.7 s of stat calls, and a 33-second walk cannot ride that.
-    let write_json = std::env::args().any(|a| a == "--json");
-    let arg = std::env::args().nth(1).filter(|a| a != "--json");
+    let cli = Cli::parse();
+    let write_json = cli.json;
+    let arg = cli.file;
     let files: Vec<std::path::PathBuf> = match &arg {
         Some(one) => vec![std::path::PathBuf::from(one)],
         None => memview::blame::transcripts(&reader::home::projects_dir()),

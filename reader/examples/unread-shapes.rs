@@ -13,6 +13,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_files;
 
 /// Where `name` appears as a whole word, not inside a longer one.
@@ -34,22 +36,26 @@ fn word_at(text: &str, name: &str) -> Option<usize> {
         .map(|(at, _)| at)
 }
 
+/// How an UNREAD command is actually written, in the reader's own accounting.
+#[derive(Parser)]
+struct Cli {
+    /// The unread command names to show.
+    #[arg(required = true)]
+    names: Vec<String>,
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    #[arg(long)]
+    corpus: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let (want, path): (Vec<String>, String) = match args.split_last() {
-        Some((last, _)) if last.ends_with(".jsonl") => (
-            args[..args.len() - 1].to_vec(),
-            args[args.len() - 1].clone(),
-        ),
-        _ => (
-            args,
-            reader::home::cache("bash-corpus.jsonl")
-                .to_string_lossy()
-                .into_owned(),
-        ),
-    };
-    anyhow::ensure!(!want.is_empty(), "usage: unread-shapes <name>… [corpus]");
+    let want = cli.names;
+    let path = cli.corpus.unwrap_or_else(|| {
+        reader::home::cache("bash-corpus.jsonl")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     let text = std::fs::read_to_string(&path)?;
     let mut seen: BTreeMap<String, (usize, BTreeMap<String, usize>)> = BTreeMap::new();

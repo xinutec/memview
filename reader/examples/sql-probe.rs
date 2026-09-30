@@ -29,10 +29,16 @@ fn show(p: Pair<Rule>, depth: usize) {
     }
 }
 
+/// What the SQL grammar makes of one script — the parse tree, printed.
+#[derive(clap::Parser)]
+struct Cli {
+    /// The script.
+    #[arg(default_value = "SELECT * FROM report INTO OUTFILE '/tmp/report.tsv'")]
+    script: String,
+}
+
 fn main() {
-    let src = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "SELECT * FROM report INTO OUTFILE '/tmp/report.tsv'".to_string());
+    let src = <Cli as clap::Parser>::parse().script;
     match P::parse(Rule::script, &src) {
         Ok(mut got) => show(got.next().expect("one script"), 0),
         Err(e) => println!("refused: {e}"),

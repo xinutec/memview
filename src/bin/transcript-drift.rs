@@ -19,12 +19,17 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use reader::watermark::{Drift, Watermark, drift, observe};
+
+/// Does a transcript's already-read prefix stay put? Records, or compares.
+#[derive(Parser)]
+struct Cli {}
 
 fn main() -> Result<()> {
     // Refuse a flag this tool does not know, rather than running as if it were
     // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
+    Cli::parse();
     let at = reader::home::cache("transcript-drift.json");
     // An absent file and an unreadable one are different answers. Absent
     // is a legitimate first run. Unreadable is a lost baseline, and defaulting

@@ -22,26 +22,25 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use reader::transcript::{self, Tail};
 
-fn main() -> Result<()> {
-    let mut quiet = false;
-    let mut examples = 3usize;
-    let mut target: Option<PathBuf> = None;
+/// Whether the conversations on this machine are intact.
+#[derive(Parser)]
+struct Cli {
+    /// A transcript, or a directory of them [default: ~/.claude/projects].
+    target: Option<PathBuf>,
+    /// Totals only.
+    #[arg(long)]
+    quiet: bool,
+    /// How many examples of each finding.
+    #[arg(long, default_value_t = 3)]
+    examples: usize,
+}
 
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--quiet" => quiet = true,
-            "--examples" => {
-                examples = args
-                    .next()
-                    .and_then(|n| n.parse().ok())
-                    .context("--examples wants a number")?;
-            }
-            other => target = Some(PathBuf::from(other)),
-        }
-    }
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let (quiet, examples, target) = (cli.quiet, cli.examples, cli.target);
 
     let root = target.unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();

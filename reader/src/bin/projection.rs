@@ -21,20 +21,29 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::project::project;
 use reader::shell::{self, Reached, Simple};
 use reader::shell_ops::unwrap_command;
 use reader::syntax;
 
+/// Do the two readers agree about what ran?
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many examples of each bucket.
+    #[arg(long, default_value_t = 3)]
+    show: usize,
+    /// Only this bucket.
+    #[arg(long, value_name = "BUCKET")]
+    only: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: projection <corpus.jsonl> [--show <n>] [--only <bucket>]");
-    };
-    let show: usize = flag(&args, "--show")
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(3);
-    let only = flag(&args, "--only");
+    let cli = Cli::parse();
+    let (path, show, only) = (&cli.corpus, cli.show, cli.only.as_deref());
 
     let text = std::fs::read_to_string(path)?;
     let mut seen = std::collections::BTreeSet::new();
@@ -71,13 +80,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .map(String::as_str)
 }
 
 /// One command's verdict: which bucket it falls in, and what to print for it.

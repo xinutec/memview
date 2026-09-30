@@ -24,13 +24,19 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::dates::{created_in, with_created};
 
+/// Put each memory's creation date into the memory, before the evidence goes.
+#[derive(Parser)]
+struct Cli {
+    /// Write the dates; without it, say what would change.
+    #[arg(long)]
+    apply: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
-    let apply = std::env::args().any(|a| a == "--apply");
+    let apply = Cli::parse().apply;
     let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     let recovered_at = reader::home::cache("memory-created.json");

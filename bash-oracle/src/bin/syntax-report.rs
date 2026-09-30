@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bash_oracle as oracle;
 use bash_oracle::Verdict;
+use clap::Parser;
 use reader::syntax::{self, Outcome, Reason};
 
 #[derive(Default)]
@@ -41,25 +42,27 @@ impl Tally {
     }
 }
 
+/// What the syntax tree reads, what it refuses, and whether all three gates
+/// hold.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// Also check each read against bash's own parse.
+    #[arg(long)]
+    oracle: bool,
+    /// Print every command behind a refusal matching this: a ranking says what
+    /// to build next, and the commands say whether the refusal is even right.
+    #[arg(long, value_name = "SUBSTRING")]
+    why: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let path = args
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: syntax-report <corpus.jsonl> [--oracle]"))?;
-    // `--why <substring>` prints every command behind a matching refusal, the
-    // same affordance `shell-files` has and for the same reason: a ranking says
-    // what to build next, and the commands say whether the refusal is even
-    // right. Fourteen "unterminated quote" refusals are either fourteen odd
-    // commands or one parser bug, and only this tells them apart.
-    let mut run_oracle = false;
-    let mut why: Option<String> = None;
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--oracle" => run_oracle = true,
-            "--why" => why = args.next(),
-            _ => {}
-        }
-    }
+    let Cli {
+        corpus: path,
+        oracle: run_oracle,
+        why,
+    } = Cli::parse();
     let text = std::fs::read_to_string(&path)?;
 
     let mut seen = BTreeSet::new();

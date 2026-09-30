@@ -28,9 +28,14 @@
 /// `regex` and `regex-syntax` run a Python `re.sub` the evaluator predicts, on
 /// text already in hand. The engine is linear-time, so a pattern read from a
 /// transcript cannot stall either binary.
-const ALLOWED: [&str; 10] = [
+///
+/// `clap` parses the report binaries' argv (dev-lint#761): bytes the process
+/// already holds, into flags. Its `env` feature is off, so it reads no
+/// environment, and nothing in the library calls it.
+const ALLOWED: [&str; 11] = [
     "anyhow",
     "base64",
+    "clap",
     "pest",
     "pest_derive",
     "regex",

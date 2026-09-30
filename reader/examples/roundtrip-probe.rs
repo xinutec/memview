@@ -57,6 +57,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell::{Simple, parse};
 
 /// One word, spelled so that reading it again yields exactly this word.
@@ -92,10 +94,15 @@ fn render(cmd: &Simple) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
+/// Does re-rendering a parse and reading it again give the same parse back?
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("usage: roundtrip-probe <corpus.jsonl>"))?;
+    let path = Cli::parse().corpus;
     let text = std::fs::read_to_string(&path)?;
 
     let mut seen = std::collections::BTreeSet::new();

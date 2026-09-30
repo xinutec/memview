@@ -67,6 +67,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use clap::Parser;
+
 use reader::shell::parse;
 
 /// The shell constructs a command uses, named.
@@ -119,10 +121,15 @@ fn constructs(cmd: &str) -> Vec<&'static str> {
     found
 }
 
+/// What is actually in the commands the shell reader cannot read?
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("usage: unparsed-probe <corpus.jsonl>"))?;
+    let path = Cli::parse().corpus;
     let text = std::fs::read_to_string(&path)?;
 
     let mut seen = BTreeSet::new();

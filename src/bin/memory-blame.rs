@@ -12,16 +12,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::blame::{MARKER, attribute, open_task_in, subject};
 use memview::filing;
 use memview::lint::{self, Finding, Severity};
 use memview::store::Corpus;
 
+/// Whose lint error is blocking the corpus commit, and a task that says so.
+#[derive(Parser)]
+struct Cli {
+    /// File the task, rather than only printing who is blocking.
+    #[arg(long)]
+    file: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--file"])?;
-    let args: Vec<String> = std::env::args().collect();
-    let file = args.iter().any(|a| a == "--file");
+    let file = Cli::parse().file;
 
     let home = std::env::var("HOME").unwrap_or_default();
     let root = std::env::var("CLAUDE_DIR").unwrap_or_else(|_| format!("{home}/.claude"));

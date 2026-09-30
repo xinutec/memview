@@ -31,6 +31,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::reading::Reading;
 use reader::resolvable::{Unnamed, unnamed};
 
@@ -45,24 +47,26 @@ fn truncate(s: &str, n: usize) -> String {
     }
 }
 
+/// The resolvability census: how much of what the text could not name could
+/// a reader name.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    corpus: Option<String>,
+    /// How many witnesses of each.
+    #[arg(long, default_value_t = 6)]
+    show: usize,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
     let home = std::env::var("HOME").unwrap_or_default();
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(6);
-    let path = args
-        .get(1)
-        .filter(|a| !a.starts_with("--"))
-        .cloned()
-        .unwrap_or_else(|| {
-            reader::home::cache("bash-corpus.jsonl")
-                .to_string_lossy()
-                .into_owned()
-        });
+    let show = cli.show;
+    let path = cli.corpus.unwrap_or_else(|| {
+        reader::home::cache("bash-corpus.jsonl")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     let text = std::fs::read_to_string(&path)?;
     let read = Reading::of_corpus(&text, &home)?;

@@ -16,6 +16,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_files;
 
 /// Whether `text` declares `name` as a shell function.
@@ -35,10 +37,16 @@ fn declares(text: &str, name: &str) -> bool {
     })
 }
 
+/// How much of the unread list is a function the text DEFINES.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus [default: bash-corpus.jsonl in the cache].
+    corpus: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let home = std::env::var("HOME").unwrap_or_default();
-    let path = args.first().cloned().unwrap_or_else(|| {
+    let path = Cli::parse().corpus.unwrap_or_else(|| {
         reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()

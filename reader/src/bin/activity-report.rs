@@ -7,25 +7,27 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::activity::Activity;
 use reader::shell_files;
 
+/// What the fleet's sessions have actually been doing, in one vocabulary.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 20)]
+    show: usize,
+    /// Print sample commands of this kind.
+    #[arg(long, value_name = "KIND")]
+    sample: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: activity-report <corpus.jsonl> [--show <n>] [--sample KIND]");
-    };
-    let show = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(20);
-    let sample = args
-        .iter()
-        .position(|a| a == "--sample")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let cli = Cli::parse();
+    let (path, show, sample) = (&cli.corpus, cli.show, cli.sample.clone());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;

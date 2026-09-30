@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use memview::agents::{MemoryDays, day_number};
 use memview::study::{
     Role, by_arm, correct, event_study, match_on_pre_opens, pair_differences, placebo,
@@ -34,10 +35,16 @@ const PLACEBO_DAYS: [i64; 3] = [-28, -21, -14];
 /// the property that matters.
 const SEED: u64 = 20_260_831;
 
+/// #884's estimate: did demoting a memory from the index cost it opens?
+#[derive(Parser)]
+struct Cli {
+    /// Compute the estimate before the pre-registered date (2026-09-11), loudly.
+    #[arg(long)]
+    harvest: bool,
+}
+
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know (memview#1588).
-    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--harvest"])?;
-    let harvest = std::env::args().any(|a| a == "--harvest");
+    let harvest = Cli::parse().harvest;
 
     let t = day_number(T).context("t is not a date")?;
     let history: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(

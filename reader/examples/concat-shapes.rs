@@ -50,6 +50,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_ops::{self, Op};
 
 /// What a rendered concatenation is worth as a path.
@@ -221,17 +223,19 @@ fn concats(source: &str) -> Vec<(String, bool)> {
     found
 }
 
+/// What `base + name` still tells you about the path.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// How many examples of each.
+    #[arg(long, default_value_t = 12)]
+    show: usize,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let path = args
-        .get(1)
-        .expect("usage: concat-shapes <corpus.jsonl> [--show <n>]");
-    let show: usize = args
-        .iter()
-        .position(|a| a == "--show")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(12);
+    let cli = Cli::parse();
+    let (path, show) = (&cli.corpus, cli.show);
     let home = std::env::var("HOME").unwrap_or_default();
 
     let mut programs = 0usize;

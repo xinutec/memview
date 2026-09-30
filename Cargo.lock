@@ -327,6 +327,7 @@ name = "bash-oracle"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "reader",
  "serde_json",
 ]
@@ -631,6 +632,7 @@ dependencies = [
  "axum",
  "axum-server",
  "base64 0.23.1",
+ "clap",
  "filetime",
  "flate2",
  "hex",
@@ -1582,6 +1584,7 @@ dependencies = [
  "axum-extra",
  "base64 0.23.1",
  "chrono",
+ "clap",
  "comrak",
  "hex",
  "hmac",
@@ -2107,6 +2110,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
+ "clap",
  "pest",
  "pest_derive",
  "regex",

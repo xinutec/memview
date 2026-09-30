@@ -7,12 +7,19 @@
 //! real file: the count and the character lengths can be read against the
 //! console's own `accepted N characters to send` log, which is an independent
 //! witness written by a different process.
+
+use clap::Parser;
 use reader::transcript::human_turns;
 
+/// What a person actually said in a conversation.
+#[derive(Parser)]
+struct Cli {
+    /// The transcript.
+    transcript: String,
+}
+
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .expect("usage: said <transcript.jsonl>");
+    let path = Cli::parse().transcript;
     let bytes = std::fs::read(&path)?;
     let turns = human_turns(&bytes);
     println!("{} human turns", turns.len());

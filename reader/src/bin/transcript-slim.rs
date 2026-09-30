@@ -28,21 +28,24 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use clap::Parser;
 use reader::transcript::{self, Tail};
 
 /// The payload we clear, and the exact form we leave behind.
 const REMINDER: &str = "task_reminder";
 
+/// Empty the task-reminder payloads in a transcript, keeping every node.
+#[derive(Parser)]
+struct Cli {
+    /// The transcript.
+    path: PathBuf,
+    /// Rewrite it; without it, say what would change.
+    #[arg(long)]
+    apply: bool,
+}
+
 fn main() -> Result<()> {
-    let mut apply = false;
-    let mut target: Option<PathBuf> = None;
-    for arg in std::env::args().skip(1) {
-        match arg.as_str() {
-            "--apply" => apply = true,
-            other => target = Some(PathBuf::from(other)),
-        }
-    }
-    let path = target.context("usage: transcript-slim [--apply] FILE")?;
+    let Cli { path, apply } = Cli::parse();
 
     let cut = std::fs::metadata(&path)
         .with_context(|| format!("reading {}", path.display()))?

@@ -28,6 +28,8 @@
 
 use std::collections::BTreeMap;
 
+use clap::Parser;
+
 use reader::shell_files;
 
 /// The stated intents, by the pair that joins them to a corpus row.
@@ -39,17 +41,25 @@ use reader::shell_files;
 /// wherever the transcript did.
 type Said = BTreeMap<(String, String), String>;
 
+/// What the fleet said it was doing, beside what it did.
+#[derive(Parser)]
+struct Cli {
+    /// The command corpus, from `bash-corpus`.
+    corpus: String,
+    /// What the author said each command was for, from `bash-corpus --said`.
+    said: String,
+    /// How many rows of each table.
+    #[arg(long, default_value_t = 12)]
+    show: usize,
+    /// Print sample rows of this kind.
+    #[arg(long, value_name = "KIND")]
+    sample: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let (Some(corpus), Some(said_path)) = (args.get(1), args.get(2)) else {
-        anyhow::bail!(
-            "usage: said-report <corpus.jsonl> <said.jsonl> [--show <n>] [--sample KIND]"
-        );
-    };
-    let show: usize = flag(&args, "--show")
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(12);
-    let sample = flag(&args, "--sample");
+    let cli = Cli::parse();
+    let (corpus, said_path) = (&cli.corpus, &cli.said);
+    let (show, sample) = (cli.show, cli.sample.clone());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let said = load_said(said_path)?;
@@ -156,13 +166,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
 }
 
 /// The first word of a stated intent, lowercased.

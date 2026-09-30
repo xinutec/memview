@@ -536,6 +536,7 @@ impl Roster {
             stopping.len()
         );
         let error = std::process::Command::new(&binary)
+            // dev-lint: allow-argv-hand-parsed the new image gets this one's argv verbatim
             .args(std::env::args().skip(1))
             .env(HANDOVER, serde_json::to_string(&carried)?)
             .env(STOPPING, serde_json::to_string(&stopping)?)
