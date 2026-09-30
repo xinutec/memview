@@ -1400,6 +1400,24 @@ fn a_pure_library_call_writes_nothing() {
     assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
 }
 
+/// A file is refused once, for what first made it unknown: a later append
+/// adds no second reason. Found live: `echo "rc=$?" >> log` after a program
+/// wrote the log ranked `expansion` for a file `$?` could not have saved.
+#[test]
+fn an_append_to_a_refused_file_adds_no_second_reason() {
+    let found = run(
+        "./build.sh > log 2>&1; echo \"rc=$?\" >> log; echo done >> log",
+        &nothing_known(),
+    );
+    let reasons: Vec<&Why> = found
+        .unfollowed
+        .iter()
+        .filter(|u| u.path.as_deref() == Some("/repo/log"))
+        .map(|u| &u.why)
+        .collect();
+    assert_eq!(reasons, vec![&Why::Program("build.sh".to_string())]);
+}
+
 /// A program the tables do not know may write any file, so nothing predicted
 /// before it survives it. Found live: a script run from a file (`/tmp/try.sh`,
 /// `python3 scripts/insert.py`) rewrote a file the text never named.

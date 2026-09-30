@@ -680,6 +680,12 @@ impl<'a> Run<'a> {
             self.order.push(path.to_string());
         }
         self.touched(path);
+        // Appending to a file this run already refused leaves it refused, for
+        // the reason it first was: `cmd > log; echo "rc=$?" >> log` is unknown
+        // because of `cmd`, and a second reason would rank what did not stop it.
+        if append && matches!(self.now.get(path), Some(Held::Unknown)) {
+            return;
+        }
         let now = match (text, append) {
             (Ok(text), false) => Ok(text),
             (Ok(text), true) => match self.read(path) {
