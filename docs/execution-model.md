@@ -108,7 +108,11 @@ removes it, and `rm -r` everything under it; `cp` of one file to another
 leaves the source's text there, once sight has shown both (a destination it
 cannot show may be a directory), and `mv` the same with the source gone; `sed -i` rewrites what sight has shown
 where sed's regular expressions and Rust's agree, the match made the longest
-by construction (`reader/src/predict/sed.rs`). Any other program that writes
+by construction (`reader/src/predict/sed.rs`): `s`, `d`, and `a\` and `i\`
+with their text on the next line — the form macOS's BSD sed, the one here,
+reads; its one-line `a text` fails the call, and appending after a last line
+without a newline, where BSD and GNU sed differ, is refused. Each is held to
+what `/usr/bin/sed -i ''` left in a file. Any other program that writes
 files itself has them named by the shell tables and refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`) stands for
 everything under its fixed part. A program the tables do not know, a script run
 from a file, code the text does not show (a package script, `pnpm install` and

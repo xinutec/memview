@@ -194,13 +194,31 @@ impl Address {
     }
 }
 
-/// `s`, with what it applies to and how.
+/// The lines a command applies to: all, one address, or a range.
 #[derive(Debug)]
-struct Substitute {
+struct Range {
     from: Option<Address>,
     to: Option<Address>,
     /// Inside a range, from the line `from` matched until `to` matches.
     active: bool,
+}
+
+/// One command of a script, with the lines it applies to.
+#[derive(Debug)]
+enum Step {
+    Substitute(Substitute),
+    /// `d`: the line is not printed, and the commands after it do not run.
+    Delete(Range),
+    /// `i\`: text printed before the line.
+    Insert(Range, String),
+    /// `a\`: text printed after the line, deleted or not.
+    Append(Range, String),
+}
+
+/// `s`, with what it applies to and how.
+#[derive(Debug)]
+struct Substitute {
+    range: Range,
     matcher: Matcher,
     template: String,
     /// Every match, or only the nth.
@@ -216,7 +234,7 @@ enum Which {
 
 /// `scripts`, applied in order to each line of `text`, as `sed` leaves it.
 pub fn apply(scripts: &[&str], extended: bool, text: &str) -> Result<String, Refused> {
-    let mut commands: Vec<Substitute> = Vec::new();
+    let mut commands: Vec<Step> = Vec::new();
     for script in scripts {
         commands.extend(parse(script, extended)?);
     }
@@ -233,20 +251,53 @@ pub fn apply(scripts: &[&str], extended: bool, text: &str) -> Result<String, Ref
             return Err("long line".to_string());
         }
         let mut space = body.to_string();
+        let (mut appended, mut deleted) = (String::new(), false);
         for command in &mut commands {
-            if command.selects(number, last, &space) {
-                space = command.run(&space)?;
+            match command {
+                Step::Substitute(substitute) => {
+                    if substitute.range.selects(number, last, &space) {
+                        space = substitute.run(&space)?;
+                    }
+                }
+                Step::Delete(range) => {
+                    if range.selects(number, last, &space) {
+                        deleted = true;
+                        break;
+                    }
+                }
+                Step::Insert(range, text) => {
+                    if range.selects(number, last, &space) {
+                        out.push_str(text);
+                        out.push('\n');
+                    }
+                }
+                Step::Append(range, text) => {
+                    if range.selects(number, last, &space) {
+                        appended.push_str(text);
+                        appended.push('\n');
+                    }
+                }
             }
         }
-        out.push_str(&space);
-        if newline {
-            out.push('\n');
+        if !deleted {
+            out.push_str(&space);
+            if newline {
+                out.push('\n');
+            }
+        }
+        if !appended.is_empty() {
+            // After a last line without a newline, BSD sed joins the text to
+            // it and GNU sed does not: which one runs is the host's.
+            if !newline && !deleted {
+                return Err("a after a last line without a newline".to_string());
+            }
+            out.push_str(&appended);
         }
     }
     Ok(out)
 }
 
-impl Substitute {
+impl Range {
     /// Whether this line is addressed, keeping the range state as sed does.
     fn selects(&mut self, line: usize, last: bool, text: &str) -> bool {
         match (&self.from, &self.to) {
@@ -272,7 +323,9 @@ impl Substitute {
             }
         }
     }
+}
 
+impl Substitute {
     fn run(&self, space: &str) -> Result<String, Refused> {
         let wanted = match self.which {
             Which::First => 1,
@@ -303,8 +356,9 @@ impl Substitute {
     }
 }
 
-/// A script's commands, in order. Only `s` is read.
-fn parse(script: &str, extended: bool) -> Result<Vec<Substitute>, Refused> {
+/// A script's commands, in order: `s`, `d`, and `a\` and `i\` with their
+/// text on the next line, the form BSD and GNU sed both read.
+fn parse(script: &str, extended: bool) -> Result<Vec<Step>, Refused> {
     let chars: Vec<char> = script.chars().collect();
     let mut at = 0;
     let mut out = Vec::new();
@@ -332,10 +386,44 @@ fn parse(script: &str, extended: bool) -> Result<Vec<Substitute>, Refused> {
         while chars.get(at).is_some_and(|c| *c == ' ') {
             at += 1;
         }
+        let range = Range {
+            from,
+            to,
+            active: false,
+        };
         match chars.get(at) {
             Some('s') => {
                 at += 1;
-                out.push(substitute(&chars, &mut at, from, to, extended)?);
+                out.push(Step::Substitute(substitute(
+                    &chars, &mut at, range, extended,
+                )?));
+            }
+            Some('d') => {
+                at += 1;
+                out.push(Step::Delete(range));
+            }
+            Some(command @ ('a' | 'i')) => {
+                let command = *command;
+                at += 1;
+                // `a\` and a newline, then the text to the end of that line.
+                if chars.get(at) != Some(&'\\') || chars.get(at + 1) != Some(&'\n') {
+                    return Err(format!("{command} text on its line"));
+                }
+                at += 2;
+                let start = at;
+                while at < chars.len() && chars[at] != '\n' {
+                    at += 1;
+                }
+                let text: String = chars[start..at].iter().collect();
+                // A backslash escapes, or continues the text: not followed.
+                if text.contains('\\') {
+                    return Err(format!("{command} text with a backslash"));
+                }
+                out.push(if command == 'a' {
+                    Step::Append(range, text)
+                } else {
+                    Step::Insert(range, text)
+                });
             }
             Some('!') => return Err("!".to_string()),
             Some(other) => return Err(other.to_string()),
@@ -444,8 +532,7 @@ fn delimited(
 fn substitute(
     chars: &[char],
     at: &mut usize,
-    from: Option<Address>,
-    to: Option<Address>,
+    range: Range,
     extended: bool,
 ) -> Result<Substitute, Refused> {
     let delim = match chars.get(*at) {
@@ -490,9 +577,7 @@ fn substitute(
     let matcher = compile(&pattern, extended, ignore_case)?;
     let template = template(&replacement, matcher.full.captures_len() - 1)?;
     Ok(Substitute {
-        from,
-        to,
-        active: false,
+        range,
         matcher,
         template,
         which,

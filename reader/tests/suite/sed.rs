@@ -165,8 +165,8 @@ fn several_commands_run_in_order_on_each_line() {
 
 #[test]
 fn what_is_not_followed_is_refused_by_name() {
-    assert_eq!(one("2d", "a\n"), Err("d".to_string()));
-    assert_eq!(one("1a text", "a\n"), Err("a".to_string()));
+    assert_eq!(one("2y/a/b/", "a\n"), Err("y".to_string()));
+    assert_eq!(one("1a text", "a\n"), Err("a text on its line".to_string()));
     assert_eq!(one("s/a/b/w out", "a\n"), Err("s flag w".to_string()));
     assert_eq!(one("s/a/b/p", "a\n"), Err("s flag p".to_string()));
     assert_eq!(one("s//b/", "a\n"), Err("empty pattern".to_string()));
@@ -189,4 +189,40 @@ fn what_is_not_followed_is_refused_by_name() {
     );
     assert_eq!(one("s/a/b", "a\n"), Err("unterminated".to_string()));
     assert_eq!(one("y/a/b/", "a\n"), Err("y".to_string()));
+}
+
+/// `d`, `a\` and `i\`, held to what macOS's `/usr/bin/sed -i ''` left in the
+/// file for each script: the expected texts are its.
+#[test]
+fn delete_append_and_insert_leave_what_bsd_sed_leaves() {
+    let text = "alpha\nbeta\ngamma\nbeta\nlast\n";
+    for (script, after) in [
+        ("/beta/d", "alpha\ngamma\nlast\n"),
+        ("2d", "alpha\ngamma\nbeta\nlast\n"),
+        ("$d", "alpha\nbeta\ngamma\nbeta\n"),
+        ("2,3d", "alpha\nbeta\nlast\n"),
+        ("/alpha/,/gamma/d", "beta\nlast\n"),
+        (
+            "/beta/a\\\nAFTER",
+            "alpha\nbeta\nAFTER\ngamma\nbeta\nAFTER\nlast\n",
+        ),
+        (
+            "/gamma/i\\\nBEFORE",
+            "alpha\nbeta\nBEFORE\ngamma\nbeta\nlast\n",
+        ),
+        ("$a\\\nEND", "alpha\nbeta\ngamma\nbeta\nlast\nEND\n"),
+        (
+            "1i\\\n  indented top",
+            "  indented top\nalpha\nbeta\ngamma\nbeta\nlast\n",
+        ),
+        ("/beta/a\\\nX\n/beta/d", "alpha\nX\ngamma\nX\nlast\n"),
+        ("s/a/A/g;/gamma/d", "AlphA\nbetA\ngAmmA\nbetA\nlAst\n"),
+    ] {
+        assert_eq!(one(script, text), Ok(after.to_string()), "{script}");
+    }
+    // After a last line without a newline, BSD and GNU sed append differently;
+    // a one-line `a text` is GNU's alone, and a backslash in the text escapes.
+    assert!(one("$a\\\nX", "a").is_err());
+    assert!(one("a X", text).is_err());
+    assert!(one("a\\\nX\\Y", text).is_err());
 }

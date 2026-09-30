@@ -801,12 +801,14 @@ fn sed_in_place_rewrites_the_file_sight_has_shown() {
     );
 
     let deletes = run("sed -i '' '2d' a.txt", &shown);
-    assert!(deletes.written.is_empty());
+    assert_eq!(deletes.written, vec![written("/repo/a.txt", "x y\n")]);
+    let translates = run("sed -i '' 'y/x/z/' a.txt", &shown);
+    assert!(translates.written.is_empty());
     assert_eq!(
-        deletes.unfollowed,
+        translates.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/a.txt".to_string()),
-            why: Why::Sed("d".to_string()),
+            why: Why::Sed("y".to_string()),
         }]
     );
 
