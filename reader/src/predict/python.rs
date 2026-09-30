@@ -294,6 +294,13 @@ struct Eval<'r, 'a, 'm> {
     defaults: BTreeMap<String, BTreeMap<String, Value>>,
     /// The module-level lambdas, as [`Value::Lambda`] numbers them.
     lambdas: Vec<(&'m Params, &'m Expr)>,
+    /// A block not followed may have left with success — `sys.exit(0)`, a
+    /// bare `exit()`: what follows runs only sometimes, to the end.
+    maybe_exited: bool,
+    /// A block not followed may have jumped — `return`, `break`,
+    /// `continue`: what follows runs only sometimes, until the function or
+    /// the loop it jumps out of ends.
+    maybe_jumped: bool,
 }
 
 /// One call's names, and the ones it declared `global`.
@@ -329,6 +336,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             functions: BTreeMap::new(),
             defaults: BTreeMap::new(),
             lambdas: Vec::new(),
+            maybe_exited: false,
+            maybe_jumped: false,
         }
     }
 
@@ -357,7 +366,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     }
 
     fn block(&mut self, body: &'m [Stmt]) -> Result<(), Stop> {
-        for stmt in body {
+        for (at, stmt) in body.iter().enumerate() {
+            if self.maybe_exited || self.maybe_jumped {
+                self.forget(&body[at..], &construct("after a jump"), 0);
+                return Ok(());
+            }
             self.stmt(stmt)?;
         }
         Ok(())
@@ -456,6 +469,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                         let why = construct(&format!("if on {}", cause(&tested)));
                         self.forget(body, &why, 0);
                         self.forget(orelse, &why, 0);
+                        self.note_jumps(body, false);
+                        self.note_jumps(orelse, false);
                     }
                 }
             }
@@ -468,21 +483,28 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 let over = self.expr(iter)?;
                 match self.iterable(over) {
                     Value::Tuple(values) if values.len() <= MAX_UNROLL => {
-                        for value in values {
-                            self.bind(target, value);
-                            match self.block(body) {
-                                Ok(()) | Err(Stop::Continue) => {}
-                                Err(Stop::Break) => return Ok(()),
-                                Err(stop) => return Err(stop),
-                            }
+                        // A possible `break` or `continue` in it ends with it.
+                        let outer = std::mem::replace(&mut self.maybe_jumped, false);
+                        let broke = self.unrolled(target, values, body);
+                        let possibly = std::mem::replace(&mut self.maybe_jumped, outer);
+                        if broke? {
+                            return Ok(());
                         }
-                        self.block(orelse)?;
+                        // After a possible `break`, `else` only sometimes runs.
+                        if possibly {
+                            self.forget(orelse, &construct("after a jump"), 0);
+                            self.note_jumps(orelse, false);
+                        } else {
+                            self.block(orelse)?;
+                        }
                     }
                     unlisted => {
                         let why = construct(&format!("for over {}", cause(&unlisted)));
                         self.unbind(target, &why);
                         self.forget(body, &why, 0);
                         self.forget(orelse, &why, 0);
+                        self.note_jumps(body, true);
+                        self.note_jumps(orelse, false);
                     }
                 }
             }
@@ -492,6 +514,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 self.forget_expr(test, &construct("while"), 0);
                 self.forget(body, &construct("while"), 0);
                 self.forget(orelse, &construct("while"), 0);
+                self.note_jumps(body, true);
+                self.note_jumps(orelse, false);
             }
             StmtKind::With { items, body } => {
                 for item in items {
@@ -546,6 +570,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     Err(Stop::Ended) if !handlers.is_empty() => {
                         for handler in handlers {
                             self.forget(&handler.body, &construct("except"), 0);
+                            self.note_jumps(&handler.body, false);
                         }
                     }
                     Err(stop) => {
@@ -811,6 +836,34 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Value::Set(_) => self.shared(value, why),
             _ => {}
         }
+    }
+
+    /// A loop's elements, its body run for each: `true` when it broke.
+    fn unrolled(
+        &mut self,
+        target: &Expr,
+        values: Vec<Value>,
+        body: &'m [Stmt],
+    ) -> Result<bool, Stop> {
+        for value in values {
+            self.bind(target, value);
+            match self.block(body) {
+                Ok(()) | Err(Stop::Continue) => {}
+                Err(Stop::Break) => return Ok(true),
+                Err(stop) => return Err(stop),
+            }
+        }
+        Ok(false)
+    }
+
+    /// A block not followed may have jumped out of what holds it, or left the
+    /// program with success; what follows then runs only sometimes. A
+    /// `raise`, or an exit with a failing status, fails the call, which the
+    /// check then skips: the success assumed excludes it.
+    fn note_jumps(&mut self, body: &[Stmt], in_loop: bool) {
+        let (exits, jumps) = jumps_in(body, in_loop);
+        self.maybe_exited |= exits;
+        self.maybe_jumped |= jumps;
     }
 
     /// Runs a comprehension as Python does, its loop variables bound only
@@ -1911,6 +1964,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         };
         if def.unfollowed || self.frames.len() >= DEPTH {
             self.forget(def.body, &why, 0);
+            // Its `return` ends with it; an exit ends everything.
+            self.maybe_exited |= jumps_in(def.body, false).0;
             return Ok(Value::Unknown(why));
         }
         let mut frame = Frame::default();
@@ -1942,12 +1997,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 .insert(rest.clone(), Value::Unknown(why.clone()));
         }
         self.frames.push(frame);
+        // A possible early `return` ends with the call, and leaves what it
+        // returned unknown.
+        let outer = std::mem::replace(&mut self.maybe_jumped, false);
         let result = self.block(def.body);
+        let possibly = std::mem::replace(&mut self.maybe_jumped, outer);
         self.frames.pop();
         match result {
+            Err(Stop::Ended) => Err(Stop::Ended),
+            _ if possibly => Ok(Value::Unknown(construct("an early return"))),
             Ok(()) | Err(Stop::Break | Stop::Continue) => Ok(Value::None),
             Err(Stop::Return(value)) => Ok(value),
-            Err(Stop::Ended) => Err(Stop::Ended),
         }
     }
 
@@ -2416,6 +2476,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Held::Text(text) => Value::Str(text),
             Held::Absent => Value::Unknown(Why::Missing),
             Held::Unknown => Value::Unknown(Why::NotRead),
+            Held::OneOf(_) => Value::Unknown(Why::Branches),
         }
     }
 
@@ -2426,6 +2487,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         {
             Some(Held::Text(_)) => Value::Bool(true),
             Some(Held::Absent) => Value::Bool(false),
+            Some(Held::OneOf(members)) if members.iter().all(|m| matches!(m, Held::Text(_))) => {
+                Value::Bool(true)
+            }
+            Some(Held::OneOf(_)) => Value::Unknown(Why::Branches),
             Some(Held::Unknown) => Value::Unknown(Why::NotRead),
             None => Value::Unknown(construct("path")),
         }
@@ -3536,6 +3601,74 @@ fn cause(value: &Value) -> String {
         Value::Match { .. } => "a match".to_string(),
         Value::Set(_) => "a set".to_string(),
         Value::Bool(_) | Value::None | Value::Dict(_) => "a value".to_string(),
+    }
+}
+
+/// Whether a block may exit with success, and whether it may jump out of
+/// what holds it: a `return`, or a `break` or `continue` not inside a loop of
+/// its own. A function it defines is not run here.
+fn jumps_in(body: &[Stmt], in_loop: bool) -> (bool, bool) {
+    let (mut exits, mut jumps) = (false, false);
+    let mut merge = |(e, j): (bool, bool)| {
+        exits |= e;
+        jumps |= j;
+    };
+    for stmt in body {
+        match &stmt.kind {
+            StmtKind::Return(_) => merge((false, true)),
+            StmtKind::Break | StmtKind::Continue => merge((false, !in_loop)),
+            StmtKind::Expr(expr) => merge((exits_with_success(expr), false)),
+            StmtKind::If { body, orelse, .. } | StmtKind::For { body, orelse, .. } => {
+                let looped = matches!(stmt.kind, StmtKind::For { .. });
+                merge(jumps_in(body, in_loop || looped));
+                merge(jumps_in(orelse, in_loop));
+            }
+            StmtKind::While { body, orelse, .. } => {
+                merge(jumps_in(body, true));
+                merge(jumps_in(orelse, in_loop));
+            }
+            StmtKind::With { body, .. } => merge(jumps_in(body, in_loop)),
+            StmtKind::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => {
+                for block in [body, orelse, finalbody] {
+                    merge(jumps_in(block, in_loop));
+                }
+                for handler in handlers {
+                    merge(jumps_in(&handler.body, in_loop));
+                }
+            }
+            _ => {}
+        }
+    }
+    (exits, jumps)
+}
+
+/// `sys.exit()`, `exit(0)` and the like: an exit whose status may be success.
+/// A nonzero number or a message fails the call.
+fn exits_with_success(expr: &Expr) -> bool {
+    let Expr::Call { func, args } = expr else {
+        return false;
+    };
+    let name = match &**func {
+        Expr::Name(name) => name.clone(),
+        Expr::Attribute { value, attr } => match &**value {
+            Expr::Name(module) => format!("{module}.{attr}"),
+            _ => return false,
+        },
+        _ => return false,
+    };
+    if !matches!(name.as_str(), "sys.exit" | "exit" | "quit" | "os._exit") {
+        return false;
+    }
+    match args.first() {
+        None => true,
+        Some(Arg::Positional(Expr::Number(n))) => n.trim() == "0",
+        Some(Arg::Positional(Expr::Str(_) | Expr::FString(_))) => false,
+        Some(_) => true,
     }
 }
 

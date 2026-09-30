@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use reader::predict::{
-    Assumed, Conditional, Dirs, Files, Prediction, Shown, Unfollowed, Why, Written, needs, predict,
+    Alternatives, Assumed, Conditional, Dirs, Files, Prediction, Shown, Unfollowed, Why, Written,
+    needs, predict,
 };
 
 const HOME: &str = "/home/me";
@@ -167,6 +168,149 @@ fn a_pipeline_into_a_file_is_not_followed() {
     let found = run("echo x | sort > a", &nothing_known());
     assert!(found.written.is_empty());
     assert_eq!(found.unfollowed.len(), 1);
+}
+
+/// An `if` this cannot decide runs both arms, and a file they leave
+/// differently is one of their texts: exact as a set, each member from an arm
+/// the text has. Reading such a file for its text is refused.
+#[test]
+fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
+    let shown = known(&[("/repo/f", Some("x\n")), ("/repo/o", None)]);
+    let set = |texts: &[Option<&str>]| Alternatives {
+        path: "/repo/o".to_string(),
+        texts: texts.iter().map(|t| t.map(str::to_string)).collect(),
+    };
+    for (command, texts) in [
+        (
+            "if grep -q x f; then echo a > o; else echo b > o; fi",
+            vec![Some("a\n"), Some("b\n")],
+        ),
+        (
+            "if grep -q x f; then echo a > o; fi",
+            vec![None, Some("a\n")],
+        ),
+        (
+            "if grep -q x f; then echo a > o; else echo b > o; fi; echo c >> o",
+            vec![Some("a\nc\n"), Some("b\nc\n")],
+        ),
+        (
+            "if grep -q x f; then echo a > o; elif grep -q y f; then echo b > o; else echo c > o; fi",
+            vec![Some("b\n"), Some("c\n"), Some("a\n")],
+        ),
+    ] {
+        let found = run(command, &shown);
+        let mut got = found.alternatives.clone();
+        for alternative in &mut got {
+            alternative.texts.sort();
+        }
+        let mut want = set(&texts);
+        want.texts.sort();
+        assert_eq!(got, vec![want], "{command}: {:?}", found.unfollowed);
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/o"),
+            "{command}"
+        );
+        assert!(
+            found.unfollowed.is_empty(),
+            "{command}: {:?}",
+            found.unfollowed
+        );
+    }
+    let same = run(
+        "if grep -q x f; then echo a > o; else echo a > o; fi",
+        &shown,
+    );
+    assert_eq!(same.written, vec![written("/repo/o", "a\n")]);
+
+    let read = run("if grep -q x f; then echo a > o; fi; cat o > p", &shown);
+    assert!(
+        read.unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/p") && u.why == Why::Branches)
+    );
+
+    let bound = run(
+        "if grep -q x f; then v=a; else v=b; fi; echo z > $v",
+        &shown,
+    );
+    assert!(
+        bound
+            .written
+            .iter()
+            .all(|w| w.path != "/repo/a" && w.path != "/repo/b"),
+        "{:?}",
+        bound.written
+    );
+
+    let stops = run("if grep -q x f; then exit; fi; echo a > o", &shown);
+    assert!(
+        !stops.written.iter().any(|w| w.path == "/repo/o"),
+        "{:?}",
+        stops.written
+    );
+    assert!(stops.alternatives.is_empty());
+    // An exit that fails the call leaves it unchecked: the success the
+    // prediction assumes is the world where it was not taken.
+    for command in [
+        "if grep -q x f; then exit 1; fi; echo a > o",
+        "grep -q x f || exit 1; echo a > o",
+    ] {
+        assert_eq!(
+            run(command, &shown).written,
+            vec![written("/repo/o", "a\n")],
+            "{command}"
+        );
+    }
+    let bare = run("grep -q x f || exit; echo a > o", &shown);
+    assert!(bare.written.is_empty(), "{:?}", bare.written);
+    let defined = run(
+        "f() { if grep -q x f; then return; fi; }; echo a > o",
+        &shown,
+    );
+    assert_eq!(
+        defined.written,
+        vec![written("/repo/o", "a\n")],
+        "a definition runs nothing"
+    );
+}
+
+/// A jump in a Python block not followed makes what follows only sometimes
+/// run, until the loop or the function it leaves ends; an exit that fails the
+/// call, or a raise, is excluded by the success the prediction assumes.
+#[test]
+fn a_python_jump_not_followed_makes_what_follows_sometimes() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let head = "import sys\nflag = sys.argv\n";
+    for program in [
+        "if flag:\n    sys.exit(0)\nopen('o', 'w').write('x')",
+        "if flag:\n    sys.exit()\nopen('o', 'w').write('x')",
+        "for i in range(3):\n    if flag:\n        break\n    open('o', 'a').write('x')",
+        "def f():\n    if flag:\n        return 'a'\n    return 'b'\nopen('o', 'w').write(f())",
+    ] {
+        let found = run(&py(&format!("{head}{program}")), &nothing_known());
+        assert!(found.written.is_empty(), "{program}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| u.path.as_deref() == Some("/repo/o")),
+            "{program}"
+        );
+    }
+    for program in [
+        "if flag:\n    sys.exit(1)\nopen('o', 'w').write('x')",
+        "if flag:\n    raise SystemExit('no')\nopen('o', 'w').write('x')",
+        "for i in range(2):\n    if flag:\n        continue\nopen('o', 'w').write('x')",
+        "def f():\n    if flag:\n        return\nf()\nopen('o', 'w').write('x')",
+    ] {
+        let found = run(&py(&format!("{head}{program}")), &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/repo/o", "x")],
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
 }
 
 /// What a word runs as it expands runs before the command: a `$( )` is

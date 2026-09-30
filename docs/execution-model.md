@@ -232,6 +232,18 @@ text that is not in it. "Never an approximation" therefore forbids two things:
 a single guess picked from the set, and a set padded with a text the command
 could not produce.
 
+- Built for the shell `if` (2026-09-30): both arms run from the state
+  before it and are joined, a file they leave differently holding one of
+  their texts; appending to it appends to each, and reading it for its text
+  is refused (`one of several texts`). Each file's set is exact on its own;
+  which members go together across files is not kept. Arms that end the
+  shell differently, or bind a name differently, leave the `if` refused or
+  the name unknown.
+- A jump in a region not followed — `exit`, `return`, `break`, `continue`,
+  `sys.exit()` — makes what follows run only sometimes, until the function
+  or loop it leaves ends. One that fails the call (`exit 1`, `raise`) is
+  excluded: the call is not checked, and the success the prediction assumes
+  is the world where it was not taken.
 - A member enters the set only from a branch the text has. Two undecided
   tests over one file give four texts; a loop whose count is unknown gives a
   set nobody can write down, and stays refused. Exact or refused, and a set is

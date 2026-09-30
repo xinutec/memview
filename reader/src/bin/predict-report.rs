@@ -54,6 +54,7 @@ fn main() -> anyhow::Result<()> {
     let mut writing = 0usize;
     let mut whole = 0usize;
     let mut files = 0usize;
+    let mut alternatives = 0usize;
     let mut refused = 0usize;
     let mut why: BTreeMap<String, usize> = BTreeMap::new();
     let mut shown = 0usize;
@@ -113,6 +114,7 @@ fn main() -> anyhow::Result<()> {
                 println!("--- unseen, written by {by}: {unseen_here:?}\n{cmd}\n");
             }
         }
+        alternatives += found.alternatives.len();
         if found.written.is_empty() && found.unfollowed.is_empty() {
             continue;
         }
@@ -157,6 +159,7 @@ fn main() -> anyhow::Result<()> {
         100.0 * whole as f64 / writing.max(1) as f64
     );
     println!("files predicted              {files}");
+    println!("  one of several texts       {alternatives}");
     println!("writes not followed          {refused}, by why:");
     let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -245,7 +248,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     }
 
     let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
-    let mut conditional = 0usize;
+    let (mut conditional, mut sets) = (0usize, 0usize);
     let mut why: BTreeMap<String, usize> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;
@@ -259,6 +262,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         };
         let found = predict(&script, &kept.cwd, &home, &kept.shown);
         conditional += found.conditional.len();
+        sets += found.alternatives.len();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
             if let Some((wanted, n)) = &show
@@ -328,6 +332,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         println!("  not parsed by the tree     {unparsed}  (not ranked)");
     }
     println!("  files predicted if left alone by an unknown program  {conditional}");
+    println!("  files one of several texts  {sets}");
     println!("findings                     {findings}");
     println!("  still diverging            {still}");
     println!("  agreeing now               {agrees}");

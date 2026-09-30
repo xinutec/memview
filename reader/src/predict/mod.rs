@@ -36,7 +36,7 @@
 //! one it cannot, what follows is only sometimes run. What a word runs as it
 //! expands (`$( )`) runs before its command, followed as a subshell.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod python;
 mod python_re;
@@ -148,6 +148,8 @@ pub enum Why {
     Python(String),
     /// A sed flag, command or pattern it does not follow, by name.
     Sed(String),
+    /// A file an undecided `if` left one of several texts, read for its text.
+    Branches,
 }
 
 impl Why {
@@ -159,6 +161,7 @@ impl Why {
             Why::Option(option) => format!("option {option}"),
             Why::Python(construct) => format!("python {construct}"),
             Why::Sed(construct) => format!("sed {construct}"),
+            Why::Branches => "one of several texts".to_string(),
             other => format!("{other:?}").to_lowercase(),
         }
     }
@@ -181,6 +184,15 @@ pub struct Conditional {
     pub assumed: Assumed,
 }
 
+/// A file that will be one of these, each a text or `None` for absent: an
+/// `if` this could not decide left it differently in each arm. Exact as a
+/// set — every member comes from an arm the text has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alternatives {
+    pub path: String,
+    pub texts: Vec<Option<String>>,
+}
+
 /// What a command will write, and what it writes that could not be followed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Prediction {
@@ -190,6 +202,8 @@ pub struct Prediction {
     /// Files refused only because an unknown program ran, predicted as if it
     /// had left them alone.
     pub conditional: Vec<Conditional>,
+    /// Files left one of several texts by an `if` this could not decide.
+    pub alternatives: Vec<Alternatives>,
 }
 
 /// The files `predict` asked for and was shown nothing of, in the order it asked.
@@ -206,11 +220,13 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
     let mut run = Run::new(cwd, home, sight, false);
     run.items(&script.items);
     let written = run.written();
+    let alternatives = run.alternatives();
     if run.assumed.is_empty() {
         return Prediction {
             written,
             unfollowed: run.unfollowed,
             conditional: Vec::new(),
+            alternatives,
         };
     }
     let mut assuming = Run::new(cwd, home, sight, true);
@@ -243,6 +259,29 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
         written,
         unfollowed: run.unfollowed,
         conditional,
+        alternatives,
+    }
+}
+
+/// A file that is one of `members`: itself when they agree, unknown when one
+/// is, and each distinct text or absence once otherwise.
+fn one_of(members: Vec<Held>) -> Held {
+    let mut distinct: Vec<Held> = Vec::new();
+    for member in members {
+        let flat = match member {
+            Held::OneOf(inner) => inner,
+            Held::Unknown => return Held::Unknown,
+            held => vec![held],
+        };
+        for held in flat {
+            if !distinct.contains(&held) {
+                distinct.push(held);
+            }
+        }
+    }
+    match distinct.len() {
+        1 => distinct.remove(0),
+        _ => Held::OneOf(distinct),
     }
 }
 
@@ -263,8 +302,12 @@ enum Held {
     Text(String),
     Absent,
     Unknown,
+    /// One of these, each a text or absent: an `if` this could not decide
+    /// left it differently in each branch.
+    OneOf(Vec<Held>),
 }
 
+#[derive(Clone)]
 struct Run<'a> {
     cwd: Option<String>,
     home: &'a str,
@@ -301,6 +344,9 @@ struct Run<'a> {
     /// A directory was made or removed in a way the run does not track
     /// (`mkdir`, `os.makedirs`): no listing is known after it.
     listings_unknown: bool,
+    /// An `exit` or `return` in a region not followed, which may have ended
+    /// the shell there with success: what follows runs only sometimes.
+    maybe_stopped: bool,
 }
 
 impl<'a> Run<'a> {
@@ -323,6 +369,7 @@ impl<'a> Run<'a> {
             written_at: BTreeMap::new(),
             assumed: Vec::new(),
             listings_unknown: false,
+            maybe_stopped: false,
         }
     }
 
@@ -354,7 +401,13 @@ impl<'a> Run<'a> {
                     }
                 }
                 Held::Absent => listed.retain(|seen| seen != name),
-                Held::Unknown => return Err(Why::Python("listing".to_string())),
+                // There in every branch, whatever it holds.
+                Held::OneOf(members) if members.iter().all(|m| matches!(m, Held::Text(_))) => {
+                    if !listed.iter().any(|seen| seen == name) {
+                        listed.push(name.to_string());
+                    }
+                }
+                Held::Unknown | Held::OneOf(_) => return Err(Why::Python("listing".to_string())),
             }
         }
         Ok(names)
@@ -377,6 +430,26 @@ impl<'a> Run<'a> {
                 Some(Held::Absent) => Some(Written {
                     path: path.clone(),
                     text: None,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The files left one of several texts, in first-write order.
+    fn alternatives(&self) -> Vec<Alternatives> {
+        self.order
+            .iter()
+            .filter_map(|path| match self.now.get(path) {
+                Some(Held::OneOf(members)) => Some(Alternatives {
+                    path: path.clone(),
+                    texts: members
+                        .iter()
+                        .map(|member| match member {
+                            Held::Text(text) => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect(),
                 }),
                 _ => None,
             })
@@ -414,7 +487,11 @@ impl<'a> Run<'a> {
                 break;
             }
             if let Item::List(list) = item {
-                self.list(list);
+                if self.maybe_stopped {
+                    self.forget_list(list, Why::Sometimes);
+                } else {
+                    self.list(list);
+                }
             }
         }
     }
@@ -441,6 +518,7 @@ impl<'a> Run<'a> {
                 (Connector::Or, Status::Known(false)) => Some(true),
                 (Connector::Or, Status::Assumed) | (_, Status::Unknown) => None,
             };
+            let runs = if self.maybe_stopped { None } else { runs };
             match runs {
                 Some(true) => status = self.pipeline(&link.pipeline),
                 // Skipped: the status stands.
@@ -457,6 +535,89 @@ impl<'a> Run<'a> {
             }
         }
         status
+    }
+
+    /// Both arms of an `if` this cannot decide, each run from the state before
+    /// it, and joined: a file they leave alike is that, one they leave
+    /// differently is one of the texts. `false`, with nothing done, when the
+    /// arms end the shell differently, which a join cannot hold.
+    fn both(&mut self, then: &[Item], otherwise: Option<&[Item]>) -> bool {
+        let before = self.clone();
+        self.items(then);
+        let taken = std::mem::replace(self, before.clone());
+        if let Some(otherwise) = otherwise {
+            self.items(otherwise);
+        }
+        if taken.stopped != self.stopped || taken.sink != self.sink {
+            *self = before;
+            return false;
+        }
+        self.join(taken, &before);
+        true
+    }
+
+    /// Joins the run `other` took into this one, both from `before`.
+    fn join(&mut self, other: Run<'a>, before: &Run<'a>) {
+        if self.cwd != other.cwd {
+            self.cwd = None;
+        }
+        self.vars
+            .retain(|name, value| other.vars.get(name) == Some(value));
+        self.piped |= other.piped;
+        let paths: BTreeSet<String> = self.now.keys().chain(other.now.keys()).cloned().collect();
+        let mut before = before.clone();
+        for path in paths {
+            // A path one arm left alone holds what it held before the `if`.
+            let mut side = |run: &Run<'a>| match run.now.get(&path) {
+                Some(held) => held.clone(),
+                None => before.read(&path),
+            };
+            let (mine, theirs) = (side(self), side(&other));
+            let held = one_of(vec![mine, theirs]);
+            if held == Held::Unknown
+                && self.now.get(&path) != Some(&Held::Unknown)
+                && other.now.get(&path) != Some(&Held::Unknown)
+            {
+                // Written in one arm, and not known before: neither text can
+                // be named.
+                self.unfollowed.push(Unfollowed {
+                    path: Some(path.clone()),
+                    why: Why::Compound,
+                });
+            }
+            self.now.insert(path, held);
+        }
+        for path in other.order {
+            if !self.order.contains(&path) {
+                self.order.push(path);
+            }
+        }
+        for tree in other.trees {
+            if !self.trees.contains(&tree) {
+                self.trees.push(tree);
+            }
+        }
+        for asked in other.asked {
+            if !self.asked.contains(&asked) {
+                self.asked.push(asked);
+            }
+        }
+        for unfollowed in other.unfollowed {
+            if !self.unfollowed.contains(&unfollowed) {
+                self.unfollowed.push(unfollowed);
+            }
+        }
+        self.clock = self.clock.max(other.clock);
+        for (path, at) in other.written_at {
+            let mine = self.written_at.entry(path).or_insert(at);
+            *mine = (*mine).max(at);
+        }
+        for assumed in other.assumed {
+            if !self.assumed.contains(&assumed) {
+                self.assumed.push(assumed);
+            }
+        }
+        self.listings_unknown |= other.listings_unknown;
     }
 
     /// The status of the last list in `items`, each run in turn.
@@ -595,6 +756,20 @@ impl<'a> Run<'a> {
                 // Shown absent: nothing is there, a directory neither — sight
                 // cannot show a directory as a file, and says so.
                 Held::Absent => Some(false),
+                // Decided only where every branch answers the same.
+                Held::OneOf(members) => {
+                    let answers: Vec<bool> = members
+                        .iter()
+                        .map(|m| match m {
+                            Held::Text(text) => letter != 's' || !text.is_empty(),
+                            _ => false,
+                        })
+                        .collect();
+                    answers
+                        .windows(2)
+                        .all(|pair| pair[0] == pair[1])
+                        .then(|| answers[0])
+                }
                 Held::Unknown => None,
             },
             'd' => match self.listing(&path) {
@@ -698,6 +873,8 @@ impl<'a> Run<'a> {
                             self.items(otherwise);
                         }
                     }
+                    Status::Assumed | Status::Unknown
+                        if self.both(&branch.then, branch.otherwise.as_deref()) => {}
                     Status::Assumed | Status::Unknown => {
                         let cwd = self.cwd.clone();
                         let arms = std::iter::once(&branch.then).chain(branch.otherwise.as_ref());
@@ -1051,6 +1228,7 @@ impl<'a> Run<'a> {
                 Some(Held::Text(text)) => out.push_str(&text),
                 Some(Held::Absent) => return Err(Why::Missing),
                 Some(Held::Unknown) => return Err(Why::NotRead),
+                Some(Held::OneOf(_)) => return Err(Why::Branches),
                 None => return Err(Why::Directory),
             }
         }
@@ -1079,6 +1257,7 @@ impl<'a> Run<'a> {
                         Some(Held::Text(text)) => Ok(text),
                         Some(Held::Absent) => Err(Why::Missing),
                         Some(Held::Unknown) => Err(Why::NotRead),
+                        Some(Held::OneOf(_)) => Err(Why::Branches),
                         None => Err(Why::Expansion),
                     });
                 }
@@ -1138,17 +1317,27 @@ impl<'a> Run<'a> {
             return;
         }
         let now = match (text, append) {
-            (Ok(text), false) => Ok(text),
+            (Ok(text), false) => Ok(Held::Text(text)),
             (Ok(text), true) => match self.read(path) {
-                Held::Text(before) => Ok(before + &text),
-                Held::Absent => Ok(text),
+                Held::Text(before) => Ok(Held::Text(before + &text)),
+                Held::Absent => Ok(Held::Text(text)),
                 Held::Unknown => Err(Why::NotRead),
+                // Appended in every branch alike.
+                Held::OneOf(members) => Ok(one_of(
+                    members
+                        .into_iter()
+                        .map(|member| match member {
+                            Held::Text(before) => Held::Text(before + &text),
+                            _ => Held::Text(text.clone()),
+                        })
+                        .collect(),
+                )),
             },
             (Err(why), _) => Err(why),
         };
         match now {
-            Ok(text) => {
-                self.now.insert(path.to_string(), Held::Text(text));
+            Ok(held) => {
+                self.now.insert(path.to_string(), held);
             }
             Err(why) => {
                 self.now.insert(path.to_string(), Held::Unknown);
@@ -1249,6 +1438,7 @@ impl<'a> Run<'a> {
             Held::Text(text) => Ok(text),
             Held::Absent => Err(Why::Missing),
             Held::Unknown => Err(Why::NotRead),
+            Held::OneOf(_) => Err(Why::Branches),
         };
         let text = text.and_then(|text| match self.read(to) {
             Held::Unknown => Err(Why::NotRead),
@@ -1267,6 +1457,7 @@ impl<'a> Run<'a> {
                 Held::Text(text) => Ok(text),
                 Held::Absent => Err(Why::Missing),
                 Held::Unknown => Err(Why::NotRead),
+                Held::OneOf(_) => Err(Why::Branches),
             };
             let (after, suffix) = match (&invocation, text) {
                 (Err(refused), _) => (Err(Why::Sed(refused.clone())), None),
@@ -1318,6 +1509,7 @@ impl<'a> Run<'a> {
             Held::Text(text) => Ok(text),
             Held::Absent => Err(Why::Missing),
             Held::Unknown => Err(Why::NotRead),
+            Held::OneOf(_) => Err(Why::Branches),
         };
         let text = text.and_then(|text| match self.read(to) {
             Held::Unknown => Err(Why::NotRead),
@@ -1665,15 +1857,34 @@ impl<'a> Run<'a> {
         if binds(command) {
             self.vars.clear();
         }
+        // An exit that succeeds may have been taken; one that fails the call
+        // leaves it unchecked, so the success assumed excludes it.
+        if ends_with_success(command)
+            || (deep
+                // A subshell's exit ends only it; a function's body does not
+                // run where it is defined.
+                && !matches!(command.kind, CommandKind::Subshell(_) | CommandKind::Function(_))
+                && bodies(&command.kind)
+                    .into_iter()
+                    .any(|body| any_command(body, &ends_with_success)))
+        {
+            self.maybe_stopped = true;
+        }
         if !deep {
             return;
         }
+        // A function's body runs where it is called, not here: an exit in it
+        // stops nothing yet.
+        let stopped = self.maybe_stopped;
         for items in bodies(&command.kind) {
             for item in items {
                 if let Item::List(list) = item {
                     self.forget_list(list, why.clone());
                 }
             }
+        }
+        if matches!(command.kind, CommandKind::Function(_)) {
+            self.maybe_stopped = stopped;
         }
     }
 
@@ -1947,6 +2158,25 @@ fn any_command(items: &[Item], wanted: &dyn Fn(&Command) -> bool) -> bool {
 }
 
 /// A simple command's name, when it is one literal word.
+/// An `exit` or `return` that may end the shell with success: bare, whose
+/// status is the last command's, or `0`.
+fn ends_with_success(command: &Command) -> bool {
+    let CommandKind::Simple(simple) = &command.kind else {
+        return false;
+    };
+    if !matches!(named(command), Some("exit" | "return")) {
+        return false;
+    }
+    match simple.words.get(1).map(|word| word.segments.as_slice()) {
+        None => true,
+        Some([segment]) => match &segment.kind {
+            SegmentKind::Literal(status) => status.trim() == "0",
+            _ => true,
+        },
+        Some(_) => true,
+    }
+}
+
 fn named(command: &Command) -> Option<&str> {
     let CommandKind::Simple(simple) = &command.kind else {
         return None;
