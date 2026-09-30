@@ -127,9 +127,13 @@ tree, against the same files as the shell around it: each call assumed to
 succeed, strings, paths and open files interpreted, a function the program
 defines followed in its own frame, a loop run once per element over a list
 the program can name (written out, a `range`, a shown file's lines, a split
-string, and `enumerate`, `zip` or `sorted` of those), and a block it does not follow (an undecided `if`, a loop over values
+string, and `enumerate`, `zip` or `sorted` of those), a list or dict comprehension run
+at once and in order with its variables its own, a generator run only as far
+as the `next`, `any`, `all`, `join` or `list` written around it reads it, and
+a block it does not follow (an undecided `if`, a loop over values
 it cannot list, a decorated function) refused and forgotten as a shell branch
-is. A list is held by value where Python shares it, so a change made in place
+is, named for why its test or its iterable is not known (`for over call
+glob.glob`), since that is what to build. A list is held by value where Python shares it, so a change made in place
 (an item, a slice, `append`, `insert`, `extend`, `del`) is followed only when
 modelled, and then every other holder of the list, under any name in any
 frame, is forgotten; a list passed to a call it does not follow, stored where

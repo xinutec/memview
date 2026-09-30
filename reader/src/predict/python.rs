@@ -101,6 +101,11 @@ enum Function {
     Reads,
     /// `dict()`, from nothing, a dict, pairs, or keywords.
     Dict,
+    /// `next(generator[, default])`, `any(...)`, `all(...)`: each stops where
+    /// Python's does.
+    Next,
+    Any,
+    All,
     /// `json.load(file)` and `json.loads(text)`.
     JsonLoad,
     JsonLoads,
@@ -133,6 +138,9 @@ impl Function {
             "sorted" => Function::Sorted,
             "list" | "tuple" => Function::List,
             "dict" => Function::Dict,
+            "next" => Function::Next,
+            "any" => Function::Any,
+            "all" => Function::All,
             "json.load" => Function::JsonLoad,
             "json.loads" => Function::JsonLoads,
             "json.dump" => Function::JsonDump,
@@ -197,6 +205,27 @@ enum Stop {
     Break,
     Continue,
 }
+
+/// How far a comprehension is run: to the end, or to the first element
+/// (`next`), the first true one (`any`) or the first false one (`all`).
+#[derive(Clone, Copy, PartialEq)]
+enum Consumed {
+    Whole,
+    First,
+    UntilTrue,
+    UntilFalse,
+}
+
+/// What running a comprehension came to.
+enum Ran {
+    /// Every element it produced, each as the values of its parts.
+    Rows(Vec<Vec<Value>>),
+    /// Something in it is not known.
+    Unknown(Value),
+}
+
+/// How many elements a comprehension is run for at most.
+const MAX_ELEMENTS: usize = 10_000;
 
 /// How many values a loop over a written-out list is run for, the backstop
 /// [`crate::project`] uses for the shell's.
@@ -374,14 +403,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.delete(target)?;
                 }
             }
-            StmtKind::If { test, body, orelse } => match truth(self.expr(test)?) {
-                Value::Bool(true) => self.block(body)?,
-                Value::Bool(false) => self.block(orelse)?,
-                _ => {
-                    self.forget(body, &construct("if"), 0);
-                    self.forget(orelse, &construct("if"), 0);
+            StmtKind::If { test, body, orelse } => {
+                let tested = self.expr(test)?;
+                match truth(tested.clone()) {
+                    Value::Bool(true) => self.block(body)?,
+                    Value::Bool(false) => self.block(orelse)?,
+                    // Named for why the test is not known: that is what to build.
+                    _ => {
+                        let why = construct(&format!("if on {}", cause(&tested)));
+                        self.forget(body, &why, 0);
+                        self.forget(orelse, &why, 0);
+                    }
                 }
-            },
+            }
             StmtKind::For {
                 body,
                 orelse,
@@ -401,10 +435,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                         }
                         self.block(orelse)?;
                     }
-                    _ => {
-                        self.unbind(target, &construct("for"));
-                        self.forget(body, &construct("for"), 0);
-                        self.forget(orelse, &construct("for"), 0);
+                    unlisted => {
+                        let why = construct(&format!("for over {}", cause(&unlisted)));
+                        self.unbind(target, &why);
+                        self.forget(body, &why, 0);
+                        self.forget(orelse, &why, 0);
                     }
                 }
             }
@@ -734,9 +769,155 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// Runs a comprehension as Python does, its loop variables bound only
+    /// inside it: `parts` evaluated for each element its generators produce,
+    /// stopping where `consumed` says.
+    fn comprehension(
+        &mut self,
+        parts: &[&'m Expr],
+        generators: &'m [Comprehension],
+        consumed: Consumed,
+    ) -> Result<Ran, Stop> {
+        let mut names = BTreeSet::new();
+        for generator in generators {
+            names_in(&generator.target, &mut names);
+        }
+        let saved: Vec<(String, Option<Value>)> = names
+            .into_iter()
+            .map(|name| {
+                let held = self.bound(&name);
+                (name, held)
+            })
+            .collect();
+        let mut rows = Vec::new();
+        let mut budget = MAX_ELEMENTS;
+        let ran = self.produce(parts, generators, consumed, &mut rows, &mut budget);
+        for (name, held) in saved {
+            match held {
+                Some(value) => self.set(&name, value),
+                None => self.unset(&name),
+            }
+        }
+        Ok(match ran? {
+            Some(why) => Ran::Unknown(why),
+            None => Ran::Rows(rows),
+        })
+    }
+
+    /// One generator's elements, and under each the generators after it.
+    /// `Some` with the unknown value when one is not known, and `Ok(None)` when
+    /// it ran, to the end or to where `consumed` stops it (then `rows` says).
+    fn produce(
+        &mut self,
+        parts: &[&'m Expr],
+        generators: &'m [Comprehension],
+        consumed: Consumed,
+        rows: &mut Vec<Vec<Value>>,
+        budget: &mut usize,
+    ) -> Result<Option<Value>, Stop> {
+        let Some((generator, rest)) = generators.split_first() else {
+            let mut row = Vec::with_capacity(parts.len());
+            for part in parts {
+                row.push(self.expr(part)?);
+            }
+            // Where `any` or `all` stops depends on this element's truth.
+            if matches!(consumed, Consumed::UntilTrue | Consumed::UntilFalse)
+                && let undecided @ Value::Unknown(_) = truth(row[0].clone())
+            {
+                return Ok(Some(undecided));
+            }
+            rows.push(row);
+            return Ok(None);
+        };
+        let over = self.expr(&generator.iter)?;
+        let Value::Tuple(items) = self.iterable(over) else {
+            return Ok(Some(Value::Unknown(construct(
+                "comprehension over a value",
+            ))));
+        };
+        for item in items {
+            if *budget == 0 {
+                return Ok(Some(Value::Unknown(construct("comprehension length"))));
+            }
+            *budget -= 1;
+            self.bind(&generator.target, item);
+            let mut passes = true;
+            for test in &generator.ifs {
+                match truth(self.expr(test)?) {
+                    Value::Bool(true) => {}
+                    Value::Bool(false) => {
+                        passes = false;
+                        break;
+                    }
+                    other => return Ok(Some(other)),
+                }
+            }
+            if !passes {
+                continue;
+            }
+            let before = rows.len();
+            if let Some(unknown) = self.produce(parts, rest, consumed, rows, budget)? {
+                return Ok(Some(unknown));
+            }
+            if consumed != Consumed::Whole && rows.len() > before && self.stopped_at(rows, consumed)
+            {
+                return Ok(None);
+            }
+        }
+        Ok(None)
+    }
+
+    /// Whether the last row ends a comprehension consumed partly.
+    fn stopped_at(&self, rows: &[Vec<Value>], consumed: Consumed) -> bool {
+        let Some(last) = rows.last() else {
+            return false;
+        };
+        match consumed {
+            Consumed::Whole => false,
+            Consumed::First => true,
+            Consumed::UntilTrue => matches!(truth(last[0].clone()), Value::Bool(true)),
+            Consumed::UntilFalse => matches!(truth(last[0].clone()), Value::Bool(false)),
+        }
+    }
+
+    /// A name's value in the scope `set` writes to, if bound there.
+    fn bound(&self, name: &str) -> Option<Value> {
+        match self.frames.last() {
+            Some(frame) if !frame.globals.contains(name) => frame.locals.get(name).cloned(),
+            _ => self.names.get(name).cloned(),
+        }
+    }
+
+    /// A generator written as a call's argument, consumed as that call does:
+    /// its rows, or `Unknown` when it is not known.
+    fn generator(&mut self, expr: &'m Expr, consumed: Consumed) -> Result<Value, Stop> {
+        let Expr::GeneratorExp { elt, generators } = expr else {
+            return self.expr(expr);
+        };
+        Ok(match self.comprehension(&[elt], generators, consumed)? {
+            Ran::Rows(rows) => {
+                Value::Tuple(rows.into_iter().map(|mut row| row.remove(0)).collect())
+            }
+            Ran::Unknown(value) => {
+                self.escape_comprehension(expr, &construct("comprehension"));
+                self.forget_expr(expr, &construct("comprehension"), 0);
+                unknown(&value, "comprehension")
+            }
+        })
+    }
+
     /// A comprehension shares the elements of what it ranges over, not the
     /// list itself: `[l.strip() for l in lines]` leaves `lines` known. Names
     /// read anywhere else in it escape whole.
+    /// A comprehension this could not run: what it reads escapes and what it
+    /// calls is forgotten, and its value is unknown for the reason it stopped.
+    fn unfollowed_comprehension(&mut self, expr: &'m Expr, stopped: &Value) -> Value {
+        let why = construct(&format!("comprehension over {}", cause(stopped)));
+        self.escape_comprehension(expr, &why);
+        self.forget_expr(expr, &why, 0);
+        Value::Unknown(why)
+    }
+
     fn escape_comprehension(&mut self, expr: &Expr, why: &Why) {
         let (parts, generators): (Vec<&Expr>, &[Comprehension]) = match expr {
             Expr::ListComp { elt, generators }
@@ -950,10 +1131,39 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             },
             Expr::Lambda { .. } => Value::Callable,
             Expr::Bytes(_) => Value::Unknown(construct("bytes")),
-            Expr::ListComp { .. }
-            | Expr::SetComp { .. }
-            | Expr::GeneratorExp { .. }
-            | Expr::DictComp { .. } => {
+            // A list or dict comprehension runs at once, in order.
+            Expr::ListComp { elt, generators } => {
+                match self.comprehension(&[elt], generators, Consumed::Whole)? {
+                    Ran::Rows(rows) => {
+                        Value::Tuple(rows.into_iter().map(|mut row| row.remove(0)).collect())
+                    }
+                    Ran::Unknown(value) => self.unfollowed_comprehension(expr, &value),
+                }
+            }
+            Expr::DictComp {
+                key: at,
+                value,
+                generators,
+            } => match self.comprehension(&[at, value], generators, Consumed::Whole)? {
+                Ran::Rows(rows) => {
+                    let mut pairs = Vec::with_capacity(rows.len());
+                    for row in rows {
+                        let mut row = row.into_iter();
+                        let (Some(at), Some(value)) = (row.next(), row.next()) else {
+                            continue;
+                        };
+                        if key(&at).is_none() {
+                            return Ok(unknown(&at, "dict key"));
+                        }
+                        pairs = put(pairs, at, value);
+                    }
+                    Value::Dict(pairs)
+                }
+                Ran::Unknown(value) => self.unfollowed_comprehension(expr, &value),
+            },
+            // A set has no order; a generator runs as it is consumed, which is
+            // followed only where it is written as a call's argument.
+            Expr::SetComp { .. } | Expr::GeneratorExp { .. } => {
                 self.escape_comprehension(expr, &construct("comprehension"));
                 self.forget_expr(expr, &construct("comprehension"), 0);
                 Value::Unknown(construct("comprehension"))
@@ -1032,11 +1242,20 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
-    fn args(&mut self, args: &'m [Arg]) -> Result<(Vec<Value>, BTreeMap<&'m str, Value>), Stop> {
+    /// A call's arguments. A generator written as one is run to the end when
+    /// `whole`: the callee is one this knows consumes it so.
+    fn args(
+        &mut self,
+        args: &'m [Arg],
+        whole: bool,
+    ) -> Result<(Vec<Value>, BTreeMap<&'m str, Value>), Stop> {
         let mut positional = Vec::new();
         let mut keyword = BTreeMap::new();
         for arg in args {
             match arg {
+                Arg::Positional(expr @ Expr::GeneratorExp { .. }) if whole => {
+                    positional.push(self.generator(expr, Consumed::Whole)?);
+                }
                 Arg::Positional(expr) => positional.push(self.expr(expr)?),
                 Arg::Keyword(name, expr) => {
                     keyword.insert(name.as_str(), self.expr(expr)?);
@@ -1054,7 +1273,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         if let Expr::Attribute { value, attr } = func {
             let receiver = self.expr(value)?;
             if !matches!(receiver, Value::Name(_)) {
-                let (positional, keyword) = self.args(args)?;
+                // `''.join(g)` and `xs.extend(g)` run a generator to its end.
+                let whole = matches!(
+                    (&receiver, attr.as_str()),
+                    (Value::Str(_), "join") | (Value::Tuple(_), "extend")
+                );
+                let (positional, keyword) = self.args(args, whole)?;
                 if let Value::Tuple(items) = receiver {
                     return Ok(self.list_method(value, items, attr, positional, &keyword));
                 }
@@ -1082,7 +1306,34 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             }
         }
         let callee = self.expr(func)?;
-        let (positional, keyword) = self.args(args)?;
+        let function = match &callee {
+            Value::Name(name) => Function::of(name),
+            _ => None,
+        };
+        // `next`, `any` and `all` stop a generator where Python does.
+        let partly = match function {
+            Some(Function::Next) => Some(Consumed::First),
+            Some(Function::Any) => Some(Consumed::UntilTrue),
+            Some(Function::All) => Some(Consumed::UntilFalse),
+            _ => None,
+        };
+        if let (Some(consumed), Some(Arg::Positional(generator @ Expr::GeneratorExp { .. }))) =
+            (partly, args.first())
+        {
+            let value = self.generator(generator, consumed)?;
+            let default = match args.get(1) {
+                Some(Arg::Positional(default)) => Some(self.expr(default)?),
+                _ => None,
+            };
+            return consume(function, value, default);
+        }
+        let whole = matches!(
+            function,
+            Some(
+                Function::List | Function::Sorted | Function::Dict | Function::Any | Function::All
+            )
+        );
+        let (positional, keyword) = self.args(args, whole)?;
         let name = match callee {
             Value::Name(name) => name,
             Value::Defined(defined) => return self.call_defined(&defined, positional, keyword),
@@ -1202,6 +1453,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Some(other) => unknown(&other, "list"),
                 None => Value::Tuple(Vec::new()),
             },
+            Some(function @ (Function::Next | Function::Any | Function::All)) => consume(
+                Some(function),
+                first.unwrap_or(Value::None),
+                positional.get(1).cloned(),
+            )?,
             Some(Function::Dict) => {
                 let mut pairs = match first {
                     None => Vec::new(),
@@ -1286,6 +1542,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Some(Function::Str) => match first {
                 Some(Value::Str(text) | Value::Path(text)) => Value::Str(text),
                 Some(Value::Int(n)) => Value::Str(n.to_string()),
+                Some(Value::Bool(b)) => Value::Str(if b { "True" } else { "False" }.to_string()),
+                Some(Value::None) => Value::Str("None".to_string()),
                 Some(other) => unknown(&other, "str"),
                 None => Value::Str(String::new()),
             },
@@ -1777,6 +2035,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 path,
                 mode: Mode::Read,
             } => lines_of(self.read_value(&path)),
+            // A string ranges over its characters.
+            Value::Str(text) => {
+                Value::Tuple(text.chars().map(|c| Value::Str(c.to_string())).collect())
+            }
             // A dict ranges over its keys.
             Value::Dict(pairs) => Value::Tuple(pairs.into_iter().map(|(at, _)| at).collect()),
             other => other,
@@ -2601,6 +2863,37 @@ fn slice(value: Value, lower: Option<Value>, upper: Option<Value>) -> Value {
     }
 }
 
+/// `next`, `any` or `all` of what a generator produced (run only as far as
+/// each looks) or of a list: `next` of a list raises in Python.
+fn consume(
+    function: Option<Function>,
+    value: Value,
+    default: Option<Value>,
+) -> Result<Value, Stop> {
+    let Value::Tuple(items) = value else {
+        return Ok(unknown(&value, "iterator"));
+    };
+    Ok(match function {
+        Some(Function::Next) => match (items.into_iter().next(), default) {
+            (Some(first), _) => first,
+            (None, Some(default)) => default,
+            (None, None) => return Err(Stop::Ended),
+        },
+        Some(function @ (Function::Any | Function::All)) => {
+            let any = matches!(function, Function::Any);
+            for item in items {
+                match truth(item) {
+                    Value::Bool(b) if b == any => return Ok(Value::Bool(any)),
+                    Value::Bool(_) => {}
+                    other => return Ok(other),
+                }
+            }
+            Value::Bool(!any)
+        }
+        _ => Value::Unknown(construct("iterator")),
+    })
+}
+
 /// `json.loads` of a text: its value, the call raising where Python's does,
 /// or refused by the construct not modelled.
 fn loaded(text: &str) -> Result<Value, Stop> {
@@ -2643,6 +2936,27 @@ fn refusal(value: &Value, name: &str) -> Why {
     match value {
         Value::Unknown(why) => why.clone(),
         _ => construct(name),
+    }
+}
+
+/// Why a value could not be used, for a refusal's name: an unknown value's
+/// own reason, without repeating `python`, or the kind of value it is.
+fn cause(value: &Value) -> String {
+    match value {
+        Value::Unknown(why) => {
+            let name = why.census_name();
+            name.strip_prefix("python ").unwrap_or(&name).to_string()
+        }
+        Value::Tuple(items) => format!("{} values", items.len()),
+        Value::Str(_) => "a string".to_string(),
+        Value::Int(_) => "an int".to_string(),
+        Value::Path(_) => "a path".to_string(),
+        Value::File { .. } => "a file".to_string(),
+        Value::Name(name) => name.clone(),
+        Value::Defined(name) => format!("function {name}"),
+        Value::Pattern { .. } => "a pattern".to_string(),
+        Value::Callable => "a lambda".to_string(),
+        Value::Bool(_) | Value::None | Value::Dict(_) => "a value".to_string(),
     }
 }
 

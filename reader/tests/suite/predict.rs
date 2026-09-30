@@ -586,6 +586,54 @@ fn a_python_list_changed_in_place_is_followed() {
     }
 }
 
+/// A comprehension runs as Python runs it: in order, its variables its own,
+/// and a generator only as far as what consumes it looks. Found live: the
+/// insertion point of `lines[i:i] = ins` came from `next(... for ...)`.
+#[test]
+fn a_python_comprehension_is_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let head = "import json\nlines = ['p', 'q']\n";
+    for (program, text) in [
+        (
+            "out = [l + '!' for l in lines if l != 'q']\nw('/'.join(out))",
+            "p!",
+        ),
+        (
+            "w(','.join([a + b for a in 'xy' for b in '12']))",
+            "x1,x2,y1,y2",
+        ),
+        ("l = 'keep'\nn = [l for l in lines]\nw(l)", "keep"),
+        (
+            "w(json.dumps({k: v for k, v in [('a', '1'), ('b', '2')]}))",
+            "{\"a\": \"1\", \"b\": \"2\"}",
+        ),
+        ("w(''.join(c for c in 'abc' if c != 'b'))", "ac"),
+        (
+            "i = next(n for n, l in enumerate(lines) if l == 'q')\nlines[i:i] = ['x']\nw(''.join(lines))",
+            "pxq",
+        ),
+        // Lazy: the second element would raise, and is never reached.
+        (
+            "w(next(l for l in lines if l == 'p' or lines[5] == 'z'))",
+            "p",
+        ),
+        ("w(next((l for l in lines if l == 'z'), 'none'))", "none"),
+        (
+            "w(str(any(l == 'q' for l in lines)) + str(all(l == 'q' for l in lines)))",
+            "TrueFalse",
+        ),
+    ] {
+        let body = format!("{head}def w(t):\n    open('o', 'w').write(t)\n{program}");
+        let found = run(&py(&body), &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/repo/o", text)],
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
 /// Python shares a list between everything that holds it; this copies, so a
 /// change it cannot see through every holder forgets the list rather than
 /// write its old text.
@@ -606,7 +654,7 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
         "if len(open('b').read()):\n    lines.append('z')",
         // Found live: trailing lines popped in a loop, predicted still there.
         "while lines and lines[-1] == 'q':\n    lines.pop()",
-        "i = next(n for n, l in enumerate(lines) if l == 'q')\nlines[i:i] = ['x']",
+        "i = next(n for n, l in enumerate(lines) if f(l))\nlines[i:i] = ['x']",
         "grow = lambda: lines.append('z')\ngrow()",
         "import os\na, lines[0] = os.environ.get('X')",
     ] {
@@ -708,7 +756,7 @@ fn a_python_loop_over_what_the_program_can_list_is_unrolled() {
         unknown
             .unfollowed
             .iter()
-            .any(|u| u.why == Why::Python("for".to_string())),
+            .any(|u| u.why == Why::Python("for over call names".to_string())),
         "{:?}",
         unknown.unfollowed
     );
@@ -887,7 +935,7 @@ fn a_write_under_an_undecided_if_is_refused() {
         found.unfollowed,
         vec![Unfollowed {
             path: Some("/repo/b.txt".to_string()),
-            why: Why::Python("if".to_string()),
+            why: Why::Python("if on sys.argv".to_string()),
         }]
     );
 }
