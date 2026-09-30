@@ -552,12 +552,13 @@ impl<'a> Run<'a> {
             *self = before;
             return false;
         }
-        self.join(taken, &before);
+        self.join(taken, &before, &Why::Compound);
         true
     }
 
-    /// Joins the run `other` took into this one, both from `before`.
-    fn join(&mut self, other: Run<'a>, before: &Run<'a>) {
+    /// Joins the run `other` took into this one, both from `before`; a file
+    /// neither arm's text can be named for is refused for `why`.
+    fn join(&mut self, other: Run<'a>, before: &Run<'a>, why: &Why) {
         if self.cwd != other.cwd {
             self.cwd = None;
         }
@@ -582,7 +583,7 @@ impl<'a> Run<'a> {
                 // be named.
                 self.unfollowed.push(Unfollowed {
                     path: Some(path.clone()),
-                    why: Why::Compound,
+                    why: why.clone(),
                 });
             }
             self.now.insert(path, held);

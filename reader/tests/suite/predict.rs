@@ -274,6 +274,69 @@ fn an_undecided_if_leaves_a_file_one_of_its_arms_texts() {
     );
 }
 
+/// A Python `if` this cannot decide runs both arms: a file they leave
+/// differently is one of their texts, a name they bind differently is
+/// unknown, and arms that end differently leave the `if` refused.
+#[test]
+fn an_undecided_python_if_leaves_a_file_one_of_its_arms_texts() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/o", Some("old"))]);
+    let head = "import sys\nflag = sys.argv\n";
+    let set = |found: &Prediction| -> Vec<Option<String>> {
+        let mut texts = found
+            .alternatives
+            .iter()
+            .find(|set| set.path == "/repo/o")
+            .map(|set| set.texts.clone())
+            .unwrap_or_default();
+        texts.sort();
+        texts
+    };
+    let some = |texts: &[&str]| {
+        texts
+            .iter()
+            .map(|t| Some(t.to_string()))
+            .collect::<Vec<_>>()
+    };
+    let both = run(
+        &py(&format!(
+            "{head}if flag:\n    open('o', 'w').write('a')\nelse:\n    open('o', 'w').write('b')"
+        )),
+        &shown,
+    );
+    assert_eq!(set(&both), some(&["a", "b"]), "{:?}", both.unfollowed);
+    let one = run(
+        &py(&format!("{head}if flag:\n    open('o', 'w').write('a')")),
+        &shown,
+    );
+    assert_eq!(set(&one), some(&["a", "old"]));
+    let same = run(
+        &py(&format!(
+            "{head}x = 'n'\nif flag:\n    x = 'n'\nopen('o', 'w').write(x)"
+        )),
+        &shown,
+    );
+    assert_eq!(same.written, vec![written("/repo/o", "n")]);
+    let bound = run(
+        &py(&format!(
+            "{head}x = 'n'\nif flag:\n    x = 'm'\nopen('o', 'w').write(x)"
+        )),
+        &shown,
+    );
+    assert!(
+        bound.written.is_empty() && bound.alternatives.is_empty(),
+        "{:?}",
+        bound.written
+    );
+    let raised = run(
+        &py(&format!(
+            "{head}if flag:\n    open('o', 'w').write('a')\n    raise SystemExit(0)\n"
+        )),
+        &shown,
+    );
+    assert!(raised.alternatives.is_empty(), "{:?}", raised.alternatives);
+}
+
 /// A jump in a Python block not followed makes what follows only sometimes
 /// run, until the loop or the function it leaves ends; an exit that fails the
 /// call, or a raise, is excluded by the success the prediction assumes.

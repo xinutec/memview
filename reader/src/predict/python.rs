@@ -204,6 +204,33 @@ impl Function {
     }
 }
 
+/// A run of the program as an `if` found it: what [`Eval::both`] runs each arm
+/// from.
+#[derive(Clone)]
+struct State<'a> {
+    names: BTreeMap<String, Value>,
+    frames: Vec<Frame>,
+    /// Each function's name and whether a call to it is followed.
+    functions: BTreeMap<String, bool>,
+    defaults: BTreeMap<String, BTreeMap<String, Value>>,
+    lambdas: usize,
+    cwd: Option<String>,
+    maybe_exited: bool,
+    maybe_jumped: bool,
+    shell: Run<'a>,
+}
+
+/// Names two arms left: alike, they stand; bound differently, or in one arm
+/// only, they are unknown.
+fn join_names(mine: &mut BTreeMap<String, Value>, theirs: BTreeMap<String, Value>, why: &Why) {
+    let names: BTreeSet<String> = mine.keys().chain(theirs.keys()).cloned().collect();
+    for name in names {
+        if mine.get(&name) != theirs.get(&name) {
+            mine.insert(name, Value::Unknown(why.clone()));
+        }
+    }
+}
+
 /// What a matching function returns: one match or `None`, every match, or
 /// every match's text.
 #[derive(Debug, Clone, Copy)]
@@ -304,7 +331,7 @@ struct Eval<'r, 'a, 'm> {
 }
 
 /// One call's names, and the ones it declared `global`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Frame {
     locals: BTreeMap<String, Value>,
     globals: BTreeSet<String>,
@@ -465,6 +492,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     Value::Bool(true) => self.block(body)?,
                     Value::Bool(false) => self.block(orelse)?,
                     // Named for why the test is not known: that is what to build.
+                    // Both arms, joined, where they end alike.
+                    _ if self.both(
+                        body,
+                        orelse,
+                        &construct(&format!("if on {}", cause(&tested))),
+                    ) => {}
                     _ => {
                         let why = construct(&format!("if on {}", cause(&tested)));
                         self.forget(body, &why, 0);
@@ -836,6 +869,94 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Value::Set(_) => self.shared(value, why),
             _ => {}
         }
+    }
+
+    /// Everything a run of this program holds, for an `if` to run both arms from.
+    fn state(&self) -> State<'a> {
+        State {
+            names: self.names.clone(),
+            frames: self.frames.clone(),
+            functions: self
+                .functions
+                .keys()
+                .map(|name| (name.clone(), self.functions[name].unfollowed))
+                .collect(),
+            defaults: self.defaults.clone(),
+            lambdas: self.lambdas.len(),
+            cwd: self.cwd.clone(),
+            maybe_exited: self.maybe_exited,
+            maybe_jumped: self.maybe_jumped,
+            shell: self.shell.clone(),
+        }
+    }
+
+    fn restore(&mut self, state: State<'a>) {
+        self.names = state.names;
+        self.frames = state.frames;
+        self.functions
+            .retain(|name, _| state.functions.contains_key(name));
+        for (name, unfollowed) in &state.functions {
+            if let Some(def) = self.functions.get_mut(name) {
+                def.unfollowed = *unfollowed;
+            }
+        }
+        self.defaults = state.defaults;
+        self.lambdas.truncate(state.lambdas);
+        self.cwd = state.cwd;
+        self.maybe_exited = state.maybe_exited;
+        self.maybe_jumped = state.maybe_jumped;
+        *self.shell = state.shell;
+    }
+
+    /// Both arms of an `if` this cannot decide, each from the state before
+    /// it, joined: a name they bind alike keeps its value and one they bind
+    /// differently is unknown; files join as the shell's do. `false`, with
+    /// nothing done, where the arms end differently — a raise, a return, a
+    /// jump — or make a function or lambda, which a join does not hold.
+    fn both(&mut self, body: &'m [Stmt], orelse: &'m [Stmt], why: &Why) -> bool {
+        let defines = |block: &[Stmt]| {
+            block
+                .iter()
+                .any(|stmt| matches!(stmt.kind, StmtKind::FunctionDef { .. }))
+        };
+        if defines(body) || defines(orelse) {
+            return false;
+        }
+        let before = self.state();
+        let then = self.block(body);
+        let taken = self.state();
+        let before_shell = before.shell.clone();
+        self.restore(before.clone());
+        let otherwise = self.block(orelse);
+        let fits = then.is_ok()
+            && otherwise.is_ok()
+            && taken.lambdas == before.lambdas
+            && self.lambdas.len() == before.lambdas
+            && taken.frames.len() == self.frames.len()
+            && taken.maybe_exited == self.maybe_exited
+            && taken.maybe_jumped == self.maybe_jumped;
+        if !fits {
+            self.restore(before);
+            return false;
+        }
+        self.shell.join(taken.shell, &before_shell, why);
+        join_names(&mut self.names, taken.names, why);
+        for (mine, theirs) in self.frames.iter_mut().zip(taken.frames) {
+            join_names(&mut mine.locals, theirs.locals, why);
+            mine.globals.extend(theirs.globals);
+        }
+        self.defaults
+            .retain(|name, held| taken.defaults.get(name) == Some(held));
+        if self.cwd != taken.cwd {
+            self.cwd = None;
+        }
+        // A function one arm defined, deeper in it, is not there in the other.
+        for (name, def) in self.functions.iter_mut() {
+            if !before.functions.contains_key(name) {
+                def.unfollowed = true;
+            }
+        }
+        true
     }
 
     /// A loop's elements, its body run for each: `true` when it broke.

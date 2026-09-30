@@ -232,13 +232,14 @@ text that is not in it. "Never an approximation" therefore forbids two things:
 a single guess picked from the set, and a set padded with a text the command
 could not produce.
 
-- Built for the shell `if` (2026-09-30): both arms run from the state
+- Built for the shell `if` and the Python `if` (2026-09-30): both arms run from the state
   before it and are joined, a file they leave differently holding one of
   their texts; appending to it appends to each, and reading it for its text
   is refused (`one of several texts`). Each file's set is exact on its own;
   which members go together across files is not kept. Arms that end the
   shell differently, or bind a name differently, leave the `if` refused or
-  the name unknown. The console draws each member as its own diff, and the
+  the name unknown; in Python, arms that raise, return or jump, or define a
+  function or lambda, leave it refused. The console draws each member as its own diff, and the
   after-look agrees when the file holds any of them; a divergence is kept
   with all of them.
 - A jump in a region not followed — `exit`, `return`, `break`, `continue`,
