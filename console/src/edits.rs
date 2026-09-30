@@ -20,7 +20,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use reader::predict::{Conditional, Divergence, Files, Sight, Written, check, predict};
+use reader::predict::{Conditional, Dirs, Divergence, Files, Sight, Written, check, predict};
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
@@ -96,6 +96,9 @@ pub struct Finding {
     pub cwd: String,
     /// The files the prediction was made from, as they were before the call.
     pub files: Files,
+    /// The directories it listed, likewise.
+    #[serde(default, skip_serializing_if = "Dirs::is_empty")]
+    pub dirs: Dirs,
     pub path: String,
     pub predicted: Option<String>,
     pub actual: Option<String>,
@@ -156,6 +159,8 @@ struct Refused {
     command: String,
     cwd: String,
     files: Files,
+    #[serde(skip_serializing_if = "Dirs::is_empty")]
+    dirs: Dirs,
     /// Files it did predict, beside the refusals.
     predicted: usize,
     /// Files predicted on the condition that an unknown program left them alone.
@@ -169,6 +174,7 @@ struct Pending {
     command: String,
     cwd: String,
     files: Files,
+    dirs: Dirs,
     written: Vec<Written>,
     conditional: Vec<Conditional>,
     since: std::time::Instant,
@@ -247,7 +253,7 @@ impl Edits {
         let home = std::env::var("HOME").unwrap_or_default();
         let seen = Seen::default();
         let prediction = predict(&script, cwd, &home, &seen);
-        let files = seen.0.into_inner();
+        let (files, dirs) = (seen.files.into_inner(), seen.dirs.into_inner());
         if !prediction.unfollowed.is_empty() {
             let refused = Refused {
                 session: session.to_string(),
@@ -256,6 +262,7 @@ impl Edits {
                 command: command.to_string(),
                 cwd: cwd.to_string(),
                 files: files.clone(),
+                dirs: dirs.clone(),
                 predicted: prediction.written.len(),
                 conditional: prediction.conditional.len(),
                 refused: prediction
@@ -316,6 +323,7 @@ impl Edits {
                 command: command.to_string(),
                 cwd: cwd.to_string(),
                 files,
+                dirs,
                 written: prediction.written,
                 conditional: prediction.conditional,
                 since: std::time::Instant::now(),
@@ -407,6 +415,7 @@ impl Edits {
                 command: pending.command.clone(),
                 cwd: pending.cwd.clone(),
                 files: pending.files.clone(),
+                dirs: pending.dirs.clone(),
                 path: divergence.path.clone(),
                 predicted: divergence.predicted.clone(),
                 actual: divergence.actual.clone(),
@@ -547,14 +556,48 @@ fn lines<T: serde::de::DeserializeOwned>(file: &Path) -> Vec<T> {
 /// what it showed: a finding or a refusal carries it, so the prediction can be
 /// made again. Reads only — see `docs/execution-model.md`, "Sight".
 #[derive(Default)]
-struct Seen(std::cell::RefCell<Files>);
+struct Seen {
+    files: std::cell::RefCell<Files>,
+    dirs: std::cell::RefCell<Dirs>,
+}
 
 impl Sight for Seen {
     fn file(&self, path: &str) -> Option<Option<String>> {
         let shown = read(Path::new(path))?;
-        self.0.borrow_mut().insert(path.to_string(), shown.clone());
+        self.files
+            .borrow_mut()
+            .insert(path.to_string(), shown.clone());
         Some(shown)
     }
+
+    fn dir(&self, path: &str) -> Option<Option<Vec<String>>> {
+        let shown = list(Path::new(path))?;
+        self.dirs
+            .borrow_mut()
+            .insert(path.to_string(), shown.clone());
+        Some(shown)
+    }
+}
+
+/// Larger directories are not listed: a hook waits on this.
+const LARGEST_DIR: usize = 10_000;
+
+/// A directory's names: `Some(None)` when it does not exist, `None` when it
+/// cannot be listed here — not a directory, too large, or a name not UTF-8.
+fn list(path: &Path) -> Option<Option<Vec<String>>> {
+    let entries = match std::fs::read_dir(path) {
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => return Some(None),
+        Err(_) => return None,
+        Ok(entries) => entries,
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        if names.len() == LARGEST_DIR {
+            return None;
+        }
+        names.push(entry.ok()?.file_name().into_string().ok()?);
+    }
+    Some(Some(names))
 }
 
 /// Whether a Python interpreter in the call reported an uncaught exception.

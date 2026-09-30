@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use reader::predict::{
-    Assumed, Conditional, Files, Prediction, Unfollowed, Why, Written, needs, predict,
+    Assumed, Conditional, Dirs, Files, Prediction, Shown, Unfollowed, Why, Written, needs, predict,
 };
 
 const HOME: &str = "/home/me";
@@ -630,6 +630,88 @@ fn a_python_comprehension_is_followed() {
             vec![written("/repo/o", text)],
             "{program}: {:?}",
             found.unfollowed
+        );
+    }
+}
+
+/// A directory's names come in no order, so a listing is a set: `sorted` of
+/// it is exact, a loop over it is not. What the run wrote there is in it, and
+/// after a directory is made untracked no listing is known.
+#[test]
+fn a_python_directory_listing_is_a_set_of_names() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = Shown {
+        files: known(&[("/repo/src/a.rs", Some("A")), ("/repo/src/b.rs", Some("B"))]),
+        dirs: Dirs::from([
+            (
+                "/repo".to_string(),
+                Some(vec![
+                    "b.txt".to_string(),
+                    "a.txt".to_string(),
+                    ".h.txt".to_string(),
+                    "c.md".to_string(),
+                ]),
+            ),
+            (
+                "/repo/src".to_string(),
+                Some(vec![
+                    "b.rs".to_string(),
+                    "a.rs".to_string(),
+                    ".x.rs".to_string(),
+                ]),
+            ),
+        ]),
+    };
+    let head =
+        "import glob, os\nfrom pathlib import Path\ndef w(t):\n    open('o', 'w').write(t)\n";
+    for (program, text) in [
+        ("w(','.join(sorted(glob.glob('*.txt'))))", "a.txt,b.txt"),
+        (
+            "open('d.txt', 'w').write('')\nw(','.join(sorted(glob.glob('*.txt'))))",
+            "a.txt,b.txt,d.txt",
+        ),
+        ("w(','.join(sorted(os.listdir('src'))))", ".x.rs,a.rs,b.rs"),
+        (
+            "w(','.join(str(p) for p in sorted(Path('src').glob('*.rs'))))",
+            "src/.x.rs,src/a.rs,src/b.rs",
+        ),
+        (
+            "w(str(len(glob.glob('src/?.rs'))) + str('src/a.rs' in glob.glob('src/*')))",
+            "2True",
+        ),
+    ] {
+        let parsed = reader::syntax::parse(&py(&format!("{head}{program}"))).expect("parses");
+        let found = predict(&parsed, "/repo", "/home/me", &shown);
+        let file = found.written.iter().find(|w| w.path == "/repo/o");
+        assert_eq!(
+            file,
+            Some(&written("/repo/o", text)),
+            "{program}: {:?}",
+            found.unfollowed
+        );
+    }
+    let edited = reader::syntax::parse(&py(
+        "import glob\nfor p in sorted(glob.glob('src/*.rs')):\n    s = open(p).read()\n    open(p, 'w').write(s + '!')",
+    ))
+    .expect("parses");
+    assert_eq!(
+        predict(&edited, "/repo", "/home/me", &shown).written,
+        vec![
+            written("/repo/src/a.rs", "A!"),
+            written("/repo/src/b.rs", "B!")
+        ]
+    );
+    for program in [
+        "for p in glob.glob('*.txt'):\n    w(p)",
+        "os.makedirs('x')\nw(','.join(sorted(os.listdir('.'))))",
+        "w(','.join(sorted(os.listdir('elsewhere'))))",
+    ] {
+        let parsed = reader::syntax::parse(&py(&format!("{head}{program}"))).expect("parses");
+        let found = predict(&parsed, "/repo", "/home/me", &shown);
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/o"),
+            "{program}: {:?}",
+            found.written
         );
     }
 }

@@ -199,6 +199,15 @@ is shown is decided by these rules (the user, 2026-09-28):
   finding replayable. From history nothing is shown and every ask is `not
   read`; in a test the fixture answers; before a live call the console answers
   from disk.
+- **A directory's names come in no order.** A listing (`glob.glob`,
+  `os.listdir`, `Path.glob`, `iterdir`) is a set of names: `sorted` of it is
+  exact, and a loop over it is refused, since the order a directory gives
+  is the filesystem's and the order bash sorts a glob in is the host's
+  collation, which the text does not state (an empty locale here collates
+  as `en_US.UTF-8`, not bytewise). The run's own writes and removals there
+  are merged in; after a directory is made or removed untracked (`mkdir`,
+  `os.makedirs`) no listing is known. The console lists at most ten thousand
+  names and keeps each listing with the row, as it keeps files.
 - **Git's objects are files, and reading them is on the list — later.** What
   `git checkout -- f` restores is the index's blob, which sight could read; it
   means decoding git's storage, through a reviewed Rust library rather than

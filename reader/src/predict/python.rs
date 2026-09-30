@@ -105,6 +105,12 @@ enum Function {
     },
     /// `re.compile`.
     Compile,
+    /// `glob.glob(pattern)`: the matching paths, in no order.
+    Glob,
+    /// `os.listdir(dir)`: the names in it, in no order.
+    ListDir,
+    /// Makes or removes directories, which changes a listing untracked.
+    MakesDirectories,
     /// `re.search`, `re.match`, `re.fullmatch`, `re.finditer`, `re.findall`.
     Matching(Matching),
     /// `re.escape`.
@@ -174,11 +180,14 @@ impl Function {
             "os.remove" | "os.unlink" => Function::Delete,
             "shutil.rmtree" => Function::DeleteTree,
             "Image.open" | "PIL.Image.open" | "wave.open" => Function::Reads,
-            "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk"
-            | "os.path.basename" | "os.path.dirname" | "os.path.splitext" | "os.path.isdir"
-            | "os.path.relpath" | "os.getcwd" | "os.environ.get" | "sys.path.insert"
-            | "sys.path.append" | "re.split" | "shlex.quote" | "shlex.split"
-            | "textwrap.dedent" => Function::Pure,
+            "glob.glob" | "glob.iglob" => Function::Glob,
+            "os.listdir" => Function::ListDir,
+            "os.mkdir" | "os.makedirs" | "os.rmdir" | "os.removedirs" | "os.symlink"
+            | "shutil.copytree" => Function::MakesDirectories,
+            "os.scandir" | "os.walk" | "os.path.basename" | "os.path.dirname"
+            | "os.path.splitext" | "os.path.isdir" | "os.path.relpath" | "os.getcwd"
+            | "os.environ.get" | "sys.path.insert" | "sys.path.append" | "re.split"
+            | "shlex.quote" | "shlex.split" | "textwrap.dedent" => Function::Pure,
             "re.sub" => Function::Substitute { counted: false },
             "re.subn" => Function::Substitute { counted: true },
             "re.compile" => Function::Compile,
@@ -1563,6 +1572,30 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     other => unknown(&other, "set"),
                 },
             },
+            Some(Function::Glob) => match (first, keyword.is_empty()) {
+                (Some(Value::Str(pattern)), true) => self.glob(&pattern, false),
+                (Some(other), _) => unknown(&other, "glob"),
+                (None, _) => Value::Unknown(construct("glob")),
+            },
+            Some(Function::ListDir) => {
+                let dir = match first {
+                    None => Some(".".to_string()),
+                    Some(value) => text(&value),
+                };
+                match dir.and_then(|dir| self.resolve(&dir)) {
+                    Some(dir) => match self.shell.listing(&dir) {
+                        Ok(Some(names)) => Value::Set(names.into_iter().map(Value::Str).collect()),
+                        // `listdir` of a directory that is not there raises.
+                        Ok(None) => return Err(Stop::Ended),
+                        Err(why) => Value::Unknown(why),
+                    },
+                    None => Value::Unknown(construct("os.listdir")),
+                }
+            }
+            Some(Function::MakesDirectories) => {
+                self.shell.listings_changed();
+                Value::None
+            }
             Some(Function::Dict) => {
                 let mut pairs = match first {
                     None => Vec::new(),
@@ -2174,6 +2207,52 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
     }
 
+    /// The paths a glob pattern matches, in no order: `glob.glob`'s strings,
+    /// or with `paths` `Path.glob`'s paths. One directory's names only — a
+    /// wildcard before the last `/`, `**`, or a `[` class is refused. The
+    /// `glob` module skips a name starting with `.` unless the pattern does;
+    /// `pathlib` does not.
+    fn glob(&mut self, pattern: &str, paths: bool) -> Value {
+        let (dir, name) = match pattern.rsplit_once('/') {
+            Some((dir, name)) => (Some(dir), name),
+            None => (None, pattern),
+        };
+        let wild = |text: &str| text.contains(['*', '?', '[']);
+        if dir.is_some_and(wild) || name.contains("**") || name.contains('[') {
+            return Value::Unknown(construct("glob pattern"));
+        }
+        let listed = match self.resolve(dir.filter(|dir| !dir.is_empty()).unwrap_or(".")) {
+            Some(resolved) => self.shell.listing(&resolved),
+            None => return Value::Unknown(construct("path")),
+        };
+        let names = match listed {
+            Ok(Some(names)) => names,
+            // A directory that is not there matches nothing.
+            Ok(None) => Vec::new(),
+            Err(why) => return Value::Unknown(why),
+        };
+        let pieces = glob_pieces(name);
+        let hidden = paths || name.starts_with('.');
+        let joined = |found: &str| match dir {
+            Some(dir) => format!("{dir}/{found}"),
+            None => found.to_string(),
+        };
+        Value::Set(
+            names
+                .iter()
+                .filter(|found| hidden || !found.starts_with('.'))
+                .filter(|found| wildcard(&pieces, &found.chars().collect::<Vec<_>>()))
+                .map(|found| {
+                    if paths {
+                        Value::Path(joined(found))
+                    } else {
+                        Value::Str(joined(found))
+                    }
+                })
+                .collect(),
+        )
+    }
+
     fn path_method(
         &mut self,
         path: &str,
@@ -2221,7 +2300,28 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
                 Value::Path(out)
             }
-            "mkdir" | "is_dir" | "stat" | "iterdir" | "glob" | "rglob" => {
+            "glob" => match (args.as_slice(), keyword.is_empty()) {
+                ([Value::Str(pattern)], true) => self.glob(&join(path, pattern), true),
+                _ => Value::Unknown(construct("path.glob")),
+            },
+            "iterdir" if args.is_empty() => match self.resolve(path) {
+                Some(dir) => match self.shell.listing(&dir) {
+                    Ok(Some(names)) => Value::Set(
+                        names
+                            .into_iter()
+                            .map(|name| Value::Path(join(path, &name)))
+                            .collect(),
+                    ),
+                    Ok(None) => Value::Unknown(Why::Missing),
+                    Err(why) => Value::Unknown(why),
+                },
+                None => Value::Unknown(construct("path")),
+            },
+            "mkdir" | "rmdir" | "symlink_to" => {
+                self.shell.listings_changed();
+                Value::None
+            }
+            "is_dir" | "stat" | "iterdir" | "rglob" => {
                 Value::Unknown(Why::Python(format!("path.{method}")))
             }
             _ => {
@@ -3031,6 +3131,8 @@ fn range(args: &[Value]) -> Value {
 fn order(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
+        // A path orders by its parts: `a/x` before `a-b/x`.
+        (Value::Path(a), Value::Path(b)) => Some(a.split('/').cmp(b.split('/'))),
         (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
         (Value::Tuple(a), Value::Tuple(b)) => {
             for (a, b) in a.iter().zip(b) {
@@ -3051,7 +3153,9 @@ fn sorted(values: Vec<Value>) -> Value {
     for pair in values.windows(2) {
         sortable &= order(&pair[0], &pair[1]).is_some();
     }
-    if sortable && values.iter().all(|v| matches!(v, Value::Tuple(_))) {
+    let same = values.iter().all(|v| matches!(v, Value::Tuple(_)))
+        || values.iter().all(|v| matches!(v, Value::Path(_)));
+    if sortable && same {
         let mut values = values;
         // Stable, as Python's is; the check above covered neighbours only,
         // so any pair found unordered while sorting refuses it.
@@ -3308,6 +3412,34 @@ fn match_method(
     })
 }
 
+/// A glob name pattern: `*` and `?`, the rest literal.
+enum GlobPiece {
+    Char(char),
+    Any,
+    One,
+}
+
+fn glob_pieces(pattern: &str) -> Vec<GlobPiece> {
+    pattern
+        .chars()
+        .map(|c| match c {
+            '*' => GlobPiece::Any,
+            '?' => GlobPiece::One,
+            c => GlobPiece::Char(c),
+        })
+        .collect()
+}
+
+/// Whether `name` matches the pieces whole.
+fn wildcard(pieces: &[GlobPiece], name: &[char]) -> bool {
+    match pieces.split_first() {
+        None => name.is_empty(),
+        Some((GlobPiece::Any, rest)) => (0..=name.len()).any(|at| wildcard(rest, &name[at..])),
+        Some((GlobPiece::One, rest)) => !name.is_empty() && wildcard(rest, &name[1..]),
+        Some((GlobPiece::Char(c), rest)) => name.first() == Some(c) && wildcard(rest, &name[1..]),
+    }
+}
+
 /// `next`, `any` or `all` of what a generator produced (run only as far as
 /// each looks) or of a list: `next` of a list raises in Python.
 fn consume(
@@ -3464,7 +3596,7 @@ fn views(pairs: &[(Value, Value)]) -> [Value; 3] {
 fn key(value: &Value) -> Option<Value> {
     match value {
         Value::Bool(b) => Some(Value::Int(i64::from(*b))),
-        Value::Str(_) | Value::Int(_) | Value::None => Some(value.clone()),
+        Value::Str(_) | Value::Int(_) | Value::None | Value::Path(_) => Some(value.clone()),
         _ => None,
     }
 }

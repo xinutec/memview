@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use reader::predict::{Files, predict};
+use reader::predict::{Files, Shown, predict};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
 struct Kept {
     command: String,
     cwd: String,
-    files: Files,
+    shown: Shown,
 }
 
 impl Kept {
@@ -188,7 +188,15 @@ impl Kept {
         Some(Self {
             command: row["command"].as_str()?.to_string(),
             cwd: row["cwd"].as_str()?.to_string(),
-            files: serde_json::from_value(row["files"].clone()).ok()?,
+            shown: Shown {
+                files: serde_json::from_value(row["files"].clone()).ok()?,
+                // Rows from before directories were listed have none; one that
+                // holds a listing that does not read is not replayable.
+                dirs: match &row["dirs"] {
+                    serde_json::Value::Null => Default::default(),
+                    dirs => serde_json::from_value(dirs.clone()).ok()?,
+                },
+            },
         })
     }
 }
@@ -249,7 +257,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
             unparsed += 1;
             continue;
         };
-        let found = predict(&script, &kept.cwd, &home, &kept.files);
+        let found = predict(&script, &kept.cwd, &home, &kept.shown);
         conditional += found.conditional.len();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
@@ -277,7 +285,7 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         let Ok(script) = reader::syntax::parse(&kept.command) else {
             continue;
         };
-        let found = predict(&script, &kept.cwd, &home, &kept.files);
+        let found = predict(&script, &kept.cwd, &home, &kept.shown);
         let actual: Option<String> = row["actual"].as_str().map(str::to_string);
         let now = found.written.iter().find(|w| w.path == path);
         let outcome = match now {

@@ -54,6 +54,10 @@ use crate::syntax::print::print_value;
 /// not known at all.
 pub type Files = BTreeMap<String, Option<String>>;
 
+/// What is known of directories, by absolute path: the names in one, in no
+/// order, or `None` for one that does not exist.
+pub type Dirs = BTreeMap<String, Option<Vec<String>>>;
+
 /// What the evaluator may be shown, asked for when a command needs it. It reads
 /// and never runs — `docs/execution-model.md`, "Sight". This crate has no
 /// implementation that touches a disk: a [`Files`] answers from what it holds,
@@ -62,11 +66,34 @@ pub trait Sight {
     /// `Some(Some(text))`, `Some(None)` for a file that does not exist, or `None`
     /// when the file cannot be shown.
     fn file(&self, path: &str) -> Option<Option<String>>;
+
+    /// The names in a directory, in no order: `Some(None)` for one that does not
+    /// exist, or `None` when it cannot be shown.
+    fn dir(&self, _path: &str) -> Option<Option<Vec<String>>> {
+        None
+    }
 }
 
 impl Sight for Files {
     fn file(&self, path: &str) -> Option<Option<String>> {
         self.get(path).cloned()
+    }
+}
+
+/// Files and directories as they were shown: a replay's inputs, or a test's.
+#[derive(Debug, Default, Clone)]
+pub struct Shown {
+    pub files: Files,
+    pub dirs: Dirs,
+}
+
+impl Sight for Shown {
+    fn file(&self, path: &str) -> Option<Option<String>> {
+        self.files.get(path).cloned()
+    }
+
+    fn dir(&self, path: &str) -> Option<Option<Vec<String>>> {
+        self.dirs.get(path).cloned()
     }
 }
 
@@ -256,6 +283,9 @@ struct Run<'a> {
     written_at: BTreeMap<String, usize>,
     /// Each unknown program run, and when.
     assumed: Vec<(usize, String)>,
+    /// A directory was made or removed in a way the run does not track
+    /// (`mkdir`, `os.makedirs`): no listing is known after it.
+    listings_unknown: bool,
 }
 
 impl<'a> Run<'a> {
@@ -277,7 +307,47 @@ impl<'a> Run<'a> {
             clock: 0,
             written_at: BTreeMap::new(),
             assumed: Vec::new(),
+            listings_unknown: false,
         }
+    }
+
+    /// The names in `dir` as this run has left it: what sight showed, with the
+    /// files the run wrote there added and those it removed taken away.
+    /// `Ok(None)` for a directory that does not exist; `Err` when the listing
+    /// is not known — not shown, or changed in a way the run does not track.
+    pub(super) fn listing(&mut self, dir: &str) -> Result<Option<Vec<String>>, Why> {
+        let covered = self.trees.iter().any(|(tree, _)| {
+            dir == tree || (dir.starts_with(tree.as_str()) && dir[tree.len()..].starts_with('/'))
+        });
+        if self.listings_unknown || covered {
+            return Err(Why::Python("listing".to_string()));
+        }
+        let Some(shown) = self.sight.dir(dir) else {
+            return Err(Why::NotRead);
+        };
+        let under = format!("{dir}/");
+        let mut names = shown;
+        for (path, held) in &self.now {
+            let Some(name) = path.strip_prefix(&under).filter(|name| !name.contains('/')) else {
+                continue;
+            };
+            let listed = names.get_or_insert_with(Vec::new);
+            match held {
+                Held::Text(_) => {
+                    if !listed.iter().any(|seen| seen == name) {
+                        listed.push(name.to_string());
+                    }
+                }
+                Held::Absent => listed.retain(|seen| seen != name),
+                Held::Unknown => return Err(Why::Python("listing".to_string())),
+            }
+        }
+        Ok(names)
+    }
+
+    /// A directory made or removed without a file in it being followed.
+    pub(super) fn listings_changed(&mut self) {
+        self.listings_unknown = true;
     }
 
     /// The files written, as the run left them, in first-write order.
@@ -1021,6 +1091,12 @@ impl<'a> Run<'a> {
     /// each is refused, for `why` or else by the program's name.
     fn forget_program_writes(&mut self, simple: &Simple, redirects: &[Redirect], why: Option<Why>) {
         let literal: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
+        // A directory made or removed changes a listing without a file in it.
+        if let Some(Some(head)) = literal.first()
+            && matches!(basename(head), "mkdir" | "rmdir")
+        {
+            self.listings_changed();
+        }
         let argv: Vec<String> = simple
             .words
             .iter()

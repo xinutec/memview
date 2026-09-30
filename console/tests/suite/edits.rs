@@ -408,3 +408,32 @@ fn a_conditional_prediction_that_diverged_is_kept_apart_from_findings() {
     assert_eq!(row["assumed"]["after"][0], "build.sh");
     assert_eq!(row["command"], "echo x > a.txt; ./build.sh");
 }
+
+/// A directory the evaluator lists is read from disk, used, and kept with the
+/// row, so the prediction can be made again.
+#[test]
+fn a_listed_directory_is_used_and_kept_with_the_row() {
+    let dir = scratch("listed");
+    std::fs::write(dir.join("b.txt"), "B").expect("seed");
+    std::fs::write(dir.join("a.txt"), "A").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    let edited = edits
+        .before(
+            "s1",
+            "c1",
+            "python3 - <<'PY'\nimport glob\nopen('o', 'w').write(','.join(sorted(glob.glob('*.txt'))))\nfor p in glob.glob('*.txt'):\n    open('log', 'a').write(p)\nPY",
+            at(&dir),
+        )
+        .expect("predicted");
+    assert_eq!(edited.hunks[0].after, "a.txt,b.txt");
+    let kept =
+        std::fs::read_to_string(dir.join("store/refused.jsonl")).expect("the loop is refused");
+    let row: serde_json::Value = serde_json::from_str(kept.trim()).expect("json");
+    let mut names: Vec<String> =
+        serde_json::from_value(row["dirs"][at(&dir)].clone()).expect("the listing kept");
+    names.sort();
+    assert!(
+        names.contains(&"a.txt".to_string()) && names.contains(&"b.txt".to_string()),
+        "{names:?}"
+    );
+}
