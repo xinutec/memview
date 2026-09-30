@@ -3238,6 +3238,32 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
         ("rindex", [Value::Str(needle)]) => {
             found(Some(char_rfind(text, needle).ok_or(Stop::Ended)?))
         }
+        // `s.find(sub, start, end)`: the bounds as a slice's, the index
+        // counted from the text's start. An empty `sub` past the end is -1 in
+        // Python, where a clamped window would find it: refused.
+        (which @ ("find" | "rfind" | "index" | "rindex"), [Value::Str(needle), bounds @ ..])
+            if !bounds.is_empty() && bounds.len() <= 2 && !needle.is_empty() =>
+        {
+            let chars: Vec<char> = text.chars().collect();
+            let start = bound(bounds.first().cloned(), chars.len(), 0);
+            let end = bound(bounds.get(1).cloned(), chars.len(), chars.len());
+            let (start, end) = match (start, end) {
+                (Ok(start), Ok(end)) => (start, end),
+                (Err(why), _) | (_, Err(why)) => return Ok(Value::Unknown(why)),
+            };
+            let window: String = chars[start..end.max(start)].iter().collect();
+            let at = if which.starts_with('r') {
+                char_rfind(&window, needle)
+            } else {
+                char_find(&window, needle)
+            }
+            .map(|at| at + start);
+            if which.ends_with("index") {
+                found(Some(at.ok_or(Stop::Ended)?))
+            } else {
+                found(at)
+            }
+        }
         ("replace", [Value::Str(old), Value::Str(new)]) => {
             Value::Str(text.replace(old.as_str(), new))
         }

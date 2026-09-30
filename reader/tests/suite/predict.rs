@@ -2265,6 +2265,34 @@ fn what_an_unknown_program_writes_itself_stays_refused() {
     assert!(run("echo x > a", &nothing_known()).conditional.is_empty());
 }
 
+/// `find` and `index` with a start and an end, as CPython answers them.
+#[test]
+fn python_find_takes_a_start_and_an_end() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    // Printed by CPython: [s.find('a', 2), s.find('a', -3), s.rfind('a', 0, 4),
+    // s.index('b', 1), s.find('a', 9)] for s = 'abcabcab'.
+    let found = run(
+        &py(
+            "s = 'abcabcab'\nopen('o', 'w').write(','.join(str(n) for n in [s.find('a', 2), s.find('a', -3), s.rfind('a', 0, 4), s.index('b', 1), s.find('a', 9)]))",
+        ),
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/o", "3,6,3,1,-1")],
+        "{:?}",
+        found.unfollowed
+    );
+    let missing = run(
+        &py("s = 'abc'\ni = s.index('a', 1)\nopen('o', 'w').write('x')"),
+        &nothing_known(),
+    );
+    assert!(
+        missing.written.is_empty(),
+        "index raises when it is not there"
+    );
+}
+
 /// Python's text is what Python reads and writes: its whitespace, and plain
 /// UTF-8 opened without `newline=` or another encoding. A text with `\r` in it
 /// is refused, since reading turns it into `\n`; so is an `open` taking an
