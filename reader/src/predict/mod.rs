@@ -645,6 +645,13 @@ impl<'a> Run<'a> {
             }
         }
         self.listings_unknown |= other.listings_unknown;
+        // Either arm may have ended the shell there.
+        self.maybe_stopped |= other.maybe_stopped;
+        // What the arms printed into a `$( )` around them: one of two texts,
+        // which a word cannot hold.
+        if self.buffer != other.buffer {
+            self.buffer = Some(Err(why.clone()));
+        }
     }
 
     /// The status of the last list in `items`, each run in turn.
@@ -844,6 +851,8 @@ impl<'a> Run<'a> {
             self.capture,
             self.stopped,
         );
+        // Each member is a subshell: an exit in one ends only it.
+        let maybe = self.maybe_stopped;
         // What the member before printed, fed to the next.
         let mut previous: Result<String, Why> = Err(Why::Pipeline);
         let mut status = Status::Assumed;
@@ -899,6 +908,7 @@ impl<'a> Run<'a> {
         self.pipe = outer;
         self.capture = capture;
         self.stopped = stopped;
+        self.maybe_stopped = maybe;
         self.sink = sink;
         self.buffer = buffer;
         self.now = merged;
@@ -958,10 +968,13 @@ impl<'a> Run<'a> {
             CommandKind::Group(items) if command.redirects.is_empty() => self.items(items),
             CommandKind::Subshell(items) if command.redirects.is_empty() => {
                 let (cwd, vars, stopped) = (self.cwd.clone(), self.vars.clone(), self.stopped);
+                let maybe = self.maybe_stopped;
                 self.items(items);
                 self.cwd = cwd;
                 self.vars = vars;
                 self.stopped = stopped;
+                // Its exit ends only it.
+                self.maybe_stopped = maybe;
             }
             // A loop over words the text spells out runs its body once per word,
             // the variable bound to each; it stays bound to the last, as bash
@@ -1091,6 +1104,7 @@ impl<'a> Run<'a> {
     /// bindings and `exit` stay inside, and what it prints is not a file's.
     fn subshell(&mut self, items: &[Item], why: Option<&Why>) {
         let (cwd, vars, stopped) = (self.cwd.clone(), self.vars.clone(), self.stopped);
+        let maybe = self.maybe_stopped;
         let sink = self.sink.take();
         let capture = std::mem::replace(&mut self.capture, false);
         match why {
@@ -1106,6 +1120,7 @@ impl<'a> Run<'a> {
         self.cwd = cwd;
         self.vars = vars;
         self.stopped = stopped;
+        self.maybe_stopped = maybe;
         self.sink = sink;
         self.capture = capture;
     }
@@ -1182,6 +1197,8 @@ impl<'a> Run<'a> {
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
         let name = argv.first().cloned().flatten();
         if self.change_dir(&argv) {
+            // `cd -` prints where it went, into a redirect around it too.
+            self.print_to_sink(name.as_deref(), &argv, redirects);
             return;
         }
         // The shell ends here, and what came before stands.
@@ -2003,7 +2020,15 @@ impl<'a> Run<'a> {
         if argv.first().and_then(Option::as_deref) != Some("cd") {
             return false;
         }
-        self.cwd = match argv.get(1) {
+        // `-P` and `-L` choose how links resolve, which a lexical path
+        // does not see; `cd -` goes back to where it came from, which this
+        // does not keep.
+        let operand = argv
+            .iter()
+            .skip(1)
+            .find(|arg| !matches!(arg.as_deref(), Some("-P" | "-L" | "--")));
+        self.cwd = match operand {
+            Some(Some(to)) if to == "-" => None,
             Some(Some(to)) => self.resolve(to),
             None => Some(self.home.to_string()),
             Some(None) => None,
@@ -2600,12 +2625,20 @@ fn prints_to_redirect(redirects: &[Redirect]) -> bool {
 /// Commands that print nothing when they succeed, which the prediction
 /// assumes: a builtin that binds or moves, and a file utility without `-v`.
 fn quiet(name: Option<&str>, argv: &[Option<String>]) -> bool {
-    const BUILTINS: &[&str] = &[
-        "cd", "set", "export", "unset", "shift", "local", "declare", "exit", "return",
-    ];
+    const BUILTINS: &[&str] = &["unset", "shift", "exit", "return"];
+    // Without operands, or asked to, these list what they hold.
+    const LISTING: &[&str] = &["set", "export", "declare", "typeset", "local"];
     const UTILITIES: &[&str] = &["rm", "mkdir", "cp", "mv", "touch", "chmod", "ln", "rmdir"];
+    let args: Vec<Option<&str>> = argv.iter().skip(1).map(Option::as_deref).collect();
     match name {
         Some(name) if BUILTINS.contains(&name) => true,
+        // `cd -` prints where it went.
+        Some("cd") => args.first() != Some(&Some("-")),
+        Some(name) if LISTING.contains(&name) => {
+            !args.is_empty()
+                && !args.contains(&Some("-p"))
+                && !matches!(args.last(), Some(Some("-o" | "+o")))
+        }
         Some(name) if UTILITIES.contains(&name) => argv.iter().skip(1).all(|arg| {
             arg.as_deref().is_some_and(|arg| {
                 !(arg.starts_with('-') && !arg.starts_with("--") && arg.contains('v'))

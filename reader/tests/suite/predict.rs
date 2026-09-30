@@ -413,6 +413,58 @@ fn a_command_substitution_runs_before_its_command() {
     );
 }
 
+/// `cd -` returns to a directory this does not keep, and `cd -P dir` goes to
+/// `dir`: neither is a directory named for its flag.
+#[test]
+fn cd_flags_are_not_directories() {
+    let back = run("cd sub; cd -; echo x > a", &nothing_known());
+    assert!(
+        !back
+            .written
+            .iter()
+            .any(|w| w.path == "/repo/sub/-/a" || w.path == "/repo/-/a"),
+        "{:?}",
+        back.written
+    );
+    let physical = run("cd -P sub; echo x > a", &nothing_known());
+    assert_eq!(physical.written, vec![written("/repo/sub/a", "x\n")]);
+}
+
+/// Everything an undecided `if` leaves joins: what its arms print into a
+/// `$( )`, and whether one of them may have ended the shell. An exit inside a
+/// subshell ends only the subshell.
+#[test]
+fn an_undecided_if_joins_what_it_prints_and_whether_it_stopped() {
+    let shown = known(&[("/repo/f", Some("x\n"))]);
+    let printed = run(
+        "v=\"$(if [ -r f ]; then echo a; else echo b; fi)\"; echo $v > o",
+        &shown,
+    );
+    assert!(
+        !printed.written.iter().any(|w| w.path == "/repo/o"),
+        "{:?}",
+        printed.written
+    );
+
+    let stopped = run(
+        "if [ -r f ]; then for i in $(./list); do exit; done; fi; echo a > o",
+        &shown,
+    );
+    assert!(
+        !stopped.written.iter().any(|w| w.path == "/repo/o"),
+        "{:?}",
+        stopped.written
+    );
+
+    let contained = run("( for i in $(./list); do exit; done ); echo a > o", &shown);
+    assert_eq!(
+        contained.written,
+        vec![written("/repo/o", "a\n")],
+        "{:?}",
+        contained.unfollowed
+    );
+}
+
 /// A `$( )` has the value of what it printed, its trailing newlines removed;
 /// unquoted, only where splitting and globbing change nothing.
 #[test]
@@ -2013,6 +2065,11 @@ fn a_redirected_group_or_loop_collects_what_its_commands_print() {
             "/repo/f",
             "done\n",
         ),
+        (
+            "{ set -e; export A=1; echo done; } > f",
+            "/repo/f",
+            "done\n",
+        ),
         ("{ echo a; echo b >&2; } > f 2>/dev/null", "/repo/f", "a\n"),
         ("{ echo a; echo b 1>&2; } > f", "/repo/f", "a\n"),
         ("{ echo a | cat; } > f", "/repo/f", "a\n"),
@@ -2060,6 +2117,8 @@ fn a_redirected_group_with_output_it_cannot_follow_is_refused() {
             Why::Program("tool".to_string()),
         ),
         ("{ rm -v x; } > f", Why::Program("rm".to_string())),
+        ("{ export; } > f", Why::Program("export".to_string())),
+        ("{ cd -; } > f", Why::Program("cd".to_string())),
         ("{ echo a & } > f", Why::Background),
         ("{ echo a; } 2> f", Why::Descriptor),
     ] {
