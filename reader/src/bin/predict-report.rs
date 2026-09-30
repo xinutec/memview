@@ -291,20 +291,32 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         };
         let found = predict(&script, &kept.cwd, &home, &kept.shown);
         let actual: Option<String> = row["actual"].as_str().map(str::to_string);
+        // A finding over a set is judged against the set predicted now.
+        let set = found.alternatives.iter().find(|set| set.path == path);
         let now = found.written.iter().find(|w| w.path == path);
-        let outcome = match now {
-            None => {
-                unpredicted += 1;
-                "no longer predicted"
-            }
-            Some(written) if written.text == actual => {
+        let outcome = match (now, set) {
+            (None, Some(set)) if set.texts.contains(&actual) => {
                 agrees += 1;
                 "agrees now"
             }
-            Some(_) => {
+            (None, Some(_)) => {
                 still += 1;
                 "still diverging"
             }
+            (now, _) => match now {
+                None => {
+                    unpredicted += 1;
+                    "no longer predicted"
+                }
+                Some(written) if written.text == actual => {
+                    agrees += 1;
+                    "agrees now"
+                }
+                Some(_) => {
+                    still += 1;
+                    "still diverging"
+                }
+            },
         };
         if let Some((wanted, n)) = &show
             && wanted == "finding"

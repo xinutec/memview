@@ -20,7 +20,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
-use reader::predict::{Conditional, Dirs, Divergence, Files, Sight, Written, check, predict};
+use reader::predict::{
+    Alternatives, Conditional, Dirs, Divergence, Files, Sight, Written, check, predict,
+};
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
@@ -36,6 +38,21 @@ pub struct Hunk {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub assumed: Option<Assumed>,
+    /// Present when the file will be one of several texts, and this is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub alternative: Option<Alternative>,
+}
+
+/// Which of a file's possible texts a hunk draws: an `if` the reader could not
+/// decide leaves it one of several.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Alternative {
+    /// Counted from 1.
+    pub at: usize,
+    pub of: usize,
 }
 
 /// The unknown programs a conditional prediction assumes did not touch its
@@ -102,6 +119,10 @@ pub struct Finding {
     pub path: String,
     pub predicted: Option<String>,
     pub actual: Option<String>,
+    /// For a file predicted one of several texts: all of them, none of which
+    /// it held.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<Option<String>>,
 }
 
 /// A conditional prediction that diverged: the finding, and what it assumed.
@@ -128,6 +149,9 @@ struct Outcome<'a> {
     why: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     assumed: Option<&'a Assumed>,
+    /// For a file predicted one of several texts: how many.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    of: Option<usize>,
 }
 
 /// Larger files are not read: a hook waits on this.
@@ -177,6 +201,7 @@ struct Pending {
     dirs: Dirs,
     written: Vec<Written>,
     conditional: Vec<Conditional>,
+    alternatives: Vec<Alternatives>,
     since: std::time::Instant,
     /// For a backgrounded call, its files when it was sent to the background: a
     /// later edit can change them before its task ends.
@@ -275,7 +300,10 @@ impl Edits {
                 tracing::warn!("could not keep the refusals of {call}: {why}");
             }
         }
-        if prediction.written.is_empty() && prediction.conditional.is_empty() {
+        if prediction.written.is_empty()
+            && prediction.conditional.is_empty()
+            && prediction.alternatives.is_empty()
+        {
             return None;
         }
         let sure = prediction.written.iter().map(|written| (written, None));
@@ -299,6 +327,17 @@ impl Edits {
                 }
                 drawn
             })
+            .chain(prediction.alternatives.iter().flat_map(|set| {
+                let now = read(Path::new(&set.path)).flatten().unwrap_or_default();
+                let of = set.texts.len();
+                set.texts.iter().enumerate().flat_map(move |(at, text)| {
+                    let mut drawn = hunks(&set.path, &now, text.as_deref().unwrap_or_default());
+                    for hunk in &mut drawn {
+                        hunk.alternative = Some(Alternative { at: at + 1, of });
+                    }
+                    drawn
+                })
+            }))
             .collect();
         let edited = Edited {
             call: call.to_string(),
@@ -326,6 +365,7 @@ impl Edits {
                 dirs,
                 written: prediction.written,
                 conditional: prediction.conditional,
+                alternatives: prediction.alternatives,
                 since: std::time::Instant::now(),
                 early: None,
             },
@@ -346,7 +386,7 @@ impl Edits {
             .is_some_and(serde_json::Value::is_string)
         {
             if let Some(pending) = self.pending.lock().get_mut(call) {
-                pending.early = Some(look(&pending.all()));
+                pending.early = Some(look(&pending.paths()));
             }
             return None;
         }
@@ -385,12 +425,42 @@ impl Edits {
     fn check(&self, call: &str) -> Option<(String, Diverged)> {
         let pending = self.pending.lock().remove(call)?;
         let all = pending.all();
-        let mut diverged = check(&all, &look(&all));
+        let seen = look(&pending.paths());
+        let mut diverged = check(&all, &seen);
         // Either look holding the prediction agrees: a later edit may have
         // overtaken the first.
         if let Some(early) = &pending.early {
             let first = check(&all, early);
             diverged.retain(|late| first.iter().any(|d| d.path == late.path));
+        }
+        // A file predicted one of several texts agrees when it holds any.
+        for set in &pending.alternatives {
+            let Some(actual) = seen.get(&set.path) else {
+                continue;
+            };
+            let holds = |actual: &Option<String>| set.texts.contains(actual);
+            let early = pending
+                .early
+                .as_ref()
+                .and_then(|early| early.get(&set.path));
+            let agreed = holds(actual) || early.is_some_and(holds);
+            self.outcome(&Outcome {
+                at: now(),
+                session: &pending.session,
+                call,
+                path: &set.path,
+                outcome: if agreed { "agreed" } else { "diverged" },
+                why: None,
+                assumed: None,
+                of: Some(set.texts.len()),
+            });
+            if !agreed {
+                diverged.push(Divergence {
+                    path: set.path.clone(),
+                    predicted: None,
+                    actual: actual.clone(),
+                });
+            }
         }
         for written in &all {
             let assumed = pending.assumed(&written.path);
@@ -399,14 +469,16 @@ impl Edits {
             } else {
                 "agreed"
             };
-            self.outcome(
-                &pending.session,
+            self.outcome(&Outcome {
+                at: now(),
+                session: &pending.session,
                 call,
-                &written.path,
+                path: &written.path,
                 outcome,
-                None,
-                assumed.as_ref(),
-            );
+                why: None,
+                assumed: assumed.as_ref(),
+                of: None,
+            });
         }
         for divergence in &diverged {
             let finding = Finding {
@@ -419,6 +491,12 @@ impl Edits {
                 path: divergence.path.clone(),
                 predicted: divergence.predicted.clone(),
                 actual: divergence.actual.clone(),
+                alternatives: pending
+                    .alternatives
+                    .iter()
+                    .find(|set| set.path == divergence.path)
+                    .map(|set| set.texts.clone())
+                    .unwrap_or_default(),
             };
             tracing::warn!("{call}: {} did not end up as predicted", divergence.path);
             let kept = match pending.assumed(&divergence.path) {
@@ -460,37 +538,35 @@ impl Edits {
     fn unchecked(&self, call: &str, pending: &Pending, why: &'static str) {
         for written in pending.all() {
             let assumed = pending.assumed(&written.path);
-            self.outcome(
-                &pending.session,
+            self.outcome(&Outcome {
+                at: now(),
+                session: &pending.session,
                 call,
-                &written.path,
-                "unchecked",
-                Some(why),
-                assumed.as_ref(),
-            );
+                path: &written.path,
+                outcome: "unchecked",
+                why: Some(why),
+                assumed: assumed.as_ref(),
+                of: None,
+            });
+        }
+        for set in &pending.alternatives {
+            self.outcome(&Outcome {
+                at: now(),
+                session: &pending.session,
+                call,
+                path: &set.path,
+                outcome: "unchecked",
+                why: Some(why),
+                assumed: None,
+                of: Some(set.texts.len()),
+            });
         }
     }
 
-    fn outcome(
-        &self,
-        session: &str,
-        call: &str,
-        path: &str,
-        outcome: &'static str,
-        why: Option<&'static str>,
-        assumed: Option<&Assumed>,
-    ) {
-        let row = Outcome {
-            at: now(),
-            session,
-            call,
-            path,
-            outcome,
-            why,
-            assumed,
-        };
-        if let Err(why) = self.keep(&self.root.join("outcomes.jsonl"), &row) {
-            tracing::warn!("could not keep the outcome of {call}: {why}");
+    /// Keeps one outcome row.
+    fn outcome(&self, row: &Outcome<'_>) {
+        if let Err(why) = self.keep(&self.root.join("outcomes.jsonl"), row) {
+            tracing::warn!("could not keep the outcome of {}: {why}", row.call);
         }
     }
 
@@ -524,6 +600,16 @@ impl Pending {
             .iter()
             .cloned()
             .chain(self.conditional.iter().map(|file| file.written.clone()))
+            .collect()
+    }
+
+    /// Every path a check reads: the files predicted, and those predicted one
+    /// of several texts.
+    fn paths(&self) -> Vec<String> {
+        self.all()
+            .into_iter()
+            .map(|written| written.path)
+            .chain(self.alternatives.iter().map(|set| set.path.clone()))
             .collect()
     }
 
@@ -650,15 +736,16 @@ pub fn hunks(path: &str, was: &str, now: &str) -> Vec<Hunk> {
                 before,
                 after,
                 assumed: None,
+                alternative: None,
             }
         })
         .collect()
 }
 
 /// The files a prediction names, as they are now.
-fn look(written: &[Written]) -> Files {
-    written
+fn look(paths: &[String]) -> Files {
+    paths
         .iter()
-        .filter_map(|written| Some((written.path.clone(), read(Path::new(&written.path))?)))
+        .filter_map(|path| Some((path.clone(), read(Path::new(path))?)))
         .collect()
 }

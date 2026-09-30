@@ -31,6 +31,7 @@ fn a_change_keeps_three_lines_either_side() {
             before: "line 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\n".to_string(),
             after: "line 7\nline 8\nline 9\nline ten\nline 11\nline 12\nline 13\n".to_string(),
             assumed: None,
+            alternative: None,
         }]
     );
 }
@@ -436,4 +437,50 @@ fn a_listed_directory_is_used_and_kept_with_the_row() {
         names.contains(&"a.txt".to_string()) && names.contains(&"b.txt".to_string()),
         "{names:?}"
     );
+}
+
+/// A file an undecided `if` leaves one of several texts is drawn once per text,
+/// and agrees when it holds any of them.
+#[test]
+fn a_file_one_of_several_texts_is_drawn_per_text_and_agrees_on_any() {
+    let dir = scratch("alternatives");
+    std::fs::write(dir.join("f"), "x\n").expect("seed");
+    std::fs::write(dir.join("o"), "old\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    let command = "if grep -q x f; then echo a > o; else echo b > o; fi";
+    let edited = edits
+        .before("s1", "c1", command, at(&dir))
+        .expect("predicted");
+    let drawn: Vec<(usize, usize, &str)> = edited
+        .hunks
+        .iter()
+        .map(|hunk| {
+            let alternative = hunk.alternative.expect("one of several");
+            (alternative.at, alternative.of, hunk.after.as_str())
+        })
+        .collect();
+    assert_eq!(drawn.len(), 2, "{drawn:?}");
+    assert!(drawn.iter().all(|(_, of, _)| *of == 2));
+
+    std::fs::write(dir.join("o"), "b\n").expect("write");
+    let (_, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    assert!(diverged.paths.is_empty());
+    let rows = outcomes(&dir);
+    assert_eq!(rows[0]["outcome"], "agreed");
+    assert_eq!(rows[0]["of"], 2);
+
+    edits
+        .before("s1", "c2", command, at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("o"), "c\n").expect("write");
+    let (_, diverged) = edits
+        .finished("c2", &serde_json::json!({}))
+        .expect("checked");
+    assert_eq!(diverged.paths.len(), 1);
+    let findings = std::fs::read_to_string(dir.join("store/findings.jsonl")).expect("kept");
+    let finding: serde_json::Value = serde_json::from_str(findings.trim()).expect("json");
+    assert_eq!(finding["actual"], "c\n");
+    assert_eq!(finding["alternatives"].as_array().map(Vec::len), Some(2));
 }

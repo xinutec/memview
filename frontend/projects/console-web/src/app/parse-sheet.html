@@ -23,6 +23,9 @@
       <p class="assumed">{{ condition }}</p>
     }
   }
+  @if (edit.outcome; as outcome) {
+    <p class="assumed">{{ outcome }}</p>
+  }
   <app-diff [change]="edit.change" />
 }
 

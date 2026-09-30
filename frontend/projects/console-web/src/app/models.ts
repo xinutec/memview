@@ -3,6 +3,7 @@
  * `scripts/gen-types.sh` — plus the one shape the client builds for itself.
  */
 
+import type { Alternative } from './generated/Alternative';
 import type { Assumed } from './generated/Assumed';
 import type { Question } from './generated/Question';
 import type { Call } from './generated/Call';
@@ -180,6 +181,8 @@ export interface Change {
   readonly everywhere: boolean;
   /** Predicted only if these unknown programs left the file alone. */
   readonly assumed?: Assumed;
+  /** One of several texts the file may end as. */
+  readonly alternative?: Alternative;
 }
 
 /** An ask the fold could not attach to a call, drawn as its own entry. */

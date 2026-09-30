@@ -68,11 +68,19 @@ export class ParseSheet {
     const changes: readonly Change[] = this.about.hunks ?? [];
     return changes.map((change, at) => {
       const file = change.path.split('/').at(-1) ?? change.path;
+      const before = changes[at - 1];
+      const named = before?.path !== change.path;
+      const alternative = change.alternative;
       return {
         change,
-        named: changes[at - 1]?.path !== change.path,
+        named,
         file,
         assumption: change.assumed && assumption(change.assumed),
+        // Above the first hunk of each alternative: each is a whole outcome.
+        outcome:
+          alternative &&
+          (named || before?.alternative?.at !== alternative.at) &&
+          `Outcome ${alternative.at} of ${alternative.of}: which arm of an if runs is not known.`,
         folder: change.path.slice(0, -file.length),
       };
     });

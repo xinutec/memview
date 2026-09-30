@@ -5088,6 +5088,58 @@ test('a prediction that assumed an unknown program harmless says which @ phone w
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
 });
 
+test('a file one of several texts shows each outcome @ phone width', async ({ page }, testInfo) => {
+  const command = 'if grep -q x f; then echo a > o; else echo b > o; fi';
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } }),
+  );
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+        {
+          kind: 'edited',
+          call: 'b1',
+          hunks: [
+            {
+              path: '/home/example/Code/o',
+              before: 'old\n',
+              after: 'a\n',
+              alternative: { at: 1, of: 2 },
+            },
+            {
+              path: '/home/example/Code/o',
+              before: 'old\n',
+              after: 'b\n',
+              alternative: { at: 2, of: 2 },
+            },
+          ],
+        },
+        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const row = page.locator('.entry.tool');
+  await expect(row.locator('mat-icon.edited')).toBeVisible();
+  await row.locator('button.opens').click();
+  const sheet = page.locator('app-parse-sheet');
+  await expect(sheet.locator('.assumed')).toHaveText([
+    'Outcome 1 of 2: which arm of an if runs is not known.',
+    'Outcome 2 of 2: which arm of an if runs is not known.',
+  ]);
+  await settleTransforms(page);
+  await page.screenshot({ path: testInfo.outputPath('outcomes.png') });
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
   page,
 }, testInfo) => {
