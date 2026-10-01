@@ -283,7 +283,7 @@ fn dimensions(a: &Agents) -> Vec<(&'static str, String)> {
 }
 
 /// Everything the artefacts say, as one comparable value.
-#[allow(
+#[expect(
     dead_code,
     reason = "everything the artefacts say; not every field is asserted on"
 )]
