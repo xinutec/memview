@@ -2761,7 +2761,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 .filter_map(|word| self.resolve(&word))
                 .collect();
             self.unnamed(why.unwrap_or_else(|| construct("subprocess")));
-            self.shell.unknown_program(program, &told);
+            let words: Vec<String> = words.iter().filter_map(text).collect();
+            self.shell.unknown_program(program, &told, &words);
         }
     }
 

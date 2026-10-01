@@ -21,7 +21,7 @@ use std::path::Path;
 
 use clap::Parser;
 
-use reader::predict::{Files, Shown, predict};
+use reader::predict::{Alternatives, Files, Shown, Written, predict};
 
 /// What the evaluator predicts over the history's commands, and what it does
 /// not follow yet, ranked.
@@ -310,30 +310,12 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         // A finding over a set is judged against the set predicted now.
         let set = found.alternatives.iter().find(|set| set.path == path);
         let now = found.written.iter().find(|w| w.path == path);
-        let outcome = match (now, set) {
-            (None, Some(set)) if set.texts.contains(&actual) => {
-                agrees += 1;
-                "agrees now"
-            }
-            (None, Some(_)) => {
-                still += 1;
-                "still diverging"
-            }
-            (now, _) => match now {
-                None => {
-                    unpredicted += 1;
-                    "no longer predicted"
-                }
-                Some(written) if written.text == actual => {
-                    agrees += 1;
-                    "agrees now"
-                }
-                Some(_) => {
-                    still += 1;
-                    "still diverging"
-                }
-            },
-        };
+        let outcome = judged(now, set, &actual);
+        match outcome {
+            "agrees now" => agrees += 1,
+            "still diverging" => still += 1,
+            _ => unpredicted += 1,
+        }
         if let Some((wanted, n)) = &show
             && wanted == "finding"
             && shown < *n
@@ -349,6 +331,26 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
                 .collect();
             println!("--- finding, {outcome}: {path}\n{head}\n");
         }
+    }
+
+    // A conditional divergence predicted again, on the same assumption.
+    let mut assumed_again: BTreeMap<&str, usize> = BTreeMap::new();
+    for row in rows(dir, "conditional.jsonl") {
+        let (Some(kept), Some(path)) = (Kept::read(&row), row["path"].as_str()) else {
+            *assumed_again.entry("kept before their inputs").or_insert(0) += 1;
+            continue;
+        };
+        let Ok(script) = reader::syntax::parse(&kept.command) else {
+            continue;
+        };
+        let found = predict(&script, &kept.cwd, &home, &kept.shown);
+        let actual: Option<String> = row["actual"].as_str().map(str::to_string);
+        let now = found
+            .conditional
+            .iter()
+            .map(|c| &c.written)
+            .find(|w| w.path == path);
+        *assumed_again.entry(judged(now, None, &actual)).or_insert(0) += 1;
     }
 
     println!("live calls with a prediction {predicted_calls}");
@@ -368,6 +370,13 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     if findings_unreplayable > 0 {
         println!("  kept before their inputs   {findings_unreplayable}");
     }
+    println!(
+        "conditional findings         {}",
+        assumed_again.values().sum::<usize>()
+    );
+    for (outcome, n) in &assumed_again {
+        println!("  {outcome:<27}{n}");
+    }
     println!("writes not followed, by why, under this evaluator:");
     let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -376,6 +385,21 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     }
     outcomes(&rows(dir, "outcomes.jsonl"));
     Ok(())
+}
+
+/// A past divergence judged against what is predicted for its file now.
+fn judged(
+    now: Option<&Written>,
+    set: Option<&Alternatives>,
+    actual: &Option<String>,
+) -> &'static str {
+    match (now, set) {
+        (None, Some(set)) if set.texts.contains(actual) => "agrees now",
+        (None, Some(_)) => "still diverging",
+        (None, None) => "no longer predicted",
+        (Some(written), _) if written.text == *actual => "agrees now",
+        (Some(_), _) => "still diverging",
+    }
 }
 
 /// What became of the files checked, certain and conditional apart, and for

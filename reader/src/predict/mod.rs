@@ -45,7 +45,9 @@ mod text;
 
 use crate::shell::Reached;
 use crate::shell_files::files_of;
-use crate::shell_ops::{GitOp, Op, basename, classify, innermost, looks_like_path, resolve};
+use crate::shell_ops::{
+    GitOp, Op, basename, classify, innermost, looks_like_path, resolve, verb_kind,
+};
 use crate::syntax::ast::{
     AndOr, BinaryTest, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp,
     Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, TestExpr,
@@ -500,7 +502,7 @@ impl<'a> Run<'a> {
     /// command removed before it. Found live: a test told its output file in
     /// an assignment, and a golden removed before its blessing run, were each
     /// assumed left alone.
-    pub(super) fn unknown_program(&mut self, program: String, told: &[String]) {
+    pub(super) fn unknown_program(&mut self, program: String, told: &[String], words: &[String]) {
         self.clock += 1;
         self.assumed.push((self.clock, program.clone()));
         if self.assume {
@@ -530,8 +532,49 @@ impl<'a> Run<'a> {
             for path in removed {
                 self.forget_tree(&path, Why::Program(program.clone()));
             }
+            // Nor what a checker it carries would rewrite: `scripts/dev cargo
+            // fmt` formats files it was never told the names of.
+            self.carried_checkers(&program, words);
         } else {
             self.forget_everything(Why::Program(program));
+        }
+    }
+
+    /// The files a checker among an unknown program's words may rewrite, as
+    /// the shell tables read it, inside a quoted script too (`bash -c 'cargo
+    /// fmt'`). After a `cd` in there, where it ran is not known.
+    fn carried_checkers(&mut self, program: &str, words: &[String]) {
+        let parts: Vec<String> = words
+            .iter()
+            .flat_map(|text| text.split_whitespace())
+            .map(str::to_string)
+            .collect();
+        let why = || Why::Program(program.to_string());
+        for (at, word) in parts.iter().enumerate() {
+            if !matches!(verb_kind(basename(word)), Some("check" | "tree")) {
+                continue;
+            }
+            let end = parts[at..]
+                .iter()
+                .position(|word| {
+                    matches!(word.as_str(), "&&" | "||" | ";" | "|") || word.ends_with(';')
+                })
+                .map_or(parts.len(), |end| at + end);
+            let Op::Write { paths } =
+                classify(&parts[at..end], &[], self.cwd.as_deref(), self.home)
+            else {
+                continue;
+            };
+            if paths.is_empty() {
+                continue;
+            }
+            if parts[..at].iter().any(|word| word == "cd") {
+                self.forget_everything(why());
+                return;
+            }
+            for path in paths {
+                self.forget_tree(&path, why());
+            }
         }
     }
 
@@ -1277,7 +1320,7 @@ impl<'a> Run<'a> {
             .chain(&simple.words);
         self.expansions(words.chain(redirect_words(redirects)), None);
         if heredoc_runs(redirects) {
-            self.unknown_program("heredoc substitution".to_string(), &[]);
+            self.unknown_program("heredoc substitution".to_string(), &[], &[]);
         }
         let argv: Vec<Option<String>> = simple.words.iter().map(|w| self.literal(w)).collect();
         let name = argv.first().cloned().flatten();
@@ -1963,7 +2006,8 @@ impl<'a> Run<'a> {
             // Named for the program whatever holds it: a pipe or a loop is not why
             // what came before is unknown.
             let told = self.told(simple, &literal);
-            self.unknown_program(program, &told);
+            let words: Vec<String> = literal.iter().flatten().cloned().collect();
+            self.unknown_program(program, &told, &words);
             return;
         }
         let written: Vec<String> = files_of(&op, Reached::Always)
@@ -2502,7 +2546,6 @@ fn any_command(items: &[Item], wanted: &dyn Fn(&Command) -> bool) -> bool {
     })
 }
 
-/// A simple command's name, when it is one literal word.
 /// An `exit` or `return` that may end the shell with success: bare, whose
 /// status is the last command's, or `0`.
 fn ends_with_success(command: &Command) -> bool {
@@ -2522,6 +2565,7 @@ fn ends_with_success(command: &Command) -> bool {
     }
 }
 
+/// A simple command's name, when it is one literal word.
 fn named(command: &Command) -> Option<&str> {
     let CommandKind::Simple(simple) = &command.kind else {
         return None;

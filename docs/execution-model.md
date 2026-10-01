@@ -300,14 +300,20 @@ in its words or its environment (`OUT=/tmp/rows ./test.sh`), and everything
 under one, is refused either way, and so is a file the command removed
 before running it: clearing an output is how a program is asked to write it
 again (`rm -f tests/golden/x && X_BLESS=1 scripts/dev cargo nextest`, three
-times on 2026-09-30). Found live (2026-09-30): the first two
+times on 2026-09-30). Nor does it cover what a checker among the program's
+words rewrites, as the shell tables read it, inside a quoted script too:
+`scripts/dev cargo fmt` reformats its directory without naming a file (a
+Python edit of `sync.rs`, then that, on 2026-09-30); after a `cd` inside the
+script, where it ran is not known and nothing is assumed. Found live (2026-09-30): the first two
 conditional divergences were both a test told its output file in an
 assignment. The after-look checks a conditional prediction like any other,
 but a divergence there has two suspects, the evaluator and the program assumed
 harmless, so it is kept apart (`conditional.jsonl`) and is not a finding until
 the evaluator is shown to be the one at fault. `predict-report --live` tallies
 the outcomes, conditional apart, and for each program assumed harmless how
-often it was: one that often was not is what to model next.
+often it was: one that often was not is what to model next. It also predicts
+each conditional divergence again under today's evaluator, as it does a
+finding, so a fix shows on the rows that called for it.
 
 ### What the flat reader knows
 

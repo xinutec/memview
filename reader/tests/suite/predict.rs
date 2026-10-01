@@ -2306,6 +2306,46 @@ fn a_file_removed_before_an_unknown_program_is_not_assumed_left_alone() {
     assert_eq!(edited.conditional.len(), 1);
 }
 
+/// A checker carried by an unknown program rewrites what the shell tables say
+/// it does, here the directory it runs in, without being told one file's name.
+/// Found live: a Python edit of `sync.rs`, then `scripts/dev cargo fmt`, and the
+/// file predicted unformatted on the assumption that dev left it alone.
+#[test]
+fn a_file_a_carried_formatter_would_rewrite_is_not_assumed_left_alone() {
+    let held = |command: &str| -> Vec<String> {
+        run(command, &nothing_known())
+            .conditional
+            .iter()
+            .map(|c| c.written.path.clone())
+            .collect()
+    };
+    let before = "echo x > a.rs; echo y > ../keep; ";
+    for formats in [
+        "../scripts/dev cargo fmt",
+        "scripts/dev bash -c 'cargo fmt --all && cargo clippy'",
+        "scripts/dev ruff format",
+        "python3 -c 'import subprocess; subprocess.run([\"scripts/dev\", \"black\", \".\"])'",
+    ] {
+        assert_eq!(
+            held(&format!("{before}{formats}")),
+            vec!["/keep"],
+            "{formats}"
+        );
+    }
+    // Only checked, nothing is rewritten.
+    assert_eq!(
+        held(&format!("{before}scripts/dev cargo fmt --check")),
+        vec!["/repo/a.rs", "/keep"]
+    );
+    // Where it ran, after its own `cd`, is not known.
+    assert!(
+        held(&format!(
+            "{before}scripts/dev bash -c 'cd lean && cargo fmt'"
+        ))
+        .is_empty()
+    );
+}
+
 /// Run before a file is read, the program may have changed what was read.
 #[test]
 fn a_file_read_after_an_unknown_program_is_predicted_if_it_left_the_input_alone() {
