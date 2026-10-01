@@ -17,6 +17,8 @@ import angular from 'angular-eslint';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
+  // An eslint-disable that disables nothing is dead debt; ESLint only warns by default.
+  { linterOptions: { reportUnusedDisableDirectives: 'error' } },
   // Written by ts-rs from the Rust types; see scripts/gen-types.sh.
   { ignores: ['projects/*/src/app/generated/**'] },
   {
