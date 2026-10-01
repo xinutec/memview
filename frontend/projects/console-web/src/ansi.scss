@@ -32,39 +32,23 @@
 // line, which holds no colour — and dev-lint reports a waiver that suppressed
 // nothing, so the mistake is caught rather than merely useless.
 .ansi {
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg0: light-dark(#2b2b2b, #6b6b6b);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg1: light-dark(#b3261e, #ff8a80);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg2: light-dark(#1b6b3a, #7ee2a8);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg3: light-dark(#8a6100, #ffd479);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg4: light-dark(#1b4f9b, #82b1ff);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg5: light-dark(#8b3a8b, #f4a6f4);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg6: light-dark(#0e6f77, #7fe3ea);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg7: light-dark(#4a4a4a, #e8e8e8);
   // The bright set. `fg8` is the grey a build log dims its own noise with, so it
   // has to stay legible rather than fade into the card.
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg8: light-dark(#6b6b6b, #9a9a9a);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg9: light-dark(#d13b30, #ffb4ab);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg10: light-dark(#1f8a4a, #a6f0c6);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg11: light-dark(#a67800, #ffe4a3);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg12: light-dark(#2a67c4, #a8c8ff);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg13: light-dark(#a94ca9, #f8c4f8);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg14: light-dark(#158a94, #a6eff4);
-  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg15: light-dark(#1a1a1a, #ffffff);
 
   // One rule for the colour and one for the tint, with the shade named per
