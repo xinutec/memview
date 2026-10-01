@@ -69,9 +69,15 @@ fn an_unquoted_heredoc_without_expansions_is_literal() {
 
 #[test]
 fn an_unquoted_heredoc_that_expands_is_not_followed() {
-    let found = run("cat > a <<EOF\nhome is $HOME\nEOF", &nothing_known());
+    let found = run("cat > a <<EOF\nuser is $USER\nEOF", &nothing_known());
     assert!(found.written.is_empty());
     assert_eq!(found.unfollowed.len(), 1);
+    // `HOME` the run carries, as it does in a word.
+    let found = run("cat > a <<EOF\nhome is $HOME\nEOF", &nothing_known());
+    assert_eq!(
+        found.written,
+        vec![written("/repo/a", "home is /home/me\n")]
+    );
 }
 
 #[test]
@@ -2994,4 +3000,42 @@ fn the_text_tools_print_what_the_real_ones_print() {
         alternation.written.is_empty(),
         "alternation is refused, not guessed"
     );
+}
+
+/// An unquoted heredoc is expanded as bash expands it: a variable the run
+/// knows is substituted, a `$` that starts no expansion stays (`.*$"` in a
+/// regex), `\$`, `` \` `` and `\\` lose the backslash, and a backslash before
+/// a newline joins the lines (in the parser). Each expected text was printed by bash.
+/// Found live: a memory edit by `python3 - <<EOF` refused whole for a regex.
+#[test]
+fn an_unquoted_heredoc_is_expanded_with_what_the_run_knows() {
+    let found = run(
+        "D=/repo/out; X=v; cat > f <<EOF\na\\\nb \\x \\$X \\\\ ${X} $X. $ $\" end$\nEOF\npython3 - <<EOF\nopen('$D/p', 'w').write(r'^m: .*$' + '${X}')\nEOF",
+        &nothing_known(),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/f", "ab \\x $X \\ v v. $ $\" end$\n"),
+            written("/repo/out/p", "^m: .*$v"),
+        ]
+    );
+}
+
+/// What the run does not know is still refused: an unbound name, a form with
+/// an operator, a positional or special parameter.
+#[test]
+fn an_unquoted_heredoc_with_an_unknown_expansion_is_refused() {
+    for body in ["$NOPE", "${X:-d}", "$1", "$?", "${#X}"] {
+        let found = run(
+            &format!("X=v; cat > f <<EOF\n{body}\nEOF"),
+            &nothing_known(),
+        );
+        assert!(found.written.is_empty(), "{body}: {:?}", found.written);
+        let found = run(
+            &format!("X=v; python3 - <<EOF\nopen('o', 'w').write('{body}')\nEOF"),
+            &nothing_known(),
+        );
+        assert!(found.written.is_empty(), "{body}: {:?}", found.written);
+    }
 }

@@ -102,7 +102,12 @@ says what to build.
 
 The order it grows in comes from the corpus. Shell first, where the tree exists:
 a heredoc into a file carries its whole new text, then `echo`/`printf` into a
-file, then `sed -i`. Python, the largest share by far, follows once it has a tree
+file, then `sed -i`. An unquoted heredoc, to a file or to Python, is expanded as
+bash expands it: a name the run knows is substituted, a `$` that starts no
+expansion stays (`.*$"` in a regex), and anything else (`$(date)`, an unbound
+name, `${x:-y}`) refuses it. Found live (2026-10-01): a memory edit by
+`python3 - <<EOF` was refused whole for a regex, and three more for a name the
+command had just bound. Python, the largest share by far, follows once it has a tree
 of its own — see Scope.
 
 **Every write is predicted or refused, never left out.** A prediction is a file's

@@ -130,15 +130,55 @@ fn literal(word: &Word) -> Option<String> {
         .collect()
 }
 
-/// An unquoted body as the shell hands it over: `\$`, `` \` `` and `\\` lose
-/// their backslash, any other backslash stays. `None` at an unescaped `$` or
-/// backquote, which expands.
+/// An unquoted body as the shell hands it over, knowing no variable.
 fn unquoted_body(body: &str) -> Option<String> {
+    expand_body(body, |_| None)
+}
+
+/// An unquoted heredoc body as the shell expands it: `\$`, `` \` `` and `\\`
+/// lose their backslash, any other backslash stays (a backslash before a
+/// newline was joined by the parser); `$name` and `${name}` are `value` of the name, and a
+/// `$` that starts no expansion stays (`.*$"`). `None` at what `value` does not
+/// give, at any other `${…}`, a positional or special parameter, and a command
+/// substitution.
+pub fn expand_body(body: &str, value: impl Fn(&str) -> Option<String>) -> Option<String> {
     let mut out = String::with_capacity(body.len());
     let mut chars = body.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '$' | '`' => return None,
+            '`' => return None,
+            '$' => match chars.peek() {
+                Some('{') => {
+                    chars.next();
+                    let mut name = String::new();
+                    loop {
+                        match chars.next()? {
+                            '}' => break,
+                            c if c == '_' || c.is_ascii_alphanumeric() => name.push(c),
+                            _ => return None,
+                        }
+                    }
+                    if !name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic()) {
+                        return None;
+                    }
+                    out.push_str(&value(&name)?);
+                }
+                Some(&c) if c == '_' || c.is_ascii_alphabetic() => {
+                    let mut name = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c != '_' && !c.is_ascii_alphanumeric() {
+                            break;
+                        }
+                        name.push(c);
+                        chars.next();
+                    }
+                    out.push_str(&value(&name)?);
+                }
+                Some(&c) if c == '(' || c.is_ascii_digit() || "?$!#*@-".contains(c) => {
+                    return None;
+                }
+                _ => out.push('$'),
+            },
             '\\' => match chars.peek() {
                 Some(&next @ ('$' | '`' | '\\')) => {
                     out.push(next);

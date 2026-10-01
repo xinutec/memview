@@ -49,11 +49,11 @@ use crate::shell_ops::{
     GitOp, Op, basename, classify, innermost, looks_like_path, resolve, verb_kind,
 };
 use crate::syntax::ast::{
-    AndOr, BinaryTest, Command, CommandKind, Connector, Glob, Item, Parameter, ParameterOp,
-    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, TestExpr,
-    Tilde, UnaryTest, Word,
+    AndOr, BinaryTest, Command, CommandKind, Connector, Glob, Heredoc, Item, Parameter,
+    ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
+    Simple, TestExpr, Tilde, UnaryTest, Word,
 };
-use crate::syntax::embed::{Program, python_of};
+use crate::syntax::embed::{Embedded, Program, Site, expand_body, python_of};
 use crate::syntax::print::print_value;
 
 /// What is known of the files a prediction may depend on, by absolute path:
@@ -1361,7 +1361,8 @@ impl<'a> Run<'a> {
             self.tee(&argv, redirects);
         } else if let Some(embedded) = python_of(command) {
             self.python_argv = python_argv(&argv);
-            self.python(embedded.program, None);
+            let program = self.program(embedded);
+            self.python(program, None);
             self.python_argv = None;
         } else {
             self.forget_program_writes(simple, redirects, None);
@@ -1605,12 +1606,7 @@ impl<'a> Run<'a> {
         for redirect in redirects {
             match (&redirect.op, &redirect.target) {
                 (RedirectOp::Here | RedirectOp::HereDash, RedirectTarget::Here(heredoc)) => {
-                    let literal = heredoc.quoted || !heredoc.body.contains(['$', '`', '\\']);
-                    input = Some(if literal {
-                        Ok(heredoc.body.clone())
-                    } else {
-                        Err(Why::Expansion)
-                    });
+                    input = Some(self.heredoc_text(heredoc).ok_or(Why::Expansion));
                 }
                 (RedirectOp::HereString, RedirectTarget::File(word)) => {
                     input = Some(self.literal(word).map(|w| w + "\n").ok_or(Why::Expansion));
@@ -2212,7 +2208,10 @@ impl<'a> Run<'a> {
                 return;
             }
             match python_of(command) {
-                Some(embedded) => self.python(embedded.program, Some(why.clone())),
+                Some(embedded) => {
+                    let program = self.program(embedded);
+                    self.python(program, Some(why.clone()));
+                }
                 None => self.forget_program_writes(simple, &command.redirects, Some(why.clone())),
             }
         }
@@ -2316,18 +2315,50 @@ impl<'a> Run<'a> {
         Some(out)
     }
 
-    /// A `$name` this run knows the value of — one the text bound, or `HOME`
-    /// and `PWD`, which the run itself carries — alone or under a prefix or
+    /// A heredoc body as the command receives it: an unquoted one expanded
+    /// with the names this run knows.
+    fn heredoc_text(&self, heredoc: &Heredoc) -> Option<String> {
+        if heredoc.quoted {
+            Some(heredoc.body.clone())
+        } else {
+            expand_body(&heredoc.body, |name| self.value(name))
+        }
+    }
+
+    /// The Python program an embedding runs, its unquoted heredoc expanded
+    /// with the names this run knows.
+    fn program(&self, embedded: Embedded<'_>) -> Program {
+        match (embedded.program, embedded.site) {
+            (Program::Expands { written }, Site::Heredoc(heredoc)) => {
+                match self.heredoc_text(heredoc) {
+                    Some(source) => Program::Text {
+                        tree: crate::syntax::python::parse(&source),
+                        source,
+                    },
+                    None => Program::Expands { written },
+                }
+            }
+            (program, _) => program,
+        }
+    }
+
+    /// The value of a name this run knows: one the text bound, or `HOME` and
+    /// `PWD`, which the run itself carries.
+    fn value(&self, name: &str) -> Option<String> {
+        match self.vars.get(name) {
+            Some(bound) => Some(bound.clone()),
+            None => match name {
+                "HOME" => Some(self.home.to_string()),
+                "PWD" => self.cwd.clone(),
+                _ => None,
+            },
+        }
+    }
+
+    /// A `$name` this run knows the value of, alone or under a prefix or
     /// suffix strip whose pattern the text spells out.
     fn parameter(&self, parameter: &Parameter) -> Option<String> {
-        let value = match self.vars.get(&parameter.name) {
-            Some(bound) => bound.clone(),
-            None => match parameter.name.as_str() {
-                "HOME" => self.home.to_string(),
-                "PWD" => self.cwd.clone()?,
-                _ => return None,
-            },
-        };
+        let value = self.value(&parameter.name)?;
         match &parameter.op {
             None => Some(value),
             Some(ParameterOp::StripPrefix { longest, pattern }) => {
