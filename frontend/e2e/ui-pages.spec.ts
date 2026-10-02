@@ -1,4 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
+import type {
+  AgentsResult,
+  CorpusRead,
+  Evidence,
+  GraphData,
+  IndexPage,
+  Me,
+  MemoryMeta,
+  MemoryPage,
+  SearchResult,
+  Timeline,
+} from '../src/app/models';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -24,7 +36,7 @@ import {
  * and tables that must scroll inside themselves rather than widening the page.
  */
 
-const ME = { user_id: 'user', display_name: 'User', auth_enabled: true };
+const ME = { user_id: 'user', display_name: 'User', auth_enabled: true } satisfies Me;
 
 /** The index as the backend renders it: dense interpunct-separated link runs
  *  with long slugs — the real MEMORY.md shape. */
@@ -34,72 +46,86 @@ const INDEX = {
 <h2>Infrastructure &amp; data services</h2>
 <ul><li><a href="/m/project_health_verified_core_lean">Lean verified core: matcher ported + Viterbi-argmax flagship wired into prod</a> · <a href="/m/reference_nixos_2605_dbus_broker_wedge">NixOS 26.05 dbus-broker wedge</a> · <a href="/m/project_fleet_firewall_hardening">firewall hardening (kubelet pending)</a> · <a href="/m/reference_launchd_tcc_external_volume">launchd + /Volumes/Backup: spawn exit 78</a></li></ul>`,
   count: 284,
-};
+} satisfies IndexPage;
 
 /** One row per `mtype`, so every filter chip has something to show. These are
  *  real index rows — the layout only gets stressed honestly by real slug
  *  lengths and real teaser widths. Keep them to the *technical* end of the
  *  corpus: this file is committed, and a `user_`/`feedback_` teaser about the
  *  person rather than the work has no business travelling with the source. */
-const MEMORIES = [
-  {
-    name: 'project_health_verified_core_lean',
-    description: 'Lean 4 port of the health matcher — bit-exact against the TypeScript quant twin',
-    mtype: 'project',
-    modified: '2026-07-20T09:00:00Z',
-  },
-  {
-    name: 'reference_launchd_tcc_external_volume',
-    description:
-      'launchd jobs on /Volumes/Backup die with spawn exit 78; the child exec HANGS in dyld',
-    mtype: 'reference',
-    modified: '2026-07-11T09:00:00Z',
-  },
-  {
-    name: 'feedback_no_magic_strings_use_upstream_taxonomy',
-    description:
-      "Don't hard-code a magic string from another service; use/extend its taxonomy at the source",
-    mtype: 'feedback',
-    modified: '2026-07-02T09:00:00Z',
-  },
-  {
-    name: 'user_cycling',
-    description: '"cycling" from the classifier is a misclassification',
-    mtype: 'user',
-    modified: '2026-06-28T09:00:00Z',
-  },
-];
+const LEAN = {
+  name: 'project_health_verified_core_lean',
+  description: 'Lean 4 port of the health matcher — bit-exact against the TypeScript quant twin',
+  mtype: 'project',
+  modified: '2026-07-20T09:00:00Z',
+  teaser: null,
+  role: null,
+  created: '2026-06-01T09:00:00Z',
+} satisfies MemoryMeta;
+const LAUNCHD = {
+  name: 'reference_launchd_tcc_external_volume',
+  description:
+    'launchd jobs on /Volumes/Backup die with spawn exit 78; the child exec HANGS in dyld',
+  mtype: 'reference',
+  modified: '2026-07-11T09:00:00Z',
+  teaser: null,
+  role: null,
+  created: '2026-06-01T09:00:00Z',
+} satisfies MemoryMeta;
+const MAGIC = {
+  name: 'feedback_no_magic_strings_use_upstream_taxonomy',
+  description:
+    "Don't hard-code a magic string from another service; use/extend its taxonomy at the source",
+  mtype: 'feedback',
+  modified: '2026-07-02T09:00:00Z',
+  teaser: null,
+  role: null,
+  created: '2026-06-01T09:00:00Z',
+} satisfies MemoryMeta;
+const CYCLING = {
+  name: 'user_cycling',
+  description: '"cycling" from the classifier is a misclassification',
+  mtype: 'user',
+  modified: '2026-06-28T09:00:00Z',
+  teaser: null,
+  role: null,
+  created: '2026-06-01T09:00:00Z',
+} satisfies MemoryMeta;
+const MEMORIES = [LEAN, LAUNCHD, MAGIC, CYCLING] satisfies MemoryMeta[];
 
 /** A memory page with everything that can crowd the column: a long slug title,
  *  a long description, prose with inline code, a fenced block, a table, and
  *  both link panels. */
 const MEMORY_PAGE = {
-  ...MEMORIES[0],
+  ...LEAN,
   html: `<p>The <strong>verified core</strong> is a Lean 4 port of the walk matcher, proved
 bit-exact against the BigInt quant twin. Run it with <code>LEAN_PASSES=1</code>.</p>
 <pre><code>nix develop -c lake build &amp;&amp; ./verified_cli match --serve --timeout 30000ms</code></pre>
 <table><thead><tr><th>pass</th><th>tenants</th><th>status</th></tr></thead>
 <tbody><tr><td>rejectSpikes</td><td>5</td><td>serving</td></tr></tbody></table>
 <blockquote><p>739 verified calls, golden byte-identical under on.</p></blockquote>`,
-  backlinks: [MEMORIES[1], MEMORIES[2]],
-  outlinks: [MEMORIES[2], MEMORIES[3]],
+  backlinks: [LAUNCHD, MAGIC],
+  outlinks: [MAGIC, CYCLING],
   dangling: ['project_lean_matcher_flip_soak'],
-};
+} satisfies MemoryPage;
 
 const SEARCH = {
   hits: [
     {
-      ...MEMORIES[0],
+      ...LEAN,
       snippet:
         '…proved bit-exact against the BigInt quant twin; the flip gate records accepted deltas rather than silently breaking golden byte-identity…',
+      score: 12.4,
     },
     {
-      ...MEMORIES[1],
+      ...LAUNCHD,
       snippet:
         '…launchd + /Volumes/Backup: spawn exit 78; the child exec HANGS in dyld before main…',
+      score: 7.9,
     },
   ],
-};
+  relaxed: false,
+} satisfies SearchResult;
 
 /**
  * Agents at the sizes the real artefact reaches, because the totals line is a
@@ -160,7 +186,7 @@ const AGENTS = {
       last: '2026-08-05T00:00:00Z',
     },
   ],
-};
+} satisfies AgentsResult;
 
 /** A graph shaped like the real one: three groups that link densely inside
  *  themselves and thinly across, so the clustering has something to find and the
@@ -179,9 +205,12 @@ const GRAPH = {
     description: 'Lean 4 port of the health matcher — bit-exact against the quant twin',
     mtype: i % 2 === 0 ? 'project' : 'feedback',
     modified: '2026-07-20T09:00:00Z',
+    teaser: null,
+    role: null,
+    created: '2026-06-01T09:00:00Z',
     // One memory deliberately carries no section: the index links it above any
     // `##` heading, and the legend has to say so rather than inventing a bucket.
-    section: i === 11 ? null : GRAPH_SECTIONS[i % GRAPH_SECTIONS.length],
+    section: i === 11 ? null : (GRAPH_SECTIONS[i % GRAPH_SECTIONS.length] ?? null),
     size: 1800 + i * 3200,
     in_degree: i === 0 ? 9 : 1,
     out_degree: i === 0 ? 3 : 1,
@@ -198,6 +227,7 @@ const GRAPH = {
         reads: i % 3,
         edits: i === 0 ? 40 : i,
         last: i === 11 ? null : `2026-07-${String(10 + i).padStart(2, '0')}T09:00:00Z`,
+        projects: {},
       },
     ]),
   ),
@@ -213,19 +243,24 @@ const GRAPH = {
       ].map(([a, b]) => ({
         source: `project_health_verified_core_lean_${a}`,
         target: `project_health_verified_core_lean_${b}`,
+        relation: null,
       })),
     ),
     // …joined by two single links, which is what makes them separable at all.
     {
       source: 'project_health_verified_core_lean_0',
       target: 'project_health_verified_core_lean_4',
+      relation: null,
     },
     {
       source: 'project_health_verified_core_lean_4',
       target: 'project_health_verified_core_lean_8',
+      relation: null,
     },
   ],
-};
+  as_of: '2026-07-20T09:00:00Z',
+  affinities: [],
+} satisfies GraphData;
 
 /**
  * A timeline page whose every row is a wrapping risk at 390px: a minute, a
@@ -310,7 +345,7 @@ const DOING = {
     { agent: 'health', at: 29_412_400, until: 29_412_600, n: 63 },
     { agent: 'memview', at: 29_412_560, until: 29_412_560, n: 1 },
   ],
-};
+} satisfies Timeline;
 
 /** What one turn did — including the two things a summary would drop. */
 const EFFECTS = {
@@ -375,7 +410,7 @@ const EFFECTS = {
   ],
   total: 41,
   unnamed: 12,
-};
+} satisfies Evidence;
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. */
@@ -469,12 +504,10 @@ const READING = {
     { name: '$f', n: 2378 },
     { name: '$(find InstantUpload -name "$f" | head -1)', n: 96 },
   ],
-};
+} satisfies CorpusRead;
 
 async function mockApi(page: Page): Promise<void> {
-  await page.route('**/api/**', (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
-  );
+  await page.route('**/api/**', (r) => r.fulfill({ status: 204, body: '' }));
   await page.route('**/api/me', (r) => r.fulfill({ json: ME }));
   await page.route('**/api/index', (r) => r.fulfill({ json: INDEX }));
   await page.route('**/api/memories', (r) => r.fulfill({ json: MEMORIES }));

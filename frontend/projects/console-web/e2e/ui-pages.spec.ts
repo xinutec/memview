@@ -2,7 +2,23 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
-import type { Overview, SudoAnswer, Summary, Timed } from '../src/app/models';
+import type {
+  Call,
+  Conversation,
+  CorpusRead,
+  Described,
+  EditRecord,
+  Landmark,
+  Overview,
+  Page as Earlier,
+  Parsed,
+  Run,
+  SudoAnswer,
+  Summary,
+  Stretched,
+  Task,
+  Timed,
+} from '../src/app/models';
 import { first, last, nth } from '../src/app/testing';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
@@ -33,6 +49,13 @@ test.use({ serviceWorkers: 'block' });
  *  works, not a layout fault, and it is only on screen while a session is
  *  working. Allowed by selector rather than by turning the check off, so a real
  *  overflow on the same page still fails. */
+/**
+ * The runner's own answer for a recorded command, as `console/tests/suite/parse.rs`
+ * pins it against the Rust side. A JSON import widens every literal to `string`,
+ * so it cannot satisfy `Parsed`'s unions; the cast is for that alone.
+ */
+const GOLDEN: Parsed = PARSED_GOLDEN as Parsed;
+
 const BUSY_BAR = ['mat-progress-bar'];
 
 /** The Material target size, and the size Material's own buttons are not. */
@@ -337,11 +360,11 @@ const STATE: Overview = {
 const CROWDED = {
   ...STATE,
   sessions: Array.from({ length: 12 }, (_, index) => ({
-    ...STATE.sessions[index % 2],
+    ...(index % 2 === 0 ? RUNNING : ENDED),
     id: `6f7c2f11-0000-4000-8000-0000000${String(index + 10).padStart(5, '0')}`,
-    dir: REPOS[index % REPOS.length],
+    dir: REPOS[index % REPOS.length] ?? RUNNING.dir,
   })),
-};
+} satisfies Overview;
 
 /** Two fixed moments either side of midnight, so the date row between them is on
  *  screen for every run rather than on the runs that happen to straddle one. */
@@ -376,7 +399,7 @@ const TRANSCRIPT = [
   // stamps `now()` — so a note row without one tests a shape production never
   // sends. With one, this row is drawn with a clock in the margin, which is what
   // caught an input's styling leaking onto it through an unscoped `.note`.
-  { kind: 'joined', earlier: 1, from: 0, at: LATE },
+  { kind: 'joined', earlier: 1, from: 0, restarted: false, at: LATE },
   {
     kind: 'prompt',
     text: 'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin.',
@@ -447,7 +470,7 @@ const TRANSCRIPT = [
     does: { kind: 'bash', command: 'nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log' },
     at: NEXT,
   },
-];
+] satisfies Timed[];
 
 /**
  * A transcript ending in a question of the kind a person answers.
@@ -499,7 +522,7 @@ const QUESTION_TRANSCRIPT = [
     },
     at: NEXT,
   },
-];
+] satisfies Timed[];
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. The event stream is served as a complete SSE body, so
@@ -562,11 +585,59 @@ const READING = {
     { name: 'run a program on another machine (no shell)', n: 3096 },
     { name: 'not understood', n: 20073 },
   ],
-};
+  corpus_at: 1787441804,
+  unrolled: 969629,
+  handled: 2426368,
+  unhandled: 20073,
+  from_a_variable: 307,
+  unnamed: 23455,
+  unnamed_by_word: 9475,
+  unnamed_bounded: 942,
+  unnamed_located: 611,
+  unnamed_computed: 11139,
+  unnamed_python_set: 2719,
+  unnamed_javascript: 489,
+  refused_here: 921,
+  tables: [
+    { name: 'report', reads: 331, writes: 0 },
+    // A qualified name is a distinct subject from its bare form, and both are
+    // real — `health.hrv_intraday` and `hrv_intraday` are counted apart.
+    { name: 'health.hrv_intraday', reads: 64, writes: 0 },
+    { name: 'location_equipment_option', reads: 0, writes: 14 },
+  ],
+  sql: [
+    { name: 'select', n: 2432 },
+    { name: 'drop', n: 76 },
+  ],
+  renames: 578,
+  busiest: [
+    {
+      name: '/home/example/Code/memview/frontend/projects/console-web/e2e/ui-pages.spec.ts',
+      reads: 5414,
+      writes: 33,
+    },
+    { name: 'MEMORY.md', reads: 381, writes: 262 },
+  ],
+  writers: [{ name: 'python', reads: 21276, writes: 12772 }],
+  hosts: [{ name: 'odin', reads: 14863, writes: 974 }],
+  variable_names: [
+    { name: '$ADB', n: 77 },
+    { name: '$BIN', n: 39 },
+  ],
+  opaque_words: [
+    { name: '$f', n: 2378 },
+    { name: '$(find InstantUpload -name "$f" | head -1)', n: 96 },
+  ],
+} satisfies CorpusRead;
 
 async function mockRunner(page: Page): Promise<void> {
-  await page.route('**/api/**', (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
+  await page.route('**/api/**', (r) => r.fulfill({ status: 204, body: '' }));
+  // What every page reads on load, answered as the runner would with nothing to
+  // say: the catch-all once answered these `[]` without anybody choosing to.
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] satisfies Conversation[] }));
+  await page.route('**/api/sessions/*/tasks', (r) => r.fulfill({ json: [] satisfies Task[] }));
+  await page.route('**/api/sessions/*/edits', (r) =>
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/state', (r) => r.fulfill({ json: STATE }));
   await page.route('**/api/reading', (r) => r.fulfill({ json: READING }));
@@ -1184,7 +1255,7 @@ const LANDMARKS = [
   { at: 8192, when: daysBack(1, 11, 2), kind: 'compacted', text: '' },
   { at: 16384, when: daysBack(0, 8, 30), kind: 'shown', text: 'screenshot-3.png' },
   { at: 32768, when: daysBack(0, 9, 5), kind: 'prompt', text: 'that is the one, thanks' },
-];
+] satisfies Landmark[];
 
 test('go to — a long conversation is reachable by landmark @ phone width', async ({
   page,
@@ -1203,7 +1274,10 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
       // A cursor of 0 — the start of the file — so the infinite-scroll observer
       // stops asking. A non-zero cursor with a constant answer pages the same
       // event in forever, which is a fixture artefact and not what the app does.
-      json: { events: [{ kind: 'text', text: 'what was said back then' }], from: 0 },
+      json: {
+        events: [{ kind: 'text', text: 'what was said back then' }],
+        from: 0,
+      } satisfies Earlier,
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);
@@ -1321,12 +1395,12 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
   const id = RUNNING.id;
   const working = { ...RUNNING, working: true, held: ['/compact'] };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [working, ENDED] } }),
+    r.fulfill({ json: { ...STATE, sessions: [working, ENDED] } satisfies Overview }),
   );
   let cancelled: Record<string, unknown> | undefined;
   await page.route(`**/api/sessions/${id}/unhold`, (r) => {
     cancelled = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: { ...working, held: [] } });
+    return r.fulfill({ json: { ...working, held: [] } satisfies Summary });
   });
   await page.goto(`/s/${id}`);
 
@@ -1403,11 +1477,13 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'shown', name: '2026-08-05-184700Z.png', at: NEXT },
-        { kind: 'prompt', text: 'what is wrong with this?', at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'shown', name: '2026-08-05-184700Z.png', at: NEXT },
+          { kind: 'prompt', text: 'what is wrong with this?', at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1459,14 +1535,16 @@ test('a finger on the transcript stops it being pulled to the end @ phone width'
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        ...Array.from({ length: 60 }, (_, n) => ({
-          kind: 'text',
-          text: `paragraph ${n} of an answer long enough to scroll.\n\n`,
-          at: NEXT,
-        })),
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          ...Array.from({ length: 60 }, (_, n): Timed => ({
+            kind: 'text',
+            text: `paragraph ${n} of an answer long enough to scroll.\n\n`,
+            at: NEXT,
+          })),
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1565,7 +1643,7 @@ const DECIDING = [
     does: { kind: 'other', shown: '/home/example/Code/memview/notes.md' },
     at: NEXT,
   },
-];
+] satisfies Timed[];
 
 test('a call waiting to be allowed is one widget, not two @ phone width', async ({
   page,
@@ -1715,20 +1793,22 @@ test('an answered question says what was chosen @ phone width', async ({ page },
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        ...QUESTION_TRANSCRIPT,
-        {
-          kind: 'answered',
-          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
-          allowed: true,
-          reply: {
-            answers: {
-              'How far should the question UI go?': 'options only',
-              'Which of these should the card show?': ['the description', 'the topic'],
+      body: (
+        [
+          ...QUESTION_TRANSCRIPT,
+          {
+            kind: 'answered',
+            id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+            allowed: true,
+            reply: {
+              answers: {
+                'How far should the question UI go?': 'options only',
+                'Which of these should the card show?': ['the description', 'the topic'],
+              },
             },
           },
-        },
-      ]
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1753,15 +1833,17 @@ test('a typed reply is recorded as one, not as a choice @ phone width', async ({
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        ...QUESTION_TRANSCRIPT,
-        {
-          kind: 'answered',
-          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
-          allowed: true,
-          reply: { response: 'neither — do the read-only part first' },
-        },
-      ]
+      body: (
+        [
+          ...QUESTION_TRANSCRIPT,
+          {
+            kind: 'answered',
+            id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+            allowed: true,
+            reply: { response: 'neither — do the read-only part first' },
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1873,17 +1955,20 @@ test('a lone single-choice question answers on the tap @ phone width', async ({ 
   let sent: Record<string, unknown> | undefined;
   await mockRunner(page);
   const asking = last(QUESTION_TRANSCRIPT);
+  if (asking.kind !== 'ask' || asking.does.kind !== 'question') {
+    throw new Error('the question transcript ends in a question');
+  }
   const alone = {
     ...asking,
     does: {
-      kind: 'question',
-      questions: [first((asking.does as { questions: unknown[] }).questions)],
+      ...asking.does,
+      questions: [first(asking.does.questions)],
     },
   };
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [QUESTION_TRANSCRIPT[0], alone]
+      body: ([first(QUESTION_TRANSCRIPT), alone] satisfies Timed[])
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1942,16 +2027,18 @@ test('opening a session from the list lands at the newest message @ phone width'
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        ...TRANSCRIPT,
-        // Enough afterwards to put the end of it well past a phone screen.
-        ...Array.from({ length: 25 }, (_, n) => ({
-          kind: 'prompt',
-          text: `Follow-up ${n + 1}: check the next journey and report what moved.`,
-          at: NEXT,
-        })),
-        { kind: 'text', text: 'THE NEWEST THING SAID' },
-      ]
+      body: (
+        [
+          ...TRANSCRIPT,
+          // Enough afterwards to put the end of it well past a phone screen.
+          ...Array.from({ length: 25 }, (_, n): Timed => ({
+            kind: 'prompt',
+            text: `Follow-up ${n + 1}: check the next journey and report what moved.`,
+            at: NEXT,
+          })),
+          { kind: 'text', text: 'THE NEWEST THING SAID' },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -1991,20 +2078,22 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
       ? r.fulfill({ contentType: 'text/event-stream', body: 'retry: 600000\n\n' })
       : r.fulfill({
           contentType: 'text/event-stream',
-          body: [
-            ...TRANSCRIPT,
-            // Several screens of it, so that "at the newest message" is genuinely
-            // far from the top. The seed is a page and a page is 400 events; a
-            // fixture only a little taller than the screen puts the mark inside the
-            // 400px of prefetch margin at every scroll position, and the check
-            // below would then be asserting the margin does not exist.
-            ...Array.from({ length: 40 }, (_, n) => ({
-              kind: 'prompt',
-              text: `Message ${n + 1} of the page that was seeded when this view opened.`,
-              at: NEXT,
-            })),
-            { kind: 'joined', earlier: TRANSCRIPT.length + 40, from: 5000 },
-          ]
+          body: (
+            [
+              ...TRANSCRIPT,
+              // Several screens of it, so that "at the newest message" is genuinely
+              // far from the top. The seed is a page and a page is 400 events; a
+              // fixture only a little taller than the screen puts the mark inside the
+              // 400px of prefetch margin at every scroll position, and the check
+              // below would then be asserting the margin does not exist.
+              ...Array.from({ length: 40 }, (_, n): Timed => ({
+                kind: 'prompt',
+                text: `Message ${n + 1} of the page that was seeded when this view opened.`,
+                at: NEXT,
+              })),
+              { kind: 'joined', earlier: TRANSCRIPT.length + 40, from: 5000, restarted: false },
+            ] satisfies Timed[]
+          )
             .map((event) => `data: ${JSON.stringify(event)}\n\n`)
             .join(''),
         }),
@@ -2017,12 +2106,12 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
         // Walks backwards towards the start of the file, and reaches it on the
         // third answer — `from: 0` is what tells the client there is no more.
         from: page_ >= 3 ? 0 : 5000 - page_ * 1000,
-        events: Array.from({ length: 12 }, (_, n) => ({
+        events: Array.from({ length: 12 }, (_, n): Timed => ({
           kind: 'prompt',
           text: `Older page ${page_}, message ${n + 1} — something said earlier this morning.`,
           at: LATE,
         })),
-      },
+      } satisfies Earlier,
     });
   });
   await page.goto(`/s/${RUNNING.id}`);
@@ -2093,14 +2182,16 @@ test('an answer does not pay for the newlines between its blocks @ phone width',
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'x', cwd: '/home/example/Code/memview', tools: 1 },
-        { kind: 'text', text: '## A heading\n' },
-        { kind: 'text', text: '\nA paragraph of prose.\n' },
-        { kind: 'text', text: '\n## Another heading\n' },
-        { kind: 'text', text: '\nAnd a second paragraph.\n' },
-        { kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 1, at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'x', cwd: '/home/example/Code/memview', tools: 1 },
+          { kind: 'text', text: '## A heading\n' },
+          { kind: 'text', text: '\nA paragraph of prose.\n' },
+          { kind: 'text', text: '\n## Another heading\n' },
+          { kind: 'text', text: '\nAnd a second paragraph.\n' },
+          { kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 1, at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -2409,7 +2500,7 @@ test('the transcript is at the end again after the stream resets @ phone width',
     (window as unknown as { __resetStream(): boolean }).__resetStream(),
   );
   expect(reset, 'nothing was listening for a reset').toBe(true);
-  await say(page, { kind: 'joined', earlier: 1, from: 0 }, 1);
+  await say(page, { kind: 'joined', earlier: 1, from: 0, restarted: false }, 1);
   await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
   expect(await distanceFromTheEnd(page), 'left behind by a reconnect').toBeLessThan(4);
 });
@@ -2436,7 +2527,7 @@ const MIXED = {
     },
     { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000004', name: 'working' },
   ],
-};
+} satisfies Overview;
 
 /** Conversations on disk, one of them held by something the console cannot see. */
 const ON_DISK = [
@@ -2456,7 +2547,7 @@ const ON_DISK = [
     name: 'held-elsewhere',
     busy: true,
   },
-];
+] satisfies Conversation[];
 
 test('session list — awake first, and what is off says so @ phone width', async ({ page }) => {
   // What the page is opened to answer: which of these is working. Everything
@@ -2517,7 +2608,7 @@ test('session list — the time is when it last did something @ phone width', as
             touched: Date.now() - 30_000,
           },
         ],
-      },
+      } satisfies Overview,
     }),
   );
   await page.goto('/');
@@ -2538,11 +2629,13 @@ test('session list — how full each conversation is @ phone width', async ({ pa
       json: {
         ...STATE,
         sessions: [{ ...RUNNING, name: 'running', context: 496_231, window: 1_000_000 }],
-      },
+      } satisfies Overview,
     }),
   );
   await page.route('**/api/past', (r) =>
-    r.fulfill({ json: [{ ...ON_DISK[0], name: 'on-disk', context: 340_000 }] }),
+    r.fulfill({
+      json: [{ ...first(ON_DISK), name: 'on-disk', context: 340_000 }] satisfies Conversation[],
+    }),
   );
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
@@ -2580,7 +2673,10 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   ] as const) {
     await page.route('**/api/state', (r) =>
       r.fulfill({
-        json: { ...STATE, sessions: [{ ...RUNNING, name: 'running', context, window: 1_000_000 }] },
+        json: {
+          ...STATE,
+          sessions: [{ ...RUNNING, name: 'running', context, window: 1_000_000 }],
+        } satisfies Overview,
       }),
     );
     await page.reload();
@@ -2623,10 +2719,10 @@ test('session list — work still running says so, silence otherwise @ phone wid
             waiting: 0,
           },
         ],
-      },
+      } satisfies Overview,
     }),
   );
-  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] satisfies Conversation[] }));
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
 
@@ -2672,8 +2768,8 @@ test('session list — what each conversation still owes @ phone width', async (
         ],
         tasks: {
           sessions: {
-            'aaaa0000-0000-4000-8000-000000000001': { open: 3, total: 17 },
-            'aaaa0000-0000-4000-8000-000000000003': { open: 0, total: 4 },
+            'aaaa0000-0000-4000-8000-000000000001': { open: 3, total: 17, stray: 0 },
+            'aaaa0000-0000-4000-8000-000000000003': { open: 0, total: 4, stray: 0 },
             // A conversation nothing is running, which still has the list it kept
             // — and which migrated without deleting what it left behind.
             'bbbb0000-0000-4000-8000-000000000001': { open: 2, total: 9, stray: 5 },
@@ -2690,7 +2786,7 @@ test('session list — what each conversation still owes @ phone width', async (
         },
         // Two bytes under the cut, as the real one stood on 2026-10-02.
         index: { bytes: 24398, ceiling: 24400 },
-      },
+      } satisfies Overview,
     }),
   );
   await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
@@ -2765,7 +2861,7 @@ test('session list — a memory index past its cut is an error @ phone width', a
   // says nothing about the rest, so the size is the one thing to see first.
   await mockRunner(page);
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, index: { bytes: 24520, ceiling: 24400 } } }),
+    r.fulfill({ json: { ...STATE, index: { bytes: 24520, ceiling: 24400 } } satisfies Overview }),
   );
   await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
   await page.goto('/');
@@ -2793,18 +2889,24 @@ test('session list — what each conversation is about, marked as a guess @ phon
           'aaaa0000-0000-4000-8000-000000000001': {
             text: 'porting the last matcher gate to Lean and checking it against the golden set',
             at: written,
+            name: null,
+            bytes: 40_000_000,
           },
           // One for a conversation that is not running, which is where it helps
           // most: a name nobody has opened in a week is a word.
           'bbbb0000-0000-4000-8000-000000000001': {
             text: 'reworking the scanner band probe after the axis turned out to be wrong',
             at: written,
+            name: null,
+            bytes: 40_000_000,
           },
         },
-      },
+      } satisfies Overview,
     }),
   );
-  await page.route('**/api/past', (r) => r.fulfill({ json: [ON_DISK[0]] }));
+  await page.route('**/api/past', (r) =>
+    r.fulfill({ json: [first(ON_DISK)] satisfies Conversation[] }),
+  );
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
 
@@ -2850,10 +2952,10 @@ test('session list — the opening instruction stands in for a missing name @ ph
             asked: 'Proceed',
           },
         ],
-      },
+      } satisfies Overview,
     }),
   );
-  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] satisfies Conversation[] }));
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
   await expect(page.locator('.session .asked')).toHaveCount(1);
@@ -2873,7 +2975,7 @@ test('the list says working, and how many messages are still queued @ phone widt
   await mockRunner(page);
   const busy = { ...RUNNING, busy: undefined, waiting: 0, working: true, unread: 2 };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [busy, ENDED] } }),
+    r.fulfill({ json: { ...STATE, sessions: [busy, ENDED] } satisfies Overview }),
   );
   await page.goto('/');
   await page.getByText('working').first().waitFor();
@@ -2966,11 +3068,11 @@ test('what the account has spent is above the list @ phone width', async ({ page
     r.fulfill({
       json: {
         ...STATE,
-        usage: {
+        usage: STATE.usage && {
           ...STATE.usage,
           five_hour: { pct: 92, resets_in_ms: 3_600_000 },
         },
-      },
+      } satisfies Overview,
     }),
   );
   await page.goto('/');
@@ -3063,18 +3165,27 @@ const TASKS = [
     status: 'open',
     detailed: false,
     priority: 'P0',
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
   {
     id: '2',
     subject: 'bless the golden set after the oracle moved',
     status: 'done',
     detailed: true,
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
   {
     id: '100',
     subject: 'write the rule up',
     status: 'open',
     detailed: false,
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
   // Unranked and ranked-below it, adjacent on purpose: the row with no chip is
   // the more urgent of the two, and drawing an absent rank as anything at all
@@ -3085,6 +3196,9 @@ const TASKS = [
     status: 'open',
     detailed: false,
     priority: 'P3',
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
   {
     id: '101',
@@ -3093,9 +3207,12 @@ const TASKS = [
     detailed: true,
     // A deadline that is NOT overdue, beside one that is. The pair is the
     // point: a date that has not been missed is a fact about the task, not a
-    // problem with it, and the render has to keep the two apart. `overdue` is
-    // absent here rather than false, which is how the service sends it.
+    // problem with it, and the render has to keep the two apart. The service may
+    // leave `overdue` out; the console reads that as false and sends it so.
     due: '2026-09-01',
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
   {
     // Both marks at once, on a subject long enough to wrap — which is where
@@ -3119,6 +3236,8 @@ const TASKS = [
     status: 'open',
     detailed: false,
     blocked_on: ['92'],
+    overdue: false,
+    blocked: false,
   },
   // The fourth state: `dropped` is closed without ever being done, so a filter
   // on `status !== 'done'` would stand it among the open ones.
@@ -3127,8 +3246,11 @@ const TASKS = [
     subject: 'move the per-session repo claim into the service',
     status: 'dropped',
     detailed: false,
+    overdue: false,
+    blocked_on: [],
+    blocked: false,
   },
-];
+] satisfies Task[];
 
 /** A session the runner has finished reading: it has a name, a model id and a
  *  permission mode, which is what the toolbar and the sheet divide between them. */
@@ -3160,10 +3282,12 @@ const NAMED = {
       text:
         'porting the last of the matcher gate to Lean, proving it bit-exact against the ' +
         'TypeScript twin, and running the golden set to see which journeys moved',
+      name: null,
       at: 1785600000000,
+      bytes: 180_000_000,
     },
   },
-};
+} satisfies Overview;
 
 test('the toolbar says which session this is, beside what can be done to it @ phone width', async ({
   page,
@@ -3388,7 +3512,7 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
       json: {
         ...STATE,
         sessions: [{ ...RUNNING, name: 'health-sync-backend-decode-matcher-gate-quantiser' }],
-      },
+      } satisfies Overview,
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);
@@ -3610,7 +3734,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
           '- [x] ported',
           '- [ ] blessed',
         ].join('\n'),
-      },
+      } satisfies Described,
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);
@@ -3939,7 +4063,7 @@ test('a running thing says how long it has been running @ phone width', async ({
       json: {
         ...STATE,
         sessions: [{ ...RUNNING, waiting: 0 }, ...STATE.sessions.slice(1)],
-      },
+      } satisfies Overview,
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);
@@ -4131,10 +4255,10 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
  * is worth drawing: everything after the `&&` parses, classifies and names a
  * real file, and none of it is certain.
  */
-const PARSED: unknown = PARSED_GOLDEN;
+const PARSED: Parsed = GOLDEN;
 
 /** As [[mockRunner]], and answering the parse the sheet asks for. */
-async function mockParse(page: Page, answer: unknown = PARSED): Promise<void> {
+async function mockParse(page: Page, answer: Parsed = PARSED): Promise<void> {
   await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: answer }));
 }
 
@@ -4256,6 +4380,9 @@ test('a command that will not parse says so rather than looking empty @ phone wi
   await mockParse(page, {
     error: 'parameter with an operator (${x:-y}, ${#x})',
     steps: [],
+    unread: [],
+    unrolled: 0,
+    nested_unparsed: 0,
   });
   await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
@@ -4280,6 +4407,9 @@ test('another machine is named on the step and on every path @ phone width', asy
         reached: 'always',
         kind: 'remote',
         says: 'isis',
+        scope: [],
+        key: 'step-1',
+        uses: [],
       },
       {
         depth: 1,
@@ -4296,8 +4426,14 @@ test('another machine is named on the step and on every path @ phone width', asy
             host: 'isis',
           },
         ],
+        scope: [],
+        key: 'step-2',
+        says: '',
       },
     ],
+    unread: [],
+    unrolled: 0,
+    nested_unparsed: 0,
   });
   await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
@@ -4328,7 +4464,7 @@ test('a session that has stopped reading names it, with the cure @ phone width',
   await mockRunner(page);
   const deaf = { ...RUNNING, busy: undefined, waiting: 0, unread: 2, deaf: 1284 };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [deaf, ENDED] } }),
+    r.fulfill({ json: { ...STATE, sessions: [deaf, ENDED] } satisfies Overview }),
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.deaf').waitFor();
@@ -4362,21 +4498,23 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        ...QUESTION_TRANSCRIPT,
-        {
-          kind: 'answered',
-          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
-          allowed: true,
-          reply: { answers: { 'How far should the question UI go?': 'options only' } },
-        },
-        {
-          kind: 'tool',
-          id: 'toolu_after',
-          name: 'Bash',
-          does: { kind: 'bash', command: 'echo taken up' },
-        },
-      ]
+      body: (
+        [
+          ...QUESTION_TRANSCRIPT,
+          {
+            kind: 'answered',
+            id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+            allowed: true,
+            reply: { answers: { 'How far should the question UI go?': 'options only' } },
+          },
+          {
+            kind: 'tool',
+            id: 'toolu_after',
+            name: 'Bash',
+            does: { kind: 'bash', command: 'echo taken up' },
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -4438,9 +4576,10 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
             text: 'porting the last of the matcher gate to Lean and running the golden set',
             at: 1785600000000,
             name: 'Lean port',
+            bytes: 40_000_000,
           },
         },
-      },
+      } satisfies Overview,
     }),
   );
   await page.route('**/api/sessions/*/rename', (r) => {
@@ -4511,9 +4650,9 @@ test('a refused mode change says so and puts the mode back @ phone width', async
   await mockRunner(page);
   // What the runner sends once its own `settle_mode` has put the mode back: the
   // true mode, and the CLI's words for why the other one did not take.
-  const settled = { ...RUNNING, mode: 'auto', mode_refused: REFUSED };
+  const settled = { ...RUNNING, mode: 'auto', mode_refused: REFUSED } satisfies Summary;
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [settled, ENDED] } }),
+    r.fulfill({ json: { ...STATE, sessions: [settled, ENDED] } satisfies Overview }),
   );
   await page.goto(`/s/${RUNNING.id}`);
 
@@ -4582,9 +4721,9 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   await mockRunner(page);
   // With a mode set, which every real session has — the runner records one at
   // spawn. The row shows it, so the state is readable without opening anything.
-  const onAuto = { ...RUNNING, mode: 'acceptEdits' };
+  const onAuto = { ...RUNNING, mode: 'acceptEdits' } satisfies Summary;
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [onAuto, ENDED] } }),
+    r.fulfill({ json: { ...STATE, sessions: [onAuto, ENDED] } satisfies Overview }),
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page
@@ -4645,7 +4784,7 @@ test('session strip — a background call is named, not counted @ phone width', 
           },
           ...STATE.sessions.slice(1),
         ],
-      },
+      } satisfies Overview,
     }),
   );
   await page.goto(`/s/${id}`);
@@ -4696,10 +4835,10 @@ test('a session that has ended dates its background work @ phone width', async (
             ],
           },
         ],
-      },
+      } satisfies Overview,
     }),
   );
-  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] satisfies Conversation[] }));
   await page.goto('/');
 
   const row = page.locator('.session', { hasText: 'check the corpus' }).locator('.head');
@@ -4732,7 +4871,7 @@ test('a session that has ended dates its background work @ phone width', async (
   // the console this bug outlived.
   await page.route('**/api/state', (r) =>
     r.fulfill({
-      json: { ...STATE, sessions: [RUNNING, { ...ended, background: 2 }] },
+      json: { ...STATE, sessions: [RUNNING, { ...ended, background: 2 }] } satisfies Overview,
     }),
   );
   await page.reload();
@@ -4875,12 +5014,14 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        // `text` and not `said`: the runner streams a model's words as deltas
-        // and the page assembles them, which is the shape a real transcript has.
-        { kind: 'text', text: `Rendered from the sofa: ${RENDER}`, at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          // `text` and not `said`: the runner streams a model's words as deltas
+          // and the page assembles them, which is the shape a real transcript has.
+          { kind: 'text', text: `Rendered from the sofa: ${RENDER}`, at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -4935,24 +5076,32 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        {
-          kind: 'tool',
-          id: 'e1',
-          name: 'Edit',
-          does: {
-            kind: 'edit',
-            path: '/home/example/Code/xinutec-infra/plan/core/src/intent.rs',
-            before:
-              "/// Only this fact's probes are dropped, on the assumption that an effect closing one\n/// fact does not disturb another.\nfn dropped() {}",
-            after: "/// Only this fact's probes are dropped.\nfn dropped() {}",
-            everywhere: false,
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          {
+            kind: 'tool',
+            id: 'e1',
+            name: 'Edit',
+            does: {
+              kind: 'edit',
+              path: '/home/example/Code/xinutec-infra/plan/core/src/intent.rs',
+              before:
+                "/// Only this fact's probes are dropped, on the assumption that an effect closing one\n/// fact does not disturb another.\nfn dropped() {}",
+              after: "/// Only this fact's probes are dropped.\nfn dropped() {}",
+              everywhere: false,
+            },
+            at: NEXT,
           },
-          at: NEXT,
-        },
-        { kind: 'tool_result', id: 'e1', ok: true, detail: 'The file has been updated.', at: NEXT },
-      ]
+          {
+            kind: 'tool_result',
+            id: 'e1',
+            ok: true,
+            detail: 'The file has been updated.',
+            at: NEXT,
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -4978,34 +5127,34 @@ test('what a command is predicted to change is marked on its row and drawn in it
   const command = "sed -i '' 's/one/two/' src/a.rs";
   await mockRunner(page);
   await page.route('**/api/sessions/*/edits', (r) =>
-    r.fulfill({ json: { edited: [], diverged: [] } }),
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
-        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
-        {
-          kind: 'edited',
-          call: 'b1',
-          hunks: [
-            {
-              path: '/home/example/Code/memview/src/a.rs',
-              before: 'x\none\ny\n',
-              after: 'x\ntwo\ny\n',
-            },
-          ],
-        },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+          { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+          {
+            kind: 'edited',
+            call: 'b1',
+            hunks: [
+              {
+                path: '/home/example/Code/memview/src/a.rs',
+                before: 'x\none\ny\n',
+                after: 'x\ntwo\ny\n',
+              },
+            ],
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
   );
-  await page.route('**/api/sessions/*/parse', (r) =>
-    r.fulfill({ json: { ...PARSED_GOLDEN, edits: [] } }),
-  );
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
   const row = page.locator('.entry.tool');
@@ -5027,33 +5176,35 @@ test('a command waiting for permission shows what it will change @ phone width',
   const command = "cat > notes.txt <<'EOF'\nnew\nEOF";
   await mockRunner(page);
   await page.route('**/api/sessions/*/edits', (r) =>
-    r.fulfill({ json: { edited: [], diverged: [] } }),
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
-        {
-          kind: 'edited',
-          call: 'b1',
-          hunks: [{ path: '/home/example/Code/notes.txt', before: 'old\n', after: 'new\n' }],
-        },
-        {
-          kind: 'ask',
-          id: 'q1',
-          call: 'b1',
-          tool: 'Bash',
-          does: { kind: 'bash', command },
-          at: NEXT,
-        },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+          {
+            kind: 'edited',
+            call: 'b1',
+            hunks: [{ path: '/home/example/Code/notes.txt', before: 'old\n', after: 'new\n' }],
+          },
+          {
+            kind: 'ask',
+            id: 'q1',
+            call: 'b1',
+            tool: 'Bash',
+            does: { kind: 'bash', command },
+            at: NEXT,
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
   );
-  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
   const card = page.locator('app-ask-card');
@@ -5071,33 +5222,35 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
 }, testInfo) => {
   await mockRunner(page);
   await page.route('**/api/sessions/*/edits', (r) =>
-    r.fulfill({ json: { edited: [], diverged: [] } }),
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        {
-          kind: 'tool',
-          id: 'b1',
-          name: 'Bash',
-          does: { kind: 'bash', command: 'echo x > a' },
-          at: NEXT,
-        },
-        {
-          kind: 'edited',
-          call: 'b1',
-          hunks: [{ path: '/home/example/Code/a', before: '', after: 'x\n' }],
-        },
-        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
-        { kind: 'diverged', call: 'b1', paths: ['/home/example/Code/a'] },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          {
+            kind: 'tool',
+            id: 'b1',
+            name: 'Bash',
+            does: { kind: 'bash', command: 'echo x > a' },
+            at: NEXT,
+          },
+          {
+            kind: 'edited',
+            call: 'b1',
+            hunks: [{ path: '/home/example/Code/a', before: '', after: 'x\n' }],
+          },
+          { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+          { kind: 'diverged', call: 'b1', paths: ['/home/example/Code/a'] },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
   );
-  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
   const row = page.locator('.entry.tool');
@@ -5116,38 +5269,40 @@ test('a prediction that assumed an unknown program harmless says which @ phone w
   const command = "python3 edit.py && scripts/dev bash -c 'cd lean && lake build'";
   await mockRunner(page);
   await page.route('**/api/sessions/*/edits', (r) =>
-    r.fulfill({ json: { edited: [], diverged: [] } }),
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
-        {
-          kind: 'edited',
-          call: 'b1',
-          hunks: [
-            {
-              path: '/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean',
-              before: '  let fast := fun (k : Nat) => match moving[k]?.getD none with\n',
-              after: '  let fast : Nat → Bool := fun k => match moving[k]?.getD none with\n',
-              assumed: { before: [], after: ['dev'] },
-            },
-          ],
-        },
-        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
-        {
-          kind: 'diverged',
-          call: 'b1',
-          paths: ['/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean'],
-        },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+          {
+            kind: 'edited',
+            call: 'b1',
+            hunks: [
+              {
+                path: '/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean',
+                before: '  let fast := fun (k : Nat) => match moving[k]?.getD none with\n',
+                after: '  let fast : Nat → Bool := fun k => match moving[k]?.getD none with\n',
+                assumed: { before: [], after: ['dev'] },
+              },
+            ],
+          },
+          { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+          {
+            kind: 'diverged',
+            call: 'b1',
+            paths: ['/home/example/Code/health/lean/Verified/Hsmm/StationChain.lean'],
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
   );
-  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
   // The sheet copies what the row holds when it opens: wait for the prediction.
@@ -5166,39 +5321,41 @@ test('a file one of several texts shows each outcome @ phone width', async ({ pa
   const command = 'if grep -q x f; then echo a > o; else echo b > o; fi';
   await mockRunner(page);
   await page.route('**/api/sessions/*/edits', (r) =>
-    r.fulfill({ json: { edited: [], diverged: [] } }),
+    r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
-        {
-          kind: 'edited',
-          call: 'b1',
-          hunks: [
-            {
-              path: '/home/example/Code/o',
-              before: 'old\n',
-              after: 'a\n',
-              alternative: { at: 1, of: 2 },
-            },
-            {
-              path: '/home/example/Code/o',
-              before: 'old\n',
-              after: 'b\n',
-              alternative: { at: 2, of: 2 },
-            },
-          ],
-        },
-        { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'b1', name: 'Bash', does: { kind: 'bash', command }, at: NEXT },
+          {
+            kind: 'edited',
+            call: 'b1',
+            hunks: [
+              {
+                path: '/home/example/Code/o',
+                before: 'old\n',
+                after: 'a\n',
+                alternative: { at: 1, of: 2 },
+              },
+              {
+                path: '/home/example/Code/o',
+                before: 'old\n',
+                after: 'b\n',
+                alternative: { at: 2, of: 2 },
+              },
+            ],
+          },
+          { kind: 'tool_result', id: 'b1', ok: true, detail: '', at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
   );
-  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: PARSED_GOLDEN }));
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: GOLDEN }));
   await page.goto(`/s/${RUNNING.id}`);
 
   const row = page.locator('.entry.tool');
@@ -5223,24 +5380,26 @@ test('an edit waiting for permission can be read before it is allowed @ phone wi
     before: 'const EVERY: Duration = Duration::from_secs(300);',
     after: 'const EVERY: Duration = Duration::from_secs(60);',
     everywhere: false,
-  };
+  } satisfies Call;
   await mockRunner(page);
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'e1', name: 'Edit', does, at: NEXT },
-        {
-          kind: 'ask',
-          id: 'q1',
-          call: 'e1',
-          tool: 'Edit',
-          does,
-          title: 'Edit usage.rs',
-          at: NEXT,
-        },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'e1', name: 'Edit', does, at: NEXT },
+          {
+            kind: 'ask',
+            id: 'q1',
+            call: 'e1',
+            tool: 'Edit',
+            does,
+            title: 'Edit usage.rs',
+            at: NEXT,
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5268,11 +5427,13 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'tool', id: 'r1', name: 'Read', does: { kind: 'other', shown: SHOT }, at: NEXT },
-        { kind: 'tool_result', id: 'r1', ok: true, detail: '[an image]', image: true, at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'r1', name: 'Read', does: { kind: 'other', shown: SHOT }, at: NEXT },
+          { kind: 'tool_result', id: 'r1', ok: true, detail: '[an image]', image: true, at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5310,10 +5471,12 @@ test("a render whose server is gone says so, in the console's words @ phone widt
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'text', text: 'http://10.0.0.2:8917/data/peek/gone.png', at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'text', text: 'http://10.0.0.2:8917/data/peek/gone.png', at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5351,10 +5514,12 @@ test('a picture the session named by its place on the disk opens too @ phone wid
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'text', text: `![Photo: cabinet corner](${FILE})`, at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'text', text: `![Photo: cabinet corner](${FILE})`, at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5396,10 +5561,12 @@ async function opened(page: Page): Promise<void> {
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        { kind: 'text', text: '![the room](/home/example/peek/room.png)', at: NEXT },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'text', text: '![the room](/home/example/peek/room.png)', at: NEXT },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5533,6 +5700,8 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
             certain: true,
           },
         ],
+        scope: [],
+        says: '',
       },
       {
         depth: 0,
@@ -5542,8 +5711,13 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
         kind: 'read',
         key: 'read',
         says: 'counts lines',
+        scope: [],
+        uses: [],
       },
     ],
+    unread: [],
+    unrolled: 0,
+    nested_unparsed: 0,
   });
   await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
@@ -5618,11 +5792,13 @@ test('a message sent mid-answer does not cut the answer in half @ phone width', 
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'text', text: 'Here it is:\n\n```ts\nconst a = 1;\n' },
-        { kind: 'accepted', text: 'sent while you were typing' },
-        { kind: 'text', text: 'const b = 2;\n```\n' },
-      ]
+      body: (
+        [
+          { kind: 'text', text: 'Here it is:\n\n```ts\nconst a = 1;\n' },
+          { kind: 'accepted', text: 'sent while you were typing' },
+          { kind: 'text', text: 'const b = 2;\n```\n' },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5664,29 +5840,31 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
               }
             : one,
         ),
-      },
+      } satisfies Overview,
     }),
   );
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
-      body: [
-        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-        {
-          kind: 'tool',
-          id: 'w1',
-          name: 'Workflow',
-          does: { kind: 'workflow', name: 'comment-pass-1721' },
-          at: NEXT,
-        },
-        {
-          kind: 'tool_result',
-          id: 'w1',
-          ok: true,
-          detail: `Workflow launched in background. Task ID: ${task}\nSummary: Rewrite long comment blocks\nRun ID: ${run}`,
-          at: NEXT,
-        },
-      ]
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          {
+            kind: 'tool',
+            id: 'w1',
+            name: 'Workflow',
+            does: { kind: 'workflow', name: 'comment-pass-1721' },
+            at: NEXT,
+          },
+          {
+            kind: 'tool_result',
+            id: 'w1',
+            ok: true,
+            detail: `Workflow launched in background. Task ID: ${task}\nSummary: Rewrite long comment blocks\nRun ID: ${run}`,
+            at: NEXT,
+          },
+        ] satisfies Timed[]
+      )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
     }),
@@ -5716,14 +5894,14 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
             ],
           },
         ],
-      },
+      } satisfies Run,
     }),
   );
   await page.route(`**/api/sessions/*/workflows/${run}/agents/${working}*`, (r) =>
     r.fulfill({
       json: new URL(r.request().url()).searchParams.has('after')
-        ? { events: [], from: 900, to: 900 }
-        : {
+        ? ({ events: [], from: 900, to: 900 } satisfies Stretched)
+        : ({
             events: [
               { kind: 'prompt', text: 'You are doing part of a comment pass.', at: NEXT },
               { kind: 'text', text: 'Reading the runner first.', at: NEXT },
@@ -5742,7 +5920,7 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
             ],
             from: 0,
             to: 900,
-          },
+          } satisfies Stretched),
     }),
   );
   await page.goto(`/s/${RUNNING.id}`);

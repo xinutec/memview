@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 import { start, CONVERSATIONS, type Runner } from './runner';
+import type { PullResponse } from '../src/app/generated/PullResponse';
 
 /**
  * Two devices, one runner, a real draft crossing between them.
@@ -179,7 +180,7 @@ test('the three above mean something: with sync blocked, nothing arrives', async
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ documents: [], checkpoint: { rev: 0 } }),
+      body: JSON.stringify({ documents: [], checkpoint: { rev: 0 } } satisfies PullResponse),
     }),
   );
   await page.goto(`${runner.base}/s/${talk}`);
