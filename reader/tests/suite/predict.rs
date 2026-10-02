@@ -3102,3 +3102,55 @@ fn a_variable_survives_an_unknown_program_but_not_a_function() {
         assert!(!r.contains(&"/repo/logs/a".to_string()), "{rebinds}: {r:?}");
     }
 }
+
+/// `cargo test`, `run`, `nextest` and `bench` run the project's own code, which
+/// may write anything: a test that blesses a golden is the common case. Found
+/// live four times on 2026-10-01: `rm golden && X_BLESS=1 nix develop -c cargo
+/// nextest run …` was predicted, as certain, to leave the golden gone.
+#[test]
+fn cargo_running_the_projects_code_is_an_unknown_program() {
+    let shown = known(&[("/repo/g", Some("old\n"))]);
+    for command in [
+        "rm g; cargo test",
+        "rm g; X_BLESS=1 nix develop -c cargo nextest run --release",
+        "rm g; cargo run --bin x",
+        "rm g; cargo bench",
+    ] {
+        let found = run(command, &shown);
+        assert!(
+            !found.written.iter().any(|w| w.path == "/repo/g"),
+            "{command}: {:?}",
+            found.written
+        );
+    }
+    // What it was not near is still predicted, on the assumption.
+    let found = run("echo x > a; cargo test", &nothing_known());
+    assert_eq!(found.conditional.len(), 1, "{:?}", found.conditional);
+    // A build only runs build scripts, which write under target/.
+    let built = run("rm g; cargo build --release", &shown);
+    assert!(built.written.iter().any(|w| w.path == "/repo/g"));
+}
+
+/// A program told a file on its stdin is told it as surely as in its words.
+/// Found live (2026-10-02): `echo '[{"file":"e2e/ui-pages.spec.ts",…}]' | node
+/// satisfy.mjs` rewrote that spec, predicted as left alone.
+#[test]
+fn a_path_on_a_programs_stdin_is_not_assumed_left_alone() {
+    for command in [
+        "echo x > e2e/a.ts; echo '[{\"file\":\"e2e/a.ts\",\"line\":3}]' | node fix.mjs",
+        "echo x > e2e/a.ts; node fix.mjs <<'EOF'\ne2e/a.ts\nEOF",
+    ] {
+        let found = run(command, &nothing_known());
+        assert!(
+            !found
+                .conditional
+                .iter()
+                .any(|c| c.written.path == "/repo/e2e/a.ts"),
+            "{command}: {:?}",
+            found.conditional
+        );
+    }
+    // Stdin that names nothing leaves the assumption standing.
+    let found = run("echo x > a; echo 3 | ./count", &nothing_known());
+    assert_eq!(found.conditional.len(), 1, "{:?}", found.conditional);
+}

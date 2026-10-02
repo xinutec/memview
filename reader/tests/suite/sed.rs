@@ -226,3 +226,13 @@ fn delete_append_and_insert_leave_what_bsd_sed_leaves() {
     assert!(one("a X", text).is_err());
     assert!(one("a\\\nX\\Y", text).is_err());
 }
+
+/// GNU's `\s`, `\S`, `\w` and `\W` are refused: the host's sed is BSD's, which
+/// reads them as the letters (checked: `printf 'a s_ b' | sed 's/\s/X/'` gives
+/// `a X_ b`). Found live: `s/^\(\s*\)notices/&\n\1resting/` inserted nothing.
+#[test]
+fn a_gnu_class_escape_is_refused() {
+    for script in ["s/\\s/X/", "s/^\\(\\s*\\)x/y/", "s/\\w\\+/z/", "s/\\W/z/"] {
+        assert!(one(script, "a s_ b\n").is_err(), "{script}");
+    }
+}

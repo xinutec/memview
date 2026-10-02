@@ -1890,6 +1890,17 @@ fn act(
             Op::Write { paths: written }
         }
         Verb::Tree(subcommands) => {
+            // These run the project's own code — a test that blesses a golden
+            // writes it — so what they write is not the tool's to say. A build
+            // runs only build scripts, which by convention write under target/.
+            if let Some(&first) = words.first()
+                && matches!(first, "run" | "test" | "nextest" | "bench")
+            {
+                let head = argv.first().map_or("", |head| basename(head));
+                return Op::Opaque {
+                    name: format!("{head} {first}"),
+                };
+            }
             let decides = words
                 .first()
                 .and_then(|first| subcommands.iter().find(|(name, _)| name == first));

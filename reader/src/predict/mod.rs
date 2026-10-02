@@ -2011,7 +2011,11 @@ impl<'a> Run<'a> {
         if let Some(program) = writes_anything(&op, &argv) {
             // Named for the program whatever holds it: a pipe or a loop is not why
             // what came before is unknown.
-            let told = self.told(simple, &literal);
+            let mut told = self.told(simple, &literal);
+            // What it reads on stdin, when that is known, tells it files too.
+            if let Ok(input) = self.stdin(redirects) {
+                told.extend(self.paths_in(&input));
+            }
             let words: Vec<String> = literal.iter().flatten().cloned().collect();
             self.unknown_program(program, &told, &words);
             return;
@@ -2294,6 +2298,15 @@ impl<'a> Run<'a> {
             })
             .filter(|word| !word.contains(char::is_whitespace) && looks_like_path(word))
             .filter_map(|word| self.resolve(&word))
+            .collect()
+    }
+
+    /// The paths a text mentions, each run of path characters that looks like
+    /// one: `e2e/a.ts` inside `[{"file":"e2e/a.ts"}]`.
+    fn paths_in(&self, text: &str) -> Vec<String> {
+        text.split(|c: char| !(c.is_alphanumeric() || "._/~-+@".contains(c)))
+            .filter(|word| !word.is_empty() && looks_like_path(word))
+            .filter_map(|word| self.resolve(word))
             .collect()
     }
 

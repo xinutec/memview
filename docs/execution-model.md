@@ -309,7 +309,11 @@ times on 2026-09-30). Nor does it cover what a checker among the program's
 words rewrites, as the shell tables read it, inside a quoted script too:
 `scripts/dev cargo fmt` reformats its directory without naming a file (a
 Python edit of `sync.rs`, then that, on 2026-09-30); after a `cd` inside the
-script, where it ran is not known and nothing is assumed. Found live (2026-09-30): the first two
+script, where it ran is not known and nothing is assumed. Nor what it is told
+on stdin when that is known (`echo '[{"file":"e2e/a.ts"}]' | node fix.mjs`,
+2026-10-02). `cargo test`, `run`, `nextest` and `bench` are unknown programs,
+not tools that write nothing: they run the project's code, and a test that
+blesses a golden writes it (four certain findings, 2026-10-01). Found live (2026-09-30): the first two
 conditional divergences were both a test told its output file in an
 assignment. The after-look checks a conditional prediction like any other,
 but a divergence there has two suspects, the evaluator and the program assumed
