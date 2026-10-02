@@ -54,6 +54,7 @@ test.use({ serviceWorkers: 'block' });
  * pins it against the Rust side. A JSON import widens every literal to `string`,
  * so it cannot satisfy `Parsed`'s unions; the cast is for that alone.
  */
+// dev-lint: allow-untyped-mock a JSON import widens every literal; console/tests/suite/parse.rs pins its shape
 const GOLDEN: Parsed = PARSED_GOLDEN as Parsed;
 
 const BUSY_BAR = ['mat-progress-bar'];
