@@ -3073,3 +3073,32 @@ fn a_redirect_is_named_before_its_program_runs() {
             .any(|u| u.path.as_deref() == Some("/repo/logs/y"));
     assert!(y, "{:?} {:?}", found.written, found.unfollowed);
 }
+
+/// A program runs in its own process and cannot change the shell's variables;
+/// only a function the text defines runs in this shell and can. So a variable
+/// set before an unknown program still names the file a later command writes.
+#[test]
+fn a_variable_survives_an_unknown_program_but_not_a_function() {
+    let named = |command: &str| -> Vec<String> {
+        let found = run(command, &nothing_known());
+        found
+            .written
+            .iter()
+            .map(|w| w.path.clone())
+            .chain(found.unfollowed.iter().filter_map(|u| u.path.clone()))
+            .collect()
+    };
+    assert!(
+        named("D=logs; ./prog; echo x > $D/a").contains(&"/repo/logs/a".to_string()),
+        "a program"
+    );
+    let f = named("f() { D=other; }; D=logs; f; echo x > $D/a");
+    assert!(
+        !f.contains(&"/repo/logs/a".to_string()),
+        "a function: {f:?}"
+    );
+    for rebinds in ["source env.sh", ". env.sh", "eval \"$X\""] {
+        let r = named(&format!("D=logs; {rebinds}; echo x > $D/a"));
+        assert!(!r.contains(&"/repo/logs/a".to_string()), "{rebinds}: {r:?}");
+    }
+}

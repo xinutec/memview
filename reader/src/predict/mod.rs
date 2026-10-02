@@ -214,6 +214,7 @@ pub struct Prediction {
 pub fn needs(script: &Script, cwd: &str, home: &str) -> Vec<String> {
     let nothing = Files::new();
     let mut run = Run::new(cwd, home, &nothing, true);
+    run.functions = defined_functions(&script.items);
     run.items(&script.items);
     run.asked
 }
@@ -221,6 +222,7 @@ pub fn needs(script: &Script, cwd: &str, home: &str) -> Vec<String> {
 /// What `script`, run in `cwd`, will leave in the files it writes.
 pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Prediction {
     let mut run = Run::new(cwd, home, sight, false);
+    run.functions = defined_functions(&script.items);
     run.items(&script.items);
     let written = run.written();
     let alternatives = run.alternatives();
@@ -233,6 +235,7 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
         };
     }
     let mut assuming = Run::new(cwd, home, sight, true);
+    assuming.functions = defined_functions(&script.items);
     assuming.items(&script.items);
     let conditional = assuming
         .written()
@@ -317,6 +320,9 @@ struct Run<'a> {
     sight: &'a dyn Sight,
     /// Variables the text bound to a literal, still known to hold it.
     vars: BTreeMap<String, String>,
+    /// The functions the text defines anywhere. Calling one runs in this shell and
+    /// may rebind any name; a program in its own process cannot.
+    functions: BTreeSet<String>,
     /// Inside a pipeline member after the first: stdin is the pipe, carrying
     /// what the member before it printed, or why that is not known.
     pipe: Option<Result<String, Why>>,
@@ -376,6 +382,7 @@ impl<'a> Run<'a> {
             home,
             sight,
             vars: BTreeMap::new(),
+            functions: BTreeSet::new(),
             pipe: None,
             capture: false,
             printed: None,
@@ -505,9 +512,12 @@ impl<'a> Run<'a> {
     pub(super) fn unknown_program(&mut self, program: String, told: &[String], words: &[String]) {
         self.clock += 1;
         self.assumed.push((self.clock, program.clone()));
-        if self.assume {
-            // Its bindings are no more known under the assumption.
+        // A function the text defines runs in this shell and may rebind any
+        // name; a program runs in its own process and cannot.
+        if self.functions.contains(&program) {
             self.vars.clear();
+        }
+        if self.assume {
             for path in told {
                 self.forget_tree(path, Why::Program(program.clone()));
             }
@@ -1734,9 +1744,6 @@ impl<'a> Run<'a> {
 
     /// A program that may have written any file: nothing known survives it.
     fn forget_everything(&mut self, why: Why) {
-        // A function the text defines could have rebound anything, and calling
-        // one is a program this does not know.
-        self.vars.clear();
         for (path, held) in &mut self.now {
             if !matches!(held, Held::Unknown) {
                 *held = Held::Unknown;
@@ -2124,6 +2131,7 @@ impl<'a> Run<'a> {
         let Ok(tree) = crate::syntax::parse(script) else {
             return false;
         };
+        self.functions.extend(defined_functions(&tree.items));
         let parent = std::mem::replace(&mut self.cwd, cwd);
         // A child sees only what was exported, which this does not track, and
         // its `exit` ends only itself.
@@ -2597,6 +2605,17 @@ fn ends_with_success(command: &Command) -> bool {
         },
         Some(_) => true,
     }
+}
+
+/// Every function name the text defines, however deep.
+fn defined_functions(items: &[Item]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    crate::syntax::visit::commands(items, &mut |command| {
+        if let CommandKind::Function(function) = &command.kind {
+            names.insert(function.name.clone());
+        }
+    });
+    names
 }
 
 /// A simple command's name, when it is one literal word.
