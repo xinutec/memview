@@ -4,13 +4,16 @@
 
 <!-- The pile is on no card, because it belongs to no session. Above the cards:
      below them it is a footnote past a long list. The glyph is the cards' own. -->
-@if (elsewhere().length) {
+@if (elsewhere().length || index()) {
   <p class="elsewhere">
     <mat-icon>checklist</mat-icon>
     @for (holder of elsewhere(); track holder.name; let last = $last) {
       <span class="held" [class.left]="holder.open > 0"
         >{{ holder.name }} {{ holder.open }}/{{ holder.total }}</span
-      >{{ last ? '' : ' · ' }}
+      >{{ last && !index() ? '' : ' · ' }}
+    }
+    @if (index(); as size) {
+      <span class="held" [class.left]="size.close">{{ size.text }}</span>
     }
   </p>
 }

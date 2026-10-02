@@ -162,6 +162,17 @@ export class SessionsView {
    */
   readonly elsewhere = computed<readonly Holder[]>(() => this.state()?.tasks?.elsewhere ?? []);
 
+  /** MEMORY.md's size against the size a session is cut off at, when there is one. */
+  readonly index = computed(() => {
+    const size = this.state()?.index;
+    if (!size) return undefined;
+    return {
+      text: `MEMORY.md ${size.bytes.toLocaleString('en')}/${size.ceiling.toLocaleString('en')}`,
+      // Within a line's worth of the cut, where adding one means taking one out.
+      close: size.ceiling - size.bytes < 200,
+    };
+  });
+
   /**
    * Everything there is, awake first. Deduped by id, the running process winning:
    * it knows what it is doing, what it was asked and what it has cost.

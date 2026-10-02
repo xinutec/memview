@@ -11,28 +11,9 @@
 //! the cut from the record is therefore impossible, and recomputing it is better
 //! than mining would have been: it is a pure function of the file.
 
-/// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
-/// warning text.
-///
-/// MEASURED, and it was a guess before that. Claude Code prints the size and
-/// the limit in the same units — `MEMORY.md is 25.7KB (limit: 24.4KB)` — so the only
-/// question was which kilobyte, and the file's own git history answers it. Every size
-/// the root has ever had, against the two readings of the two values the harness has
-/// been observed printing:
-///
-/// ```text
-/// decimal KB   "24.6KB" ← 24,613 b     "25.7KB" ← 25,684 b
-/// binary KiB   no size ever            no size ever
-/// ```
-///
-/// Decimal, unambiguously: each printed value maps to a size that existed, and under
-/// the binary reading neither corresponds to any size the file has ever been. **So
-/// the limit is 24,400 bytes and this is the edge, not a warning line.**
-///
-/// The corpus header's bracket is FALSIFIED by this — it reads as though the
-/// limit sits between two observed sizes. The upper one is real; the lower is not,
-/// because the whole-arrival was measured under the limit and brackets nothing.
-pub const INDEX_CEILING: usize = 24_400;
+/// The size `MEMORY.md` is truncated at when injected — see
+/// [`reader::home::INDEX_CEILING`], where it lives so the console can read it too.
+pub use reader::home::INDEX_CEILING;
 
 /// What a session is given, and what it is not.
 ///

@@ -134,6 +134,30 @@ pub struct Overview {
     /// because the roster is already polled every five seconds, and a draft is a
     /// sentence.
     pub drafts: std::collections::BTreeMap<String, crate::drafts::Draft>,
+    /// How big the memory index is, against the size Claude Code cuts it at —
+    /// past it, the bottom of the file is never shown to a session. Absent when
+    /// there is no index to measure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub index: Option<IndexSize>,
+}
+
+/// `MEMORY.md`'s size and its ceiling, in bytes.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct IndexSize {
+    pub bytes: u64,
+    pub ceiling: u64,
+}
+
+/// Read per request: a stat, and the file changes whenever a session edits it.
+fn index_size() -> Option<IndexSize> {
+    let path = reader::home::memory_dir().join("MEMORY.md");
+    Some(IndexSize {
+        bytes: std::fs::metadata(path).ok()?.len(),
+        ceiling: reader::home::INDEX_CEILING as u64,
+    })
 }
 
 /// The bundle's identity, from the bytes of the page that loads it: index.html
@@ -165,6 +189,7 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         drafts: roster.drafts().all(),
         // Swept per request, off the executor and off the cached marks. See [`Roster::tasks`].
         tasks: roster.tasks().await,
+        index: index_size(),
     })
 }
 

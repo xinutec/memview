@@ -2646,6 +2646,8 @@ test('session list — what each conversation still owes @ phone width', async (
             { name: 'nobody', open: 23, total: 26 },
           ],
         },
+        // Two bytes under the cut, as the real one stood on 2026-10-02.
+        index: { bytes: 24398, ceiling: 24400 },
       },
     }),
   );
@@ -2696,6 +2698,11 @@ test('session list — what each conversation still owes @ phone width', async (
   // per session — so without this line it is invisible here by construction.
   await expect(page.locator('.elsewhere')).toContainText('User 1/12');
   await expect(page.locator('.elsewhere')).toContainText('nobody 23/26');
+  // The memory index beside them: its size against where a session's copy is
+  // cut, marked once there is less than a line's room left.
+  const index = page.locator('.elsewhere .held', { hasText: 'MEMORY.md' });
+  await expect(index).toHaveText('MEMORY.md 24,398/24,400');
+  await expect(index).toHaveClass(/left/);
 
   // The assertion this feature earned, twice. The chip shipped as an
   // inline-flex box, which reports its icon's baseline rather than its digits',
