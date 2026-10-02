@@ -2699,10 +2699,10 @@ test('session list — what each conversation still owes @ phone width', async (
   await expect(page.locator('.elsewhere')).toContainText('User 1/12');
   await expect(page.locator('.elsewhere')).toContainText('nobody 23/26');
   // The memory index beside them: its size against where a session's copy is
-  // cut, marked once there is less than a line's room left.
-  const index = page.locator('.elsewhere .held', { hasText: 'MEMORY.md' });
+  // cut. Just under it is fine and plain.
+  const index = page.locator('.elsewhere .index');
   await expect(index).toHaveText('MEMORY.md 24,398/24,400');
-  await expect(index).toHaveClass(/left/);
+  await expect(index).not.toHaveClass(/over/);
 
   // The assertion this feature earned, twice. The chip shipped as an
   // inline-flex box, which reports its icon's baseline rather than its digits',
@@ -2714,6 +2714,23 @@ test('session list — what each conversation still owes @ phone width', async (
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo);
+});
+
+test('session list — a memory index past its cut is an error @ phone width', async ({
+  page,
+}, testInfo) => {
+  // Past 24,400 bytes Claude Code hands each session a prefix of MEMORY.md and
+  // says nothing about the rest, so the size is the one thing to see first.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, index: { bytes: 24520, ceiling: 24400 } } }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
+  await page.goto('/');
+  const index = page.locator('.elsewhere .index');
+  await expect(index).toHaveText('MEMORY.md 24,520/24,400');
+  await expect(index).toHaveClass(/over/);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
 test('session list — what each conversation is about, marked as a guess @ phone width', async ({

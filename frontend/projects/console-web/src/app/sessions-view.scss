@@ -288,6 +288,15 @@
       color: var(--mat-sys-on-surface);
     }
   }
+
+  // Over the cut is an error: the bottom of the index is lost to every session.
+  .index.over {
+    padding: 0 0.3rem;
+    border-radius: 0.25rem;
+    background: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 600;
+  }
 }
 
 // Why an `in use` row cannot be picked up. On screen only while one of them is.

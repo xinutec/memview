@@ -168,8 +168,8 @@ export class SessionsView {
     if (!size) return undefined;
     return {
       text: `MEMORY.md ${size.bytes.toLocaleString('en')}/${size.ceiling.toLocaleString('en')}`,
-      // Within a line's worth of the cut, where adding one means taking one out.
-      close: size.ceiling - size.bytes < 200,
+      // Past the cut, the bottom of the index never reaches a session. Up to it is fine.
+      over: size.bytes > size.ceiling,
     };
   });
 

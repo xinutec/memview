@@ -13,7 +13,7 @@
       >{{ last && !index() ? '' : ' · ' }}
     }
     @if (index(); as size) {
-      <span class="held" [class.left]="size.close">{{ size.text }}</span>
+      <span class="held index" [class.over]="size.over">{{ size.text }}</span>
     }
   </p>
 }
