@@ -3039,3 +3039,37 @@ fn an_unquoted_heredoc_with_an_unknown_expansion_is_refused() {
         assert!(found.written.is_empty(), "{body}: {:?}", found.written);
     }
 }
+
+/// A redirect's target is expanded before the program starts, so what the
+/// program does cannot change which file it writes. Found live: 170 of 254
+/// refusals for an expansion were `for d in …; do ./prog > out/$d.json; done`,
+/// the loop's own variable forgotten by the unknown program before its
+/// redirect was named.
+#[test]
+fn a_redirect_is_named_before_its_program_runs() {
+    let found = run(
+        "for d in a b; do ./prog > out/$d.json; done; D=logs; ./prog > $D/x; D=logs; printf -v D q > $D/y",
+        &nothing_known(),
+    );
+    let named: Vec<&str> = found
+        .unfollowed
+        .iter()
+        .filter_map(|u| u.path.as_deref())
+        .collect();
+    for path in ["/repo/out/a.json", "/repo/out/b.json", "/repo/logs/x"] {
+        assert!(named.contains(&path), "{path}: {:?}", found.unfollowed);
+    }
+    assert!(
+        found.unfollowed.iter().all(|u| u.why != Why::Expansion),
+        "{:?}",
+        found.unfollowed
+    );
+    // `printf -v D` binds after its redirect was opened under the old `D`
+    // (bash: `logs/y` exists afterwards, and `D` is `q`).
+    let y = found.written.iter().any(|w| w.path == "/repo/logs/y")
+        || found
+            .unfollowed
+            .iter()
+            .any(|u| u.path.as_deref() == Some("/repo/logs/y"));
+    assert!(y, "{:?} {:?}", found.written, found.unfollowed);
+}

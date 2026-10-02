@@ -1349,6 +1349,9 @@ impl<'a> Run<'a> {
                 }
             }
         }
+        // Its redirects are expanded before it runs: nothing it does or rebinds
+        // changes which file it writes.
+        let out = self.outputs(redirects);
         // A builtin that binds names of its own choosing leaves none known.
         if name.as_deref().is_some_and(|name| REBINDS.contains(&name))
             || (name.as_deref() == Some("printf")
@@ -1379,7 +1382,7 @@ impl<'a> Run<'a> {
             };
             self.printed = Some(printed);
         }
-        let Some(out) = self.outputs(redirects) else {
+        let Some(out) = out else {
             return;
         };
         let written = self.stdout(name.as_deref(), &argv, redirects);
