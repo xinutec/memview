@@ -148,6 +148,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "frontend deps match the lockfile",
       "timeout_s": 900
     },
@@ -166,6 +167,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "frontend lint",
       "timeout_s": 900
     },
@@ -184,6 +186,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "frontend formatting",
       "timeout_s": 900
     },
@@ -202,6 +205,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "frontend typecheck (e2e)",
       "timeout_s": 900
     },
@@ -220,6 +224,7 @@
         "CI": "true",
         "NG_BUILD_MAX_WORKERS": "1"
       },
+      "lane": "frontend",
       "name": "frontend unit tests",
       "timeout_s": 1800
     },
@@ -236,6 +241,7 @@
       "artifacts": [],
       "cwd": "frontend",
       "env": {},
+      "lane": "frontend",
       "name": "the live-bundle pruner",
       "timeout_s": 300
     },
@@ -263,6 +269,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "frontend build (both applications)",
       "timeout_s": 1800
     },
@@ -284,6 +291,7 @@
         "CI": "true",
         "NG_BUILD_MAX_WORKERS": "1"
       },
+      "lane": "frontend",
       "name": "frontend ui-check (phone-width layout harness)",
       "timeout_s": 1800
     },
@@ -302,6 +310,7 @@
       "env": {
         "CI": "true"
       },
+      "lane": "frontend",
       "name": "drafts cross between two devices",
       "timeout_s": 1800
     },
@@ -317,6 +326,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
+      "lane": "frontend",
       "name": "graph layout report",
       "timeout_s": 900
     },
@@ -333,6 +343,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
+      "lane": "frontend",
       "name": "graph layout report (with co-use, so the affinity guards run)",
       "timeout_s": 900
     },
@@ -389,6 +400,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
+      "lane": "nix",
       "name": "the console package builds (what this repo publishes)",
       "timeout_s": 1800
     },
@@ -403,6 +415,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
+      "lane": "nix",
       "name": "the sessions CLI packages (what home-manager installs)",
       "timeout_s": 1800
     },
@@ -433,6 +446,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
+      "lane": "nix",
       "name": "dev-lint",
       "timeout_s": 900
     }

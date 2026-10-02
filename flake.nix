@@ -65,23 +65,14 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" ];
 
-          # ⚠ **Scoped, or the check runs NOTHING.** `cargoCheckHook` does not
-          # inherit `cargoBuildFlags`: left to itself it runs the workspace's lib
-          # and bin unittests, every one empty, and reports success having executed
-          # 0 tests. `doCheck = true` alone therefore satisfies
-          # `nix-rust-package-docheck-false` while testing nothing, which is the
-          # defect that rule exists to catch.
-          cargoTestFlags = [ "--package" "console" ];
-          # `console/tests/suite/orphan.rs` shells out to `ps` to prove a child was
-          # reaped; the sandbox has no `ps`, and the failure reads as a broken
-          # test rather than a missing tool.
-          nativeCheckInputs = [ pkgs.procps ];
-          # `past.rs` asks `ps -u $USER` which processes are running a
-          # conversation, and holds everything BUSY when it cannot ask — a
-          # deliberate fail-safe. The sandbox sets no `USER`, so two tests meet
-          # that fallback rather than the thing they test.
-          preCheck = "export USER=nixbld";
-          doCheck = true;
+          # ⚠ **The tests are NOT run here, and that is not a gap.** The gate's
+          # `tests` row runs the same suite on the same source. Running it again
+          # here cost 133s against 97s without (2026-10-02, load 2.6), and of
+          # this row's five failures since 09-26 four were timeouts and the fifth
+          # a test the `tests` row failed in the same run. What this derivation
+          # checks is that the published binary builds.
+          # dev-lint: allow-docheck-false the gate's `tests` row runs this suite
+          doCheck = false;
 
           meta.mainProgram = "console";
         };

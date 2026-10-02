@@ -180,13 +180,22 @@ in  { name = "memview"
         , argv = G.inDevShell [ "scripts/gen-types.sh", "--check" ]
         , timeout_s = 900
         }
-      , {-  `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or
+      , {-  **Three lanes, run beside each other** (2026-10-02, about 9 minutes
+            of medians in one lane): cargo in the main lane; the frontend from
+            here to the graph reports, which read its node_modules, with the
+            drafts row after the ui-check, since it rebuilds the bundle the
+            ui-check serves; and the nix builds with dev-lint. A cargo command
+            outside the main lane (the drafts row's build) waits on cargo's own
+            lock rather than racing it.
+
+            `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or
             fail. The gate has to run from a clean checkout — a fresh clone, or
             the tree the fleetwatch collector runs in — not just a warm dev
             machine.
         -}
         G.Check::{
         , name = "frontend deps match the lockfile"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "install", "--frozen-lockfile" ]
         , env = G.nonInteractive
@@ -194,6 +203,7 @@ in  { name = "memview"
         }
       , G.Check::{
         , name = "frontend lint"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "lint" ]
         , env = G.nonInteractive
@@ -212,6 +222,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "frontend formatting"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "format:check" ]
         , env = G.nonInteractive
@@ -226,6 +237,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "frontend typecheck (e2e)"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "typecheck" ]
         , env = G.nonInteractive
@@ -233,6 +245,7 @@ in  { name = "memview"
         }
       , G.Check::{
         , name = "frontend unit tests"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "test" ]
         , env = G.oneAngularWorker # G.nonInteractive
@@ -246,6 +259,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "the live-bundle pruner"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "node", "--test", "scripts/prune-live.test.mjs" ]
         , timeout_s = 300
@@ -262,6 +276,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "frontend build (both applications)"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv =
             G.ngBuild
@@ -278,6 +293,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "frontend ui-check (phone-width layout harness)"
+        , lane = Some "frontend"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "ui-check" ]
         , {-  Playwright DELETES this at the start of every run, so the run made
@@ -307,6 +323,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "drafts cross between two devices"
+        , lane = Some "frontend"
         , argv = G.inDevShell [ "./scripts/sync-check.sh" ]
         , artifacts = [ "frontend/projects/console-web/test-results" ]
         , env = G.nonInteractive
@@ -320,6 +337,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "graph layout report"
+        , lane = Some "frontend"
         , argv = G.inDevShell [ "node", "scripts/graph-report.mjs" ]
         , timeout_s = 900
         }
@@ -337,6 +355,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "graph layout report (with co-use, so the affinity guards run)"
+        , lane = Some "frontend"
         , argv = G.inDevShell [ "node", "scripts/graph-report.mjs", "--affinities" ]
         , timeout_s = 900
         }
@@ -442,6 +461,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "the console package builds (what this repo publishes)"
+        , lane = Some "nix"
         , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#console" ]
         , timeout_s = 1800
         }
@@ -459,10 +479,11 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "the sessions CLI packages (what home-manager installs)"
+        , lane = Some "nix"
         , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#sessions" ]
         , timeout_s = 1800
         }
       , G.checkTable "../dev-lint"
-      , G.devLint "../"
+      , G.devLint "../" // { lane = Some "nix" }
       ]
     }
