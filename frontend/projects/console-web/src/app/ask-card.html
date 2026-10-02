@@ -88,6 +88,21 @@
         <!-- The way out of a question with no good answer. The session is told. -->
         <button matButton (click)="decide(false)">skip</button>
       </div>
+    } @else if (entry().tool === 'sudo') {
+      <!-- Sent to the console, which runs sudo with it; the session never sees it. -->
+      <input
+        #secret
+        class="note"
+        type="password"
+        autocomplete="off"
+        aria-label="password for sudo"
+        placeholder="password"
+        (keydown.enter)="sudo(secret.value); secret.value = ''"
+      />
+      <div class="choose">
+        <button matButton="filled" (click)="sudo(secret.value); secret.value = ''">run</button>
+        <button matButton (click)="sudo(null)">refuse</button>
+      </div>
     } @else {
       <div class="choose">
         <button matButton="filled" (click)="decide(true)">allow</button>

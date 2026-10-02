@@ -49,6 +49,8 @@ pub struct Roster {
     /// a window, and
     /// [`crate::usage::fresher`] discards an old window outright.
     spent: Mutex<BTreeMap<String, crate::session::Seen>>,
+    /// Commands waiting for a root password. See [`crate::sudo`].
+    sudo: crate::sudo::Waiting,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -101,10 +103,15 @@ impl Roster {
             marks: Arc::default(),
             edits: Arc::new(crate::edits::Edits::new(crate::edits::edits_root())),
             spent: Mutex::new(BTreeMap::new()),
+            sudo: crate::sudo::Waiting::default(),
         }
     }
 
     /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
+    pub fn sudo(&self) -> &crate::sudo::Waiting {
+        &self.sudo
+    }
+
     pub fn edits(&self) -> Arc<crate::edits::Edits> {
         Arc::clone(&self.edits)
     }

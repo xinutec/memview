@@ -22,6 +22,7 @@ import {
   type Start,
   type Stretched,
   type Summary,
+  type SudoAnswer,
   type Task,
   type Timed,
 } from './models';
@@ -140,6 +141,11 @@ export class ConsoleApi {
         notes && Object.fromEntries(Object.entries(notes).map(([q, n]) => [q, { notes: n }])),
     };
     return this.http.post<Summary>(`${session(at)}/decide`, body);
+  }
+
+  /** A root password for a command waiting on one, or null to refuse it. */
+  sudo(at: string, id: string, password: string | null): Observable<void> {
+    return this.http.post<void>(`${session(at)}/sudo`, { id, password } satisfies SudoAnswer);
   }
 
   setMode(id: string, mode: Known): Observable<Summary> {

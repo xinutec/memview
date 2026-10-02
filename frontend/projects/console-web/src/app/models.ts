@@ -17,6 +17,7 @@ export type { Called } from './generated/Called';
 export type { Conversation } from './generated/Conversation';
 export type { CorpusRead } from './generated/CorpusRead';
 export type { Decision } from './generated/Decision';
+export type { SudoAnswer } from './generated/SudoAnswer';
 export type { Described } from './generated/Described';
 export type { Draft } from './generated/Draft';
 export type { Event } from './generated/Event';

@@ -125,6 +125,16 @@ export class Asks {
     });
   }
 
+  /** Run a command waiting on a root password, or refuse it with null. */
+  sudo(entry: Unanswered, password: string | null): void {
+    const at = this.here.at();
+    if (!at) return;
+    this.trouble.set('');
+    this.api.sudo(at, entry.ask, password).subscribe({
+      error: (err: unknown) => this.trouble.set(reason(err)),
+    });
+  }
+
   private send(entry: Unanswered, answers?: Answers, response?: string, notes?: Notes): void {
     const at = this.here.at();
     if (!at) return;

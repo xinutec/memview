@@ -28,6 +28,7 @@ mod protocol;
 mod resume;
 mod serving;
 mod stream;
+mod sudo;
 mod tasks;
 mod usage;
 mod workflows;

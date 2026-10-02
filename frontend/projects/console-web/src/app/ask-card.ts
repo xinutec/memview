@@ -89,6 +89,11 @@ export class AskCard {
     if (open) this.asks.answer(open);
   }
 
+  protected sudo(password: string | null): void {
+    const open = this.open();
+    if (open) this.asks.sudo(open, password);
+  }
+
   protected decide(allow: boolean): void {
     const open = this.open();
     if (open) this.asks.decide(open, allow);

@@ -33,13 +33,33 @@ struct Cli {
 enum Verb {
     /// Claude Code's hook for `Bash`, run by every session on this Mac.
     Hook,
+    /// Run a command as root: the console asks for the password on the phone and
+    /// runs it, so the session never sees the password.
+    Sudo {
+        /// The command, run by `bash -c` in the current directory.
+        command: String,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // `agent-console hook`: Claude Code's hook for `Bash`, run by every session on
     // this Mac. See [`hook`].
-    if let Some(Verb::Hook) = Cli::parse().verb {
+    let verb = Cli::parse().verb;
+    if let Some(Verb::Sudo { command }) = verb {
+        match sudo(command).await {
+            Ok(ran) => {
+                print!("{}", ran.stdout);
+                eprint!("{}", ran.stderr);
+                std::process::exit(ran.status);
+            }
+            Err(why) => {
+                eprintln!("the agent console could not be reached: {why:#}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if let Some(Verb::Hook) = verb {
         let _ = rustls::crypto::ring::default_provider().install_default();
         if let Err(why) = hook().await {
             // Exit 2 blocks the call and hands the session this sentence: a console
@@ -282,4 +302,25 @@ async fn hook() -> Result<()> {
             Err(why) => return Err(why).with_context(|| format!("at {url}")),
         }
     }
+}
+
+/// Ask the console to run `command` as root, and wait for the person to answer.
+async fn sudo(command: String) -> Result<console::sudo::Ran> {
+    let asked = console::sudo::Request {
+        session: std::env::var("CLAUDE_CODE_SESSION_ID")
+            .context("not run by a Claude Code session")?,
+        cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
+        command,
+    };
+    let url = format!("http://{}/api/sudo", Config::from_env().desk);
+    let ran = reqwest::Client::new()
+        .post(&url)
+        .json(&asked)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .with_context(|| format!("at {url}"))?
+        .json()
+        .await?;
+    Ok(ran)
 }

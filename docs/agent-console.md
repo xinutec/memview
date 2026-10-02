@@ -1795,6 +1795,18 @@ The hook fires for sessions started in a terminal too, since it is in the
 machine's Claude Code settings. Their transcripts are readable here, so their
 predictions are worth keeping as well.
 
+## Running a command as root
+
+A session cannot type a password, and must not see one. It runs
+`agent-console sudo '<command>'` instead (plain `sudo` fails without a terminal,
+which is how it finds out). The console shows the command on the phone with a
+password field; the password goes phone → console → `sudo -k -S` on its stdin,
+and nowhere else: not to the session, not into an event, not into a log (the
+answer type has no `Debug`, and telemetry records button labels, never input
+values). `-k` asks every time and leaves no cached login behind, so nothing else
+the session runs gains root. The session gets the command's output and exit
+status back. A question left standing by an upgrade is cleared when answered.
+
 ## Upgrading the runner without dropping a session
 
 `SIGUSR2` replaces the console's own executable in place, keeping every session

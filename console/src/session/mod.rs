@@ -533,6 +533,29 @@ impl Session {
         });
     }
 
+    /// A command waiting for a root password. See [`crate::sudo`].
+    pub fn ask_sudo(&self, id: &str, command: &str) {
+        let input = serde_json::json!({ "command": command });
+        self.push(Event::Ask {
+            id: id.to_string(),
+            call: None,
+            does: crate::call::Call::read("Bash", &input),
+            tool: "sudo".to_string(),
+            title: None,
+            detail: None,
+            input,
+        });
+    }
+
+    /// The root password question settled, run or refused.
+    pub fn sudo_settled(&self, id: &str, ran: bool) {
+        self.push(Event::Answered {
+            id: id.to_string(),
+            allowed: ran,
+            reply: None,
+        });
+    }
+
     /// Record an event as having happened now.
     fn push(&self, event: Event) {
         self.push_at(event, Some(now()));

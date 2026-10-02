@@ -62,6 +62,8 @@ pub fn router(roster: Arc<Roster>) -> Router {
             get(workflow_agent),
         )
         .route("/api/hook", post(hook))
+        .route("/api/sudo", post(sudo))
+        .route("/api/sessions/{id}/sudo", post(sudo_answer))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
@@ -1093,4 +1095,39 @@ async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> 
         Hook::Other => {}
     }
     StatusCode::NO_CONTENT
+}
+
+/// `agent-console sudo`: show the command on the phone, wait for the password,
+/// and run it. See [`crate::sudo`].
+async fn sudo(
+    State(roster): State<Arc<Roster>>,
+    Json(asked): Json<crate::sudo::Request>,
+) -> Json<crate::sudo::Ran> {
+    let Some(session) = roster.get(&asked.session) else {
+        return Json(crate::sudo::refused("no console session runs this command"));
+    };
+    let id = format!("sudo-{}", uuid::Uuid::new_v4());
+    let answer = roster.sudo().wait(&id);
+    session.ask_sudo(&id, &asked.command);
+    let ran = match answer.await.ok().flatten() {
+        Some(password) => crate::sudo::run(&asked.cwd, &asked.command, password).await,
+        None => crate::sudo::refused("refused from the console"),
+    };
+    session.sudo_settled(&id, ran.status == 0);
+    Json(ran)
+}
+
+async fn sudo_answer(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(answer): Json<crate::sudo::SudoAnswer>,
+) -> StatusCode {
+    if roster.sudo().answer(&answer.id, answer.password) {
+        return StatusCode::NO_CONTENT;
+    }
+    // Nothing waits any more, as after an upgrade: clear the question.
+    if let Some(session) = roster.get(&id) {
+        session.sudo_settled(&answer.id, false);
+    }
+    StatusCode::CONFLICT
 }

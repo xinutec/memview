@@ -23,6 +23,7 @@ pub mod peers;
 pub mod protocol;
 pub mod roster;
 pub mod session;
+pub mod sudo;
 pub mod tasks;
 pub mod tls;
 pub mod trace;
