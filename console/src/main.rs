@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
     // this Mac. See [`hook`].
     let verb = Cli::parse().verb;
     if let Some(Verb::Sudo { command }) = verb {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         match sudo(command).await {
             Ok(ran) => {
                 print!("{}", ran.stdout);
