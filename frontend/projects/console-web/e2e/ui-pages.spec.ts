@@ -1938,26 +1938,34 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   // The seed carries the byte offset it began at, and that — not the number of
   // entries — is what says the file holds more. Without it there is nothing
   // above the transcript to reach.
+  // A finite body ends the stream, and the browser reconnects about 3s later.
+  // The runner resumes such a reader from its last event id with nothing new;
+  // served the seed again, the page jumped back to the newest message and its
+  // cursor back to 5000, and asked again (flaked 2026-09-22, -26; 7 of 120
+  // under load, every one on a second connection).
+  let streams = 0;
   await page.route('**/api/sessions/*/events', (r) =>
-    r.fulfill({
-      contentType: 'text/event-stream',
-      body: [
-        ...TRANSCRIPT,
-        // Several screens of it, so that "at the newest message" is genuinely
-        // far from the top. The seed is a page and a page is 400 events; a
-        // fixture only a little taller than the screen puts the mark inside the
-        // 400px of prefetch margin at every scroll position, and the check
-        // below would then be asserting the margin does not exist.
-        ...Array.from({ length: 40 }, (_, n) => ({
-          kind: 'prompt',
-          text: `Message ${n + 1} of the page that was seeded when this view opened.`,
-          at: NEXT,
-        })),
-        { kind: 'joined', earlier: TRANSCRIPT.length + 40, from: 5000 },
-      ]
-        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-        .join(''),
-    }),
+    ++streams > 1
+      ? r.fulfill({ contentType: 'text/event-stream', body: 'retry: 600000\n\n' })
+      : r.fulfill({
+          contentType: 'text/event-stream',
+          body: [
+            ...TRANSCRIPT,
+            // Several screens of it, so that "at the newest message" is genuinely
+            // far from the top. The seed is a page and a page is 400 events; a
+            // fixture only a little taller than the screen puts the mark inside the
+            // 400px of prefetch margin at every scroll position, and the check
+            // below would then be asserting the margin does not exist.
+            ...Array.from({ length: 40 }, (_, n) => ({
+              kind: 'prompt',
+              text: `Message ${n + 1} of the page that was seeded when this view opened.`,
+              at: NEXT,
+            })),
+            { kind: 'joined', earlier: TRANSCRIPT.length + 40, from: 5000 },
+          ]
+            .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+            .join(''),
+        }),
   );
   await page.route('**/api/sessions/*/earlier?*', async (r) => {
     asked += 1;
