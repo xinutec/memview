@@ -86,28 +86,19 @@
           meta.mainProgram = "console";
         };
 
-        # The desk-side CLI, and ONLY it.
+        # The desk-side CLI, and ONLY it: `.#console`'s own `bin/sessions`, so the
+        # crate is compiled once per change rather than twice. `test -x` keeps
+        # what the gate row is for: a renamed binary fails here, where a bare
+        # symlink would point at nothing and pass.
         #
-        # ⚠ `--bin sessions` leaves the server OUT: it is installed outside the
+        # ⚠ `bin/sessions` leaves the server OUT: it is installed outside the
         # store by `scripts/console-upgrade.sh`, and shipping it again here would
         # put a second copy on PATH with different upgrade rules.
-        sessions = pkgs.rustPlatform.buildRustPackage {
-          pname = "sessions";
-          version = "0.1.0";
-          src = workspace;
-          cargoLock.lockFile = ./Cargo.lock;
-          cargoBuildFlags = [ "--package" "console" "--bin" "sessions" ];
-
-          # ⚠ **The tests are NOT run here, and that is not a gap.** `.#console`
-          # above is the same crate from the same source and runs the identical
-          # suite, so a second run is two minutes of every gate spent on
-          # byte-identical code. What this derivation checks is that the packaged
-          # binary builds and installs — `cargoBuildFlags` above. If the two ever
-          # stop being the same crate, the tests belong back here.
-          # dev-lint: allow-docheck-false the same suite runs in `.#console`
-          doCheck = false;
-          meta.mainProgram = "sessions";
-        };
+        sessions = pkgs.runCommand "sessions-0.1.0" { meta.mainProgram = "sessions"; } ''
+          test -x ${self.packages.${pkgs.stdenv.hostPlatform.system}.console}/bin/sessions
+          mkdir -p $out/bin
+          ln -s ${self.packages.${pkgs.stdenv.hostPlatform.system}.console}/bin/sessions $out/bin/sessions
+        '';
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.console;
       });
 
