@@ -97,10 +97,13 @@
         autocomplete="off"
         aria-label="password for sudo"
         placeholder="password"
-        (keydown.enter)="sudo(secret.value); secret.value = ''"
+        (input)="typed.set(secret.value !== '')"
+        (keydown.enter)="typed() && run(secret)"
       />
       <div class="choose">
-        <button matButton="filled" (click)="sudo(secret.value); secret.value = ''">run</button>
+        <!-- Nothing to send until something is typed: an empty password is a refusal
+             from sudo, and a wrong try counts against the account. -->
+        <button matButton="filled" [disabled]="!typed()" (click)="run(secret)">run</button>
         <button matButton (click)="sudo(null)">refuse</button>
       </div>
     } @else {

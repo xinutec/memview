@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 
 import { Asks } from './asks';
@@ -87,6 +87,16 @@ export class AskCard {
   protected answer(): void {
     const open = this.open();
     if (open) this.asks.answer(open);
+  }
+
+  /** Whether the password field holds anything. */
+  protected readonly typed = signal(false);
+
+  /** Send what was typed, and clear the field. */
+  protected run(secret: HTMLInputElement): void {
+    this.sudo(secret.value);
+    secret.value = '';
+    this.typed.set(false);
   }
 
   protected sudo(password: string | null): void {

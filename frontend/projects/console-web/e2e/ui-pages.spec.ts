@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
-import type { Overview, Summary } from '../src/app/models';
+import type { Overview, SudoAnswer, Summary, Timed } from '../src/app/models';
 import { first, last, nth } from '../src/app/testing';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
@@ -1619,6 +1619,48 @@ async function mockQuestion(page: Page): Promise<() => Record<string, unknown> |
   });
   return () => sent;
 }
+
+test('a root password is asked for, and nothing is sent until one is typed @ phone width', async ({
+  page,
+}) => {
+  // Tapping run on an empty field sent sudo an empty password twice: a refusal,
+  // and a wrong attempt counted against the account.
+  let sent: SudoAnswer | undefined;
+  await mockRunner(page);
+  const transcript = [
+    { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code/memview', tools: 14 },
+    {
+      kind: 'ask',
+      id: 'sudo-1',
+      tool: 'sudo',
+      does: { kind: 'bash', command: 'launchctl kickstart -k system/org.nixos.nix-daemon' },
+      at: NEXT,
+    },
+  ] satisfies Timed[];
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: transcript.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/sudo', (r) => {
+    sent = r.request().postDataJSON() as SudoAnswer;
+    return r.fulfill({ status: 204, body: '' });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  const field = page.getByLabel('password for sudo');
+  const run = page.getByRole('button', { name: 'run' });
+  await expect(page.getByText('launchctl kickstart -k system/org.nixos.nix-daemon')).toBeVisible();
+  await expect(run).toBeDisabled();
+  await field.press('Enter');
+  expect(sent, 'Enter on an empty field sends nothing').toBeUndefined();
+
+  await field.fill('hunter2');
+  await expect(run).toBeEnabled();
+  await run.click();
+  await expect.poll(() => sent).toEqual({ id: 'sudo-1', password: 'hunter2' });
+  await expect(field).toHaveValue('');
+});
 
 test('a question offers what was asked, not allow and refuse @ phone width', async ({
   page,
