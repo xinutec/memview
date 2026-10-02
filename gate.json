@@ -301,25 +301,6 @@
         "develop",
         "--no-warn-dirty",
         "--command",
-        "./scripts/sync-check.sh"
-      ],
-      "artifacts": [
-        "frontend/projects/console-web/test-results"
-      ],
-      "cwd": ".",
-      "env": {
-        "CI": "true"
-      },
-      "lane": "frontend",
-      "name": "drafts cross between two devices",
-      "timeout_s": 1800
-    },
-    {
-      "argv": [
-        "nix",
-        "develop",
-        "--no-warn-dirty",
-        "--command",
         "node",
         "scripts/graph-report.mjs"
       ],
@@ -392,36 +373,6 @@
     {
       "argv": [
         "nix",
-        "build",
-        "--no-warn-dirty",
-        "--no-link",
-        ".#console"
-      ],
-      "artifacts": [],
-      "cwd": ".",
-      "env": {},
-      "lane": "nix",
-      "name": "the console package builds (what this repo publishes)",
-      "timeout_s": 1800
-    },
-    {
-      "argv": [
-        "nix",
-        "build",
-        "--no-warn-dirty",
-        "--no-link",
-        ".#sessions"
-      ],
-      "artifacts": [],
-      "cwd": ".",
-      "env": {},
-      "lane": "nix",
-      "name": "the sessions CLI packages (what home-manager installs)",
-      "timeout_s": 1800
-    },
-    {
-      "argv": [
-        "nix",
         "run",
         "git+file:../dev-lint?ref=HEAD#gate",
         "--",
@@ -446,7 +397,7 @@
       "artifacts": [],
       "cwd": ".",
       "env": {},
-      "lane": "nix",
+      "lane": "dev-lint",
       "name": "dev-lint",
       "timeout_s": 900
     }

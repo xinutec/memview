@@ -20,6 +20,7 @@ jobs:
     container: rust:1.98-bookworm
     steps:
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
       - run: rustup component add clippy rustfmt
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
@@ -49,6 +50,29 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run ui-check
       - run: node ../scripts/graph-report.mjs
+
+  # What the local gate stopped running (2026-10-02): expensive and almost never
+  # the one to fail — over 30 days the two package rows cost 1,824 gate-minutes
+  # for two failures, the drafts row 270 for one. The store is cached on the
+  # lockfiles, so a run rebuilds memview and not its toolchain or crates.
+  nix:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'Cargo.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 6G
+      - uses: Swatinem/rust-cache@v2
+      # The binary this repo publishes, and the CLI home-manager installs.
+      - run: nix build --no-warn-dirty --no-link .#console .#sessions
+      # Drafts cross between two devices: the real console binary and a browser.
+      - run: nix develop --no-warn-dirty -c pnpm --dir frontend install --frozen-lockfile
+      - run: nix develop --no-warn-dirty -c ./scripts/sync-check.sh
 
   image:
     needs: [verify, fe-verify]

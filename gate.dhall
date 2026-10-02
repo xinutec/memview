@@ -180,13 +180,10 @@ in  { name = "memview"
         , argv = G.inDevShell [ "scripts/gen-types.sh", "--check" ]
         , timeout_s = 900
         }
-      , {-  **Three lanes, run beside each other** (2026-10-02, about 9 minutes
-            of medians in one lane): cargo in the main lane; the frontend from
-            here to the graph reports, which read its node_modules, with the
-            drafts row after the ui-check, since it rebuilds the bundle the
-            ui-check serves; and the nix builds with dev-lint. A cargo command
-            outside the main lane (the drafts row's build) waits on cargo's own
-            lock rather than racing it.
+      , {-  **Lanes, run beside each other** (2026-10-02, about 9 minutes of
+            medians in one lane): cargo in the main lane; the frontend from here
+            to the graph reports, which read its node_modules; dev-lint in its
+            own.
 
             `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or
             fail. The gate has to run from a clean checkout — a fresh clone, or
@@ -303,30 +300,6 @@ in  { name = "memview"
           -}
           artifacts = [ "test-results" ]
         , env = G.oneAngularWorker # G.nonInteractive
-        , timeout_s = 1800
-        }
-      , {-  The ONLY check where the Rust runner and the RxDB client meet.
-            `cargo test`'s drafts suite drives the protocol with documents Rust
-            wrote; the frontend's drives the client against a stub answering what
-            TypeScript expects. Both stay green while the two disagree about the
-            wire, which is how four sync defects reached the phone — every one
-            found by hand with two browsers.
-
-            ⚠ **It builds the console binary itself.** The alternative is a suite
-            that passes against whatever was left in `target/`.
-
-            ⚠ **The runner it starts is isolated by ASSERTION.** A console given
-            an incomplete environment does not fail: it falls back to the real
-            `~/.claude`, lists the real conversations and spawns the real CLI
-            over them. `e2e/runner.ts` refuses to hand back a runner that can see
-            anything but its own fixture.
-        -}
-        G.Check::{
-        , name = "drafts cross between two devices"
-        , lane = Some "frontend"
-        , argv = G.inDevShell [ "./scripts/sync-check.sh" ]
-        , artifacts = [ "frontend/projects/console-web/test-results" ]
-        , env = G.nonInteractive
         , timeout_s = 1800
         }
       , {-  The graph layout, measured rather than looked at. Every bug this view
@@ -448,42 +421,16 @@ in  { name = "memview"
               ]
         , timeout_s = 900
         }
-      , {-  A green gate has to mean the package this repo PUBLISHES still builds.
-            `packages.console` is the agent console binary, and `packages.default`
-            is an alias for it, so one row covers both.
-
-            None of the rows above touch it: `formatting`, `clippy` and `tests`
-            run cargo inside the dev shell against the working tree, which shares
-            almost everything with the packaged build and not the part that
-            breaks — the source fileset, the vendored lockfile, and the
-            derivation's own inputs. gamepads shipped a repo that could not be
-            built for weeks with a fully green gate, twice, for exactly that gap.
-        -}
-        G.Check::{
-        , name = "the console package builds (what this repo publishes)"
-        , lane = Some "nix"
-        , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#console" ]
-        , timeout_s = 1800
-        }
-      , {-  ⚠ **A separate row because it is a separate FAILURE.** `.#sessions`
-            shares this one's source and lockfile, so most breakage takes both —
-            but what is unique to it is `--bin sessions` naming a binary that
-            exists, and that is precisely what a rename breaks. This package was
-            added because the tool was renamed (memview#1298); leaving the next
-            rename to be caught by hand repeats the thing it fixed.
-
-            ⚠ **It is a machine-config dependency, which is why it earns a row
-            rather than a note.** home-manager installs it onto PATH, and a bad
-            input there does not fail this repo — it fails `home-manager switch`
-            for the whole Mac, long after the commit that broke it.
-        -}
-        G.Check::{
-        , name = "the sessions CLI packages (what home-manager installs)"
-        , lane = Some "nix"
-        , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#sessions" ]
-        , timeout_s = 1800
-        }
+      {-  The two packages and the drafts check run in CI, job `nix` in
+          `.github/workflows/build.yml` (2026-10-02): over 30 days they cost
+          2,094 gate-minutes for three failures, one also caught by `tests`. A
+          broken package or drafts protocol now shows minutes after the push
+          rather than blocking the commit. What their rows said they guard —
+          the source fileset, the vendored lockfile, `bin/sessions` for
+          home-manager, the Rust runner against the RxDB client — is unchanged;
+          only where it runs moved.
+      -}
       , G.checkTable "../dev-lint"
-      , G.devLint "../" // { lane = Some "nix" }
+      , G.devLint "../" // { lane = Some "dev-lint" }
       ]
     }
