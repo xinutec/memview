@@ -248,13 +248,16 @@ top of it:
     **A tripwire line can be short; it cannot be only a topic.** `no CoA`,
     `never up` and `absence≠evid` state a rule in a few characters, and a
     tripwire is a role, not a length. A lone word like `gods` or `SMTP` names a
-    subject and warns nobody. `memory-lint`'s `mute-tripwire` reports those: the
-    fix is re-judging the memory as a pointer or demoting it, never a longer
-    line, since the index is near its ceiling (memview#822, #1734). The word
+    subject and warns nobody. `memory-lint`'s `mute-tripwire` fails on those,
+    an error since it held at zero for a week (#1788). The fixes are a line
+    that states its rule in a few characters, re-judging the memory as a
+    pointer, demoting it, or the user accepting the label; never a longer line,
+    since the index is near its ceiling (memview#822, #1734). The word
     count in `states_a_claim` is only for the other direction, below. The ones
     judged and kept are recorded, name and label, in `accepted-labels.json`
     beside `memory-roles.json`, and only a new or relabelled one is reported;
     the record is frozen on purpose, so a new line never inherits it (#1784).
+    It is the user's to extend; a session never adds its own line to it.
 
     ⚠ **A pointer whose line states a claim is the dangerous direction, and
     `loud-pointer` counts them.** A judgement of POINTER on a line that states a claim is the record

@@ -75,12 +75,15 @@ const RULES: &[(&str, Severity, &str)] = &[
          only grow (memview#1537)",
     ),
     (
-        // A warning while violations remain. Zero comes from re-judging or demoting,
-        // never from longer lines: the index is near its ceiling (memview#822).
+        // An error since 2026-10-03: zero on every corpus commit since the record
+        // landed on 2026-09-26 (memview#1788). Never fixed with longer lines: the
+        // index is near its ceiling (memview#822).
         "mute-tripwire",
-        Severity::Warning,
+        Severity::Error,
         "a memory judged TRIPWIRE whose index line is only a topic word — it \
-         warns nobody, so either the line or the judgement is wrong",
+         warns nobody. Make the line state its rule (`no CoA` is enough), \
+         re-judge the memory as a pointer, or ask the user to accept the label. \
+         accepted-labels.json is theirs to extend: a session never adds itself",
     ),
     (
         "stale-acceptance",

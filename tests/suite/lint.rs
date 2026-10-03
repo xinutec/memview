@@ -759,6 +759,13 @@ fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
     // Only the lone topic word. A short rule (`no CoA`) or relation
     // (`absence≠evid`) says something; the pointer is left alone by design.
     assert_eq!(flagged, vec!["mute_trip".to_string()]);
+    assert_eq!(
+        memview::lint::rule_reasons()
+            .get("mute-tripwire")
+            .map(|(s, _)| *s),
+        Some(Severity::Error),
+        "promoted after a week at zero (memview#1788)"
+    );
 }
 
 /// The same shape test, accusing the other role. `memory-tiers` demotes on the
