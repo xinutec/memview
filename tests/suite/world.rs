@@ -491,6 +491,26 @@ fn an_identifier_named_as_a_snapshot_is_not_read_as_a_commit() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
+/// A phone's adb serial is lowercase hex too: `project_android_install` names its
+/// second OnePlus 6T by serial, and the only finding left in the corpus on
+/// 2026-10-04 was that serial read as a dead commit.
+#[test]
+fn an_identifier_named_as_a_serial_is_not_read_as_a_commit() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "**Second 6T (serial `70add511`), 2026-09-28** arrived on OxygenOS 10.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
 /// The exemption above must not become a block-wide waiver, which is the
 /// mistake `dead-repo-path` explicitly avoids. Measured on the corpus: scoped to
 /// the enclosing block, one `restic` in a paragraph excuses every sha in it — 43

@@ -762,7 +762,8 @@ const NOT_A_REPO: &[&str] = &[
 
 /// Words that name an 8-hex identifier as something other than a commit, read
 /// in the [`KIND_WINDOW`] characters before the opening backtick: `snapshot`,
-/// `restic`, `magic`, `bytecode`, `blob`, `hash-object`. Enumerated. `session`
+/// `restic`, `magic`, `bytecode`, `blob`, `hash-object`, and a device's adb
+/// `serial`. Enumerated. `session`
 /// is deliberately NOT here — session ids are excluded by `originSessionId`.
 const NOT_A_COMMIT_KIND: &[&str] = &[
     "restic",
@@ -774,6 +775,7 @@ const NOT_A_COMMIT_KIND: &[&str] = &[
     "checksum",
     "digest",
     "inode",
+    "serial",
 ];
 
 /// How far back the text before a token is read for [`NOT_A_COMMIT_KIND`]: 20
