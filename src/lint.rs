@@ -261,7 +261,8 @@ const RULES: &[(&str, Severity, &str)] = &[
     ),
     (
         "unlinked-co-use",
-        // Advisory, and never promoted: evidence, not a rule.
+        // Advisory, and never promoted: evidence, not a rule. Reported only when
+        // asked (`memory-lint --co-use`): a suggestion is not a defect.
         Severity::Warning,
         "used together in separate turns but neither links the other — a link the corpus is missing",
     ),

@@ -1,9 +1,14 @@
 //! Static analysis for the memory corpus.
 //!
-//!     cargo run --bin memory-lint [-- <corpus dir>]
+//!     cargo run --bin memory-lint [-- [--co-use] <corpus dir>]
 //!
 //! Defaults to the live corpus. Exits non-zero only on ERROR findings; a rule is
 //! introduced as a warning, worked to zero, and promoted in `lint.rs`.
+//!
+//! `--co-use` adds the link suggestions mined from the transcripts
+//! (`unlinked-co-use`). They are not on by default because a suggestion is not a
+//! defect: on 2026-10-04 two of the twenty shown were real, and a lint that always
+//! lists twenty things nobody should act on teaches its reader to skip it.
 use anyhow::Result;
 use clap::Parser;
 use memview::couse::CoUse;
@@ -56,17 +61,22 @@ fn settle(
 struct Cli {
     /// The memory directory [default: the corpus].
     dir: Option<String>,
+    /// Also suggest links between memories used together in the transcripts.
+    #[arg(long)]
+    co_use: bool,
 }
 
 fn main() -> Result<()> {
-    let dir = Cli::parse()
+    let cli = Cli::parse();
+    let dir = cli
         .dir
         .unwrap_or_else(|| reader::home::memory_dir().to_string_lossy().into_owned());
     let corpus = Corpus::load(&dir)?;
-    // Optional: the artefact reads gigabytes of transcripts and is absent on any
-    // machine but the Mac.
+    // Only when asked (`--co-use`). Optional even then: the artefact reads
+    // gigabytes of transcripts and is absent on any machine but the Mac.
     let couse = std::path::Path::new(&dir)
         .parent()
+        .filter(|_| cli.co_use)
         .map(|p| p.join("couse.json"))
         .and_then(|p| CoUse::load(&p));
     // Absent is tolerated here and NOT in `memory-rank`: that tool decides what to
