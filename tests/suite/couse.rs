@@ -380,3 +380,89 @@ fn a_pair_present_in_every_session_scores_one_not_nan() {
     assert_eq!(found.pairs.len(), 1);
     assert_eq!(found.pairs[0].npmi, 1.0);
 }
+
+/// A line the harness put into the session rather than one I wrote: the recall
+/// system injects memories into a prompt, and a tool result can list them.
+fn injected(uuid: &str, parent: Option<&str>, prompt: Option<&str>, text: &str) -> String {
+    msg(uuid, parent, prompt, text).replacen("\"type\":\"assistant\"", "\"type\":\"user\"", 1)
+}
+
+/// The suggestions come from memories I USED together: opened, or named in my own
+/// words. On 2026-10-04 the strongest unlinked pairs were five memories the recall
+/// system injects together — the mypy rule, the hospital calendar, capture — and
+/// not one of their pairs was a real relation.
+#[test]
+fn a_pair_met_in_my_own_words_is_suggested() {
+    let found = mine(&met_in_three(), &["project_alpha", "reference_beta"]);
+    assert_eq!(found.suggest.len(), 1, "{:?}", found.suggest);
+}
+
+#[test]
+fn a_pair_that_only_arrived_together_is_not_suggested_but_still_shapes_the_layout() {
+    let sessions: Vec<Vec<String>> = (0..3)
+        .map(|s| {
+            vec![
+                injected(&format!("{s}a"), None, Some("p1"), "project_alpha"),
+                injected(
+                    &format!("{s}b"),
+                    Some(&format!("{s}a")),
+                    None,
+                    "reference_beta",
+                ),
+            ]
+        })
+        .collect();
+    let found = mine(&sessions, &["project_alpha", "reference_beta"]);
+    assert_eq!(found.pairs.len(), 1, "layout keeps it: {:?}", found.pairs);
+    assert!(found.suggest.is_empty(), "{:?}", found.suggest);
+}
+
+/// A turn that touched many memories says little about any two of them. Measured
+/// on 2026-10-04: limited to turns of at most eight, the suggestions went from 47
+/// to 6, and about four of the six were real.
+#[test]
+fn a_pair_met_only_in_broad_turns_is_not_suggested() {
+    let others = [
+        "feedback_c1",
+        "feedback_c2",
+        "feedback_c3",
+        "feedback_c4",
+        "feedback_c5",
+        "feedback_c6",
+        "feedback_c7",
+    ];
+    let sessions: Vec<Vec<String>> = (0..3)
+        .map(|s| {
+            let mut lines = vec![
+                msg(&format!("{s}a"), None, Some("p1"), "project_alpha"),
+                msg(
+                    &format!("{s}b"),
+                    Some(&format!("{s}a")),
+                    None,
+                    "reference_beta",
+                ),
+            ];
+            for (i, o) in others.iter().enumerate() {
+                let parent = format!("{s}x{}", i);
+                let prev = if i == 0 {
+                    format!("{s}b")
+                } else {
+                    format!("{s}x{}", i - 1)
+                };
+                lines.push(msg(&parent, Some(&prev), None, o));
+            }
+            lines
+        })
+        .collect();
+    let mut corpus = vec!["project_alpha", "reference_beta"];
+    corpus.extend(others);
+    let found = mine(&sessions, &corpus);
+    assert!(
+        !found
+            .suggest
+            .iter()
+            .any(|p| p.a == "project_alpha" && p.b == "reference_beta"),
+        "{:?}",
+        found.suggest
+    );
+}

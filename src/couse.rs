@@ -62,8 +62,16 @@ pub struct CoUse {
     pub generated: String,
     /// Turns that used at least two memories — the denominator.
     pub turns: usize,
-    /// Pairs above the session floor, strongest first.
+    /// Pairs above the session floor, strongest first. Every mention counts,
+    /// injected ones included: this is the layout's affinity, which wants breadth.
     pub pairs: Vec<Pair>,
+    /// The stricter list link suggestions come from (`memory-lint --co-use`): only
+    /// memories USED in a turn — opened, or named in the session's own words — and
+    /// only turns touching at most [`MAX_SUGGEST_BASKET`] of them. Measured on
+    /// 2026-10-04 against the broad list: unlinked suggestions 74 → 6, and about
+    /// four of the six real, against roughly one in eight.
+    #[serde(default)]
+    pub suggest: Vec<Pair>,
     /// Per-memory usage, for every memory seen at least once.
     #[serde(default)]
     pub usage: BTreeMap<String, Usage>,
@@ -83,6 +91,11 @@ const MAX_BASKET: usize = 40;
 /// grep result, or a bullet of MEMORY.md naming seventeen, which manufactured
 /// 136 pairs that outranked everything real. The per-turn cap does not catch it.
 const MAX_PER_LINE: usize = 6;
+
+/// Most memories one turn may hold and still suggest a link between two of them.
+/// A turn that used thirty memories says almost nothing about any two; at eight,
+/// 92% of the pairs mined were ones the corpus already links (2026-10-04).
+pub const MAX_SUGGEST_BASKET: usize = 8;
 
 impl CoUse {
     pub fn load(path: &Path) -> Option<Self> {
@@ -109,7 +122,8 @@ impl CoUse {
         let neighbours = |n: &str| adjacency.get(n).unwrap_or(&empty);
         let mut worklist = Vec::new();
         let mut connected = 0usize;
-        for p in &self.pairs {
+        // The strict list: a link is suggested only from memories USED together.
+        for p in &self.suggest {
             let (a, b) = (neighbours(&p.a), neighbours(&p.b));
             if a.contains(&p.b) || b.contains(&p.a) || a.intersection(b).next().is_some() {
                 connected += 1;
@@ -194,6 +208,7 @@ fn scan_session(
     session: usize,
     code_root: &str,
     out: &mut Vec<(usize, BTreeSet<String>)>,
+    used_out: &mut Vec<(usize, BTreeSet<String>)>,
     usage: &mut BTreeMap<String, Usage>,
 ) -> Result<()> {
     let text = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
@@ -202,6 +217,10 @@ fn scan_session(
     let mut prompt_of: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     // (uuid, name) pairs, resolved to turns once the whole tree is known.
     let mut refs: Vec<(Vec<u8>, String)> = Vec::new();
+    // The subset the session USED: opened, or named in its own (assistant) words.
+    // A user-typed line is where the harness injects recalled memories and where
+    // tool results come back, and neither is a choice to consult two memories.
+    let mut used: Vec<(Vec<u8>, String)> = Vec::new();
 
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
@@ -253,6 +272,9 @@ fn scan_session(
             {
                 entry.last = Some(stamp.clone());
             }
+            if opened || find_at(line, b"\"type\":\"assistant\"", 0).is_some() {
+                used.push((uuid.clone(), name.clone()));
+            }
             refs.push((uuid.clone(), name));
         }
     }
@@ -293,6 +315,16 @@ fn scan_session(
             .filter(|b| b.len() >= 2 && b.len() <= MAX_BASKET)
             .map(|b| (session, b)),
     );
+    let mut used_baskets: BTreeMap<Vec<u8>, BTreeSet<String>> = BTreeMap::new();
+    for (uuid, name) in used {
+        used_baskets.entry(turn_of(&uuid)).or_default().insert(name);
+    }
+    used_out.extend(
+        used_baskets
+            .into_values()
+            .filter(|b| b.len() >= 2 && b.len() <= MAX_SUGGEST_BASKET)
+            .map(|b| (session, b)),
+    );
     Ok(())
 }
 
@@ -304,6 +336,7 @@ pub fn scan(
     generated: &str,
 ) -> Result<CoUse> {
     let mut baskets: Vec<(usize, BTreeSet<String>)> = Vec::new();
+    let mut used_baskets: Vec<(usize, BTreeSet<String>)> = Vec::new();
     let mut usage: BTreeMap<String, Usage> = BTreeMap::new();
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
         .with_context(|| format!("reading transcripts in {}", dir.display()))?
@@ -313,7 +346,15 @@ pub fn scan(
     paths.sort();
     let session_count = paths.len();
     for (i, path) in paths.iter().enumerate() {
-        scan_session(path, corpus, i, code_root, &mut baskets, &mut usage)?;
+        scan_session(
+            path,
+            corpus,
+            i,
+            code_root,
+            &mut baskets,
+            &mut used_baskets,
+            &mut usage,
+        )?;
     }
 
     let total = baskets.len();
@@ -337,11 +378,25 @@ pub fn scan(
             }
         }
     }
+    let pairs = rank(&baskets, session_count);
+    let suggest = rank(&used_baskets, session_count);
+    Ok(CoUse {
+        generated: generated.to_string(),
+        turns: total,
+        pairs,
+        suggest,
+        usage,
+    })
+}
+
+/// Pairs above the session floor, by npmi over sessions: the session is the
+/// sample, the turn only how a meeting is detected.
+fn rank(baskets: &[(usize, BTreeSet<String>)], session_count: usize) -> Vec<Pair> {
     // Per-session presence, which is what makes the session the sampling unit.
     let mut name_sessions: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     let mut pair_sessions: BTreeMap<(&str, &str), BTreeSet<usize>> = BTreeMap::new();
     let mut pair_turns: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    for (session, basket) in &baskets {
+    for (session, basket) in baskets {
         let names: Vec<&str> = basket.iter().map(String::as_str).collect();
         for (i, a) in names.iter().enumerate() {
             name_sessions.entry(a).or_default().insert(*session);
@@ -389,12 +444,7 @@ pub fn scan(
             .then(y.sessions.cmp(&x.sessions))
             .then(x.a.cmp(&y.a))
     });
-    Ok(CoUse {
-        generated: generated.to_string(),
-        turns: total,
-        pairs,
-        usage,
-    })
+    pairs
 }
 
 /// ISO-8601 UTC from a unix timestamp, without a date crate for one string.
