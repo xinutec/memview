@@ -190,6 +190,7 @@ export async function start(port: number, staticDir: string): Promise<Runner> {
 async function conversationsSeen(url: string): Promise<string[] | undefined> {
   const body: unknown = await fetch(url)
     .then((res) => (res.ok ? (res.json() as Promise<unknown>) : undefined))
+    // dev-lint: allow-ignored-error a runner not answering yet is `undefined`, which the poll waits out
     .catch(() => undefined);
   if (!Array.isArray(body)) return undefined;
   return body.flatMap((row: unknown) =>

@@ -96,6 +96,7 @@ export class SearchView {
     // the hit list above, whose empty state is a sentence.
     this.work$
       .pipe(
+        // dev-lint: allow-ignored-error the panel shows only a non-empty roster, so a failure claims nothing
         switchMap((q) => this.api.work(q).pipe(catchError(() => of([])))),
         takeUntilDestroyed(),
       )
