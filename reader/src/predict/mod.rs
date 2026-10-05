@@ -38,6 +38,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod perl;
 mod python;
 mod python_re;
 pub mod sed;
@@ -151,6 +152,8 @@ pub enum Why {
     Python(String),
     /// A sed flag, command or pattern it does not follow, by name.
     Sed(String),
+    /// A perl flag, statement or pattern it does not follow, by name.
+    Perl(String),
     /// A file an undecided `if` left one of several texts, read for its text.
     Branches,
 }
@@ -164,6 +167,7 @@ impl Why {
             Why::Option(option) => format!("option {option}"),
             Why::Python(construct) => format!("python {construct}"),
             Why::Sed(construct) => format!("sed {construct}"),
+            Why::Perl(construct) => format!("perl {construct}"),
             Why::Branches => "one of several texts".to_string(),
             other => format!("{other:?}").to_lowercase(),
         }
@@ -1850,6 +1854,39 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// `perl -pi -e`: each file rewritten by the code, as [`Self::sed`] does
+    /// for a script, and its old text kept under the backup suffix when one was
+    /// given. What the code or the flags say that [`perl`] does not follow is
+    /// refused by name, once per file.
+    fn perl(&mut self, argv: &[String], paths: &[String]) {
+        let invocation = perl::invocation(argv);
+        for path in paths {
+            let text = match self.read(path) {
+                Held::Text(text) => Ok(text),
+                Held::Absent => Err(Why::Missing),
+                Held::Unknown => Err(Why::NotRead),
+                Held::OneOf(_) => Err(Why::Branches),
+            };
+            let (after, suffix) = match (&invocation, text) {
+                (Err(refused), _) => (Err(Why::Perl(refused.clone())), None),
+                (Ok(_), Err(why)) => (Err(why), None),
+                (Ok(invocation), Ok(before)) => {
+                    let code: Vec<&str> = invocation.code.iter().map(String::as_str).collect();
+                    let after = perl::apply(&code, invocation.slurp, &before).map_err(Why::Perl);
+                    let backup = invocation
+                        .suffix
+                        .as_ref()
+                        .map(|suffix| (format!("{path}{suffix}"), before));
+                    (after, backup)
+                }
+            };
+            if let Some((backup, before)) = suffix {
+                self.write(&backup, false, Ok(before));
+            }
+            self.write(path, false, after);
+        }
+    }
+
     /// `mv`: one file to one file, as `cp` and then the source removed. A flag
     /// other than `-f` or `-v` (no-clobber, a prompt) and several sources are
     /// refused by name; a destination sight cannot show may be a directory.
@@ -1987,6 +2024,20 @@ impl<'a> Run<'a> {
             && argv.first().is_some_and(|head| basename(head) == "sed")
         {
             self.sed(&argv, paths);
+            return;
+        }
+        // `perl -pi -e` the same way, where Perl's regex and Rust's agree.
+        if let Op::Transform {
+            program_file: None,
+            paths,
+            in_place: true,
+            ..
+        } = &op
+            && literal.iter().all(Option::is_some)
+            && why.is_none()
+            && argv.first().is_some_and(|head| basename(head) == "perl")
+        {
+            self.perl(&argv, paths);
             return;
         }
         // A move of one file to another: the destination holds the source's

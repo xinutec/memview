@@ -3268,3 +3268,53 @@ fn a_modules_list_changed_by_index_inside_a_call_changes_in_the_module() {
         found.unfollowed
     );
 }
+
+/// `perl -pi -e` rewrites what sight has shown, as `sed -i` does, where Perl's
+/// regex and Rust's agree: the corpus's commonest shapes, `-pi -e 's/…/…/'`
+/// and `-0pi -e` across lines, 264 calls on the live census of 2026-10-05.
+#[test]
+fn perl_in_place_rewrites_what_sight_has_shown() {
+    let files = known(&[
+        (
+            "/repo/deps.dhall",
+            Some("pin \"@angular/core\" \"^22.1.7\"\nother\n"),
+        ),
+        ("/repo/a.rs", Some("x\nuse a;\n  use b;\ny\n")),
+    ]);
+    let found = run(
+        "perl -pi -e 's/(pin \"\\@angular\\/[a-z-]+\" )\"\\^22\\.1\\.[78]\"/$1\"^22.2.0\"/' deps.dhall && perl -0pi -e 's/use a;\\n  use b;/use c;/' a.rs",
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written(
+                "/repo/deps.dhall",
+                "pin \"@angular/core\" \"^22.2.0\"\nother\n"
+            ),
+            written("/repo/a.rs", "x\nuse c;\ny\n"),
+        ],
+        "{:?}",
+        found.unfollowed
+    );
+    // The backup suffix keeps the old text; what perl does not follow is refused
+    // by name under `perl`.
+    let found = run(
+        "perl -pi.bak -e 's/x/y/' a.rs; perl -pi -e 's/a/$x/' deps.dhall",
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.rs.bak", "x\nuse a;\n  use b;\ny\n"),
+            written("/repo/a.rs", "y\nuse a;\n  use b;\ny\n"),
+        ]
+    );
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/deps.dhall".to_string()),
+            why: Why::Perl("variable".to_string()),
+        }]
+    );
+}

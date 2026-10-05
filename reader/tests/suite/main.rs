@@ -21,6 +21,7 @@ mod javascript;
 mod leaf;
 mod naming;
 mod oracle;
+mod perl;
 mod predict;
 mod projection;
 mod python;

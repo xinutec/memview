@@ -219,6 +219,21 @@ its one-line `a text` fails the call, and appending after a last line without
 a newline, where BSD and GNU sed differ, is refused. Each is held to what
 `/usr/bin/sed -i ''` left in a file.
 
+`perl -pi -e 's/…/…/'` and `perl -0pi -e` rewrite what sight has shown where
+Perl's regular expressions and Rust's agree (`reader/src/predict/perl.rs`):
+the two take the leftmost match and the first alternative alike, so no
+longest-match construction is needed as it is for sed, and they part on a
+backreference, lookaround, a possessive quantifier, an empty match under `g`
+and non-ASCII text under anything that reads characters — `perl -pi` reads
+bytes, and `s/./x/g` on `aé` gives three `x` — each refused by name. Under
+`-p` a record is one line, so Perl's bare `$` is Rust's `(?m:$)` and its `^`
+is `\A`, exactly; under `-0` the final newline is held back for a pattern
+that cannot match one, and a bare `$` before a final newline is refused
+otherwise. An escaped delimiter is the bare delimiter handed to the engine:
+`s|a\|b|X|` is an alternation. Each is held to what `/usr/bin/perl` left in a
+file. Built from the live census of 2026-10-05, where `perl` stopped 264
+calls, the largest modellable reason once the ranking counted calls.
+
 Any other program that writes files itself has them named by the shell tables
 and refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`)
 stands for everything under its fixed part.
