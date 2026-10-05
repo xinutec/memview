@@ -16,6 +16,8 @@ a number rather than a silence.
 
 [execution-model.md](execution-model.md) specifies the syntax layer underneath,
 `reader/src/syntax/`, and the three gates that govern it;
+[evaluator.md](evaluator.md) the evaluator beside this chain, which says what
+the files will hold rather than which were touched; and
 [concept-model.md](concept-model.md) designs the layer above — lifting these
 effects into the concepts they served, and lowering a concept back to a
 command. **The chain below reads
@@ -28,6 +30,26 @@ is built from.
 both readers the same question over one corpus — **96.3% of 145,219 distinct
 commands read identically**, and the 3.7% that do not are ranked. That comparison
 is what found six defects nothing else could see; see *Two readers*, below.
+
+## Three questions, three layers
+
+Three readings of one command, each exact in its own domain and refusing by
+name outside it, and each with a judge that is not its own code. They are
+easy to run together, and the names used for them below are not
+interchangeable.
+
+| | question | answers in | refuses by | judged by |
+| --- | --- | --- | --- | --- |
+| syntax — [execution-model.md](execution-model.md) | what is this text | a tree | construct | the round-trip law; bash's own printer; `bash -n` |
+| reading — this document | what did it touch, read from history | a named path; a described set `S ⊆ L`; a counted remainder | reason (`Why`) | the PATH-shim oracle on fixtures; the second reader |
+| evaluator — [evaluator.md](evaluator.md) | what will the files hold | a file's exact text, or a finite set of texts, or its absence | construct (`Unfollowed`) | the file after the call, on every live call |
+| concepts — [concept-model.md](concept-model.md) | what was it for | a typed, invertible concept with holes | reason (`Why`) | `lift ∘ lower = id`; the effect reading; the author's description |
+
+The reading is an abstract interpretation in one sense only: it evaluates as far
+as the text determines and stops, and *Why this is not sound abstract
+interpretation* below says what it refuses to do. The evaluator is concrete:
+given the file, it computes the file. The two share the tree, the operation
+tables and the subjects; they do not share a domain.
 
 ## Chain
 
@@ -44,7 +66,7 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/sql.rs` + `sql.pest` | same, for inline SQL — but in TABLES, not files |
 | `reader/src/program.rs` | the types both carried readers answer in |
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
-| `reader/src/predict.rs` | what will the files it writes hold afterwards? `--bin predict-report` ranks what it does not follow yet |
+| `reader/src/predict/` | what will the files it writes hold afterwards? ([evaluator.md](evaluator.md)); `--bin predict-report` ranks what it does not follow yet |
 | `reader/src/reading.rs` | the whole corpus surveyed, as a value the report and both apps draw |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
 | `reader/src/concept.rs` | what was it FOR — and back to a command again ([concept-model.md](concept-model.md)) |
@@ -90,7 +112,7 @@ toward undercounting.
 - Nothing is looked up on disk. Reading history, that filesystem is gone.
   Predicting a live call, the console reads the files and passes their text in
   as a value — the reader still opens nothing
-  ([execution-model.md](execution-model.md#two-settings-one-evaluator)).
+  ([evaluator.md](evaluator.md#two-settings-one-evaluator)).
 - Nothing is expanded beyond `~` and `$HOME`, the one knowable value.
 - A word needs a `/`, a `~` or an extension to be a path. Costs real reads
   (`rg foo src` loses `src`); keeps flag values from becoming filenames.
@@ -126,12 +148,14 @@ itself, so even a glob loop runs its body once. The rule is bash's.
 
 ## Method
 
-1. **Pick the right corpus, and say which.** `~/.claude/corpus/union.jsonl` is a
-   frozen denominator, so two rates measured against it are comparable. ⚠ It is
-   NOT the case that the live transcripts shrink — this said so, and #1240
-   measured otherwise; the live corpus grows, which moves a rate just as surely.
-   Rebuild from transcripts when the question is about what is current. See the
-   corpus discipline in [execution-model.md](execution-model.md).
+1. **Pick the right corpus, and say which.** Two rates are comparable only
+   against one denominator, so when a figure has to hold across a change, copy
+   `~/.claude/memview/cache/bash-corpus.jsonl` for the duration and pass the
+   copy. ⚠ `~/.claude/corpus/union.jsonl` was that frozen copy and is RETIRED
+   (2026-08-29): it rested on the claim that the live transcripts shrink, and
+   #1240 measured otherwise; the live corpus grows, which moves a rate just as
+   surely. Rebuild from transcripts when the question is about what is current.
+   See the corpus discipline in [execution-model.md](execution-model.md#the-corpus).
 
    ⚠ **Absolute figures in this file dated on or before 2026-08-23 were taken
    over a union that held one era TWICE** — 141,545 of 298,895 rows, collapsed
@@ -1295,7 +1319,7 @@ corpus command is ever re-executed.**
 **A live call is checked against its own outcome.** When the console predicts a
 call before it runs, it compares the prediction with the files afterwards; a
 divergence is a defect, kept with its command and both texts
-([execution-model.md](execution-model.md#two-settings-one-evaluator)). It
+([evaluator.md](evaluator.md#the-live-oracle)). It
 observes a call that ran anyway, so this is still no re-execution.
 
 ### Why this is not sound abstract interpretation

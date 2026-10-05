@@ -30,7 +30,8 @@ it but its own report.
 | --- | --- |
 | [docs/viewer.md](docs/viewer.md) | routes, graph, auth, environment, deployment, gate |
 | [docs/reader.md](docs/reader.md) | the reading chain, what it refuses, the reports |
-| [docs/execution-model.md](docs/execution-model.md) | the syntax layer being built under the reader |
+| [docs/execution-model.md](docs/execution-model.md) | the syntax layer under the reader: the tree, the printer, the gates |
+| [docs/evaluator.md](docs/evaluator.md) | what a command will leave in the files it writes, predicted before it runs and checked after |
 | [docs/agent-console.md](docs/agent-console.md) | the console's design and threat model |
 
 Each stage's authoritative explanation is its module doc-comment; the docs carry

@@ -1770,7 +1770,7 @@ hands the call to the console on the loopback port and waits for the answer.
 **Before.** The console asks the reader which files the command writes, reads
 their current text, and gives both to the reader's evaluator, which answers with
 the text each file will hold afterwards — or a named refusal
-([execution-model.md](execution-model.md#two-settings-one-evaluator)). The answer
+([execution-model.md](evaluator.md#two-settings-one-evaluator)). The answer
 is kept for the call and drawn at once: the tool row gets a pencil, and its sheet
 shows the change as a diff, hunks with a few lines of context. For an edit waiting
 on permission, that is the change being asked about.

@@ -138,6 +138,12 @@ Two further calls — what a dynamic resolver may read, and whose world it reads
 | L4 | concepts — **this design** | lift | lower |
 | L5 | activity, episodes — `activity.rs`, `doing.rs` | classify | none, by design |
 
+The evaluator ([evaluator.md](evaluator.md)) is not a level of this tower. It
+takes L1's tree and L3's subjects and answers a different question — what the
+files will hold — in a domain of its own, exact text or a finite set of texts,
+with the file after the call as its judge. It sits beside the tower, and a
+concept's predicted subjects (*What it buys*, below) are read from it.
+
 L1 already has both directions and a law; everything above it is one-way today.
 `activity.rs` says so about itself: *"deliberately lossy: an `Activity` cannot
 be turned back into the command it came from, and is not meant to be."* That is
@@ -436,11 +442,18 @@ environment lookup, a `stat` read state that exists; running the command is the
 thing prediction exists to precede. Two consequences, decided here (2026-09-03,
 revisable only by a measurement, not by convenience):
 
-- **`$(…)` stays a hole.** It cannot be statically proven side-effect-free —
-  `$(git rev-parse HEAD)` and `$(rm -rf x && echo done)` are one shape — and an
-  allowlist of "provably pure" spellings is a boundary that rots. If a census
-  ever shows the substitution holes dominating real predictions, that is the
-  measurement that reopens this; nothing else does.
+- **`$(…)` is a hole unless the program inside it is followed.** It cannot
+  be statically proven side-effect-free — `$(git rev-parse HEAD)` and
+  `$(rm -rf x && echo done)` are one shape — and an allowlist of "provably
+  pure" spellings is a boundary that rots. ⚠ **This said "stays a hole,
+  revisable only by a measurement", and it was revised by construction
+  instead** when the evaluator was built: a `$( )` is followed as a subshell
+  under the same rules as any other command ([evaluator.md](evaluator.md),
+  *Variables and expansions*), so `$(basename "$f")` has a value because
+  `basename` is modelled in Rust, and `$(git rev-parse HEAD)` withdraws what
+  came before it because `git` is not. That is not an allowlist of spellings;
+  it is the one set of programs the evaluator follows anywhere, applied inside
+  a word.
 - **The world read is the one the command will see.** The session's cwd, the
   session's environment, this machine's filesystem. A command under `ssh` runs
   in a world this resolver must not pretend to have read — remote prediction
@@ -449,13 +462,17 @@ revisable only by a measurement, not by convenience):
 
 ### Where it lives
 
-Above `reader`, in the console — the split already made for exactly this.
-`reader` stays filesystem-blind and produces the static structure with its
-spaces; the console, which already holds read access to the root-of-truth Mac
-and already carries the ask card, is the resolver. reader.md wrote the
-placement down before this layer existed: *"it must live above this library —
-`reader` touches no filesystem, and that property is worth more than the
-convenience."*
+The evaluator is in `reader/src/predict/`, a pure function whose only
+window on the world is the `Sight` it is handed ([evaluator.md](evaluator.md),
+*Sight*); the console, which already holds read access to the root-of-truth
+Mac and already carries the ask card, answers that `Sight` from disk and reads
+the files again after the call. ⚠ **This said the console is the resolver, and
+it is half of one**: the reads are the console's, the evaluation is the
+reader's, and `reader` stays filesystem-blind as reader.md wrote down before
+this layer existed: *"it must live above this library — `reader` touches no
+filesystem, and that property is worth more than the convenience."* The
+property held by making the filesystem an argument, not by moving the
+evaluation out.
 
 Both arms are falsifiable by the instrument that exists.
 `reader/tests/suite/oracle.rs` runs fixtures for real under PATH shims and asserts

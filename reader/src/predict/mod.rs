@@ -1,5 +1,5 @@
 //! What a command will leave in the files it writes, predicted from its text and
-//! the state it is given — see `docs/execution-model.md`, "Two settings, one
+//! the state it is given — see `docs/evaluator.md`, "Two settings, one
 //! evaluator".
 //!
 //! A pure function. It opens nothing and runs nothing: the text of each file it
@@ -66,7 +66,7 @@ pub type Files = BTreeMap<String, Option<String>>;
 pub type Dirs = BTreeMap<String, Option<Vec<String>>>;
 
 /// What the evaluator may be shown, asked for when a command needs it. It reads
-/// and never runs — `docs/execution-model.md`, "Sight". This crate has no
+/// and never runs — `docs/evaluator.md`, "Sight". This crate has no
 /// implementation that touches a disk: a [`Files`] answers from what it holds,
 /// which is how history (nothing) and a test (a fixture) are shown.
 pub trait Sight {

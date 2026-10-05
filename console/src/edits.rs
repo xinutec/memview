@@ -8,7 +8,7 @@
 //! [`reader::predict::check`] whether they hold what was predicted — or, for a
 //! call sent to the background, leaves that to [`Edits::ended`]. A divergence
 //! is a defect in the evaluator, kept in full so it can become a test — see
-//! `docs/execution-model.md`, "Two settings, one evaluator". A file predicted
+//! `docs/evaluator.md`, "The live oracle". A file predicted
 //! only on the condition that an unknown program left it alone is checked the
 //! same way, but its divergence is kept apart: either may be wrong. Every file
 //! checked, and every prediction never checked, leaves an outcome row.
@@ -641,7 +641,7 @@ fn lines<T: serde::de::DeserializeOwned>(file: &Path) -> Vec<T> {
 
 /// Sight from this disk, asked for as the evaluator reaches each file, keeping
 /// what it showed: a finding or a refusal carries it, so the prediction can be
-/// made again. Reads only — see `docs/execution-model.md`, "Sight".
+/// made again. Reads only — see `docs/evaluator.md`, "Sight".
 #[derive(Default)]
 struct Seen {
     files: std::cell::RefCell<Files>,
