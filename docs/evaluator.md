@@ -421,7 +421,10 @@ program's name. It ranks by the CALLS a reason stopped, with the writes it
 refused beside them: a write count weights a reason by how many files one
 looping program named — on 2026-10-05 the top of the live ranking, 520
 "after a jump" writes, was three commands, one a script writing 253 files,
-while `perl` sat at 264 calls under 357 writes.
+while `perl` sat at 264 calls under 357 writes. On a replay, `not read`
+counts files a row did not keep — an older evaluator never asked for them and
+the reconstruction did not name them — which a live call would be shown on
+demand; it is the replay's floor, not a gap to build for.
 
 The order it grew in came from the corpus. Shell first, where the tree exists:
 a heredoc into a file, then `echo`/`printf` into a file, then `sed -i`. Python,
