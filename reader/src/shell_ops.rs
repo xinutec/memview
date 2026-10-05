@@ -1918,7 +1918,27 @@ fn act(
         },
         Verb::Git => git(unnamed, argv, cwd, home),
         Verb::Remote(kind) => remote(kind, argv),
-        Verb::NoFiles => Op::Nothing,
+        Verb::NoFiles => {
+            // `launchctl` starting a job runs the program its plist or its words
+            // name, which the text does not show: an unknown program, like `nix
+            // run`. Found live (2026-10-04, four findings): a log removed before
+            // `launchctl bootstrap` was predicted absent, and the job wrote it.
+            // A query (`list`, `print`) and a stop (`bootout`) touch nothing.
+            if argv
+                .first()
+                .is_some_and(|head| basename(head) == "launchctl")
+                && let Some(sub) = words.first()
+                && matches!(
+                    *sub,
+                    "bootstrap" | "submit" | "kickstart" | "load" | "start"
+                )
+            {
+                return Op::Opaque {
+                    name: format!("launchctl {sub}"),
+                };
+            }
+            Op::Nothing
+        }
     }
 }
 

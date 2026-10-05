@@ -2008,6 +2008,20 @@ impl<'a> Run<'a> {
             self.copy(&argv, from, to);
             return;
         }
+        // A copy or move whose destination the text does not determine — a
+        // relative path after a `cd` this could not follow — wrote somewhere,
+        // and the tables, which only name what resolves, hand it back as a read
+        // of the source. Found live (2026-10-04): `… && cd .. && …; cp /tmp/bak
+        // mac-mini/f.py` restored a file whose `sed -i` the prediction kept.
+        if matches!(op, Op::Read { .. })
+            && self.cwd.is_none()
+            && argv
+                .first()
+                .is_some_and(|head| matches!(basename(head), "cp" | "mv"))
+        {
+            self.unnamed_write(Why::Directory);
+            return;
+        }
         if let Some(program) = writes_anything(&op, &argv) {
             // Named for the program whatever holds it: a pipe or a loop is not why
             // what came before is unknown.

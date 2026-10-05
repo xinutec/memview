@@ -825,15 +825,34 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             }
         }
         match (target, now) {
-            (Expr::Name(name), Some(now)) => self.set(name, now),
+            (Expr::Name(name), Some(now)) => self.hold(name, now),
             _ => {
                 if let Some(name) = root(target) {
                     let held = self.name(name);
                     if container(&held) {
                         self.shared(&held, why);
-                        self.set(name, Value::Unknown(why.clone()));
+                        self.hold(name, Value::Unknown(why.clone()));
                     }
                 }
+            }
+        }
+    }
+
+    /// Writes `value` where `name` is READ from, which is where a change in
+    /// place happens: a module's list changed by index inside a call changes
+    /// in the module. [`Self::set`] is assignment, which binds in the call —
+    /// and a change written back that way left the module's copy forgotten and
+    /// the call's copy to be dropped with its frame. Found live (2026-10-05):
+    /// a `fix(lineno, old, new)` helper doing `L[k] = L[k].replace(old, new)`
+    /// on the module's `L`, the commonest edit-helper shape in the corpus,
+    /// refused every write after it.
+    fn hold(&mut self, name: &str, value: Value) {
+        match self.frames.last_mut() {
+            Some(frame) if !frame.globals.contains(name) && frame.locals.contains_key(name) => {
+                frame.locals.insert(name.to_string(), value);
+            }
+            _ => {
+                self.names.insert(name.to_string(), value);
             }
         }
     }

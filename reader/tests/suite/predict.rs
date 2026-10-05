@@ -1309,7 +1309,6 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
         // Found live: trailing lines popped in a loop, predicted still there.
         "while lines and lines[-1] == 'q':\n    lines.pop()",
         "i = next(n for n, l in enumerate(lines) if f(l))\nlines[i:i] = ['x']",
-        "grow = lambda: lines.append('z')\ngrow()",
         "import os\na, lines[0] = os.environ.get('X')",
     ] {
         let found = run(&py(&format!("{head}{change}{tail}")), &shown);
@@ -1319,6 +1318,39 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
                 .unfollowed
                 .iter()
                 .any(|u| u.path.as_deref() == Some("/repo/a")),
+            "{change}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
+/// A module-level lambda or function that changes the module's list changes
+/// it where it lives, and the write after it is followed. Kept apart from the
+/// forgotten shapes above because one of these — the lambda — sat among them
+/// until the change was written back where the name is read from
+/// (2026-10-05); forgetting it was never wrong, only less than the text says.
+#[test]
+fn a_python_list_changed_by_a_module_level_callable_is_followed() {
+    let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
+    let shown = known(&[("/repo/a", Some("p\nq"))]);
+    let head = "lines = open('a').read().split('\\n')\n";
+    let tail = "\nopen('a', 'w').write('\\n'.join(lines))";
+    for change in [
+        "grow = lambda: lines.append('z')\ngrow()",
+        "def grow():\n    lines.append('z')\ngrow()",
+        "def put(i, v):\n    lines[i] = v\nput(1, 'z')\nlines.append('z')",
+    ] {
+        let found = run(&py(&format!("{head}{change}{tail}")), &shown);
+        assert_eq!(
+            found.written,
+            vec![written(
+                "/repo/a",
+                if change.starts_with("def put") {
+                    "p\nz\nz"
+                } else {
+                    "p\nq\nz"
+                }
+            )],
             "{change}: {:?}",
             found.unfollowed
         );
@@ -3153,4 +3185,86 @@ fn a_path_on_a_programs_stdin_is_not_assumed_left_alone() {
     // Stdin that names nothing leaves the assumption standing.
     let found = run("echo x > a; echo 3 | ./count", &nothing_known());
     assert_eq!(found.conditional.len(), 1, "{:?}", found.conditional);
+}
+
+/// `launchctl` starting a job runs the program its plist or its words name,
+/// which the text does not show, so it is an unknown program: a file removed
+/// before it is not predicted absent after it. Found live (2026-10-04, four
+/// findings): `rm -f ~/Library/Logs/life/tcc-probe.log; launchctl bootstrap
+/// gui/501 probe.plist` and `launchctl submit -l x -- /tmp/pyprobe.sh`, each
+/// predicting a log the job then wrote as absent. A query touches nothing.
+#[test]
+fn launchctl_starting_a_job_is_an_unknown_program() {
+    for script in [
+        "rm -f /tmp/probe.log; launchctl bootstrap gui/501 /tmp/x.plist",
+        "rm -f /tmp/probe.log; launchctl submit -l x -- /tmp/probe.sh",
+        "rm -f /tmp/probe.log; launchctl kickstart -k gui/501/x",
+        "rm -f /tmp/probe.log; launchctl load /tmp/x.plist",
+    ] {
+        let found = run(script, &nothing_known());
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+        assert!(
+            found.conditional.is_empty(),
+            "cleared before an unknown program, so not assumed left alone: {script}"
+        );
+    }
+    let found = run("rm -f /tmp/probe.log; launchctl list", &nothing_known());
+    assert_eq!(found.written, vec![removed("/tmp/probe.log")]);
+}
+
+/// A relative path after a `cd` that only sometimes ran names an unknown file,
+/// and a write there withdraws what came before. Found live (2026-10-04):
+/// `cd mac-mini && cp f.py /tmp/bak && sed -i … f.py && ! cmp -s … && cd .. &&
+/// nix develop …; cp /tmp/bak mac-mini/f.py` predicted the sed's text, and the
+/// unconditional restore at the end had put the backup back.
+#[test]
+fn a_relative_write_after_a_cd_that_only_sometimes_ran_withdraws_what_came_before() {
+    let files = known(&[("/repo/d/f.py", Some("a\n")), ("/tmp/bak", None)]);
+    let found = run(
+        "cd d && cp f.py /tmp/bak && sed -i '' 's|a|b|' f.py && ! cmp -s f.py /tmp/bak && cd .. && echo ok; cp /tmp/bak d/f.py",
+        &files,
+    );
+    assert!(
+        found.written.iter().all(|w| w.path != "/repo/d/f.py"),
+        "{:?}",
+        found.written
+    );
+}
+
+/// A module's list changed by index inside a call changes in the module: the
+/// change is written back where the name is read from, not bound in the call
+/// as an assignment would be. Found live (2026-10-05): the `fix(lineno, old,
+/// new)` helper below, the commonest edit-helper shape in the corpus, refused
+/// every write after it as "item assignment".
+#[test]
+fn a_modules_list_changed_by_index_inside_a_call_changes_in_the_module() {
+    let found = run(
+        "python3 - <<'PY'\nL=['a','b']\ndef f():\n    L[0]='z'\nf()\nopen('o','w').write('\\n'.join(L))\nPY",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/o", "z\nb")]);
+
+    let text = "a\nb\nmode := \"sleeping\", place := some \"Home\",\nd\ne\n";
+    let files = known(&[("/repo/x.lean", Some(text))]);
+    let program = concat!(
+        "p='x.lean'; L=open(p).read().split('\\n')\n",
+        "def fix(lineno, old, new):\n",
+        "    i=lineno-1\n",
+        "    for k in range(i, i+4):\n",
+        "        if old in L[k]:\n",
+        "            L[k]=L[k].replace(old,new,1); return\n",
+        "    raise SystemExit(f'not found near {lineno}: {old}')\n",
+        "fix(2,'place := some \"Home\",','place := some \"Home\", placeSource := some \"sleep\",')\n",
+        "open(p,'w').write('\\n'.join(L)); print('ok')\n",
+    );
+    let found = run(&format!("python3 - <<'PY'\n{program}PY"), &files);
+    assert_eq!(
+        found.written,
+        vec![written(
+            "/repo/x.lean",
+            "a\nb\nmode := \"sleeping\", place := some \"Home\", placeSource := some \"sleep\",\nd\ne\n"
+        )],
+        "{:?}",
+        found.unfollowed
+    );
 }

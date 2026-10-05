@@ -427,3 +427,12 @@ off this list.
 - **2026-10-02, stdin.** A program told its files on stdin
   (`echo '[{"file":"e2e/a.ts"}]' | node fix.mjs`) was assumed to have left them
   alone.
+- **2026-10-04, `launchctl` and a lost `cd`.** Four findings: a log removed
+  before `launchctl bootstrap` or `submit` was predicted absent, and the job
+  the plist named wrote it — `launchctl` starting a job is an unknown program
+  now, as `nix run` is. One more: `… && cd .. && …; cp /tmp/bak mac-mini/f.py`
+  kept the `sed -i`'s text, because a `cp` whose destination is relative to a
+  `cd` that only sometimes ran came back from the tables as a read of its
+  source; it is a write to an unknown path, and withdraws what came before.
+  Fixed 2026-10-05, with the six older findings the rules of 09-30 and 10-01
+  had already closed; the inbox is empty.
