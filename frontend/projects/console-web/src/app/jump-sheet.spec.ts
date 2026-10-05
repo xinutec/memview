@@ -52,6 +52,25 @@ describe('byDay', () => {
     expect(nth(days, 1).marks.map((it) => it.at)).toEqual([10]);
   });
 
+  // The spring-forward day in the runner's zone: the one local day 23 hours long.
+  const short = Array.from({ length: 366 }, (_, d) => d).find(
+    (d) =>
+      new Date(2027, 0, 2 + d).getTime() - new Date(2027, 0, 1 + d).getTime() === 23 * 3600_000,
+  );
+
+  it.runIf(short !== undefined)(
+    'calls yesterday Yesterday in the hour after the clocks go forward',
+    () => {
+      // 24 hours back from 00:30 the morning after a 23-hour day lands two calendar
+      // days back, so "yesterday" counted in milliseconds names the wrong day.
+      const d = short ?? 0;
+      const now = new Date(2027, 0, 2 + d, 0, 30).getTime();
+      const days = byDay([mark(10, new Date(2027, 0, 1 + d, 12).getTime()), mark(20, now)], now);
+
+      expect(days.map((day) => day.title)).toEqual(['Today', 'Yesterday']);
+    },
+  );
+
   it('has nothing to group when nothing survives the filter', () => {
     expect(byDay([], NOW)).toEqual([]);
   });

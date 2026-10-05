@@ -64,7 +64,10 @@ export function byDay(marks: readonly Landmark[], now: number): Day[] {
     days.set(key, [...(days.get(key) ?? []), mark]);
   }
   const today = new Date(now).toDateString();
-  const yesterday = new Date(now - 86_400_000).toDateString();
+  // A calendar day back, not 24 hours: across a clock change a local day is 23 or 25.
+  const before = new Date(now);
+  before.setDate(before.getDate() - 1);
+  const yesterday = before.toDateString();
   const named = (key: string): string => {
     if (key === today) return 'Today';
     if (key === yesterday) return 'Yesterday';
