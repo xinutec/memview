@@ -15,6 +15,7 @@ mod concept;
 mod doing;
 mod effects;
 mod embed;
+mod episode;
 mod home;
 mod javascript;
 mod leaf;

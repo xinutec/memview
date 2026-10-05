@@ -24,7 +24,9 @@ obeyed) is the durable claim; the numbers are its evidence on the day.
 ⚠ **The single-step queue is essentially exhausted, and a tenth lens is not the
 next work.** 70.2% of what remains touches no file at all (`cd`, `echo`, `sleep`)
 and another 10.9% is a carrier whose content lifts as its own steps. Gate 4's
-finding below says why the next layer is the EPISODE.
+finding below says why the next layer is the EPISODE, and **instrument 5, the
+episode census, is BUILT (2026-10-05)**: its first reading, under *The fifth
+instrument*, measures the claim gate 4 could only state.
 
 ⚠ **A shared guard belongs in ONE place.** `counted_subjects` (reads-only,
 resolvable, one subject per operand) and `own_command` (the `xargs` refusal) were
@@ -242,9 +244,11 @@ Probe    { question, subjects }             the compound inspect-several-things
 ⚠ **`Page`'s range is `First(n)` / `Last(n)` / `Lines(a,b)` / `All`, not a raw
 line-pair** — the shapes the corpus spells, so `head -5` and `sed -n '1,5p'`
 lift equal and a byte count or a `tail -f` refuse rather than flatten. The
-seeds below `Page` stay hunches: `Poll` and `Glance` need a key spanning more
-than one step (the census found their constituents scattered across steps), and
-that instrument is not built.
+seeds below `Page` stay hunches until the episode census ranks them: `Poll` and
+`Glance` need a key spanning more than one step (the single-step census found
+their constituents scattered across steps), and `episode-report` is that key
+(*The fifth instrument*, below) — its first run found `Poll` as the same
+`grep -q` on the same file repeated, not as a loop node.
 
 ⚠ **`Search` carries only what changes WHICH LINES COME BACK**, and the line
 between that and spelling is where the design is. `-n` numbers the same lines
@@ -583,7 +587,7 @@ Unchanged from the two layers below, restated once:
 5. **No invented test input.** The corpus is the suite; fixtures exist for the
    semantics oracle only.
 
-## First three instruments
+## The instruments
 
 1. ✅ **Description mining — BUILT 2026-09-03.** `bash-corpus --said <path>`
    writes the parallel corpus; `said-report` reads it against `Activity`.
@@ -639,7 +643,7 @@ Unchanged from the two layers below, restated once:
      as its scattered constituents — `sleep`, `break`, `seq`, `[` — and
      `Glance` as separate `git log --oneline -N` and `git status` rows, both
      high in the ranking. A concept whose body is a loop or a chain needs a
-     key spanning more than one step, and no instrument measures that yet.
+     key spanning more than one step; instrument 5 is that key.
    - `cd` and `echo` top the raw ranking and are context and narration rather
      than acts — what a concept vocabulary should do with them is an open
      question, not a queue entry.
@@ -687,3 +691,86 @@ Unchanged from the two layers below, restated once:
    refuse by name rather than mis-lift. The lift rate went 0.18% → 13.06% of
    steps. Its build repeated instrument 2's lesson — the first lifted witness
    exposed the `-I`-value defect in the layer below (see instrument 2).
+5. ✅ **The fifth instrument — the episode census — BUILT 2026-10-05.**
+   `reader/src/episode.rs` is the key and `episode-report` the census:
+
+   ```sh
+   cargo run --release -p reader --bin episode-report -- <corpus.jsonl> <said.jsonl> [--n 3] [--show 25]
+   ```
+
+   The corpus must carry `session` and `turn` — `bash-corpus` stamps every
+   row with its transcript and the count of distinct prompts above it since
+   2026-10-05, so the calls one instruction produced share a pair. That is the
+   episode as `doing.rs` observes it, bracketed by the user's turns and never
+   inferred from a gap; a corpus without the stamp is refused, not read as one
+   long episode. The frozen 2026-09-05 baseline has no stamp, so every figure
+   below is against a corpus mined 2026-10-05 (295,208 calls, 29,648
+   episodes, median 5 calls each), kept at
+   `/Volumes/Backup/cache/memview/` beside the run's output.
+
+   **The key.** A call's steps become tokens — the concept a step lifted to,
+   or `concept::shape`'s queue key where none did, so the sequence is TOTAL and
+   an unlifted act sits in it by name rather than being skipped (which would
+   read `Page | cargo test | Commit` as `Page | Commit`). A gram is a run of
+   consecutive tokens, within and across calls, with its subjects abstracted
+   to their IDENTITY — the first distinct path in the gram is `A`, the next
+   `B` — so `Rewrite(f); Page(f)` on two days over two files is one key and
+   `Rewrite(f); Page(g)` is another: concept equality up to holes, extended to
+   the relation between steps. A call boundary is in the key (`;` within a
+   call, `|` across), because the two have one description and two. Counted
+   once per EPISODE, the row rule one level up. ⚠ **The key is independent of
+   the descriptions**, which are the witness; an instrument whose key was
+   built from them would rediscover its own input, the trap instrument 2 was
+   built around.
+
+   ⚠ **Its first run found a defect in its own unit, and the fix is a rule
+   about pipelines.** A subjectless `Page` headed every table and
+   `Search(A) ; Page` out-ranked `Search(A)`: 117,217 corpus rows end in a pipe
+   to a bare pager, and `grep x f | head` is one act, the pager being how its
+   product is shown. So a stream act that follows another act in the same call
+   folds into it — a pager silently, any other (`| wc -l`, `| grep -v`,
+   `| sed`) as a `+` suffix, since a count or a filtered subset is a different
+   product. Measured, both arms: acts 1,230,321 → 860,159, the folded 370,162
+   counted beside them, and `Search(A) ; Page` gone. 10,607 episodes still
+   hold a bare `Page`: a pager after a CARRIER (`nix develop -c cargo build
+   2>&1 | tail`) has nothing to fold into yet, which is the next refinement.
+
+   **What it found — gate 4's limit, measured.** The column beside each gram
+   is the author's leading verb on the call its last act came from, and beside
+   that the same tally for that act ALONE. Within one call (`;`) the sentence
+   covers the whole gram, so only the across-call rows (`|`) are a clean test:
+   a sentence written for the later call alone, sharpened by what came before.
+   Read off the 2026-10-05 run (re-run it; these rot):
+
+   - `Search(A) | Page(A)` says **read 81%** where `Page(A)` alone says read
+     45%; with a third `Page(A)`, 90%. The file found is the file read.
+   - `Commit ; History` says commit 78% where `History` alone splits
+     commit 25% / wait 18% / check 17%; `Page(A) ; History` says **wait 37%**
+     — the gate's log tailed, then `git log -1`: *wait for the gate, check it
+     landed*. `History`'s "wait", which gate 4 could not place, is the commit
+     gate.
+   - `History ; Status ; git push` says **verify 41% / confirm 29%** — a verb
+     that is neither act's own (`History` alone: commit; `git push` alone:
+     push 44%). **A purpose word that belongs to no single act and to the
+     sequence** is the strongest form of the finding, and the shape the
+     episode layer lifts that no lens can.
+   - `Page(A) | python3(A)` (2,028 episodes) says add 19% / fix 10%: read a
+     file, then edit THAT file with a heredoc — the cross-language `Rewrite`
+     this design wanted and refused for want of a parameter field, visible as
+     a relation (`A` = `A`) before any parameter is extracted.
+   - `grep -q(A) ; grep -q(A) ; grep -q(A)` says **wait 76%**, 58,619 calls in
+     472 episodes: `until grep -q … ; do sleep; done` unrolled. `Poll` is the
+     same act on the same subject repeated, found by the identity letters with
+     no loop node — the "needs node identity" blocker in memview#1364 was
+     wrong. `Page ; Page ; Page` (wait 23%, watch 19%) is its `tail` spelling.
+   - `copy · cp(A,B)` alone says **ablate 27%**, restore 7%: the ablation
+     idiom, a copy aside, is a concept the corpus names that no roadmap entry
+     does.
+
+   ⚠ **The first word is crude and this instrument copies, not shares, it**
+   (`said-report` and `concept-said` each own the question at their level),
+   and a 2% "the" in one row shows the cost. It CHECKS a vocabulary. And a
+   1-gram's verb is against every call holding that act, where a gram's is
+   against the calls ending on it; the two columns are the same quantity at
+   two depths, and reading a difference between them as sharpening assumes
+   the predecessor is the only thing that changed.

@@ -32,23 +32,8 @@ use std::collections::BTreeMap;
 
 use clap::Parser;
 
-use reader::concept::{self, Concept};
+use reader::concept::{self, Concept, name as concept_name};
 use reader::shell_files::trace;
-
-/// The concept's name, for the tally. No `_` arm: a new concept must appear.
-fn concept_name(concept: &Concept) -> &'static str {
-    match concept {
-        Concept::Rewrite { .. } => "Rewrite",
-        Concept::Page { .. } => "Page",
-        Concept::Search { .. } => "Search",
-        Concept::List { .. } => "List",
-        Concept::Measure { .. } => "Measure",
-        Concept::History { .. } => "History",
-        Concept::Status { .. } => "Status",
-        Concept::Stage { .. } => "Stage",
-        Concept::Commit { .. } => "Commit",
-    }
-}
 
 /// The first word of a stated intent, lowercased — the author's own verb.
 ///

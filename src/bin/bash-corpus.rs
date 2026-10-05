@@ -4,11 +4,16 @@
 //!     cargo run --bin shell-report -- /tmp/bash-corpus.jsonl
 //!
 //! One JSON object per line: the command, the `cwd` it ran in — the one piece
-//! of context that cannot be recovered later — and what became of it, which
-//! needs a second pass since a result is written below its call. With `--said
-//! <path>` a second artefact holds what the author said each command was for;
-//! see [`said_row`]. The one report tool still in the viewer, because it reads
-//! transcripts.
+//! of context that cannot be recovered later — what became of it, which needs a
+//! second pass since a result is written below its call, and which instruction
+//! it was part of: `session` is the transcript, `turn` the count of distinct
+//! prompts above the call, so the calls one instruction produced share a pair.
+//! That is the episode as `doing.rs` observes it — bracketed by the user's
+//! turns, never inferred from a gap — and `episode-report` groups on it. A
+//! subagent's transcript is a session of its own, as it is a file of its own.
+//! With `--said <path>` a second artefact holds what the author said each
+//! command was for; see [`said_row`]. The one report tool still in the viewer,
+//! because it reads transcripts.
 
 use std::io::Write;
 
@@ -81,7 +86,28 @@ fn main() -> anyhow::Result<()> {
         // copy is kept: the later one carries a shallower `cwd`, re-stamped nearer the
         // session root (`reference_transcript_cwd_is_both_before_and_after`).
         let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let session = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        // Distinct prompts seen so far: the instruction a call belongs to. By
+        // id, so a re-appended stretch of transcript does not open a new one —
+        // a split is only noise to a consumer, a merge is unrecoverable, and
+        // a prompt line with no id errs toward the split.
+        let mut prompts: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut turn = 0u32;
         for line in text.lines() {
+            if agents::is_prompt(line.as_bytes()) {
+                let new = match agents::prompt_id(line.as_bytes()) {
+                    Some(id) => prompts.insert(id),
+                    None => true,
+                };
+                if new {
+                    turn += 1;
+                }
+                continue;
+            }
             // The same reader the miner uses, so a coverage figure cannot drift from it.
             let Some(agents::BashLine {
                 cwd,
@@ -104,7 +130,9 @@ fn main() -> anyhow::Result<()> {
                 // No result at all is its own answer: interrupted, still running, or the
                 // transcript ends mid-turn.
                 let ran = outcomes.get(&id).copied().unwrap_or(Verdict::Unknown);
-                let mut row = serde_json::json!({ "cmd": command, "cwd": cwd, "ran": ran });
+                let mut row = serde_json::json!({
+                    "cmd": command, "cwd": cwd, "ran": ran, "session": session, "turn": turn,
+                });
                 // Carried so a command can be counted into a DAY; a distinct-commands corpus
                 // cannot say whether something happens more or less than it used to.
                 if let Some(at) = &at {

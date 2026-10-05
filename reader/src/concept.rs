@@ -37,6 +37,7 @@
 //! in hand. Not "a pure L2 reading": `operands()` drops flags by construction, so no
 //! seed concept's parameters survive at the `Op` alone.
 
+use crate::reading::op_name;
 use crate::shell_files::Step;
 use crate::shell_ops::{Op, basename, unwrap_command};
 
@@ -1560,4 +1561,81 @@ fn spell(subject: &Subject) -> String {
         Subject::Located(locus) => format!("{}/?", locus.trim_end_matches('/')),
         Subject::Hole => "\"$UNNAMED\"".to_string(),
     }
+}
+
+/// The concept's name, for a tally. No `_` arm: a new concept must appear here,
+/// and every census shares this one so none can miss it.
+pub fn name(concept: &Concept) -> &'static str {
+    match concept {
+        Concept::Rewrite { .. } => "Rewrite",
+        Concept::Page { .. } => "Page",
+        Concept::Search { .. } => "Search",
+        Concept::List { .. } => "List",
+        Concept::Measure { .. } => "Measure",
+        Concept::History { .. } => "History",
+        Concept::Status { .. } => "Status",
+        Concept::Stage { .. } => "Stage",
+        Concept::Commit { .. } => "Commit",
+    }
+}
+
+/// The census's key for one unlifted step — the shape a lens would be built for.
+///
+/// Keyed on the operation's phrase PLUS the command, never on the `Op` variant
+/// alone: a census keyed on the variant would rediscover [`crate::reading`]'s
+/// naming and read as success (memview#1364, caught before it was built), and
+/// `head -5 f` and `cat f` are one `Op::Read` with the `-5` gone. The phrase
+/// carries the variant *and its discriminating fields* (`transform (in place)`
+/// vs `transform`); the command name and subcommand carry what `operands()`
+/// drops by construction; the flags carry what no `Op` keeps at all. Values are
+/// abstracted — `-5` and `-20` are one `-N`, and `--show=12` is `--show` —
+/// because a census ranks *shapes*, and a value in the key would make every
+/// occurrence its own group of one. **The key errs toward splitting**: a group
+/// split in two undercounts a shape, where a wrong merge would rank a shape that
+/// does not exist — the same direction every count in this reader errs.
+///
+/// Shared by `concept-report`, which ranks these, and `episode-report`, which
+/// strings them into sequences: one key, so the two instruments count the same
+/// shapes.
+pub fn shape(step: &Step) -> String {
+    let argv = unwrap_command(&step.argv);
+    let Some(head) = argv.first() else {
+        // `> /tmp/log` — a line that is a redirection and nothing else.
+        return "(a redirection alone)".to_string();
+    };
+    let op = step
+        .op
+        .as_ref()
+        .map(op_name)
+        .unwrap_or("(a redirection alone)");
+    let mut words = vec![basename(head).to_string()];
+    // A subcommand names the act for the multi-tool commands — `git log` and
+    // `git status` are different shapes — and only a word that LOOKS like one
+    // joins: wholly lowercase-alphabetic, so a path, a pattern or a sed program
+    // stays out of the key.
+    if let Some(sub) = argv
+        .iter()
+        .skip(1)
+        .find(|w| !w.starts_with('-'))
+        .filter(|w| w.len() >= 2 && w.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+    {
+        words.push(sub.clone());
+    }
+    let mut flags: Vec<String> = argv
+        .iter()
+        .skip(1)
+        .filter(|w| w.starts_with('-') && w.len() > 1)
+        .map(|w| {
+            let bare = w.split('=').next().unwrap_or(w);
+            if bare[1..].chars().all(|c| c.is_ascii_digit()) {
+                "-N".to_string()
+            } else {
+                bare.to_string()
+            }
+        })
+        .collect();
+    flags.sort();
+    flags.dedup();
+    words.extend(flags);
+    format!("{op} · {}", words.join(" "))
 }

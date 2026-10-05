@@ -50,6 +50,7 @@ pub mod activity;
 pub mod concept;
 pub mod doing;
 pub mod effects;
+pub mod episode;
 pub mod home;
 pub mod javascript;
 pub mod predict;

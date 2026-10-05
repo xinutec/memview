@@ -36,10 +36,8 @@ use std::collections::BTreeMap;
 
 use clap::Parser;
 
-use reader::concept::{self, Concept, Why};
-use reader::reading::op_name;
-use reader::shell_files::{Step, trace};
-use reader::shell_ops::{basename, unwrap_command};
+use reader::concept::{self, Why, name as concept_name, shape};
+use reader::shell_files::trace;
 
 /// What one refusal is called on screen and matched against for `--sample`.
 fn refusal(why: Why) -> &'static str {
@@ -62,72 +60,6 @@ fn refusal(why: Why) -> &'static str {
         Why::OtherSelection => "git log picking a different SET (--all, --since, --grep, -S)",
         Why::Formatted => "git log whose product is not a commit list (--format, -p, --stat)",
     }
-}
-
-/// The concept's name, for the tally. No `_` arm: a new concept must appear.
-fn concept_name(concept: &Concept) -> &'static str {
-    match concept {
-        Concept::Rewrite { .. } => "Rewrite",
-        Concept::Page { .. } => "Page",
-        Concept::Search { .. } => "Search",
-        Concept::List { .. } => "List",
-        Concept::Measure { .. } => "Measure",
-        Concept::History { .. } => "History",
-        Concept::Status { .. } => "Status",
-        Concept::Stage { .. } => "Stage",
-        Concept::Commit { .. } => "Commit",
-    }
-}
-
-/// The queue's key for one unlifted step.
-///
-/// The operation's phrase carries the variant *and its discriminating fields*
-/// (`transform (in place)` vs `transform`); the command name and subcommand
-/// carry what `operands()` drops by construction; the flags carry what no `Op`
-/// keeps at all. Values are abstracted — `-5` and `-20` are one `-N`, and
-/// `--show=12` is `--show` — because the census ranks *shapes*, and a value in
-/// the key would make every occurrence its own group of one.
-fn shape(step: &Step) -> String {
-    let argv = unwrap_command(&step.argv);
-    let Some(head) = argv.first() else {
-        // `> /tmp/log` — a line that is a redirection and nothing else.
-        return "(a redirection alone)".to_string();
-    };
-    let op = step
-        .op
-        .as_ref()
-        .map(op_name)
-        .unwrap_or("(a redirection alone)");
-    let mut words = vec![basename(head).to_string()];
-    // A subcommand names the act for the multi-tool commands — `git log` and
-    // `git status` are different shapes — and only a word that LOOKS like one
-    // joins: wholly lowercase-alphabetic, so a path, a pattern or a sed program
-    // stays out of the key.
-    if let Some(sub) = argv
-        .iter()
-        .skip(1)
-        .find(|w| !w.starts_with('-'))
-        .filter(|w| w.len() >= 2 && w.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
-    {
-        words.push(sub.clone());
-    }
-    let mut flags: Vec<String> = argv
-        .iter()
-        .skip(1)
-        .filter(|w| w.starts_with('-') && w.len() > 1)
-        .map(|w| {
-            let bare = w.split('=').next().unwrap_or(w);
-            if bare[1..].chars().all(|c| c.is_ascii_digit()) {
-                "-N".to_string()
-            } else {
-                bare.to_string()
-            }
-        })
-        .collect();
-    flags.sort();
-    flags.dedup();
-    words.extend(flags);
-    format!("{op} · {}", words.join(" "))
 }
 
 /// Shorten for display, on character boundaries.

@@ -1253,6 +1253,15 @@ pub fn is_prompt(line: &[u8]) -> bool {
     field(line, "type") == Some(b"user") && find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
 }
 
+/// A prompt's own id, so that a stretch the CLI re-appends is the same
+/// instruction and not a new one. A transcript rewrites its history — one call
+/// in five is a second copy ([`bash_calls_with_ids`] keeps the first) — and a
+/// count of prompt lines would open a fresh episode at every re-appended
+/// prompt, splitting the instruction's later calls off from its earlier ones.
+pub fn prompt_id(line: &[u8]) -> Option<String> {
+    field(line, "uuid").and_then(|id| std::str::from_utf8(id).ok().map(str::to_string))
+}
+
 /// Count one transcript's tool calls into `agent`, and note the days.
 #[expect(
     clippy::too_many_arguments,

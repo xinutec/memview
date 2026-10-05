@@ -70,6 +70,7 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/reading.rs` | the whole corpus surveyed, as a value the report and both apps draw |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
 | `reader/src/concept.rs` | what was it FOR — and back to a command again ([concept-model.md](concept-model.md)) |
+| `reader/src/episode.rs` | which sequences of acts recur across an instruction's calls ([concept-model.md](concept-model.md#the-instruments), instrument 5) |
 | `reader/src/doing.rs` | timeline: agent · minute · repo · kind · count · verdict |
 | `src/commits.rs` | what the repositories recorded, renames followed |
 | `src/agents.rs` | who works where — the roster behind `/agents` |
@@ -201,7 +202,7 @@ Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 ```sh
 cargo run --release --bin agents        # → ~/.claude/memview/cache/agents.json + doing.json + effects.json
 cargo run --release --bin couse         # → ~/.claude/projects/-Users-user-Code/couse.json
-cargo run --release --bin bash-corpus > ~/.claude/memview/cache/bash-corpus.jsonl
+cargo run --release --bin bash-corpus > ~/.claude/memview/cache/bash-corpus.jsonl   # rows carry session + turn, the episode
 cargo run --release -p reader --bin reading-json   # → ~/.claude/memview/cache/reading.json
 ```
 
@@ -263,6 +264,8 @@ cargo run --release -p reader --bin python-embed-report -- <corpus> [--show tree
 cargo run --release -p bash-oracle --bin python-gate -- <corpus> [--show VERDICT N]
 # every distinct Python program the corpus runs, one JSON string a line — to measure with CPython
 cargo run --release -p reader --example python-sources -- <corpus> > programs.jsonl
+# which sequences of acts recur across the calls of one instruction, with the author's verb beside each
+cargo run --release -p reader --bin episode-report -- <corpus> <said.jsonl> [--n 3] [--show 25]
 ```
 
 `--why <substring>` prints the commands behind every use of a matching path, and
