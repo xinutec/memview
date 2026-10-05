@@ -3318,3 +3318,42 @@ fn perl_in_place_rewrites_what_sight_has_shown() {
         }]
     );
 }
+
+/// An in-place rewriter's operands are files by its own grammar, a bare `f`
+/// included: the tables' path guard (a word needs a `/`, a `~` or an
+/// extension) left a write to it neither predicted nor refused. Found live
+/// (2026-10-05): `perl -pi -e … f`, the text before predicted as the text
+/// after. The same through a Python subprocess, whose argv is handed to the
+/// shell quoted.
+#[test]
+fn a_bare_word_operand_is_a_file_to_an_in_place_rewriter() {
+    let files = known(&[("/repo/f", Some("a\n"))]);
+    for script in [
+        "sed -i '' s/a/b/ f",
+        "perl -pi -e 's/a/b/' f",
+        "/usr/bin/perl -pi -e 's/a/b/' f",
+        "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['perl','-pi','-e','s/a/b/','f'])\nPY",
+    ] {
+        let found = run(script, &files);
+        assert_eq!(found.written, vec![written("/repo/f", "b\n")], "{script}");
+    }
+    // A Python write, then a subprocess that rewrites the file: the later one wins.
+    let found = run(
+        "python3 - <<'PY'\nopen('f','w').write('a a\\n')\nimport subprocess\nsubprocess.run(['perl','-pi','-e','s/a/b/g','f'])\nPY",
+        &files,
+    );
+    assert_eq!(found.written, vec![written("/repo/f", "b b\n")]);
+    // And one it refuses by name leaves the file refused, not as it was.
+    let found = run(
+        "printf 'a\\nb\\n' > f; perl -ni -e 'print unless /^a$/' f",
+        &files,
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/f".to_string()),
+            why: Why::Perl("-n".to_string()),
+        }]
+    );
+}

@@ -1820,12 +1820,52 @@ impl<'a> Run<'a> {
         self.write(to, false, text);
     }
 
+    /// The files an in-place rewriter's operands name, by the program's own
+    /// grammar: every operand is a file, a bare `f` included. The tables name
+    /// only what passes the reader's path guard — a word needs a `/`, a `~` or
+    /// an extension, which keeps `src` out of `rg foo src` — so a write to `f`
+    /// was neither predicted nor refused. Found live (2026-10-05, two
+    /// findings): `perl -pi -e … f` and `perl -ni … f` on `/tmp/perlx/f`, the
+    /// text before them predicted as the text after. An operand that does not
+    /// resolve — relative, after a `cd` this could not follow — withdraws what
+    /// came before, as any write to an unknown path does.
+    fn operand_files(&mut self, operands: &[String]) -> Vec<String> {
+        let mut files = Vec::new();
+        for operand in operands {
+            match self.resolve(operand) {
+                Some(path) => files.push(path),
+                None => self.unnamed_write(Why::Directory),
+            }
+        }
+        files
+    }
+
+    /// What a refused in-place rewriter may have written: every word that is
+    /// not a flag, resolved, beside what the tables named. Over-refusing is
+    /// safe — a word that is no file forgets a path nothing predicted — and
+    /// under-refusing left `perl -ni … f` keeping the text written before it.
+    fn every_operand(&mut self, argv: &[String], paths: &[String]) -> Vec<String> {
+        let mut files = paths.to_vec();
+        for word in argv.iter().skip(1).filter(|word| !word.starts_with('-')) {
+            if let Some(path) = self.resolve(word)
+                && !files.contains(&path)
+            {
+                files.push(path);
+            }
+        }
+        files
+    }
+
     /// `sed -i`: each file rewritten by the script, and its old text kept under
     /// the backup suffix when one was given. What the script or the flags say
     /// that [`sed`] does not follow is refused by name, once per file.
     fn sed(&mut self, argv: &[String], paths: &[String]) {
         let invocation = sed::invocation(argv);
-        for path in paths {
+        let files = match &invocation {
+            Ok(invocation) => self.operand_files(&invocation.operands),
+            Err(_) => self.every_operand(argv, paths),
+        };
+        for path in &files {
             let text = match self.read(path) {
                 Held::Text(text) => Ok(text),
                 Held::Absent => Err(Why::Missing),
@@ -1860,7 +1900,11 @@ impl<'a> Run<'a> {
     /// refused by name, once per file.
     fn perl(&mut self, argv: &[String], paths: &[String]) {
         let invocation = perl::invocation(argv);
-        for path in paths {
+        let files = match &invocation {
+            Ok(invocation) => self.operand_files(&invocation.operands),
+            Err(_) => self.every_operand(argv, paths),
+        };
+        for path in &files {
             let text = match self.read(path) {
                 Held::Text(text) => Ok(text),
                 Held::Absent => Err(Why::Missing),
