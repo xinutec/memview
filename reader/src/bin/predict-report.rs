@@ -265,7 +265,12 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
 
     let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
     let (mut conditional, mut sets) = (0usize, 0usize);
-    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+    // Reason → (calls it stopped, writes it refused). Ranked by CALLS: a
+    // write count weights a reason by how many files one looping program
+    // named — on 2026-10-05, 520 "after a jump" writes were three commands,
+    // one of them a script writing 253 files — where the worklist asks how
+    // many calls a construct would unlock.
+    let mut why: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;
         let Some(kept) = Kept::read(&row) else {
@@ -279,16 +284,22 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         let found = predict(&script, &kept.cwd, &home, &kept.shown);
         conditional += found.conditional.len();
         sets += found.alternatives.len();
+        let mut here: BTreeSet<String> = BTreeSet::new();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
             if let Some((wanted, n)) = &show
                 && name.contains(wanted.as_str())
                 && shown < *n
+                && here.insert(name.clone())
             {
                 shown += 1;
                 println!("--- {name}:\n{}\n", kept.command);
             }
-            *why.entry(name).or_insert(0) += 1;
+            here.insert(name.clone());
+            why.entry(name).or_insert((0, 0)).1 += 1;
+        }
+        for name in here {
+            why.entry(name).or_insert((0, 0)).0 += 1;
         }
     }
 
@@ -377,11 +388,11 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     for (outcome, n) in &assumed_again {
         println!("  {outcome:<27}{n}");
     }
-    println!("writes not followed, by why, under this evaluator:");
-    let mut ranked: Vec<(String, usize)> = why.into_iter().collect();
+    println!("not followed, by why, under this evaluator — calls it stopped, writes it refused:");
+    let mut ranked: Vec<(String, (usize, usize))> = why.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    for (name, n) in ranked.iter().take(40) {
-        println!("  {n:7}  {name}");
+    for (name, (calls, writes)) in ranked.iter().take(40) {
+        println!("  {calls:7} {writes:7}  {name}");
     }
     outcomes(&rows(dir, "outcomes.jsonl"));
     Ok(())
