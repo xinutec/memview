@@ -234,6 +234,13 @@ otherwise. An escaped delimiter is the bare delimiter handed to the engine:
 file. Built from the live census of 2026-10-05, where `perl` stopped 264
 calls, the largest modellable reason once the ranking counted calls.
 
+An in-place rewriter's files come from its own operands, by its grammar — a
+bare `f` included, which the shell tables' path guard (a word needs a `/`, a
+`~` or an extension) would leave neither predicted nor refused; one the
+evaluator refuses by name refuses every operand. `chmod`, `chown` and `chgrp`
+change no text, so nothing is predicted or refused; `touch` writes an empty
+file where none was and leaves one that was.
+
 Any other program that writes files itself has them named by the shell tables
 and refused, and a pattern it expands itself (`ktlint -F 'src/**/*.kt'`)
 stands for everything under its fixed part.

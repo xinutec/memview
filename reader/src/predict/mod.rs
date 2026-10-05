@@ -2084,6 +2084,38 @@ impl<'a> Run<'a> {
             self.perl(&argv, paths);
             return;
         }
+        // `chmod`, `chown` and `chgrp` change a file's mode or owner and never
+        // its text, so there is nothing to predict and nothing to refuse — 57
+        // calls refused by name on the live census of 2026-10-05. `touch`
+        // creates a file that did not exist, empty, and leaves one that did
+        // as it was.
+        if let Some(Some(head)) = literal.first() {
+            match basename(head) {
+                "chmod" | "chown" | "chgrp" => return,
+                "touch" => {
+                    for word in literal.iter().skip(1) {
+                        let Some(word) = word else {
+                            self.unnamed_write(Why::Expansion);
+                            continue;
+                        };
+                        if word.starts_with('-') {
+                            continue;
+                        }
+                        let Some(path) = self.resolve(word) else {
+                            self.unnamed_write(Why::Directory);
+                            continue;
+                        };
+                        match self.read(&path) {
+                            Held::Absent => self.write(&path, false, Ok(String::new())),
+                            Held::Text(_) | Held::OneOf(_) => {}
+                            Held::Unknown => self.write(&path, false, Err(Why::NotRead)),
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         // A move of one file to another: the destination holds the source's
         // text and the source is gone.
         if let Op::Move { from, to } = &op

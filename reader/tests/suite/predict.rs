@@ -3357,3 +3357,32 @@ fn a_bare_word_operand_is_a_file_to_an_in_place_rewriter() {
         }]
     );
 }
+
+/// A mode or owner change is not a write of text: what was predicted before
+/// `chmod` stands, and a file it names is not refused. `touch` writes an empty
+/// file where none was, leaves one that was, and is refused over one it
+/// cannot see.
+#[test]
+fn chmod_leaves_the_text_and_touch_makes_an_empty_file() {
+    let files = known(&[("/repo/f", Some("a\n")), ("/repo/new", None)]);
+    let found = run(
+        "echo x > a; chmod 600 a; chmod +x f; chown me f; touch f",
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/a", "x\n")],
+        "{:?}",
+        found.unfollowed
+    );
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+    let found = run("touch new unseen", &files);
+    assert_eq!(found.written, vec![written("/repo/new", "")]);
+    assert_eq!(
+        found.unfollowed,
+        vec![Unfollowed {
+            path: Some("/repo/unseen".to_string()),
+            why: Why::NotRead,
+        }]
+    );
+}
