@@ -4,7 +4,7 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: nine lenses and all three instruments are BUILT; every one after the
+**Status: nine lenses and five instruments are BUILT; every one after the
 first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
 `Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage` and
