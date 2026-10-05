@@ -146,3 +146,35 @@ fn a_stream_act_with_nothing_before_it_stands_alone() {
     let calls = [call("echo x | head -1", None)];
     assert_eq!(only(&calls, 1), "Page");
 }
+
+#[test]
+fn a_program_that_touches_no_file_is_still_an_act_and_its_pager_folds() {
+    let calls = [call("kubectl get pods -A 2>&1 | head -5", None)];
+    let k = only(&calls, 1);
+    assert!(k.starts_with("nothing with files · kubectl get"), "{k}");
+    let calls = [call(
+        "sleep 5; gh run list --limit 2 2>&1 | head -20; git rev-parse HEAD",
+        None,
+    )];
+    let keys: Vec<String> = grams(&calls, 1).into_iter().map(|(k, _)| k).collect();
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(
+        keys[0].starts_with("nothing with files · gh run"),
+        "{keys:?}"
+    );
+}
+
+#[test]
+fn a_loops_head_is_furniture_and_its_body_the_acts() {
+    let calls = [call("for i in 1 2; do cat f.ts; done", None)];
+    assert_eq!(only(&calls, 2), "Page(A) ; Page(A)");
+    let calls = [call("for i in $(seq 1 3); do sleep 1; done", None)];
+    assert!(calls[0].tokens.is_empty(), "{:?}", calls[0].tokens);
+}
+
+#[test]
+fn a_filter_the_table_calls_nothing_is_a_stream_act() {
+    let calls = [call("cat f.ts | tr -d '\\n'", None)];
+    let k = only(&calls, 1);
+    assert!(k.starts_with("Page+nothing with files · tr"), "{k}");
+}

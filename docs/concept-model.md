@@ -731,9 +731,25 @@ Unchanged from the two layers below, restated once:
    folds into it — a pager silently, any other (`| wc -l`, `| grep -v`,
    `| sed`) as a `+` suffix, since a count or a filtered subset is a different
    product. Measured, both arms: acts 1,230,321 → 860,159, the folded 370,162
-   counted beside them, and `Search(A) ; Page` gone. 10,607 episodes still
-   hold a bare `Page`: a pager after a CARRIER (`nix develop -c cargo build
-   2>&1 | tail`) has nothing to fold into yet, which is the next refinement.
+   counted beside them, and `Search(A) ; Page` gone.
+
+   ⚠ **Its second run found the next one, and it is a fact about
+   [`Op::Nothing`].** 10,607 episodes still held a bare `Page`, and `--sample
+   Page` showed every one fed by a program that touches no file — `kubectl get
+   pods | head`, `task --help | head`, `gh run list | head`, `cargo build 2>&1
+   | tail`. To the reader those are "nothing with files", which the first rule
+   had read as *not an act*, so the pager had nothing to fold into. They are
+   acts, and the author describes them; `cd`, `echo`, `sleep` are the
+   furniture. The reader cannot tell the two apart, so the WORD does
+   (`episode::CONTEXT`), and a loop's head and `seq` went onto that list on the
+   third run (7,290 and 2,043 episodes) with `tr`, `sort`, `cut` and the other
+   file-less filters folding as stream acts (`episode::FILTERS`). Bare `Page`
+   is at 2,172 episodes; the no-file acts now rank by their own vocabulary,
+   which is as concentrated as any lens's — `task add` says **file 91%**,
+   `task done` close 44%, and `kill -0`, `ps -p`, `pgrep -f`, `gh run --json`,
+   `systemctl is-active` all say **wait** (71–84%): one purpose, six
+   spellings, no file. That is the `Poll` vocabulary the roadmap guessed at,
+   counted.
 
    **What it found — gate 4's limit, measured.** The column beside each gram
    is the author's leading verb on the call its last act came from, and beside
@@ -758,8 +774,8 @@ Unchanged from the two layers below, restated once:
      file, then edit THAT file with a heredoc — the cross-language `Rewrite`
      this design wanted and refused for want of a parameter field, visible as
      a relation (`A` = `A`) before any parameter is extracted.
-   - `grep -q(A) ; grep -q(A) ; grep -q(A)` says **wait 76%**, 58,619 calls in
-     472 episodes: `until grep -q … ; do sleep; done` unrolled. `Poll` is the
+   - `grep -q(A) ; grep -q(A) ; grep -q(A)` says **wait 75%**, 56,480 calls in
+     456 episodes: `until grep -q … ; do sleep; done` unrolled. `Poll` is the
      same act on the same subject repeated, found by the identity letters with
      no loop node — the "needs node identity" blocker in memview#1364 was
      wrong. `Page ; Page ; Page` (wait 23%, watch 19%) is its `tail` spelling.

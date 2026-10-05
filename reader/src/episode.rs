@@ -28,8 +28,9 @@
 //! here does.
 //!
 //! What a step becomes is one of four things, each counted: a work token;
-//! context (`cd`, `echo`, `sleep` — [`Op::Nothing`] or a `cd`), which is dropped
-//! from the sequence so that it does not fragment every gram; a carrier
+//! context (`cd`, `echo`, `sleep`: a `cd`, or one of the shell words in
+//! [`CONTEXT`]), which is dropped from the sequence so that it does not
+//! fragment every gram; a carrier
 //! (`bash -c`, `nix-shell --run`), whose work is its children's and which
 //! already has their tokens; or a modifier of the act before it. The first run
 //! of the census (2026-10-05) put a subjectless `Page` at the head of every
@@ -44,7 +45,36 @@
 
 use crate::concept::{self, Concept, Subject, Why};
 use crate::shell_files::Step;
-use crate::shell_ops::Op;
+use crate::shell_ops::{Op, basename, unwrap_command};
+
+/// Words that are the shell's own furniture, not acts: a sequence of acts
+/// reads through them. [`Op::Nothing`] cannot tell them from a PROGRAM that
+/// touches no file — `kubectl get pods`, `task show`, `gh run list`, `cargo
+/// build` are all "nothing with files" to the reader and all acts to the
+/// author, who describes them — so the word decides. Measured on the census's
+/// second run (2026-10-05): every bare `Page` left after the pipeline fold was
+/// a pager fed by one of those programs, which the first rule had read as
+/// context and so had nothing for the pager to fold into.
+pub const CONTEXT: &[&str] = &[
+    "cd", "pushd", "popd", "echo", "printf", "sleep", "true", "false", ":", "export", "set",
+    "unset", "shift", "wait", "exit", "return", "break", "continue", "pwd", "type", "which",
+    "command", "test", "[", "read", "local", "declare", "typeset", "let", "source", ".", "eval",
+    "hash", "trap", "ulimit", "umask", "alias", "unalias", "date", "time", "times", "getopts",
+    // A loop's head reaches here as a step of its own, and its body is the acts;
+    // `seq` is what the head ranges over. 7,290 and 2,043 episodes on the
+    // census's third run, every one furniture.
+    "for", "while", "until", "if", "case", "select", "seq", "basename", "dirname",
+];
+
+/// Programs that only reshape what flows through them and touch no file, so
+/// the table says [`Op::Nothing`] and the pipeline fold cannot see them as a
+/// stream act. `| tr -d '\n'` was 3,850 episodes of a separate "act" on the
+/// census's third run. Folded as a `+` suffix, like `| wc -l`: the product
+/// changes, the act does not.
+pub const FILTERS: &[&str] = &[
+    "tr", "sort", "uniq", "cut", "paste", "column", "nl", "rev", "fold", "expand", "jq", "yq",
+    "base64", "hexdump", "od", "strings",
+];
 
 /// One act in an episode: what it was, and what it was over.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +135,12 @@ pub fn token(step: &Step) -> Became {
         }
         Err(Why::Carrier) => Became::Carrier,
         Err(_) => {
-            if matches!(step.op, Some(Op::Nothing) | Some(Op::ChangeDir { .. })) {
+            let furniture = unwrap_command(&step.argv)
+                .first()
+                .is_some_and(|head| CONTEXT.contains(&basename(head)));
+            if matches!(step.op, Some(Op::ChangeDir { .. }))
+                || (matches!(step.op, Some(Op::Nothing)) && furniture)
+            {
                 return Became::Context;
             }
             // The files this step alone produced, in order, each once.
@@ -211,7 +246,12 @@ fn shapes_a_stream(token: &Token) -> bool {
         && (matches!(token.label.as_str(), "Page" | "Search" | "Measure")
             || ["read · ", "search · ", "transform · "]
                 .iter()
-                .any(|phrase| token.label.starts_with(phrase)))
+                .any(|phrase| token.label.starts_with(phrase))
+            || token
+                .label
+                .strip_prefix("nothing with files · ")
+                .and_then(|rest| rest.split(' ').next())
+                .is_some_and(|word| FILTERS.contains(&word)))
 }
 
 /// The tokens of one call's steps, in order, a stream act folded into the act

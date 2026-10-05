@@ -87,6 +87,11 @@ struct Cli {
     /// How many grams of each length to print.
     #[arg(long, default_value_t = 25)]
     show: usize,
+    /// Print the first commands holding an act keyed exactly this, alone —
+    /// the first met, never chosen, so the instrument cannot pick what it
+    /// shows.
+    #[arg(long, value_name = "KEY")]
+    sample: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -118,6 +123,7 @@ fn main() -> anyhow::Result<()> {
     let (mut steps_seen, mut work, mut context, mut carriers, mut folded) =
         (0usize, 0usize, 0usize, 0usize, 0usize);
     let (mut lifted, mut queued) = (0usize, 0usize);
+    let mut samples: Vec<String> = Vec::new();
 
     for line in std::fs::read_to_string(&cli.corpus)?.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -148,6 +154,12 @@ fn main() -> anyhow::Result<()> {
         let steps = trace(&script, cwd, &home).steps;
         steps_seen += steps.len();
         let call = tokens(&steps);
+        if let Some(wanted) = &cli.sample
+            && samples.len() < cli.show
+            && call.tokens.iter().any(|t| key(&[(t, false)]) == *wanted)
+        {
+            samples.push(truncate(cmd, 150));
+        }
         work += call.tokens.len();
         context += call.context;
         carriers += call.carriers;
@@ -175,6 +187,16 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    if let Some(wanted) = &cli.sample {
+        println!(
+            "calls holding `{wanted}` — the first {} met:",
+            samples.len()
+        );
+        for sample in &samples {
+            println!("  {sample}");
+        }
+        println!();
+    }
     let calls: usize = episodes.values().map(Vec::len).sum();
     println!(
         "{} episodes holding {calls} calls ({rows} rows; {unparsed} did not parse, {without_turn} carry no turn, {unjoined} have no description)",
@@ -309,7 +331,7 @@ fn last_alone(k: &str) -> String {
 /// Shorten for display, on character boundaries.
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
-        return s.to_string();
+        return s.replace('\n', "⏎");
     }
-    s.chars().take(n - 1).collect::<String>() + "…"
+    s.chars().take(n - 1).collect::<String>().replace('\n', "⏎") + "…"
 }
