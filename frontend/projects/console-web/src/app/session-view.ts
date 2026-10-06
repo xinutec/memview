@@ -18,7 +18,7 @@ import { switchMap } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { Sheets, scaffoldTitle } from '@xinutec/ui-scaffold';
+import { Pictures, Sheets, scaffoldTitle } from '@xinutec/ui-scaffold';
 
 import { Composer } from './composer';
 import { ConsoleApi } from './console-api';
@@ -37,8 +37,7 @@ import { Notice, NoticeBar, notice } from './notice';
 import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
-import { PictureSheet } from './picture-sheet';
-import { pointedAt, shrink } from './picture';
+import { looking, pointedAt, shrink } from './picture';
 import { Roster } from './roster';
 import { Held, SessionStore } from './session-store';
 import { Telemetry } from './telemetry';
@@ -68,6 +67,7 @@ export class SessionView implements OnDestroy {
 
   private readonly api = inject(ConsoleApi);
   private readonly sheets = inject(Sheets);
+  private readonly pictures = inject(Pictures);
   private readonly here = inject(Here);
   private readonly store = inject(SessionStore);
   private readonly drafts = inject(Drafts);
@@ -460,6 +460,6 @@ export class SessionView implements OnDestroy {
     const url = link && pointedAt(link.getAttribute('href') ?? '');
     if (!url) return;
     event.preventDefault();
-    this.sheets.open(PictureSheet, { data: { url }, panelClass: 'picture-panel' });
+    this.pictures.open(looking(this.api, url));
   }
 }

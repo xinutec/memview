@@ -5049,7 +5049,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   await link.focus();
   await page.keyboard.press('Enter');
 
-  const shown = page.locator('app-picture-sheet img');
+  const shown = page.locator('ui-picture-sheet img');
   await shown.waitFor();
   // The sheet arrives by translating up the screen, and a box read mid-flight is
   // not the box the layout claims — see [[settleTransforms]].
@@ -5065,7 +5065,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   // Back closes the sheet and stays in the conversation, though a sheet takes
   // no part in history. See `Sheets` in `@xinutec/ui-scaffold`.
   await page.goBack();
-  await expect(page.locator('app-picture-sheet')).toHaveCount(0);
+  await expect(page.locator('ui-picture-sheet')).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}$`));
   await expect(page.locator('.entry.said')).toContainText('Rendered from the sofa');
 
@@ -5451,7 +5451,7 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
   expect(asked[0], 'the small version, not the original').toContain('small=true');
 
   await thumb.click();
-  const shown = page.locator('app-picture-sheet img');
+  const shown = page.locator('ui-picture-sheet img');
   await shown.waitFor();
   await settleTransforms(page);
   expect(asked.at(-1), 'the sheet asks for the original').not.toContain('small=true');
@@ -5492,7 +5492,7 @@ test("a render whose server is gone says so, in the console's words @ phone widt
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('a.picture-link').click();
 
-  const sheet = page.locator('app-picture-sheet');
+  const sheet = page.locator('ui-picture-sheet');
   // The console's sentence, not the status: "the runner answered 502" names
   // neither of the two things it means.
   await expect(sheet).toContainText('could not reach it: connection refused');
@@ -5536,21 +5536,21 @@ test('a picture the session named by its place on the disk opens too @ phone wid
   await expect(page.locator('a.picture-link')).toHaveText('Photo: cabinet corner');
   await page.locator('a.picture-link').click();
 
-  const shown = page.locator('app-picture-sheet img');
+  const shown = page.locator('ui-picture-sheet img');
   await shown.waitFor();
   expect(asked, 'the console is asked for the file, by its place on the disk').toContain(
     encodeURIComponent(FILE),
   );
   expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
   // The address bar above the picture says which file, since the link did not.
-  await expect(page.locator('app-picture-sheet .where')).toContainText('lroom-at20s');
+  await expect(page.locator('ui-picture-sheet .where')).toContainText('lroom-at20s');
 
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
 /** The `transform` the viewer has put on the picture, read back as numbers. */
 async function placed(page: Page): Promise<{ scale: number; x: number; y: number }> {
-  return page.locator('app-picture-sheet img').evaluate((img) => {
+  return page.locator('ui-picture-sheet img').evaluate((img) => {
     const matrix = new DOMMatrixReadOnly(getComputedStyle(img).transform);
     return { scale: matrix.a, x: matrix.e, y: matrix.f };
   });
@@ -5584,7 +5584,7 @@ async function opened(page: Page): Promise<void> {
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('a.picture-link').click();
-  await page.locator('app-picture-sheet img').waitFor();
+  await page.locator('ui-picture-sheet img').waitFor();
   await settleTransforms(page);
 }
 

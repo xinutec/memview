@@ -2,10 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { TestBed } from '@angular/core/testing';
+import { inject } from '@angular/core';
+import { PictureSheet } from '@xinutec/ui-scaffold';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { fetchedAt, pointedAt } from './picture';
-import { PictureSheet } from './picture-sheet';
+import { ConsoleApi } from './console-api';
+import { fetchedAt, looking, pointedAt } from './picture';
 
 const AT = 'http://10.0.0.2:8917/data/peek/peekA-350-view_top_down.png';
 
@@ -49,7 +51,8 @@ async function open(): Promise<{ host: Element; http: HttpTestingController; don
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: MAT_BOTTOM_SHEET_DATA, useValue: { url: AT } },
+      // What the session view opens: the shared viewer, fed by the console.
+      { provide: MAT_BOTTOM_SHEET_DATA, useFactory: () => looking(inject(ConsoleApi), AT) },
       { provide: MatBottomSheetRef, useValue: { dismiss: () => undefined } },
     ],
   }).compileComponents();
@@ -64,7 +67,7 @@ async function open(): Promise<{ host: Element; http: HttpTestingController; don
   };
 }
 
-describe('the picture sheet', () => {
+describe('a picture a session pointed at, in the shared viewer', () => {
   it('asks the console for the picture, rather than the address it was written at', async () => {
     // The whole reason this exists. The phone cannot reach the LAN those
     // addresses name; the Mac can, and the phone is already talking to it.

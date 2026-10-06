@@ -25,3 +25,17 @@ export function reason(err: unknown): string {
   if (err instanceof Error) return err.message;
   return 'Something went wrong.';
 }
+
+/**
+ * Why bytes asked for as a `Blob` did not arrive. With `responseType: 'blob'` the
+ * console's sentence comes back as a `Blob` on `err.error`, where [[reason]]
+ * finds no string, so it is read out here.
+ */
+export async function told(err: unknown): Promise<string> {
+  const body: unknown = err && typeof err === 'object' ? Reflect.get(err, 'error') : undefined;
+  if (body instanceof Blob) {
+    const said = (await body.text()).trim();
+    if (said) return said;
+  }
+  return reason(err);
+}

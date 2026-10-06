@@ -11,6 +11,11 @@
  * `console::images::fetch` is the other end.
  */
 
+import type { Picture as Shown } from '@xinutec/ui-scaffold';
+
+import type { ConsoleApi } from './console-api';
+import { told } from './errors';
+
 /**
  * The longest edge worth sending — Anthropic's own figure; above roughly 1568px
  * an image is scaled down at the far end anyway.
@@ -189,4 +194,14 @@ export function pointedAt(href: string): string | undefined {
   }
   if (asked.pathname !== WHERE) return undefined;
   return asked.searchParams.get('url') ?? undefined;
+}
+
+/**
+ * A picture a session pointed at, as the shared viewer opens it: the address as
+ * the session wrote it, which is how a person tells renders apart, and the bytes
+ * through [[ConsoleApi.elsewhere]], because an `<img>` that fails says nothing
+ * about why.
+ */
+export function looking(api: ConsoleApi, url: string): Shown {
+  return { label: url, source: api.elsewhere(url), explain: told };
 }
