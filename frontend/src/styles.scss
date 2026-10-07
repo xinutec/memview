@@ -77,7 +77,6 @@ mat-icon {
     // Monospace runs optically larger than Roboto at the same size, and a code
     // span must track whatever text encloses it — body copy, a heading, a list
     // item. That makes this relative-to-context, not a new step on the scale.
-    // dev-lint: allow-font-size optical match to the enclosing text
     font-size: 0.85em;
     font-family: ui-monospace, monospace;
     background: var(--mat-sys-surface-container);
