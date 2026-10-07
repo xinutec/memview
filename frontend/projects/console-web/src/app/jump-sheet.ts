@@ -108,8 +108,6 @@ export class JumpSheet {
   protected readonly all = signal<Landmark[] | undefined>(undefined);
   /**
    * Why the list could not be read.
-   *
-   * dev-lint: allow-sticky-error read once on the way up, with no retry offered.
    */
   protected readonly trouble = signal('');
   /** Which kinds are shown. All of them until somebody narrows it. */

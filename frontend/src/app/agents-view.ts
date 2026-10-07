@@ -158,8 +158,6 @@ export class AgentsView {
   private api = inject(MemviewApi);
 
   readonly data = signal<AgentsResult | null>(null);
-  /** dev-lint: allow-sticky-error — the roster is requested once and nothing
-   *  retries it, so there is no later success for this to be withdrawn by. */
   readonly failed = signal(false);
   readonly loading = signal(true);
 

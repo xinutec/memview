@@ -48,8 +48,6 @@ export class ParseSheet {
   /**
    * Why the parse could not be fetched — distinct from a command the parser could
    * not read, which is [[Parsed.error]] and an answer.
-   *
-   * dev-lint: allow-sticky-error the sheet asks once and has no second attempt.
    */
   protected readonly trouble = signal<string | undefined>(undefined);
 

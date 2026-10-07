@@ -122,9 +122,6 @@ export class TasksSheet {
   protected readonly all = signal<Task[] | undefined>(undefined);
   /**
    * Why the list could not be read, when it could not be.
-   *
-   * dev-lint: allow-sticky-error the sheet reads the list once and offers no
-   * retry, so there is no later success for this to be stale against.
    */
   protected readonly trouble = signal('');
   /** Whether finished tasks are shown. Off by default — see [STATUS]. */
