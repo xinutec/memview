@@ -15,8 +15,7 @@ import type {
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
   expectIconFontLoaded,
-  expectNoHorizontalOverflow,
-  expectNoTextOverlaps,
+  expectCleanLayout,
   expectCanvasLegible,
   expectRecoversFromMissingBundle,
   expectUpInTheBar,
@@ -544,8 +543,7 @@ test('index — dense link runs lay out cleanly @ phone width', async ({ page },
   // now "menu", since the destinations moved inside it and a closed mat-menu
   // renders nothing.
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 /**
@@ -571,8 +569,7 @@ test('memory page — long slug, code, table, link panels @ phone width', async 
   await page.getByText('Linked from').waitFor();
   // A memory is below the index: the bar leads up to it (@xinutec/ui-scaffold).
   await expectUpInTheBar(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, MD_SCROLLERS);
+  await expectCleanLayout(page, testInfo, { allow: MD_SCROLLERS });
 });
 
 test('all list — type filters + long slugs @ phone width', async ({ page }, testInfo) => {
@@ -582,8 +579,7 @@ test('all list — type filters + long slugs @ phone width', async ({ page }, te
   const reference = page.getByRole('radio', { name: 'reference', exact: true });
   await reference.waitFor();
   await page.getByText('user_cycling').waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await reference.click();
   await expect(reference).toBeChecked();
   await expect(
@@ -607,8 +603,7 @@ test('agents — a dense totals line and its provenance @ phone width', async ({
   // the same words the figure uses.
   await page.locator('.totals .via-shell').first().waitFor();
   await page.locator('.totals .maybe').first().waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 /**
@@ -635,8 +630,7 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   // file effects either, so the empty branch has two shapes reaching it — and a
   // `.first()` here would pass just as well if one of them stopped rendering.
   await expect(page.getByText('no evidence')).toHaveCount(2);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 
   // Wait for the ANSWER, not for the row. What this page draws while the
   // effects request is in flight is a progress bar, and asserting layout on it
@@ -671,16 +665,14 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await expect(page.getByText('may not have run')).toHaveCount(1);
   await page.getByText('and 12 more this could not name a subject for').waitFor();
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('search results — snippets under long slugs @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/search?q=lean');
   await page.getByText('BigInt quant twin', { exact: false }).waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('graph — cluster legend of long slugs under the canvas @ phone width', async ({
@@ -697,8 +689,7 @@ test('graph — cluster legend of long slugs under the canvas @ phone width', as
   // to fit is a full memory slug, not a hand-written section title.
   await page.getByRole('heading', { name: 'clusters' }).waitFor();
   await page.locator('.legend button').first().waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 /**
@@ -719,8 +710,7 @@ test('graph — a walk: trail crumbs and hop list @ phone width', async ({ page 
   await page.locator('.hops button').first().click();
   // Two crumbs now: the walk was extended, not replaced.
   await page.locator('.trail li').nth(1).waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
+  await expectCleanLayout(page, testInfo, { allow: TRAIL_SCROLLER });
 });
 
 test('graph — a linked walk survives a cold load @ phone width', async ({ page }, testInfo) => {
@@ -736,8 +726,7 @@ test('graph — a linked walk survives a cold load @ phone width', async ({ page
   await page
     .getByRole('heading', { name: 'project_health_verified_core_lean_3', exact: true })
     .waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
+  await expectCleanLayout(page, testInfo, { allow: TRAIL_SCROLLER });
 });
 
 /**
@@ -776,8 +765,7 @@ test('search — a failed search says so rather than "No matches." @ phone width
   // The claim this replaces must be absent: rendering both would be worse than
   // rendering only the wrong one.
   await expect(page.locator('.empty')).toHaveCount(0);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('memory — a failed load is not "hasn\'t been written yet" @ phone width', async ({
@@ -788,8 +776,7 @@ test('memory — a failed load is not "hasn\'t been written yet" @ phone width',
   await page.goto('/m/project_health_verified_core_lean');
   await page.getByText("didn't load", { exact: false }).waitFor();
   await expect(page.getByText('marks something worth writing')).toHaveCount(0);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('memory — a 404 still reads as not yet written @ phone width', async ({ page }, testInfo) => {
@@ -797,8 +784,7 @@ test('memory — a 404 still reads as not yet written @ phone width', async ({ p
   await page.route('**/api/memory/**', (r) => r.fulfill({ status: 404, body: 'no such memory' }));
   await page.goto('/m/project_never_written');
   await page.getByText('marks something worth writing', { exact: false }).waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width', async ({
@@ -847,8 +833,7 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
   await page.getByText('$ADB').waitFor();
 
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('reader — an unmined artefact says so, rather than drawing zeroes @ phone width', async ({
@@ -863,6 +848,5 @@ test('reader — an unmined artefact says so, rather than drawing zeroes @ phone
 
   await page.getByText('No survey has been mined here').waitFor();
   await expect(page.getByText('0.0%')).toHaveCount(0);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });

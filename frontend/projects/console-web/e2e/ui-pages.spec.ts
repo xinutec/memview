@@ -24,10 +24,10 @@ import { first, last, nth } from '../src/app/testing';
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
   expectBackClosesOverlay,
+  expectCleanLayout,
   expectIconFontLoaded,
   expectNoClippedText,
   expectNoHorizontalOverflow,
-  expectNoTextOverlaps,
   expectUpInTheBar,
   expectViewportIsPhone,
 } from '@xinutec/ui-harness';
@@ -1075,8 +1075,7 @@ test('session list — deep paths and long instructions @ phone width', async ({
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await expectThumbTargets(page);
 });
 
@@ -1120,8 +1119,7 @@ test('starting a session is behind one button, not in the way @ phone width', as
   await expect(offered).toHaveCount(0);
   // Scoped to the sheet: it is the only thing on screen that matters now, and
   // the list behind it is still in the DOM.
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 
   // The opening-instruction field is gone: it duplicated the composer this sheet
   // navigates straight to, and did exactly the same thing.
@@ -1176,8 +1174,7 @@ test('session list — a dozen sessions do not reach the build stamp @ phone wid
   await page.goto('/');
   await expect(page.locator('.page .session')).toHaveCount(CROWDED.sessions.length);
   await expectNothingPaintsOver(page, '.build');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 
   // And the last card has to clear the button, which only shows at the
   // bottom. `.add` is `fixed`, so a list with nothing under it scrolls its last
@@ -1210,8 +1207,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   // red is a matter for the render.
   await expect(page.getByText('[1;31m')).toHaveCount(0);
   await expect(page.locator('.returned.ansi .ansi-fg-1').first()).toBeVisible();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectNoPinnedOverlap(page);
   await expectIconsCentred(page);
   await expectClocksOnTheirLine(page);
@@ -1296,11 +1292,9 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
   await expect(sheet.getByText('the conversation was cut here')).toBeVisible();
 
   await expectIconFontLoaded(page);
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
   // Scoped to the sheet: it sits OVER the transcript by design, so an unscoped
   // check reports the conversation behind it overlapping every row.
-  await expectNoTextOverlaps(page, testInfo, 'mat-bottom-sheet-container');
   // Every row here is pressable, unlike the task sheet where most are not — so
   // the whole row is the target and it may not be shaved.
   await expectThumbTargets(page);
@@ -1314,8 +1308,7 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
   await expect(adrift, 'nothing says this is not the live conversation').toBeVisible();
   await expect(adrift.getByText('Looking back.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back to now' })).toBeVisible();
-  await expectNoHorizontalOverflow(page, testInfo);
-  await expectNoTextOverlaps(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await expectThumbTargets(page);
 });
 
@@ -1371,8 +1364,7 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
 
   // The composer holds a thumbnail, a size, a discard button, the box and
   // send — the fullest this row ever gets, and the phone is 412px wide.
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectNoPinnedOverlap(page);
   await expectThumbTargets(page);
 
@@ -1413,8 +1405,7 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
   );
   // The fullest this strip gets is a long command beside its own button, on a
   // phone 412px wide.
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 
   await chip.getByRole('button', { name: /do not run/ }).click();
@@ -1517,7 +1508,7 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
   const open = await picture.boundingBox();
   expect(open?.width ?? 0).toBeGreaterThan(closed?.width ?? 0);
 
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('a finger on the transcript stops it being pulled to the end @ phone width', async ({
@@ -1677,8 +1668,7 @@ test('a call waiting to be allowed is one widget, not two @ phone width', async 
 
   // The widest thing this page holds: a whole path, a question, and two buttons
   // on one 412px line.
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 });
 
@@ -1759,9 +1749,7 @@ test('a question offers what was asked, not allow and refuse @ phone width', asy
   // The description is the part worth reading, and the reason these are not
   // Material buttons — its label spills rather than wrapping.
   await expect(page.locator('.option .means').first()).toContainText('Smallest change');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
-  await expectNoClippedText(page, testInfo);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 
   // Two questions stand, so one tap is not an answer: it is remembered, and the
@@ -1825,8 +1813,7 @@ test('an answered question says what was chosen @ phone width', async ({ page },
   await expect(page.locator('.chose')).toHaveText('options only · the description, the topic');
   // Nothing left to tap: the question is over.
   await expect(page.getByRole('button', { name: /options only/ })).toHaveCount(0);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('a typed reply is recorded as one, not as a choice @ phone width', async ({ page }) => {
@@ -1872,7 +1859,7 @@ test('a note rides with the choice it qualifies @ phone width', async ({ page },
   await expect(options, 'a note is not a reply and must not take the card over').toBeEnabled();
   await options.click();
   await page.getByRole('button', { name: /the description/ }).click();
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
   await page.getByRole('button', { name: 'answer', exact: true }).click();
 
@@ -1922,7 +1909,7 @@ test('words instead of a choice take the card over @ phone width', async ({ page
 
   const send = page.getByRole('button', { name: 'reply', exact: true });
   await expect(send, 'the button says what it will do').toBeVisible();
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
   await send.click();
 
@@ -1998,8 +1985,7 @@ test('transcript — an undecided question with its two buttons @ phone width', 
   await mockRunner(page);
   await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: 'allow' }).waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   // The decision and the send button on one screen: the controls whose size is
   // the difference between answering from a train and waiting until you are off
   // it.
@@ -2686,8 +2672,7 @@ test('session list — how full each conversation is @ phone width', async ({ pa
 
   // The row wraps rather than clipping, and what it must not do is push the card
   // sideways or land on top of itself.
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — work still running says so, silence otherwise @ phone width', async ({
@@ -2744,8 +2729,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
   // The other crowded head: a name long enough to push everything else along,
   // and two things qualifying the status word. See [[expectOneLine]].
   await expectOneLine(page, '.session .head');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — what each conversation still owes @ phone width', async ({
@@ -2850,9 +2834,7 @@ test('session list — what each conversation still owes @ phone width', async (
   // different faults, both invisible to every other check here, both found by
   // eye on the phone — see [[expectOneLine]].
   await expectOneLine(page, '.session .head');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
-  await expectNoClippedText(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — a memory index past its cut is an error @ phone width', async ({
@@ -2869,7 +2851,7 @@ test('session list — a memory index past its cut is an error @ phone width', a
   const index = page.locator('.elsewhere .index');
   await expect(index).toHaveText('MEMORY.md 24,520/24,400');
   await expect(index).toHaveClass(/over/);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — what each conversation is about, marked as a guess @ phone width', async ({
@@ -2922,8 +2904,7 @@ test('session list — what each conversation is about, marked as a guess @ phon
     /summary written by a model, 9m ago/,
   );
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — the opening instruction stands in for a missing name @ phone width', async ({
@@ -2981,16 +2962,14 @@ test('the list says working, and how many messages are still queued @ phone widt
   await page.goto('/');
   await page.getByText('working').first().waitFor();
   await expect(page.locator('.unread')).toHaveText('2 unread');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('waiting for you').waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {
@@ -3042,7 +3021,7 @@ test('the composer grows with what is being typed @ phone width', async ({ page 
   const viewport = page.viewportSize()!.height;
   expect(capped, 'the composer must not eat the transcript').toBeLessThan(viewport / 2);
 
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 });
 
@@ -3056,8 +3035,7 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
   await unfold.waitFor();
   await unfold.click();
   await page.getByText('quantiseLegCost', { exact: false }).first().waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('what the account has spent is above the list @ phone width', async ({ page }, testInfo) => {
@@ -3116,8 +3094,7 @@ test('what the account has spent is above the list @ phone width', async ({ page
     expect(label.lines, `"${label.text}" is split over ${label.lines} lines`).toBe(1);
   }
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await expectNoClippedText(page, testInfo, '.usage');
 });
 
@@ -3521,7 +3498,7 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
   await expect(page.locator('ui-scaffold h1')).toHaveText(
     'health-sync-backend-decode-matcher-gate-quantiser',
   );
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 
   const bar = await page.evaluate(() => {
@@ -3616,8 +3593,7 @@ test('what the session may do without asking is on the header @ phone width', as
   ).toBeLessThan(1.5);
 
   await expectOneLine(page, '.session .head');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await expectThumbTargets(page);
 });
 
@@ -3701,9 +3677,7 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   expect(said).toContain('code-a7');
   expect(said, 'the disagreement is drawn but not explained').toContain('next resume');
 
-  await expectNoTextOverlaps(page, testInfo, '.session-sheet');
-  await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
-  await expectNoClippedText(page, testInfo, '.session-sheet');
+  await expectCleanLayout(page, testInfo, { root: '.session-sheet' });
 });
 
 test('the task sheet opens on what is left rather than what is done @ phone width', async ({
@@ -3836,9 +3810,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     'move the per-session repo claim into the service',
   );
 
-  await expectNoTextOverlaps(page, testInfo, '.session-sheet');
-  await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
-  await expectNoClippedText(page, testInfo, '.session-sheet');
+  await expectCleanLayout(page, testInfo, { root: '.session-sheet' });
   await expectThumbTargets(page);
 });
 
@@ -4342,9 +4314,7 @@ test('a shell command opens as written and as read @ phone width', async ({ page
   await expect(page.locator('.summary')).toContainText('2 unproven');
   await expect(page.locator('.used.unsure')).toHaveCount(2);
 
-  await expectNoTextOverlaps(page, testInfo, SHEET);
-  await expectNoHorizontalOverflow(page, testInfo, SHEET);
-  await expectNoClippedText(page, testInfo, SHEET);
+  await expectCleanLayout(page, testInfo, { root: SHEET });
 });
 
 test('both halves of a parsed command fit one screen @ phone width', async ({ page }) => {
@@ -4390,7 +4360,7 @@ test('a command that will not parse says so rather than looking empty @ phone wi
 
   await expect(page.locator('.unread')).toContainText('does not parse');
   await expect(page.locator('.step')).toHaveCount(0);
-  await expectNoHorizontalOverflow(page, testInfo, SHEET);
+  await expectCleanLayout(page, testInfo, { root: SHEET });
 });
 
 test('another machine is named on the step and on every path @ phone width', async ({
@@ -4448,8 +4418,7 @@ test('another machine is named on the step and on every path @ phone width', asy
   expect(nth(indents, 1), 'the command inside the wrapper is not indented').toBeGreaterThan(
     first(indents),
   );
-  await expectNoHorizontalOverflow(page, testInfo, SHEET);
-  await expectNoClippedText(page, testInfo, SHEET);
+  await expectCleanLayout(page, testInfo, { root: SHEET });
 });
 
 test('a session that has stopped reading names it, with the cure @ phone width', async ({
@@ -4472,8 +4441,7 @@ test('a session that has stopped reading names it, with the cure @ phone width',
   await expect(page.locator('.deaf')).toContainText('Not reading');
   await expect(page.locator('.deaf')).toContainText('21m');
   await expect(page.getByRole('button', { name: 'Restart it' })).toBeEnabled();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectNoPinnedOverlap(page);
 });
 
@@ -4485,8 +4453,7 @@ test('an ended session offers the way back @ phone width', async ({ page }, test
   await page.goto(`/s/${ENDED.id}`);
   await page.locator('.deaf.ended').waitFor();
   await expect(page.getByRole('button', { name: 'Start it again' })).toBeEnabled();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('the verdict becomes the plain one once the session acts on it @ phone width', async ({
@@ -4524,8 +4491,7 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
   await page.locator('.chose').waitFor();
 
   await expect(page.locator('.verdict')).toHaveText('answered');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('a working session can be renamed from the menu @ phone width', async ({ page }, testInfo) => {
@@ -4549,8 +4515,7 @@ test('a working session can be renamed from the menu @ phone width', async ({ pa
   const name = page.getByLabel('name');
   await expect(name, 'the sheet did not open').toBeVisible();
   await name.fill('tasks');
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
   await page.getByRole('button', { name: /^rename$/ }).click();
 
   await expect.poll(() => sent).toMatchObject({ title: 'tasks' });
@@ -4610,8 +4575,7 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
     page.getByRole('button', { name: /^rename$/ }),
     'the offer pushed the rename button off the screen',
   ).toBeInViewport({ ratio: 1 });
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 
   await offer.click();
   await expect(name).toHaveValue('Lean port');
@@ -4638,7 +4602,7 @@ test('the rename sheet offers nothing when no model has named the conversation @
 
   await expect(page.getByLabel('name', { exact: true }), 'the sheet did not open').toBeVisible();
   await expect(page.getByRole('button', { name: /use the suggested name/ })).toHaveCount(0);
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a refused mode change says so and puts the mode back @ phone width', async ({ page }) => {
@@ -4710,8 +4674,7 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   // would claim a state that is not true.
   const banner = page.locator('.adrift');
   await expect(banner, 'a copy was drawn as though it were live').toContainText('Kept copy');
-  await expectNoHorizontalOverflow(page, testInfo, '.adrift');
-  await expectNoClippedText(page, testInfo, '.adrift');
+  await expectCleanLayout(page, testInfo, { root: '.adrift' });
 });
 
 test('the permission modes are one row that opens a sheet @ phone width', async ({
@@ -4749,8 +4712,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   // merely still: a sheet that has come to rest with its last mode below the
   // fold is the defect this line is here for.
   await expect(sheet.locator('.mode').last()).toBeInViewport();
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
   await expectThumbTargets(page);
 });
 
@@ -4804,8 +4766,7 @@ test('session strip — a background call is named, not counted @ phone width', 
   // times out instead of failing on what it was actually asked.
   await expect(page.locator('.update:not(.running)')).toHaveCount(0);
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('a session that has ended dates its background work @ phone width', async ({
@@ -4853,8 +4814,7 @@ test('a session that has ended dates its background work @ phone width', async (
   await expect(page.locator('.session').first()).not.toContainText('background');
 
   await expectOneLine(page, '.session .head');
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 
   // The strip on the page itself: the names stay — work orphaned by a session
   // dying is the case worth a look at `ps` — but a caption dates them.
@@ -4863,8 +4823,7 @@ test('a session that has ended dates its background work @ phone width', async (
   await expect(page.locator('.update:not(.running)')).toContainText(
     'running when the session ended',
   );
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 
   // The nameless fallback is a SECOND sentence and was the one that read
   // worst — `2 background tasks running` with no names, on a session that had
@@ -4888,7 +4847,7 @@ test('a session that has ended dates its background work @ phone width', async (
     '2 background tasks running when the session ended',
   );
   await expect(page.locator('.update.running')).toHaveCount(0);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('reader — the survey is a screen you go to, not a strip in the way @ phone width', async ({
@@ -4940,8 +4899,7 @@ test('reader — the survey is a screen you go to, not a strip in the way @ phon
   await page.locator('.session').first().waitFor();
 
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('reader — an unmined survey says so on its own screen @ phone width', async ({
@@ -4953,8 +4911,7 @@ test('reader — an unmined survey says so on its own screen @ phone width', asy
 
   await page.getByText('No survey has been mined here').waitFor();
   await expect(page.locator('.chart')).toHaveCount(0);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('usage — the week bar marks the days and where the clock is @ phone width', async ({
@@ -4996,8 +4953,7 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   await expect(short.locator('.day')).toHaveCount(0);
 
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('a link to a render opens over the conversation, and back puts it away @ phone width', async ({
@@ -5069,7 +5025,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}$`));
   await expect(page.locator('.entry.said')).toContainText('Rendered from the sofa');
 
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('an edit opens as a diff of what it replaced @ phone width', async ({ page }, testInfo) => {
@@ -5118,7 +5074,7 @@ test('an edit opens as a diff of what it replaced @ phone width', async ({ page 
   await expect(sheet.locator('.line.added')).toHaveCount(1);
   await expect(sheet.locator('.line.same')).toContainText('fn dropped() {}');
 
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
   await expectNoClippedText(page, testInfo, 'app-diff-sheet');
 });
 
@@ -5168,7 +5124,7 @@ test('what a command is predicted to change is marked on its row and drawn in it
   await expect(sheet.locator('.line.gone')).toHaveText('− one');
   await expect(sheet.locator('.line.added')).toHaveText('+ two');
   await expect(sheet.locator('.line.same')).toHaveCount(2);
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a command waiting for permission shows what it will change @ phone width', async ({
@@ -5215,7 +5171,7 @@ test('a command waiting for permission shows what it will change @ phone width',
   await expect(sheet.locator('.line.gone')).toHaveText('− old');
   await expect(sheet.locator('.line.added')).toHaveText('+ new');
   await settleTransforms(page);
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a call whose files did not end up as predicted says so @ phone width', async ({
@@ -5261,7 +5217,7 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
   const sheet = page.locator('app-parse-sheet');
   await expect(sheet.locator('.diverged')).toContainText('did not end up as predicted');
   await settleTransforms(page);
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a prediction that assumed an unknown program harmless says which @ phone width', async ({
@@ -5315,7 +5271,7 @@ test('a prediction that assumed an unknown program harmless says which @ phone w
   await expect(sheet.locator('.diverged')).toContainText('a program it assumed harmless');
   await settleTransforms(page);
   await page.screenshot({ path: testInfo.outputPath('conditional.png') });
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a file one of several texts shows each outcome @ phone width', async ({ page }, testInfo) => {
@@ -5369,7 +5325,7 @@ test('a file one of several texts shows each outcome @ phone width', async ({ pa
   ]);
   await settleTransforms(page);
   await page.screenshot({ path: testInfo.outputPath('outcomes.png') });
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('an edit waiting for permission can be read before it is allowed @ phone width', async ({
@@ -5416,7 +5372,7 @@ test('an edit waiting for permission can be read before it is allowed @ phone wi
   await expect(sheet.locator('.who')).toHaveText('usage.rs');
   await expect(sheet.locator('.line.gone')).toContainText('from_secs(300)');
   await expect(sheet.locator('.line.added')).toContainText('from_secs(60)');
-  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
 });
 
 test('a picture a session read is drawn small, and a tap opens it whole @ phone width', async ({
@@ -5457,6 +5413,7 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
   expect(asked.at(-1), 'the sheet asks for the original').not.toContain('small=true');
   expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
 
+  await expectCleanLayout(page, testInfo, { root: 'ui-picture-sheet' });
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
@@ -5498,6 +5455,7 @@ test("a render whose server is gone says so, in the console's words @ phone widt
   await expect(sheet).toContainText('could not reach it: connection refused');
   await expect(sheet).not.toContainText('502');
 
+  await expectCleanLayout(page, testInfo, { root: 'ui-picture-sheet' });
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
@@ -5545,6 +5503,7 @@ test('a picture the session named by its place on the disk opens too @ phone wid
   // The address bar above the picture says which file, since the link did not.
   await expect(page.locator('ui-picture-sheet .where')).toContainText('lroom-at20s');
 
+  await expectCleanLayout(page, testInfo, { root: 'ui-picture-sheet' });
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
@@ -5642,6 +5601,7 @@ test('a picture can be pinched closer and dragged about @ phone width', async ({
   // fitted every time it is moved — the gesture undoing itself as it finishes.
   expect(await placed(page)).toMatchObject({ scale: dragged.scale, x: dragged.x });
 
+  await expectCleanLayout(page, testInfo, { root: 'ui-picture-sheet' });
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
@@ -5738,8 +5698,7 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
     '/home/example/Code/health/rust/backend/src/routes/session.rs',
   );
 
-  await expectNoHorizontalOverflow(page, testInfo, SHEET);
-  await expectNoClippedText(page, testInfo, SHEET);
+  await expectCleanLayout(page, testInfo, { root: SHEET });
 });
 
 test('a stream that stays dead says so, and says it once @ phone width', async ({
@@ -5772,9 +5731,7 @@ test('a stream that stays dead says so, and says it once @ phone width', async (
   await expect(page.getByText(/cannot reach the runner/i)).toBeHidden();
   expect(await marker.count(), 'the marker was drawn more than once').toBe(1);
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
-  await expectNoClippedText(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('a message sent mid-answer does not cut the answer in half @ phone width', async ({
@@ -5817,8 +5774,7 @@ test('a message sent mid-answer does not cut the answer in half @ phone width', 
     '```',
   );
 
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
 });
 
 test('a workflow opens on its agents by phase, and an agent on its transcript @ phone width', async ({
@@ -5937,7 +5893,7 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
   await expect(busy.locator('.doing')).toContainText('Bash');
   await expect(page.locator('ui-scaffold h1')).toHaveText('comment-pass-1721');
   await expectUpInTheBar(page);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await expectNoClippedText(page, testInfo, 'app-workflow-view');
   await page.screenshot({ path: testInfo.outputPath('workflow.png') });
 
@@ -5949,7 +5905,7 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
   await expect(agent.locator('.entry.tools .running')).toContainText('1 running');
   await expect(page.locator('ui-scaffold h1')).toHaveText('comments:runner');
   await expectUpInTheBar(page);
-  await expectNoHorizontalOverflow(page, testInfo);
+  await expectCleanLayout(page, testInfo);
   await page.screenshot({ path: testInfo.outputPath('agent.png') });
 
   await page.getByLabel('back').click();
