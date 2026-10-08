@@ -16,6 +16,8 @@ export class IndexView {
 
   readonly html = signal<string | null>(null);
   readonly count = signal(0);
+  /** The index could not be read: never shown as an empty memory. */
+  readonly failed = signal(false);
 
   constructor() {
     this.api.index().subscribe({
@@ -23,7 +25,7 @@ export class IndexView {
         this.html.set(page.html);
         this.count.set(page.count);
       },
-      error: () => this.html.set('<p>No MEMORY.md index found.</p>'),
+      error: () => this.failed.set(true),
     });
   }
 }
