@@ -65,15 +65,18 @@ pub async fn login(
     State(app): State<AppState>,
     jar: CookieJar,
     Query(q): Query<LoginQuery>,
-) -> Result<(CookieJar, Redirect), AppError> {
-    let auth = app.cfg.auth.as_ref().ok_or(AppError::NotFound)?;
+) -> Response {
+    let Some(auth) = app.cfg.auth.as_ref() else {
+        return sign_in_problem(StatusCode::NOT_FOUND, "Sign-in is not set up here.");
+    };
     let state = app.create_oauth_state(q.return_to);
     // The same value goes two ways — the URL, and a cookie only this browser can
     // hold. See `state_to_consume`.
-    Ok((
+    (
         jar.add(pending_cookie(state.clone())),
         Redirect::to(&identity::authorize_url(auth, &state)),
-    ))
+    )
+        .into_response()
 }
 
 /// Which pending sign-in this callback is for: the one named in the URL, or —
