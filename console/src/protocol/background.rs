@@ -197,22 +197,48 @@ fn ends_without_naming_the_call(text: &str) -> bool {
         || between(text, "<summary>", "</summary>").is_some_and(|said| said.starts_with(NO_RECORD))
 }
 
-/// The newer words for a monitor's timeout, whole, with only the duration free:
+/// The newer words for a monitor's timeout, whole, with the duration and what
+/// was delivered free. The advice to widen the filter comes only after silence:
+///
 /// `[Monitor expired after 5m with no events delivered. Re-arm it if you still
-/// need the watch — and widen the filter if silence was unexpected.]`.
+/// need the watch — and widen the filter if silence was unexpected.]`
+///
+/// `[Monitor expired after 30m with 5 events delivered. Re-arm it if you still
+/// need the watch.]`
 fn expired(event: &str) -> bool {
     const BEFORE: &str = "[Monitor expired after ";
-    const AFTER: &str = " with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]";
-    let Some(duration) = event
-        .strip_prefix(BEFORE)
-        .and_then(|rest| rest.strip_suffix(AFTER))
+    const RE_ARM: &str = " delivered. Re-arm it if you still need the watch";
+    const AFTER_SILENCE: &str = " — and widen the filter if silence was unexpected.]";
+    const AFTER_EVENTS: &str = ".]";
+    let Some(rest) = event.strip_prefix(BEFORE) else {
+        return false;
+    };
+    let (rest, silent) = match rest.strip_suffix(AFTER_SILENCE) {
+        Some(rest) => (rest, true),
+        None => match rest.strip_suffix(AFTER_EVENTS) {
+            Some(rest) => (rest, false),
+            None => return false,
+        },
+    };
+    let Some((duration, delivered)) = rest
+        .strip_suffix(RE_ARM)
+        .and_then(|rest| rest.split_once(" with "))
     else {
         return false;
     };
-    let digits = duration.trim_end_matches(['s', 'm', 'h']);
-    duration.len() == digits.len() + 1
-        && !digits.is_empty()
-        && digits.chars().all(|c| c.is_ascii_digit())
+    let delivered_fits = match silent {
+        true => delivered == "no events",
+        false => delivered
+            .strip_suffix(" events")
+            .or_else(|| delivered.strip_suffix(" event"))
+            .is_some_and(number),
+    };
+    delivered_fits && duration.strip_suffix(['s', 'm', 'h']).is_some_and(number)
+}
+
+/// Digits, at least one.
+fn number(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Whether this text is the harness reporting on a background task at all —

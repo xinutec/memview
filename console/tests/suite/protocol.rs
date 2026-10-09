@@ -445,6 +445,21 @@ fn a_monitor_that_expired_is_an_ending_in_its_newer_words() {
 }
 
 #[test]
+fn a_monitor_that_expired_after_reporting_is_an_ending() {
+    // Verbatim. A monitor that delivered events says so in shorter words,
+    // without the advice to widen the filter.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b2ib6ix9q</task-id>\n<summary>Monitor event: \"weight search progress and exit\"</summary>\n<event>[Monitor expired after 30m with 5 events delivered. Re-arm it if you still need the watch.]</event>\n</task-notification>"}]}}"#;
+    assert!(
+        matches!(
+            read(line).as_slice(),
+            [Event::Background { tool: None, task: Some(task), .. }] if task == "b2ib6ix9q"
+        ),
+        "got {:?}",
+        read(line)
+    );
+}
+
+#[test]
 fn a_monitor_reporting_is_not_a_monitor_ending() {
     // The reason the ending is matched on its words and not on the absence
     // of a call. Every line a monitor emits arrives as a notification of the
@@ -474,6 +489,14 @@ fn a_monitor_reporting_is_not_a_monitor_ending() {
         (
             "an expiry line with something that is not a duration in it",
             "[Monitor expired after a while with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]",
+        ),
+        (
+            "an expiry line with something that is not a count in it",
+            "[Monitor expired after 30m with some events delivered. Re-arm it if you still need the watch.]",
+        ),
+        (
+            "an expiry line whose advice does not fit what was delivered",
+            "[Monitor expired after 30m with 5 events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]",
         ),
     ] {
         let line = format!(
