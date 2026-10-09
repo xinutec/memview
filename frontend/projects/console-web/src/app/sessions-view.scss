@@ -81,7 +81,7 @@
   border-radius: 1rem;
   background: var(--mat-sys-tertiary-container);
   color: var(--mat-sys-on-tertiary-container);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 // The same badge, in the colour that means somebody has to act. A session
@@ -236,7 +236,7 @@
 // the rest. A class rather than a computed `font-weight`: CSS `round()` is recent,
 // and 550 is not a weight this font reliably has.
 .since.urgent {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .cache {
@@ -295,7 +295,7 @@
     border-radius: 0.25rem;
     background: var(--mat-sys-error-container);
     color: var(--mat-sys-on-error-container);
-    font-weight: 600;
+    font-weight: 700;
   }
 }
 

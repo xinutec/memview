@@ -27,6 +27,7 @@
               "@fontsource/roboto/300.css",
               "@fontsource/roboto/400.css",
               "@fontsource/roboto/500.css",
+              "@fontsource/roboto/700.css",
               "material-icons/iconfont/filled.css",
               "src/styles.scss"
             ]
@@ -99,6 +100,7 @@
               "@fontsource/roboto/300.css",
               "@fontsource/roboto/400.css",
               "@fontsource/roboto/500.css",
+              "@fontsource/roboto/700.css",
               "material-icons/iconfont/filled.css",
               "projects/console-web/src/styles.scss"
             ]

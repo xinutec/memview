@@ -83,7 +83,7 @@
 
   .n {
     font-variant-numeric: tabular-nums;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--mat-sys-on-surface);
   }
 }
@@ -112,7 +112,7 @@
   }
 
   .agent {
-    font-weight: 600;
+    font-weight: 700;
     // A session id standing in for a name is 36 characters; let it break rather
     // than push the row sideways.
     overflow-wrap: anywhere;
