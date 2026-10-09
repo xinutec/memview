@@ -448,15 +448,28 @@ fn a_monitor_that_expired_is_an_ending_in_its_newer_words() {
 fn a_monitor_that_expired_after_reporting_is_an_ending() {
     // Verbatim. A monitor that delivered events says so in shorter words,
     // without the advice to widen the filter.
-    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b2ib6ix9q</task-id>\n<summary>Monitor event: \"weight search progress and exit\"</summary>\n<event>[Monitor expired after 30m with 5 events delivered. Re-arm it if you still need the watch.]</event>\n</task-notification>"}]}}"#;
-    assert!(
-        matches!(
-            read(line).as_slice(),
-            [Event::Background { tool: None, task: Some(task), .. }] if task == "b2ib6ix9q"
+    for (task, event) in [
+        (
+            "b2ib6ix9q",
+            "[Monitor expired after 30m with 5 events delivered. Re-arm it if you still need the watch.]",
         ),
-        "got {:?}",
-        read(line)
-    );
+        (
+            "br0kou18u",
+            "[Monitor expired after 1m with 1 event delivered. Re-arm it if you still need the watch.]",
+        ),
+    ] {
+        let line = format!(
+            r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"text","text":"<task-notification>\n<task-id>{task}</task-id>\n<summary>Monitor event: \"weight search progress and exit\"</summary>\n<event>{event}</event>\n</task-notification>"}}]}}}}"#
+        );
+        assert!(
+            matches!(
+                read(&line).as_slice(),
+                [Event::Background { tool: None, task: Some(ended), .. }] if ended == task
+            ),
+            "{event}: got {:?}",
+            read(&line)
+        );
+    }
 }
 
 #[test]
