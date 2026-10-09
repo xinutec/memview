@@ -6,11 +6,24 @@ plugins {
 // Where this build's console lives, and which server key it will speak to. Both
 // are deployment facts, not source: this repository is public, and the address of
 // a machine on a private VPN does not belong in it. They arrive from the
-// environment — `deploy.sh` sources `console.env` (gitignored) — and default to
-// empty, in which case the app says which two variables to set instead of dialling
-// somewhere wrong.
+// environment — `deploy.sh` sources `console.env` (gitignored). Empty is allowed
+// for tests and lint, never for an APK: an assemble or install without them fails
+// (see below), because the app it would build points at console.invalid.
 val consoleUrl: String = System.getenv("CONSOLE_URL") ?: ""
 val serverPin: String = System.getenv("CONSOLE_SERVER_PIN") ?: ""
+
+tasks.configureEach {
+    if (name.startsWith("assemble") || name.startsWith("install")) {
+        doFirst {
+            if (consoleUrl.isEmpty() || serverPin.isEmpty()) {
+                throw GradleException(
+                    "CONSOLE_URL and CONSOLE_SERVER_PIN are unset: this APK would point at " +
+                        "console.invalid. Build with ./deploy.sh, or `set -a; . ./console.env; set +a` first.",
+                )
+            }
+        }
+    }
+}
 
 /**
  * The console's own certificate, carried into the app as a trust anchor.
