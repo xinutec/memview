@@ -68,7 +68,7 @@ val writeTrustAnchor by tasks.registering {
         // build that cannot dial anywhere has nothing to trust. System anchors
         // only, which is Android's own default.
         if (consoleHost.isEmpty()) {
-            File(xml, "network_security_config.xml").writeText(SYSTEM_ONLY)
+            File(xml, "network_security_config.xml").writeText(systemOnly)
             File(raw, "console_ca.crt").delete()
             return@doLast
         }
@@ -82,7 +82,7 @@ val writeTrustAnchor by tasks.registering {
 }
 
 /** Android's own default, for a build with no console to speak to. */
-val SYSTEM_ONLY =
+val systemOnly =
     """
     <?xml version="1.0" encoding="utf-8"?>
     <network-security-config>
