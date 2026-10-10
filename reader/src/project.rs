@@ -261,6 +261,7 @@ impl Walk {
             scope: scope.to_vec(),
             redirects: Vec::new(),
             heredocs: Vec::new(),
+            literal: Vec::new(),
             split: Vec::new(),
         };
         // The redirections are read first because a `< <(ls)` runs its commands
@@ -277,10 +278,20 @@ impl Walk {
                             // the file, so it counts as a write — the direction
                             // this reader errs in everywhere else.
                             write: !matches!(redirect.op, RedirectOp::Read),
+                            stdout: match (redirect.op, redirect.fd) {
+                                (RedirectOp::Write | RedirectOp::Clobber, Some(1)) => {
+                                    crate::shell::Stdout::Replaces
+                                }
+                                (RedirectOp::Append, Some(1)) => crate::shell::Stdout::Appends,
+                                _ => crate::shell::Stdout::Untouched,
+                            },
                         });
                     }
                 }
-                RedirectTarget::Here(here) => flat.heredocs.push(here.body.clone()),
+                RedirectTarget::Here(here) => {
+                    flat.heredocs.push(here.body.clone());
+                    flat.literal.push(here.quoted);
+                }
                 // `2>&1` and `>&-` name a descriptor, not a file.
                 RedirectTarget::Fd(_) | RedirectTarget::Close => {}
             }
@@ -364,6 +375,7 @@ impl Walk {
                 // empty argv so the push at the end of this function skips it.
                 flat.redirects.clear();
                 flat.heredocs.clear();
+                flat.literal.clear();
                 // Asked before the unrolling and not after, so both entry
                 // points answer the same. A list the text determines says the
                 // body ran, whether or not this walk is the one running it out —

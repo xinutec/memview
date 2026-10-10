@@ -4,11 +4,11 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: nine lenses and five instruments are BUILT; every one after the
-first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
+**Status: ten lenses and five instruments are BUILT; every one after the
+first was chosen by a census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage` and
-`Commit` — and answers every miss by name (`concept::Why`)
+`Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage`,
+`Commit` and `Write` — and answers every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/suite/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
 of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%**, the git working-tree three to
@@ -27,6 +27,25 @@ and another 10.9% is a carrier whose content lifts as its own steps. Gate 4's
 finding below says why the next layer is the EPISODE, and **instrument 5, the
 episode census, is BUILT (2026-10-05)**: its first reading, under *The fifth
 instrument*, measures the claim gate 4 could only state.
+
+⚠ **`Write` is the one lens the episode census chose (2026-10-10).** `cat > f
+<<'EOF'` was read as `cat` showing its input, so inside an episode a file being
+written looked like a file being read — the author's own top verb for it was
+*add*, then *write*. It carries the text, since the text is the act and a concept
+must lower; a body under an unquoted delimiter that could expand is `None`, the
+text-level hole. `>>` refuses by name (`Why::Appends`): the file afterwards is not
+the text. The lift rate on the 2026-10-05 corpus went from 21.18% to 21.48% —
+small, as the paragraph above predicts — and the act's top verb became *write*.
+
+⚠ **`Write` found the `Page` fabrication again.** A redirect target the
+reader cannot resolve — `"$out"`, or a bare name its path guard drops — leaves
+no file on the step, so `cat > "$out" <<EOF` passed `Page`'s reads-only guard
+and lifted as *"Show all of what it is given"*: a write read as a show. It now
+lifts as a `Write` whose subject is a hole when the target expands, and refuses
+as `UnreadSubject` when a literal name did not resolve. This needed the
+flattened command to keep what the syntax tree already knew: which way a
+redirection takes standard output (`shell::Stdout`) and whether each heredoc's
+delimiter was quoted (`Simple::literal`).
 
 ⚠ **A shared guard belongs in ONE place.** `counted_subjects` (reads-only,
 resolvable, one subject per operand) and `own_command` (the `xargs` refusal) were

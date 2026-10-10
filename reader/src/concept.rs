@@ -38,6 +38,7 @@
 //! seed concept's parameters survive at the `Op` alone.
 
 use crate::reading::op_name;
+use crate::shell::Stdout;
 use crate::shell_files::Step;
 use crate::shell_ops::{Op, basename, unwrap_command};
 
@@ -275,6 +276,17 @@ pub enum Concept {
         /// thing an approver most needs told: this commit skips the gate.
         no_verify: bool,
     },
+    /// A file's whole contents replaced by text the command carries — `cat > f
+    /// <<'EOF'`.
+    ///
+    /// The text is the act, so it is carried: a concept without it could not
+    /// be lowered. `None` when the body may have expanded — an unquoted
+    /// delimiter over a body with `$`, a backquote or a backslash in it — because
+    /// what reached the file is then not what the text says.
+    Write {
+        subject: Subject,
+        text: Option<String>,
+    },
 }
 
 /// Why a step did not lift.
@@ -361,6 +373,10 @@ pub enum Why {
     /// The same commits, a different answer, which is the call [`Why::NotLines`]
     /// makes for `grep -c`.
     Formatted,
+    /// `cat >> f <<EOF` — the text is added after what the file held, so the
+    /// file afterwards is not the text. A [`Concept::Write`] would claim the
+    /// earlier contents were gone.
+    Appends,
 }
 
 /// Lift one step into the concept it served, or say why not.
@@ -407,6 +423,7 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         // show. `ls` and `find` reach it too and are the [`Concept::List`] act — which is
         // why the page reader is asked first and the listing reader second, rather than
         // either of them owning the variant.
+        Some(Op::Read { paths }) if heredoc_into_file(step) => write(step, paths),
         Some(Op::Read { paths }) => match read_page(step) {
             Some((range, operands)) => page(step, paths, range, operands),
             // Only a shape no earlier reader RECOGNISED falls through — a named
@@ -452,6 +469,53 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         }
         _ => Err(Why::NoLens),
     }
+}
+
+/// Whether this is the shape a [`Concept::Write`] is read from: a bare `cat`,
+/// one heredoc and one redirection of its output. Asked before the page reader,
+/// which would otherwise see a `cat` that shows its input.
+fn heredoc_into_file(step: &Step) -> bool {
+    own_command(step).is_some_and(|argv| argv.len() == 1 && basename(&argv[0]) == "cat")
+        && step.heredocs.len() == 1
+        && step.redirects.len() == 1
+        && step.redirects[0].write
+}
+
+/// `cat > f <<'EOF'` — the file, and the text it holds afterwards.
+///
+/// One redirection and nothing else touched: a `2>` writes the errors, which
+/// a bare `cat` has none of, and `>>` keeps what was there.
+fn write(step: &Step, paths: &[String]) -> Result<Concept, Why> {
+    // Another machine's file outranks every other refusal, as in each lens.
+    if step.host.is_some() {
+        return Err(Why::Remote);
+    }
+    match step.redirects[0].stdout {
+        Stdout::Replaces => {}
+        Stdout::Appends => return Err(Why::Appends),
+        Stdout::Untouched => return Err(Why::NoLens),
+    }
+    if step.files.iter().any(|use_| !use_.write) || !paths.is_empty() {
+        return Err(Why::NoLens);
+    }
+    let written: Vec<String> = step.files.iter().map(|use_| use_.path.clone()).collect();
+    let mut subjects = subjects_or_refuse(step, &written)?;
+    // A target the reader could not resolve leaves no trace on the step. One
+    // that expands is a value this text does not hold — a hole, and safe to say
+    // so, since a write always has exactly one target. A literal word that did
+    // not resolve was named and is refused, never guessed.
+    if subjects.is_empty() && step.redirects[0].target.contains(['$', '`']) {
+        subjects.push(Subject::Hole);
+    }
+    if subjects.len() != 1 {
+        return Err(Why::UnreadSubject);
+    }
+    let body = &step.heredocs[0];
+    let as_written = step.literal.first() == Some(&true) || !body.contains(['$', '`', '\\']);
+    Ok(Concept::Write {
+        subject: subjects.remove(0),
+        text: as_written.then(|| body.clone()),
+    })
 }
 
 /// `git log` — the most recent commits, or the refusal a flag forces.
@@ -1209,6 +1273,19 @@ fn subjects(step: &Step, paths: &[String]) -> Vec<Subject> {
 /// given one fails rather than doing something else.
 pub fn lower(concept: &Concept) -> String {
     match concept {
+        // `cat` and a quoted heredoc is the canonical spelling: the quoting says
+        // the body is the text. A body that may have expanded lowers to one
+        // that does, so it lifts back as the same hole.
+        Concept::Write { subject, text } => {
+            let target = spell(subject);
+            match text {
+                Some(text) => {
+                    let end = delimiter(text);
+                    format!("cat > {target} <<'{end}'\n{text}{end}\n")
+                }
+                None => format!("cat > {target} <<EOF\n$UNNAMED\nEOF\n"),
+            }
+        }
         Concept::Rewrite {
             subjects,
             substitution,
@@ -1389,6 +1466,7 @@ pub fn lower(concept: &Concept) -> String {
 /// variable somebody could go and check.
 pub fn describe(concept: &Concept) -> String {
     match concept {
+        Concept::Write { subject, .. } => format!("Write {}", said(std::slice::from_ref(subject))),
         Concept::Rewrite { subjects, .. } => {
             format!("Rewrite {} in place", said(subjects))
         }
@@ -1546,6 +1624,19 @@ fn said(subjects: &[Subject]) -> String {
         .join(", ")
 }
 
+/// A heredoc delimiter no line of `text` begins with, so the body ends where
+/// it should — a reader that accepts a terminator followed by punctuation would
+/// otherwise end it at a line like `EOF;`.
+fn delimiter(text: &str) -> String {
+    (0..)
+        .map(|n| match n {
+            0 => "EOF".to_string(),
+            n => format!("EOF{n}"),
+        })
+        .find(|end| !text.lines().any(|line| line.starts_with(end.as_str())))
+        .unwrap_or_default()
+}
+
 /// A subject as the lowered text writes it.
 ///
 /// `Bounded` and `Located` are UNREACHABLE here too, for the reason [`said`]
@@ -1576,6 +1667,7 @@ pub fn name(concept: &Concept) -> &'static str {
         Concept::Status { .. } => "Status",
         Concept::Stage { .. } => "Stage",
         Concept::Commit { .. } => "Commit",
+        Concept::Write { .. } => "Write",
     }
 }
 

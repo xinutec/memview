@@ -127,6 +127,13 @@ pub struct Simple {
     /// worth reading, and in what language, is [`crate::shell_ops`]'s decision; this
     /// layer only refuses to lose it.
     pub heredocs: Vec<String>,
+    /// Whether each heredoc reached the command as written — its delimiter was
+    /// quoted, so nothing in the body expanded. By position, beside
+    /// [`Self::heredocs`]. Empty from the flat grammar, which keeps the body only.
+    ///
+    /// Read it with `get(i)`, never by index. A missing entry means "it may have
+    /// expanded" — the answer that claims less.
+    pub literal: Vec<bool>,
 }
 
 /// A file named by a redirection, and which way it went.
@@ -135,6 +142,22 @@ pub struct Redirect {
     pub target: String,
     /// `>` and `>>` write; `<` reads.
     pub write: bool,
+    /// What it does with the command's standard output, which decides what the
+    /// target holds afterwards.
+    pub stdout: Stdout,
+}
+
+/// What a redirection does with standard output — descriptor 1 alone.
+///
+/// Another descriptor, `&>` (both streams) and `<>` are [`Stdout::Untouched`]:
+/// the file they write is not the command's output and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stdout {
+    Untouched,
+    /// `>` or `>|`: afterwards the target holds exactly what was printed.
+    Replaces,
+    /// `>>`: what was printed follows what the target already held.
+    Appends,
 }
 
 /// What a hidden heredoc's delimiter is replaced by, in front of its encoded
@@ -404,6 +427,7 @@ fn walk(
                 scope: scope.to_vec(),
                 redirects: Vec::new(),
                 heredocs: Vec::new(),
+                literal: Vec::new(),
             };
             for part in pair.into_inner() {
                 match part.as_rule() {
@@ -619,16 +643,27 @@ fn collect_redirect(
         match part.as_rule() {
             Rule::file_redirect => {
                 let mut write = true;
+                let mut stdout = Stdout::Untouched;
                 let mut target = None;
                 for bit in part.into_inner() {
                     match bit.as_rule() {
                         Rule::read => write = false,
+                        Rule::write if matches!(bit.as_str(), ">" | "1>") => {
+                            stdout = Stdout::Replaces;
+                        }
+                        Rule::append if matches!(bit.as_str(), ">>" | "1>>") => {
+                            stdout = Stdout::Appends;
+                        }
                         Rule::word => target = Some(unquote(bit.as_str())),
                         _ => {}
                     }
                 }
                 if let Some(target) = target {
-                    cmd.redirects.push(Redirect { target, write });
+                    cmd.redirects.push(Redirect {
+                        target,
+                        write,
+                        stdout,
+                    });
                 }
             }
             // A heredoc's delimiter is carrying its body — hand it to the

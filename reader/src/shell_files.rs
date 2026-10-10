@@ -304,6 +304,13 @@ pub struct Step {
     /// step that did not carry it would stop showing the word — a view would report the
     /// command as naming nothing rather than as naming something it could locate.
     pub located: Vec<String>,
+    /// The command's redirections, targets expanded and not resolved — which way
+    /// each went, beside [`Self::files`], which says only where.
+    pub redirects: Vec<crate::shell::Redirect>,
+    /// The heredoc bodies it opened, and whether each arrived as written — see
+    /// [`crate::shell::Simple::literal`].
+    pub heredocs: Vec<String>,
+    pub literal: Vec<bool>,
 }
 
 impl Extract {
@@ -374,6 +381,9 @@ impl Extract {
             unnamed: Vec::new(),
             bounded: Vec::new(),
             located: Vec::new(),
+            redirects: cmd.redirects.clone(),
+            heredocs: cmd.heredocs.clone(),
+            literal: cmd.literal.clone(),
         });
         Some(self.steps.len() - 1)
     }
@@ -803,6 +813,7 @@ fn carried(
                         scope: Vec::new(),
                         redirects: Vec::new(),
                         heredocs: Vec::new(),
+                        literal: Vec::new(),
                     }],
                     unrolled: 0,
                     // An argv is not a text, so it declares nothing.
@@ -956,9 +967,11 @@ fn extract_nested(
                 .map(|redirect| crate::shell::Redirect {
                     target: expand(&redirect.target, &env),
                     write: redirect.write,
+                    stdout: redirect.stdout,
                 })
                 .collect(),
             heredocs: cmd.heredocs.clone(),
+            literal: cmd.literal.clone(),
         };
         // Where this command's own uses begin, so the step below can claim
         // exactly them. Taken before the redirects, which are the first thing
@@ -1195,6 +1208,7 @@ fn extract_nested(
                             scope: cmd.scope.clone(),
                             redirects: Vec::new(),
                             heredocs: Vec::new(),
+                            literal: Vec::new(),
                         }],
                         unrolled: 0,
                         // An argv is not a text, so it declares nothing.

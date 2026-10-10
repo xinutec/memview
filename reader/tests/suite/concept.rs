@@ -1101,3 +1101,130 @@ fn a_dash_leading_operand_after_a_separator_is_a_subject() {
         "expected OtherSelection, got {found:?}"
     );
 }
+
+/// A file's whole contents replaced by text the command carries — the
+/// corpus's commonest act no lens named, read as `cat` showing its input.
+#[test]
+fn a_file_written_from_a_heredoc_lifts_lowers_and_reads_back() {
+    let original = "cat > src/a.txt <<'EOF'\nfirst $line\nsecond\nEOF\n";
+    let concept = only(original);
+    assert_eq!(
+        concept,
+        Concept::Write {
+            subject: Subject::Named(format!("{CWD}/src/a.txt")),
+            text: Some("first $line\nsecond\n".to_string()),
+        }
+    );
+    let lowered = lower(&concept);
+    assert_eq!(read_as(original), read_as(&lowered));
+    assert!(parse(&lowered).is_ok(), "did not parse: {lowered}");
+    assert_eq!(only(&lowered), concept);
+    assert_eq!(
+        lower(&only(&lowered)),
+        lowered,
+        "the lowered form is a fixpoint"
+    );
+    assert_eq!(describe(&concept), format!("Write {CWD}/src/a.txt"));
+}
+
+/// Where the redirection sits on the line is spelling.
+#[test]
+fn two_spellings_of_one_write_lift_to_the_same_concept() {
+    assert_eq!(
+        only("cat <<'EOF' > src/a.txt\nx\nEOF\n"),
+        only("cat > src/a.txt <<'EOF'\nx\nEOF\n")
+    );
+}
+
+/// An unquoted delimiter lets the body expand, so `$line` is not what was
+/// written unless nothing in the body can expand.
+#[test]
+fn a_body_that_may_have_expanded_is_a_hole_and_one_that_cannot_is_text() {
+    assert_eq!(
+        only("cat > src/a.txt <<EOF\nhello $USER\nEOF\n"),
+        Concept::Write {
+            subject: Subject::Named(format!("{CWD}/src/a.txt")),
+            text: None,
+        }
+    );
+    assert_eq!(
+        only("cat > src/a.txt <<EOF\nplain words\nEOF\n"),
+        Concept::Write {
+            subject: Subject::Named(format!("{CWD}/src/a.txt")),
+            text: Some("plain words\n".to_string()),
+        }
+    );
+    // The hole survives the round trip.
+    let hole = only("cat > src/a.txt <<EOF\nhello $USER\nEOF\n");
+    assert_eq!(only(&lower(&hole)), hole);
+}
+
+/// A body whose own lines include the canonical delimiter still lowers to
+/// text that ends where it should.
+#[test]
+fn a_body_containing_the_delimiter_lowers_with_another() {
+    let concept = only("cat > src/a.txt <<'END'\nEOF\nEND\n");
+    let lowered = lower(&concept);
+    assert_eq!(only(&lowered), concept, "lowered: {lowered}");
+}
+
+/// Appending grows the file instead of replacing it, so it refuses by name.
+/// The other shapes are not this act at all.
+#[test]
+fn what_looks_like_a_write_and_is_not_does_not_lift_as_one() {
+    let refused = |script: &str| -> Vec<Why> {
+        steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect()
+    };
+    assert_eq!(
+        refused("cat >> src/a.txt <<'EOF'\nx\nEOF\n"),
+        vec![Why::Appends]
+    );
+    for script in [
+        "cat 2> src/a.txt <<'EOF'\nx\nEOF\n",
+        "cat -n > src/a.txt <<'EOF'\nx\nEOF\n",
+        "cat src/b.txt > src/a.txt",
+        "cat > src/a.txt <<'EOF' 2>/dev/null\nx\nEOF\n",
+        "tee src/a.txt <<'EOF'\nx\nEOF\n",
+        // Named, and not resolved by the reader's path guard: refused rather
+        // than read as a value the text does not hold.
+        "cat > notes <<'EOF'\nx\nEOF\n",
+    ] {
+        assert!(
+            steps(script)
+                .iter()
+                .all(|step| !matches!(lift(step), Ok(Concept::Write { .. }))),
+            "lifted as a write: {script}"
+        );
+    }
+}
+
+/// A target the text did not name is a hole, never a guessed path.
+#[test]
+fn a_write_to_an_unnamed_file_is_a_hole() {
+    assert_eq!(
+        only("cat > \"$out\" <<'EOF'\nx\nEOF\n"),
+        Concept::Write {
+            subject: Subject::Hole,
+            text: Some("x\n".to_string()),
+        }
+    );
+}
+
+/// Another machine's file is refused as remote, whichever way it was written.
+#[test]
+fn a_write_on_another_machine_refuses_as_remote() {
+    for script in [
+        "ssh host 'cat > /etc/a.conf <<EOF\nx\nEOF\n'",
+        "ssh host 'cat >> /etc/a.conf <<EOF\nx\nEOF\n'",
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .filter(|why| *why != Why::Carrier)
+            .collect();
+        assert_eq!(found, vec![Why::Remote], "{script}");
+    }
+}

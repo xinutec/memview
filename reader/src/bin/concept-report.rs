@@ -59,6 +59,7 @@ fn refusal(why: Why) -> &'static str {
         Why::ImplicitLocus => "listing with no operand — the locus is real and unwritten (bare ls)",
         Why::OtherSelection => "git log picking a different SET (--all, --since, --grep, -S)",
         Why::Formatted => "git log whose product is not a commit list (--format, -p, --stat)",
+        Why::Appends => "cat >> f <<EOF, which adds to the file rather than replacing it",
     }
 }
 

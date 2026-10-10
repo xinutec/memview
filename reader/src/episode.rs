@@ -127,6 +127,7 @@ pub fn token(step: &Step) -> Became {
                 Concept::List { loci, .. } => named(loci),
                 Concept::History { paths, .. } | Concept::Status { paths } => named(paths),
                 Concept::Commit { .. } => Vec::new(),
+                Concept::Write { subject, .. } => named(std::slice::from_ref(subject)),
             };
             Became::Work(Token {
                 label: concept::name(&concept).to_string(),
