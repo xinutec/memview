@@ -47,7 +47,11 @@ waits — one `sleep` and nothing else. The census names the rest: `while read`
 steps through its input (`Why::ReadsInput`, a loop that is not a wait whatever its
 body holds), and a body doing more than pausing (`Why::LoopDoesMore`), which is
 where the counted wait — `n=$((n+1))`, `[ $n -ge 240 ]` — sits, and so where
-`bound` comes from next. Loops inside a carrier's payload (`ssh host 'until …'`)
+`bound` came from: a `for` over a counted range (`$(seq 1 N)`, `{1..N}`) that
+breaks when its check passes and then sleeps is a `Poll` with `bound: Some(N)`,
+in either spelling (`CHECK && break`, `if CHECK; then break; fi`). That took
+`Poll` from 5,404 to 6,998 of 11,045 loops; most counted loops that refuse report
+progress as they go. Loops inside a carrier's payload (`ssh host 'until …'`)
 are words to the outer tree and are not counted yet.
 
 ⚠ **`Write` found the `Page` fabrication again.** A redirect target the
@@ -267,7 +271,8 @@ History  { count, from, paths }             BUILT — git log
 Status   { paths }                          BUILT — git status
 Stage    { subjects, all }                  BUILT — git add
 Commit   { message, amend, no_verify }      BUILT — git commit
-Poll     { probe, until, every, bound }     BUILT — until/while …; do sleep N; done
+Poll     { probe, until, every, bound }     BUILT — until/while …; do sleep N; done,
+                                            and for i in $(seq 1 N) … && break
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
                                             command with echo "---" separators

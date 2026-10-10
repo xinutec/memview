@@ -1337,3 +1337,71 @@ fn a_loop_over_its_input_is_not_a_wait() {
         vec![Err(Why::ReadsInput)]
     );
 }
+
+/// A wait that gives up: a counted loop that breaks when the check passes.
+/// Two spellings of one act, and the loop's variable name is spelling too.
+#[test]
+fn a_counted_wait_carries_its_bound_and_spells_one_way() {
+    let original = "for i in $(seq 1 60); do grep -q done /tmp/build.log && break; sleep 5; done";
+    let concept = only_poll(original);
+    assert_eq!(
+        concept,
+        Concept::Poll {
+            probe: "grep -q done /tmp/build.log".to_string(),
+            until: true,
+            every: "5".to_string(),
+            bound: Some(60),
+        }
+    );
+    let lowered = lower(&concept);
+    assert_eq!(lowered, original);
+    assert_eq!(read_as(original), read_as(&lowered));
+    assert_eq!(only_poll(&lowered), concept);
+    for spelling in [
+        "for i in $(seq 1 60); do if grep -q done /tmp/build.log; then break; fi; sleep 5; done",
+        "for n in $(seq 60); do grep -q done /tmp/build.log && break; sleep 5; done",
+        "for i in {1..60}; do grep -q done /tmp/build.log && break; sleep 5; done",
+    ] {
+        assert_eq!(only_poll(spelling), concept, "{spelling}");
+    }
+    assert_eq!(
+        describe(&concept),
+        "Wait until `grep -q done /tmp/build.log` succeeds, checking every 5, at most 60 times"
+    );
+}
+
+/// `! CHECK && break` waits for the check to stop passing.
+#[test]
+fn a_counted_wait_for_a_check_to_stop_reads_its_sense() {
+    for script in [
+        "for i in $(seq 1 30); do ! kill -0 4242 && break; sleep 5; done",
+        "for i in $(seq 1 30); do if ! kill -0 4242; then break; fi; sleep 5; done",
+    ] {
+        let concept = only_poll(script);
+        assert!(
+            matches!(&concept, Concept::Poll { until: false, bound: Some(30), probe, .. } if probe == "kill -0 4242"),
+            "{script}: {concept:?}"
+        );
+        assert_eq!(only_poll(&lower(&concept)), concept);
+    }
+}
+
+/// A counted loop that does anything else — reports, uses its counter, pauses
+/// before the first check — is not the wait a `Poll` lowers to.
+#[test]
+fn a_counted_loop_that_does_more_refuses_and_other_loops_are_not_looked_at() {
+    for script in [
+        "for i in $(seq 1 60); do echo try $i; grep -q x f && break; sleep 5; done",
+        "for i in $(seq 1 60); do grep -q \"$i\" f && break; sleep 5; done",
+        "for i in $(seq 1 60); do sleep 5; grep -q x f && break; done",
+        "for i in $(seq 1 60); do grep -q x f; sleep 5; done",
+    ] {
+        assert_eq!(polls(script), vec![Err(Why::LoopDoesMore)], "{script}");
+    }
+    for script in [
+        "for f in *.ts; do sleep 1; done",
+        "for i in $(seq 2 60); do grep -q x f && break; sleep 5; done",
+    ] {
+        assert!(polls(script).is_empty(), "{script}");
+    }
+}

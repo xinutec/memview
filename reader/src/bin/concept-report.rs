@@ -60,7 +60,7 @@ fn refusal(why: Why) -> &'static str {
         Why::OtherSelection => "git log picking a different SET (--all, --since, --grep, -S)",
         Why::Formatted => "git log whose product is not a commit list (--format, -p, --stat)",
         Why::Appends => "cat >> f <<EOF, which adds to the file rather than replacing it",
-        Why::LoopDoesMore => "a while/until loop whose body does more than sleep",
+        Why::LoopDoesMore => "a waiting loop whose body does more than check and sleep",
         Why::ReadsInput => "a while read loop, stepping through its input",
     }
 }
@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     // Bucket → rows holding it, once per row whatever a loop unrolled to.
     let mut rows_of: BTreeMap<String, usize> = BTreeMap::new();
     let mut examples: Vec<String> = Vec::new();
-    // `while`/`until` loops, counted beside the steps rather than inside them:
+    // Waiting loops, counted beside the steps rather than inside them:
     // a loop is a compound, and its steps lift on their own. Name → loops.
     let mut loops: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut loop_witness: BTreeMap<&'static str, String> = BTreeMap::new();
@@ -219,7 +219,9 @@ fn main() -> anyhow::Result<()> {
     // Loops inside a carrier's payload — `ssh host 'until …'` — are words to the
     // outer tree and are not counted here.
     let loops_total: usize = loops.values().sum();
-    println!("\nwhile/until loops in the outer script — {loops_total}, read for a Poll:");
+    println!(
+        "\nloops in the outer script — while/until, and for over a counted range — {loops_total}, read for a Poll:"
+    );
     let mut by_count: Vec<_> = loops.iter().collect();
     by_count.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
     for (name, count) in by_count {

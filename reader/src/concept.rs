@@ -395,8 +395,8 @@ pub enum Why {
     /// file afterwards is not the text. A [`Concept::Write`] would claim the
     /// earlier contents were gone.
     Appends,
-    /// A `while`/`until` loop whose body does more than pause — prints
-    /// progress, counts, acts — or does not pause at all. A [`Concept::Poll`]
+    /// A waiting loop whose body does more than check and pause — prints
+    /// progress, uses its counter, acts — or does not pause at all. A [`Concept::Poll`]
     /// lowers to a body of one `sleep`, so it would drop the rest.
     LoopDoesMore,
     /// `while read line; do …; done` — the condition takes the next line of
@@ -497,26 +497,30 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
     }
 }
 
-/// A `while`/`until` loop read as a [`Concept::Poll`], or why not. `None` for a
-/// command that is not such a loop, which this lens does not look at.
+/// A loop read as a [`Concept::Poll`], or why not. `None` for a command that is
+/// not a `while`/`until` loop or a loop over a counted range, which this lens
+/// does not look at.
 ///
 /// Read off the tree because the loop is the subject; every step inside it
 /// still lifts on its own, so this count stands beside the step census rather
 /// than inside its balance.
 pub fn poll(command: &crate::syntax::ast::Command) -> Option<Result<Concept, Why>> {
     use crate::syntax::ast::CommandKind;
-    let CommandKind::While(loop_) = &command.kind else {
-        return None;
-    };
-    Some(waits(command, loop_))
+    match &command.kind {
+        CommandKind::While(loop_) => Some(waits(command, loop_)),
+        CommandKind::For(loop_) if !loop_.select => {
+            let bound = counted(&loop_.words)?;
+            Some(gives_up(command, loop_, bound))
+        }
+        _ => None,
+    }
 }
 
-/// The body must be one `sleep` and nothing else, and the loop unredirected.
+/// `until CHECK; do sleep N; done`: the body one `sleep`, the loop unredirected.
 fn waits(
     command: &crate::syntax::ast::Command,
     loop_: &crate::syntax::ast::WhileLoop,
 ) -> Result<Concept, Why> {
-    use crate::syntax::ast::{CommandKind, Item, Span};
     // First: whatever its body holds, a loop over its input is not a wait.
     if reads_input(&loop_.condition) {
         return Err(Why::ReadsInput);
@@ -524,46 +528,178 @@ fn waits(
     if !command.redirects.is_empty() {
         return Err(Why::NoLens);
     }
-    let [Item::List(list)] = loop_.body.as_slice() else {
+    let [only] = loop_.body.as_slice() else {
         return Err(Why::LoopDoesMore);
     };
-    let pipeline = &list.first;
-    let sleep = match (
-        list.rest.as_slice(),
-        list.background,
-        pipeline.commands.as_slice(),
-    ) {
-        ([], false, [only]) if !pipeline.negated && pipeline.time.is_none() => only,
-        _ => return Err(Why::LoopDoesMore),
-    };
-    let CommandKind::Simple(simple) = &sleep.kind else {
-        return Err(Why::LoopDoesMore);
-    };
-    let every = match simple.words.as_slice() {
-        [head, pause]
-            if simple.assignments.is_empty()
-                && sleep.redirects.is_empty()
-                && crate::syntax::print::print_word(head, true) == "sleep" =>
-        {
-            crate::syntax::print::print_word(pause, false)
-        }
-        _ => return Err(Why::LoopDoesMore),
-    };
-    let probe = crate::syntax::print::print(&crate::syntax::ast::Script {
-        items: loop_.condition.clone(),
-        span: Span { start: 0, end: 0 },
-    });
-    // A probe over more than one line — a heredoc, a comment — does not fit the
-    // one-line form this lowers to.
-    if probe.is_empty() || probe.contains('\n') {
-        return Err(Why::NoLens);
-    }
+    let every = pause(only).ok_or(Why::LoopDoesMore)?;
+    let probe = one_line(print_items(&loop_.condition))?;
     Ok(Concept::Poll {
         probe,
         until: loop_.until,
         every,
         bound: None,
     })
+}
+
+/// How many times a `for` loop runs, when its list is a counted range the text
+/// spells — `$(seq 1 N)`, `$(seq N)`, `{1..N}`. Read off the printed word, which
+/// is canonical.
+fn counted(words: &[crate::syntax::ast::Word]) -> Option<u32> {
+    let [word] = words else {
+        return None;
+    };
+    let printed = crate::syntax::print::print_word(word, false);
+    let n = printed
+        .strip_prefix("$(seq 1 ")
+        .or_else(|| printed.strip_prefix("$(seq "))
+        .and_then(|rest| rest.strip_suffix(')'))
+        .or_else(|| {
+            printed
+                .strip_prefix("{1..")
+                .and_then(|rest| rest.strip_suffix('}'))
+        })?;
+    n.parse().ok()
+}
+
+/// `for i in $(seq 1 N); do CHECK && break; sleep S; done`, or the same with
+/// `if CHECK; then break; fi`: a wait of at most N checks. The counter must go
+/// unused, and the check must come before the pause.
+fn gives_up(
+    command: &crate::syntax::ast::Command,
+    loop_: &crate::syntax::ast::ForLoop,
+    bound: u32,
+) -> Result<Concept, Why> {
+    if !command.redirects.is_empty() {
+        return Err(Why::NoLens);
+    }
+    let [check, wait] = loop_.body.as_slice() else {
+        return Err(Why::LoopDoesMore);
+    };
+    let every = pause(wait).ok_or(Why::LoopDoesMore)?;
+    let (probe, until) = breaks_on(check).ok_or(Why::LoopDoesMore)?;
+    let probe = one_line(probe)?;
+    let name = &loop_.name;
+    if probe.contains(&format!("${name}")) || probe.contains(&format!("${{{name}")) {
+        return Err(Why::LoopDoesMore);
+    }
+    Ok(Concept::Poll {
+        probe,
+        until,
+        every,
+        bound: Some(bound),
+    })
+}
+
+/// The check a loop breaks on, and whether it breaks when the check passes.
+/// `! CHECK` flips the sense only when the check is one pipeline: in `! a && b`
+/// the `!` belongs to `a` alone.
+fn breaks_on(item: &crate::syntax::ast::Item) -> Option<(String, bool)> {
+    use crate::syntax::ast::{AndOr, CommandKind, Connector, Item};
+    let Item::List(list) = item else {
+        return None;
+    };
+    if list.background {
+        return None;
+    }
+    let sense = |mut first: crate::syntax::ast::Pipeline, rest: Vec<crate::syntax::ast::Link>| {
+        let until = !(first.negated && rest.is_empty());
+        if !until {
+            first.negated = false;
+        }
+        let probe = AndOr {
+            first,
+            rest,
+            background: false,
+            span: list.span,
+        };
+        (print_items(&[Item::List(probe)]), until)
+    };
+    // `CHECK && break`
+    if let Some((last, links)) = list.rest.split_last() {
+        return (last.connector == Connector::And && is_break(&last.pipeline))
+            .then(|| sense(list.first.clone(), links.to_vec()));
+    }
+    // `if CHECK; then break; fi`
+    let [command] = list.first.commands.as_slice() else {
+        return None;
+    };
+    let CommandKind::If(branch) = &command.kind else {
+        return None;
+    };
+    let [Item::List(then)] = branch.then.as_slice() else {
+        return None;
+    };
+    if branch.otherwise.is_some()
+        || list.first.negated
+        || !command.redirects.is_empty()
+        || !then.rest.is_empty()
+        || !is_break(&then.first)
+    {
+        return None;
+    }
+    match branch.condition.as_slice() {
+        [Item::List(only)] => Some(sense(only.first.clone(), only.rest.clone())),
+        _ => None,
+    }
+}
+
+/// A pipeline that is the bare word `break`.
+fn is_break(pipeline: &crate::syntax::ast::Pipeline) -> bool {
+    use crate::syntax::ast::CommandKind;
+    match pipeline.commands.as_slice() {
+        [only] if !pipeline.negated && only.redirects.is_empty() => {
+            matches!(&only.kind, CommandKind::Simple(simple)
+                if simple.assignments.is_empty()
+                    && simple.words.len() == 1
+                    && crate::syntax::print::print_word(&simple.words[0], true) == "break")
+        }
+        _ => false,
+    }
+}
+
+/// The pause, when this item is `sleep X` and nothing else.
+fn pause(item: &crate::syntax::ast::Item) -> Option<String> {
+    use crate::syntax::ast::{CommandKind, Item};
+    let Item::List(list) = item else {
+        return None;
+    };
+    let pipeline = &list.first;
+    let [sleep] = pipeline.commands.as_slice() else {
+        return None;
+    };
+    if !list.rest.is_empty() || list.background || pipeline.negated || pipeline.time.is_some() {
+        return None;
+    }
+    let CommandKind::Simple(simple) = &sleep.kind else {
+        return None;
+    };
+    match simple.words.as_slice() {
+        [head, pause]
+            if simple.assignments.is_empty()
+                && sleep.redirects.is_empty()
+                && crate::syntax::print::print_word(head, true) == "sleep" =>
+        {
+            Some(crate::syntax::print::print_word(pause, false))
+        }
+        _ => None,
+    }
+}
+
+/// A list as the printer prints it.
+fn print_items(items: &[crate::syntax::ast::Item]) -> String {
+    crate::syntax::print::print(&crate::syntax::ast::Script {
+        items: items.to_vec(),
+        span: crate::syntax::ast::Span { start: 0, end: 0 },
+    })
+}
+
+/// A probe over more than one line — a heredoc, a comment — does not fit the
+/// one-line form a `Poll` lowers to.
+fn one_line(probe: String) -> Result<String, Why> {
+    if probe.is_empty() || probe.contains('\n') {
+        return Err(Why::NoLens);
+    }
+    Ok(probe)
 }
 
 /// Whether the condition's first command is `read`, which consumes a line of
@@ -1388,10 +1524,21 @@ pub fn lower(concept: &Concept) -> String {
             probe,
             until,
             every,
-            bound: _,
+            bound: None,
         } => {
             let keyword = if *until { "until" } else { "while" };
             format!("{keyword} {probe}; do sleep {every}; done")
+        }
+        // `!` flips the sense only of a one-pipeline check, which is the only
+        // kind lifted with `until: false` and a bound.
+        Concept::Poll {
+            probe,
+            until,
+            every,
+            bound: Some(n),
+        } => {
+            let not = if *until { "" } else { "! " };
+            format!("for i in $(seq 1 {n}); do {not}{probe} && break; sleep {every}; done")
         }
         // `cat` and a quoted heredoc is the canonical spelling: the quoting says
         // the body is the text. A body that may have expanded lowers to one
@@ -1591,10 +1738,14 @@ pub fn describe(concept: &Concept) -> String {
             probe,
             until,
             every,
-            ..
+            bound,
         } => {
             let sense = if *until { "until" } else { "while" };
-            format!("Wait {sense} `{probe}` succeeds, checking every {every}")
+            let most = match bound {
+                Some(n) => format!(", at most {n} times"),
+                None => String::new(),
+            };
+            format!("Wait {sense} `{probe}` succeeds, checking every {every}{most}")
         }
         Concept::Rewrite { subjects, .. } => {
             format!("Rewrite {} in place", said(subjects))
