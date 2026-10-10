@@ -60,6 +60,8 @@ fn refusal(why: Why) -> &'static str {
         Why::OtherSelection => "git log picking a different SET (--all, --since, --grep, -S)",
         Why::Formatted => "git log whose product is not a commit list (--format, -p, --stat)",
         Why::Appends => "cat >> f <<EOF, which adds to the file rather than replacing it",
+        Why::LoopDoesMore => "a while/until loop whose body does more than sleep",
+        Why::ReadsInput => "a while read loop, stepping through its input",
     }
 }
 
@@ -104,6 +106,10 @@ fn main() -> anyhow::Result<()> {
     // Bucket → rows holding it, once per row whatever a loop unrolled to.
     let mut rows_of: BTreeMap<String, usize> = BTreeMap::new();
     let mut examples: Vec<String> = Vec::new();
+    // `while`/`until` loops, counted beside the steps rather than inside them:
+    // a loop is a compound, and its steps lift on their own. Name → loops.
+    let mut loops: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut loop_witness: BTreeMap<&'static str, String> = BTreeMap::new();
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -118,6 +124,20 @@ fn main() -> anyhow::Result<()> {
             unparsed += 1;
             continue;
         };
+        // Parsed again for its tree: the projection above has unrolled the loops.
+        if let Ok(tree) = reader::syntax::parse(cmd) {
+            reader::syntax::visit::commands(&tree.items, &mut |command| {
+                let name = match concept::poll(command) {
+                    None => return,
+                    Some(Ok(concept)) => concept_name(&concept),
+                    Some(Err(why)) => refusal(why),
+                };
+                *loops.entry(name).or_default() += 1;
+                loop_witness
+                    .entry(name)
+                    .or_insert_with(|| truncate(cmd, 80));
+            });
+        }
         let mut here: std::collections::BTreeSet<String> = Default::default();
         for step in trace(&script, cwd, &home).steps {
             steps_seen += 1;
@@ -195,6 +215,17 @@ fn main() -> anyhow::Result<()> {
     println!(
         "\nbalanced to the unit: {steps_seen} = {lifted_total} lifted + {refused_total} refused + {queued_total} queued"
     );
+
+    // Loops inside a carrier's payload — `ssh host 'until …'` — are words to the
+    // outer tree and are not counted here.
+    let loops_total: usize = loops.values().sum();
+    println!("\nwhile/until loops in the outer script — {loops_total}, read for a Poll:");
+    let mut by_count: Vec<_> = loops.iter().collect();
+    by_count.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+    for (name, count) in by_count {
+        let witness = loop_witness.get(name).map(String::as_str).unwrap_or("");
+        println!("  {name:<52} {count:>8}   {witness}");
+    }
 
     if let Some(wanted) = &sample {
         println!("\nwhat `{wanted}` looked like:");

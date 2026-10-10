@@ -1228,3 +1228,112 @@ fn a_write_on_another_machine_refuses_as_remote() {
         assert_eq!(found, vec![Why::Remote], "{script}");
     }
 }
+
+/// The loops a script holds, each lifted as a `Poll` or refused — the one lens
+/// whose subject is a compound, so it reads the tree rather than a step.
+fn polls(script: &str) -> Vec<Result<Concept, Why>> {
+    let tree = reader::syntax::parse(script).expect("parses");
+    let mut found = Vec::new();
+    reader::syntax::visit::commands(&tree.items, &mut |command| {
+        if let Some(lifted) = reader::concept::poll(command) {
+            found.push(lifted);
+        }
+    });
+    found
+}
+
+fn only_poll(script: &str) -> Concept {
+    match polls(script).as_slice() {
+        [Ok(concept)] => concept.clone(),
+        other => panic!("expected one Poll from `{script}`, got {other:?}"),
+    }
+}
+
+/// Waiting for something to become true: the check, its sense, and how often.
+#[test]
+fn a_wait_loop_lifts_lowers_and_reads_back() {
+    let original = "until grep -q done /tmp/build.log; do sleep 5; done";
+    let concept = only_poll(original);
+    assert_eq!(
+        concept,
+        Concept::Poll {
+            probe: "grep -q done /tmp/build.log".to_string(),
+            until: true,
+            every: "5".to_string(),
+            bound: None,
+        }
+    );
+    let lowered = lower(&concept);
+    assert_eq!(lowered, original);
+    assert_eq!(read_as(original), read_as(&lowered));
+    assert_eq!(only_poll(&lowered), concept);
+    assert_eq!(
+        describe(&concept),
+        "Wait until `grep -q done /tmp/build.log` succeeds, checking every 5"
+    );
+}
+
+/// `while` waits for the check to stop succeeding; the probe is printed the
+/// way the printer prints it, so layout is spelling.
+#[test]
+fn a_while_loop_waits_for_the_check_to_stop_and_layout_is_spelling() {
+    let concept = only_poll("while pgrep -f 'cargo test' >/dev/null\ndo\n  sleep 2\ndone");
+    assert!(matches!(&concept, Concept::Poll { until: false, every, .. } if every == "2"));
+    assert_eq!(only_poll(&lower(&concept)), concept);
+    assert!(describe(&concept).starts_with("Wait while "));
+}
+
+/// A probe that is itself a test over a command's output survives whole —
+/// the commonest shape in the corpus.
+#[test]
+fn a_probe_over_a_substitution_survives_the_round_trip() {
+    let original = "until [ \"$(gh run list --limit 1 --json status --jq '.[0].status')\" = completed ]; do sleep 20; done";
+    let concept = only_poll(original);
+    assert_eq!(only_poll(&lower(&concept)), concept);
+}
+
+/// A loop that does more than wait is a different act: its body cannot be
+/// regenerated from a probe and an interval.
+#[test]
+fn a_loop_that_does_more_than_wait_refuses_by_name() {
+    for script in [
+        "until grep -q done log; do echo waiting; sleep 5; done",
+        "while true; do date; sleep 1; done",
+        "until test -f x; do :; done",
+    ] {
+        assert_eq!(polls(script), vec![Err(Why::LoopDoesMore)], "{script}");
+    }
+}
+
+/// Only `while` and `until` are this lens's; other commands are not looked at.
+#[test]
+fn what_is_not_a_while_loop_is_not_a_poll_candidate() {
+    for script in [
+        "sleep 5",
+        "for i in 1 2 3; do sleep 1; done",
+        "grep -q done log",
+    ] {
+        assert!(polls(script).is_empty(), "{script}");
+    }
+}
+
+/// `while read` steps through its input; even with only a pause in its body
+/// it is not waiting for anything to change.
+#[test]
+fn a_loop_over_its_input_is_not_a_wait() {
+    for script in [
+        "while read -r line; do sleep 1; done < list.txt",
+        "cat list.txt | while read -r line; do sleep 1; done",
+    ] {
+        assert!(
+            polls(script)
+                .iter()
+                .all(|lifted| !matches!(lifted, Ok(Concept::Poll { .. }))),
+            "{script}"
+        );
+    }
+    assert_eq!(
+        polls("cat list.txt | while read -r line; do sleep 1; done"),
+        vec![Err(Why::ReadsInput)]
+    );
+}

@@ -287,6 +287,24 @@ pub enum Concept {
         subject: Subject,
         text: Option<String>,
     },
+    /// Waiting for something: a check run again and again with a pause between
+    /// — `until grep -q done log; do sleep 5; done`.
+    ///
+    /// The one concept whose subject is a compound, so it is read off the tree's
+    /// loop node by [`poll`] rather than off a step: the reader unrolls a loop
+    /// into steps, and by then the loop is gone.
+    Poll {
+        /// The check, as the printer prints it. Verbatim, because it is the half
+        /// a person would ask about.
+        probe: String,
+        /// `until` waits for the check to succeed; `while` for it to stop.
+        until: bool,
+        /// The pause, as `sleep` was given it — `5`, `0.5`, `2m`, `"$step"`.
+        every: String,
+        /// How many checks at most, for a loop that counts its tries. `None`
+        /// for one that waits as long as it takes.
+        bound: Option<u32>,
+    },
 }
 
 /// Why a step did not lift.
@@ -377,6 +395,14 @@ pub enum Why {
     /// file afterwards is not the text. A [`Concept::Write`] would claim the
     /// earlier contents were gone.
     Appends,
+    /// A `while`/`until` loop whose body does more than pause — prints
+    /// progress, counts, acts — or does not pause at all. A [`Concept::Poll`]
+    /// lowers to a body of one `sleep`, so it would drop the rest.
+    LoopDoesMore,
+    /// `while read line; do …; done` — the condition takes the next line of
+    /// input, so the loop steps through what it is given. Iteration, not a wait
+    /// for something to change.
+    ReadsInput,
 }
 
 /// Lift one step into the concept it served, or say why not.
@@ -469,6 +495,89 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         }
         _ => Err(Why::NoLens),
     }
+}
+
+/// A `while`/`until` loop read as a [`Concept::Poll`], or why not. `None` for a
+/// command that is not such a loop, which this lens does not look at.
+///
+/// Read off the tree because the loop is the subject; every step inside it
+/// still lifts on its own, so this count stands beside the step census rather
+/// than inside its balance.
+pub fn poll(command: &crate::syntax::ast::Command) -> Option<Result<Concept, Why>> {
+    use crate::syntax::ast::CommandKind;
+    let CommandKind::While(loop_) = &command.kind else {
+        return None;
+    };
+    Some(waits(command, loop_))
+}
+
+/// The body must be one `sleep` and nothing else, and the loop unredirected.
+fn waits(
+    command: &crate::syntax::ast::Command,
+    loop_: &crate::syntax::ast::WhileLoop,
+) -> Result<Concept, Why> {
+    use crate::syntax::ast::{CommandKind, Item, Span};
+    // First: whatever its body holds, a loop over its input is not a wait.
+    if reads_input(&loop_.condition) {
+        return Err(Why::ReadsInput);
+    }
+    if !command.redirects.is_empty() {
+        return Err(Why::NoLens);
+    }
+    let [Item::List(list)] = loop_.body.as_slice() else {
+        return Err(Why::LoopDoesMore);
+    };
+    let pipeline = &list.first;
+    let sleep = match (
+        list.rest.as_slice(),
+        list.background,
+        pipeline.commands.as_slice(),
+    ) {
+        ([], false, [only]) if !pipeline.negated && pipeline.time.is_none() => only,
+        _ => return Err(Why::LoopDoesMore),
+    };
+    let CommandKind::Simple(simple) = &sleep.kind else {
+        return Err(Why::LoopDoesMore);
+    };
+    let every = match simple.words.as_slice() {
+        [head, pause]
+            if simple.assignments.is_empty()
+                && sleep.redirects.is_empty()
+                && crate::syntax::print::print_word(head, true) == "sleep" =>
+        {
+            crate::syntax::print::print_word(pause, false)
+        }
+        _ => return Err(Why::LoopDoesMore),
+    };
+    let probe = crate::syntax::print::print(&crate::syntax::ast::Script {
+        items: loop_.condition.clone(),
+        span: Span { start: 0, end: 0 },
+    });
+    // A probe over more than one line — a heredoc, a comment — does not fit the
+    // one-line form this lowers to.
+    if probe.is_empty() || probe.contains('\n') {
+        return Err(Why::NoLens);
+    }
+    Ok(Concept::Poll {
+        probe,
+        until: loop_.until,
+        every,
+        bound: None,
+    })
+}
+
+/// Whether the condition's first command is `read`, which consumes a line of
+/// input each time it runs.
+fn reads_input(condition: &[crate::syntax::ast::Item]) -> bool {
+    use crate::syntax::ast::{CommandKind, Item};
+    let Some(Item::List(list)) = condition.first() else {
+        return false;
+    };
+    list.first.commands.first().is_some_and(|command| {
+        matches!(&command.kind, CommandKind::Simple(simple)
+            if simple.words.first().is_some_and(|head|
+                crate::syntax::print::print_word(head, true) == "read"))
+    })
 }
 
 /// Whether this is the shape a [`Concept::Write`] is read from: a bare `cat`,
@@ -1273,6 +1382,17 @@ fn subjects(step: &Step, paths: &[String]) -> Vec<Subject> {
 /// given one fails rather than doing something else.
 pub fn lower(concept: &Concept) -> String {
     match concept {
+        // `bound` is always `None` until a counted loop is read; the arm that
+        // would spell one is written when that lens is.
+        Concept::Poll {
+            probe,
+            until,
+            every,
+            bound: _,
+        } => {
+            let keyword = if *until { "until" } else { "while" };
+            format!("{keyword} {probe}; do sleep {every}; done")
+        }
         // `cat` and a quoted heredoc is the canonical spelling: the quoting says
         // the body is the text. A body that may have expanded lowers to one
         // that does, so it lifts back as the same hole.
@@ -1467,6 +1587,15 @@ pub fn lower(concept: &Concept) -> String {
 pub fn describe(concept: &Concept) -> String {
     match concept {
         Concept::Write { subject, .. } => format!("Write {}", said(std::slice::from_ref(subject))),
+        Concept::Poll {
+            probe,
+            until,
+            every,
+            ..
+        } => {
+            let sense = if *until { "until" } else { "while" };
+            format!("Wait {sense} `{probe}` succeeds, checking every {every}")
+        }
         Concept::Rewrite { subjects, .. } => {
             format!("Rewrite {} in place", said(subjects))
         }
@@ -1668,6 +1797,7 @@ pub fn name(concept: &Concept) -> &'static str {
         Concept::Stage { .. } => "Stage",
         Concept::Commit { .. } => "Commit",
         Concept::Write { .. } => "Write",
+        Concept::Poll { .. } => "Poll",
     }
 }
 

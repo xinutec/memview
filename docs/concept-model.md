@@ -4,11 +4,11 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: ten lenses and five instruments are BUILT; every one after the
+**Status: eleven lenses and five instruments are BUILT; every one after the
 first was chosen by a census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
 `Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage`,
-`Commit` and `Write` — and answers every miss by name (`concept::Why`)
+`Commit`, `Write` and `Poll` — and answers every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/suite/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
 of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%**, the git working-tree three to
@@ -36,6 +36,19 @@ must lower; a body under an unquoted delimiter that could expand is `None`, the
 text-level hole. `>>` refuses by name (`Why::Appends`): the file afterwards is not
 the text. The lift rate on the 2026-10-05 corpus went from 21.18% to 21.48% —
 small, as the paragraph above predicts — and the act's top verb became *write*.
+
+⚠ **`Poll` is the first lens read off the TREE, not a step (2026-10-10).** The
+reader unrolls a loop into steps, so by the time a step exists the loop is gone;
+`concept::poll` reads the `while`/`until` node, and `concept-report` counts loops
+beside the step balance rather than inside it, since every step in the loop
+still lifts on its own. The probe is carried verbatim, as the printer prints it.
+On the 2026-10-05 corpus 76% of the outer script's `while`/`until` loops are pure
+waits — one `sleep` and nothing else. The census names the rest: `while read`
+steps through its input (`Why::ReadsInput`, a loop that is not a wait whatever its
+body holds), and a body doing more than pausing (`Why::LoopDoesMore`), which is
+where the counted wait — `n=$((n+1))`, `[ $n -ge 240 ]` — sits, and so where
+`bound` comes from next. Loops inside a carrier's payload (`ssh host 'until …'`)
+are words to the outer tree and are not counted yet.
 
 ⚠ **`Write` found the `Page` fabrication again.** A redirect target the
 reader cannot resolve — `"$out"`, or a bare name its path guard drops — leaves
@@ -254,7 +267,7 @@ History  { count, from, paths }             BUILT — git log
 Status   { paths }                          BUILT — git status
 Stage    { subjects, all }                  BUILT — git add
 Commit   { message, amend, no_verify }      BUILT — git commit
-Poll     { probe, until, every, bound }     until …; do sleep …; done
+Poll     { probe, until, every, bound }     BUILT — until/while …; do sleep N; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
                                             command with echo "---" separators
@@ -267,7 +280,8 @@ seeds below `Page` stay hunches until the episode census ranks them: `Poll` and
 `Glance` need a key spanning more than one step (the single-step census found
 their constituents scattered across steps), and `episode-report` is that key
 (*The fifth instrument*, below) — its first run found `Poll` as the same
-`grep -q` on the same file repeated, not as a loop node.
+`grep -q` on the same file repeated, not as a loop node — the loop unrolled,
+which `concept::poll` now reads off the node itself.
 
 ⚠ **`Search` carries only what changes WHICH LINES COME BACK**, and the line
 between that and spelling is where the design is. `-n` numbers the same lines

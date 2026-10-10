@@ -128,6 +128,8 @@ pub fn token(step: &Step) -> Became {
                 Concept::History { paths, .. } | Concept::Status { paths } => named(paths),
                 Concept::Commit { .. } => Vec::new(),
                 Concept::Write { subject, .. } => named(std::slice::from_ref(subject)),
+                // Read off the tree, never off a step, so a step's lift cannot be one.
+                Concept::Poll { .. } => Vec::new(),
             };
             Became::Work(Token {
                 label: concept::name(&concept).to_string(),
