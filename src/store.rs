@@ -279,6 +279,7 @@ impl Corpus {
             .values()
             .map(|d| rank::Doc {
                 name: &d.meta.name,
+                teaser: d.meta.teaser.as_deref().unwrap_or(""),
                 description: &d.meta.description,
                 body: &d.body,
                 usage: usage.get(&d.meta.name),

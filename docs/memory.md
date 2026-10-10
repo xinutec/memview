@@ -125,6 +125,13 @@ Two consequences worth stating plainly:
     `memory-rank` separates these two cases for this reason, and the distinction
     is the whole safety of the operation.
 
+**A search is a third way to reach a memory, and it does not replace the other
+two.** `memory-find <words>` ranks the corpus with the page's own search — BM25
+over name, teaser, description and body, inflections folded — and prints each
+hit's path (memview#1542). It finds a memory only through words that memory
+uses: every word must be present, so a session asking about a *process* misses
+one that says *producer*. The invariant still asks for a link.
+
 ## Two populations belong at the root, and they earn it differently
 
 The user's framing, 2026-08-27: the root is **direct memory**. Two kinds of thing

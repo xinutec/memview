@@ -4,11 +4,12 @@
 //! live corpus — measured before the change, not imagined afterwards.
 
 use memview::couse::Usage;
-use memview::rank::{Doc, rank, tokenize};
+use memview::rank::{Doc, rank, stem, tokenize};
 
 fn doc<'a>(name: &'a str, description: &'a str, body: &'a str) -> Doc<'a> {
     Doc {
         name,
+        teaser: "",
         description,
         body,
         usage: None,
@@ -181,4 +182,63 @@ fn an_empty_query_finds_nothing_rather_than_everything() {
     let docs = vec![doc("anything", "", "text")];
     assert!(order(&docs, "", true).is_empty());
     assert!(order(&docs, "   ", true).is_empty());
+}
+
+/// The teaser is the memory's own cue — chosen, like its name — and is what a
+/// session remembers of it. A memory found only through its teaser must be found,
+/// and above one that merely mentions the words.
+#[test]
+fn a_memory_is_found_by_its_teaser_and_weighed_like_its_name() {
+    let cued = Doc {
+        teaser: "shared repo: name files, never stash",
+        ..doc(
+            "reference_concurrent_session_steals_staged_files",
+            "",
+            "a body",
+        )
+    };
+    let mention = doc("unrelated", "", "a shared repo, once, and to stash a file");
+    let docs = vec![mention, cued];
+    assert_eq!(
+        order(&docs, "shared repo stash", true).first(),
+        Some(&"reference_concurrent_session_steals_staged_files")
+    );
+    assert_eq!(
+        order(&[cued_only()], "never stash", true),
+        vec!["only_in_teaser"]
+    );
+}
+
+fn cued_only() -> Doc<'static> {
+    Doc {
+        teaser: "never stash",
+        ..doc("only_in_teaser", "", "nothing here")
+    }
+}
+
+/// A word and its inflections are one term: a session asks in the words of its
+/// moment ("abandoned"), and the memory was written in its own ("ABANDONING").
+#[test]
+fn inflections_of_one_word_match_each_other() {
+    for (a, b) in [
+        ("abandoned", "abandoning"),
+        ("staged", "stage"),
+        ("staging", "stages"),
+        ("files", "file"),
+        ("processes", "process"),
+    ] {
+        assert_eq!(stem(a), stem(b), "{a} / {b}");
+    }
+    // Short words and doubled endings are left alone rather than mangled.
+    assert_eq!(stem("ssh"), "ssh");
+    assert_eq!(stem("process"), "process");
+    let docs = vec![doc(
+        "feedback_kill_the_watcher",
+        "",
+        "sweep unprompted after killing or ABANDONING any long producer",
+    )];
+    assert_eq!(
+        order(&docs, "abandoned producer", true),
+        vec!["feedback_kill_the_watcher"]
+    );
 }

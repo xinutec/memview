@@ -57,12 +57,42 @@ pub fn tokenize(text: &str) -> Vec<String> {
     out
 }
 
-/// Exact-token hits and prefix-only hits, counted separately.
+/// A word with its commonest English inflection taken off, so `abandoned`,
+/// `abandoning` and `abandon` are one term. Light on purpose: `-ing`, `-ed`,
+/// `-es` after a sibilant, a plural `-s`, then a final `-e`, and never below
+/// three letters. A word it does not recognise comes back as it was.
+pub fn stem(word: &str) -> String {
+    let w = word;
+    let keep = |n: usize| w.len() >= n + 3;
+    let base = if w.ends_with("ing") && keep(3) {
+        &w[..w.len() - 3]
+    } else if (w.ends_with("ed") && keep(2))
+        || (w.ends_with("es")
+            && keep(2)
+            && ["s", "x", "z", "ch", "sh"]
+                .iter()
+                .any(|end| w[..w.len() - 2].ends_with(end)))
+    {
+        &w[..w.len() - 2]
+    } else if w.ends_with('s') && !w.ends_with("ss") && keep(1) {
+        &w[..w.len() - 1]
+    } else {
+        w
+    };
+    match base.strip_suffix('e') {
+        Some(rest) if rest.len() >= 3 => rest.to_string(),
+        _ => base.to_string(),
+    }
+}
+
+/// Exact-token hits and prefix-only hits, counted separately. A token whose stem
+/// is the term's stem is an exact hit.
 fn term_hits(tokens: &[String], term: &str) -> (usize, usize) {
     let mut exact = 0;
     let mut prefix = 0;
+    let rooted = stem(term);
     for t in tokens {
-        if t == term {
+        if t == term || stem(t) == rooted {
             exact += 1;
         } else if t.starts_with(term) {
             prefix += 1;
@@ -79,6 +109,9 @@ fn weighted(hits: (usize, usize)) -> f64 {
 /// What the caller supplies per candidate memory.
 pub struct Doc<'a> {
     pub name: &'a str,
+    /// The memory's line in the index, or empty. Chosen like the name, and
+    /// weighed like it: it is the cue a session remembers.
+    pub teaser: &'a str,
     pub description: &'a str,
     pub body: &'a str,
     /// How much the work actually uses it, when a co-use artefact was mined.
@@ -88,6 +121,7 @@ pub struct Doc<'a> {
 /// One candidate's tokenised fields, and its total length for the BM25 norm.
 struct Tokens {
     name: Vec<String>,
+    teaser: Vec<String>,
     description: Vec<String>,
     body: Vec<String>,
     len: usize,
@@ -115,6 +149,9 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
         return Vec::new();
     }
     let phrase = query.trim().to_lowercase();
+    // Each term's stem, for the prefilter: `abandoned` must reach a memory that
+    // says `abandoning`, which a substring test on the word as typed cannot.
+    let roots: Vec<String> = terms.iter().map(|term| stem(term)).collect();
 
     // Pass one, over EVERY doc: pick the candidates and count corpus-wide document
     // frequency in the same sweep. It MUST be corpus-wide: over the candidates
@@ -122,14 +159,21 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
     let mut df: HashMap<&str, usize> = HashMap::new();
     let mut candidates: Vec<usize> = Vec::new();
     for (i, doc) in docs.iter().enumerate() {
-        let hay = format!("{} {} {}", doc.name, doc.description, doc.body).to_lowercase();
+        let hay = format!(
+            "{} {} {} {}",
+            doc.name, doc.teaser, doc.description, doc.body
+        )
+        .to_lowercase();
         // Hyphens stripped as well, so the joined form of a compound survives the
         // prefilter.
         let joined = hay.replace('-', "");
         let mut all = true;
         let mut any = false;
-        for term in &terms {
-            if hay.contains(term.as_str()) || joined.contains(term.as_str()) {
+        for (term, rooted) in terms.iter().zip(&roots) {
+            if hay.contains(term.as_str())
+                || joined.contains(term.as_str())
+                || hay.contains(rooted.as_str())
+            {
                 *df.entry(term.as_str()).or_insert(0) += 1;
                 any = true;
             } else {
@@ -149,12 +193,14 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
     let mut total_len = 0usize;
     for &i in &candidates {
         let name = tokenize(docs[i].name);
+        let teaser = tokenize(docs[i].teaser);
         let description = tokenize(docs[i].description);
         let body = tokenize(docs[i].body);
-        let len = name.len() + description.len() + body.len();
+        let len = name.len() + teaser.len() + description.len() + body.len();
         total_len += len;
         prepared.push(Tokens {
             name,
+            teaser,
             description,
             body,
             len,
@@ -172,7 +218,7 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
         let mut matched_any = false;
 
         for term in &terms {
-            let in_name = weighted(term_hits(&t.name, term));
+            let in_name = weighted(term_hits(&t.name, term)) + weighted(term_hits(&t.teaser, term));
             let in_desc = weighted(term_hits(&t.description, term));
             let in_body = weighted(term_hits(&t.body, term));
             // Field weights applied to the frequency, so a name hit behaves like
@@ -200,6 +246,7 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
         // phrase still counts.
         if terms.len() > 1
             && (doc.name.to_lowercase().contains(&phrase)
+                || doc.teaser.to_lowercase().contains(&phrase)
                 || doc.description.to_lowercase().contains(&phrase)
                 || doc.body.to_lowercase().contains(&phrase))
         {
