@@ -90,6 +90,20 @@
           mkdir -p $out/bin
           ln -s ${self.packages.${pkgs.stdenv.hostPlatform.system}.console}/bin/sessions $out/bin/sessions
         '';
+        # `memory-find`, for every session: it is how a memory without an index
+        # line is found (memview#1542), so the word must work in every shell —
+        # the argument `sessions` makes above. Built alone: `--bin` keeps the
+        # viewer's server and the other memory tools out of this derivation.
+        memory-find = pkgs.rustPlatform.buildRustPackage {
+          pname = "memory-find";
+          version = "0.1.0";
+          src = workspace;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "memview" "--bin" "memory-find" ];
+          # dev-lint: allow-docheck-false the gate's `tests` row runs this suite
+          doCheck = false;
+          meta.mainProgram = "memory-find";
+        };
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.console;
       });
 
