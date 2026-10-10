@@ -110,12 +110,18 @@ export class SessionStore {
     held.used = ++this.clock;
     this.held.set(id, held);
     // Kept on the Mac, so it covers calls older than the stream's scrollback.
+    // Merged, never set: the record and the stream race, and an edit the stream
+    // announced before the record landed must survive it.
     this.api.edits(id).subscribe({
       next: (record) => {
-        held.edited.set(
-          new Map(record.edited.map((edited) => [edited.call, edited.hunks.map(change)])),
+        held.edited.update((edited) => {
+          const merged = new Map(edited);
+          for (const one of record.edited) merged.set(one.call, one.hunks.map(change));
+          return merged;
+        });
+        held.diverged.update(
+          (diverged) => new Set([...diverged, ...record.diverged.map((one) => one.call)]),
         );
-        held.diverged.set(new Set(record.diverged.map((diverged) => diverged.call)));
       },
       error: (err: unknown) => console.warn('edits:', reason(err)),
     });

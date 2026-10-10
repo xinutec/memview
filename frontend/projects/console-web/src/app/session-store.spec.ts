@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Observable, of } from 'rxjs';
+import { Observable, of, Subject } from 'rxjs';
 
 import { ConsoleApi, type Streamed } from './console-api';
 import { Local } from './local';
@@ -50,8 +50,11 @@ class Runner {
   /** What the Mac has kept of each call's predictions. Set by the test. */
   kept: EditRecord = { edited: [], diverged: [] };
 
+  /** When set, the record arrives when the test says, not at once. */
+  late?: Subject<EditRecord>;
+
   edits(): Observable<EditRecord> {
-    return of(this.kept);
+    return this.late ?? of(this.kept);
   }
 
   /** What a page fetched by cursor comes back with. Set by the test. */
@@ -119,6 +122,25 @@ describe('SessionStore', () => {
       1,
     );
     expect(held.edited().get('b2')?.[0]?.after).toBe('new\n');
+  });
+
+  it('keeps an edit the stream announced when the record arrives after it', () => {
+    // The record is fetched beside the stream, and either can land first. It
+    // used to REPLACE what was held, so a slow record wiped an edit the stream
+    // had just drawn — seen in the browser suite under load, a marker that never
+    // appeared.
+    runner.late = new Subject<EditRecord>();
+    const held = store.open('s1');
+    first(runner.opened).send(
+      { kind: 'edited', call: 'b2', hunks: [{ path: '/b.rs', before: '', after: 'new\n' }] },
+      1,
+    );
+    runner.late.next({
+      edited: [{ call: 'b1', hunks: [{ path: '/a.rs', before: 'one\n', after: 'two\n' }] }],
+      diverged: [{ call: 'b1', paths: ['/a.rs'] }],
+    });
+    expect([...held.edited().keys()].sort()).toEqual(['b1', 'b2']);
+    expect(held.diverged().has('b1')).toBe(true);
   });
 
   it('resumes a session it is re-entered rather than reading it again', () => {

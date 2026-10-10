@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
@@ -631,6 +631,59 @@ const READING = {
   ],
 } satisfies CorpusRead;
 
+/**
+ * Route a session's event stream the way the runner serves it. A fresh
+ * connection starts with `reset`, so the page empties what it holds before the
+ * history arrives; a RESUME gets only the events after the last one it saw, as
+ * the runner's backlog does. Two ways to resume, both the runner's:
+ * the browser's own reconnect sends `Last-Event-ID`, and the app's reopen asks
+ * for `?after=N`. The mocks had none of it: a finite body ends the stream, the
+ * page connects again about 3s later, and the history was appended to itself —
+ * a sent picture drawn twice, 13 of 60 runs under load (memview#1396). Not "the
+ * first connection wins": under load the page can open a fresh stream before
+ * the view's own. A test about reconnecting routes the stream itself.
+ */
+async function routeStream(page: Page, handler: (route: Route) => Promise<void>): Promise<void> {
+  // A runner's stream stays open; a mock's body ends, and the browser reconnects
+  // after `retry`. Ten minutes outlasts any test, so the stream reads as open and
+  // quiet, which is what an idle session's is. Events are numbered as the
+  // runner's are, and a resume gets those after the one it names.
+  const served = (body: string, after: number): string =>
+    'retry: 600000\n\n' +
+    (after > 0 ? '' : 'event: reset\ndata: this stream starts again from the beginning\n\n') +
+    body
+      .split('\n\n')
+      .map((chunk, n) => ({ chunk, id: n + 1 }))
+      .filter(({ chunk, id }) => !chunk.startsWith('data:') || id > after)
+      .map(({ chunk, id }) => (chunk.startsWith('data:') ? `id: ${id}\n${chunk}` : chunk))
+      .join('\n\n');
+  await page.route('**/api/sessions/*/events', async (r) => {
+    const asked = r.request();
+    // `allHeaders`, not `headers`: the synchronous list leaves some out.
+    const after = Math.max(
+      Number((await asked.allHeaders())['last-event-id'] ?? 0) || 0,
+      Number(new URL(asked.url()).searchParams.get('after') ?? 0) || 0,
+    );
+    const route = new Proxy(r, {
+      get(target, key) {
+        if (key === 'fulfill') {
+          return (options: Parameters<Route['fulfill']>[0]) =>
+            target.fulfill(
+              typeof options?.body === 'string'
+                ? { ...options, body: served(options.body, after) }
+                : options,
+            );
+        }
+        const value: unknown = Reflect.get(target, key, target);
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    });
+    return handler(route);
+  });
+}
+
 async function mockRunner(page: Page): Promise<void> {
   await page.route('**/api/**', (r) => r.fulfill({ status: 204, body: '' }));
   // What every page reads on load, answered as the runner would with nothing to
@@ -642,7 +695,7 @@ async function mockRunner(page: Page): Promise<void> {
   );
   await page.route('**/api/state', (r) => r.fulfill({ json: STATE }));
   await page.route('**/api/reading', (r) => r.fulfill({ json: READING }));
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: TRANSCRIPT.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
@@ -1466,7 +1519,7 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
   // says which file; the page fetches it.
   let asked = '';
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -1524,7 +1577,7 @@ test('a finger on the transcript stops it being pulled to the end @ phone width'
   // reaches them: the handlers are template bindings, and a binding that is not
   // there fails silently.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -1646,7 +1699,7 @@ test('a call waiting to be allowed is one widget, not two @ phone width', async 
   // also sat between the calls either side of it, so a sequence of decided calls
   // could never fold into one list.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: DECIDING.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
@@ -1676,7 +1729,7 @@ test('a call waiting to be allowed is one widget, not two @ phone width', async 
 async function mockQuestion(page: Page): Promise<() => Record<string, unknown> | undefined> {
   let sent: Record<string, unknown> | undefined;
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: QUESTION_TRANSCRIPT.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
@@ -1706,7 +1759,7 @@ test('a root password is asked for, and nothing is sent until one is typed @ pho
       at: NEXT,
     },
   ] satisfies Timed[];
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: transcript.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
@@ -1779,7 +1832,7 @@ test('an answered question says what was chosen @ phone width', async ({ page },
   // fall back on. That is the property worth pinning: `answered` on its own
   // makes the card forget the thing you just did.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -1818,7 +1871,7 @@ test('an answered question says what was chosen @ phone width', async ({ page },
 
 test('a typed reply is recorded as one, not as a choice @ phone width', async ({ page }) => {
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -1953,7 +2006,7 @@ test('a lone single-choice question answers on the tap @ phone width', async ({ 
       questions: [first(asking.does.questions)],
     },
   };
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: ([first(QUESTION_TRANSCRIPT), alone] satisfies Timed[])
@@ -2011,7 +2064,7 @@ test('opening a session from the list lands at the newest message @ phone width'
   // the present — and read as the page being broken rather than as a scroll
   // position.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -2166,7 +2219,7 @@ test('an answer does not pay for the newlines between its blocks @ phone width',
   // choice and may move, and what this is guarding against is a gap that has
   // nothing to do with them.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -4463,7 +4516,7 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
   // The receipt is the session speaking, because a question blocks the turn — so
   // one tool call after the answer is proof it was read.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -4968,7 +5021,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   const RENDER = 'http://10.0.0.2:8917/data/peek/peekA-350-view_from_sofa.png';
   let asked = '';
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5030,7 +5083,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
 
 test('an edit opens as a diff of what it replaced @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5086,7 +5139,7 @@ test('what a command is predicted to change is marked on its row and drawn in it
   await page.route('**/api/sessions/*/edits', (r) =>
     r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5135,7 +5188,7 @@ test('a command waiting for permission shows what it will change @ phone width',
   await page.route('**/api/sessions/*/edits', (r) =>
     r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5181,7 +5234,7 @@ test('a call whose files did not end up as predicted says so @ phone width', asy
   await page.route('**/api/sessions/*/edits', (r) =>
     r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5228,7 +5281,7 @@ test('a prediction that assumed an unknown program harmless says which @ phone w
   await page.route('**/api/sessions/*/edits', (r) =>
     r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5280,7 +5333,7 @@ test('a file one of several texts shows each outcome @ phone width', async ({ pa
   await page.route('**/api/sessions/*/edits', (r) =>
     r.fulfill({ json: { edited: [], diverged: [] } satisfies EditRecord }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5339,7 +5392,7 @@ test('an edit waiting for permission can be read before it is allowed @ phone wi
     everywhere: false,
   } satisfies Call;
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5381,7 +5434,7 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
   const SHOT = '/tmp/usage-shape/red-dark.png';
   const asked: string[] = [];
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5426,7 +5479,7 @@ test("a render whose server is gone says so, in the console's words @ phone widt
   // "re-render it" apart from "start the server again", and an `<img>` that
   // failed says neither — its error event carries nothing at all.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5470,7 +5523,7 @@ test('a picture the session named by its place on the disk opens too @ phone wid
   const FILE = '/home/example/Code/observe/data/peek/lroom-at20s-photo-upright.jpg';
   let asked = '';
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5518,7 +5571,7 @@ async function placed(page: Page): Promise<{ scale: number; x: number; y: number
 /** Open the viewer on a render big enough to have somewhere to move to. */
 async function opened(page: Page): Promise<void> {
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5747,7 +5800,7 @@ test('a message sent mid-answer does not cut the answer in half @ phone width', 
   // The CLI parks a message sent mid-turn and reads it when the turn ends, so it
   // interrupted nothing and the answer stays one block.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
@@ -5800,7 +5853,7 @@ test('a workflow opens on its agents by phase, and an agent on its transcript @ 
       } satisfies Overview,
     }),
   );
-  await page.route('**/api/sessions/*/events', (r) =>
+  await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
