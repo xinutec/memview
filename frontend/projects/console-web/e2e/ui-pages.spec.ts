@@ -2183,19 +2183,61 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
     }
   };
 
+  // A failure here has been seen twice at night with the page at the top and
+  // nothing asked (memview#1396), and has not reproduced since. So a timeout says
+  // what the page held when it gave up: how far the mark was from the prefetch
+  // margin, whether a read was in flight, and every request the session made.
+  const opened = Date.now();
+  const requests: string[] = [];
+  page.on('request', (sent) => {
+    const url = new URL(sent.url());
+    if (url.pathname.startsWith('/api/sessions/')) {
+      requests.push(
+        `+${Date.now() - opened}ms ${url.pathname.split('/').pop() ?? ''}${url.search}`,
+      );
+    }
+  });
+  const held = (): Promise<string> =>
+    page.evaluate(() => {
+      const box = document.querySelector('.transcript');
+      const mark = document.querySelector('.earlier');
+      if (!box) return 'no .transcript';
+      const frame = box.getBoundingClientRect();
+      const at = mark?.getBoundingClientRect();
+      return JSON.stringify({
+        scrollTop: box.scrollTop,
+        scrollHeight: box.scrollHeight,
+        clientHeight: box.clientHeight,
+        markFromTop: at ? Math.round(at.top - frame.top) : null,
+        markInMargin: at ? at.bottom >= frame.top - 400 && at.top <= frame.bottom : null,
+        markSays: mark?.textContent?.trim() ?? null,
+        rows: box.querySelectorAll('li').length,
+      });
+    });
+  const reaches = async (count: number): Promise<void> => {
+    try {
+      await expect.poll(() => asked, { timeout: 5000 }).toBe(count);
+    } catch (failed) {
+      throw new Error(
+        `${failed instanceof Error ? failed.message : String(failed)}\n\n` +
+          `what the page held: ${await held()}\nrequests: ${requests.join(', ')}`,
+      );
+    }
+  };
+
   await toTheTop();
-  await expect.poll(() => asked, { timeout: 5000 }).toBe(1);
+  await reaches(1);
   // The dash matters: without it this also matches messages 10 to 12.
   await expect(page.getByText('Older page 1, message 1 —')).toHaveCount(1);
 
   await toTheTop();
-  await expect.poll(() => asked, { timeout: 5000 }).toBe(2);
+  await reaches(2);
   await expect(page.getByText('Older page 2, message 1 —')).toHaveCount(1);
 
   // The third answer says `from: 0` — the start of the file — and the mark that
   // asks for more goes with it.
   await toTheTop();
-  await expect.poll(() => asked, { timeout: 5000 }).toBe(3);
+  await reaches(3);
   await expect(page.locator('.earlier')).toHaveCount(0);
 
   // And no amount of scrolling asks again for a conversation that has none.
