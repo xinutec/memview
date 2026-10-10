@@ -796,6 +796,7 @@ fn every_way_a_tool_says_it_left_something_running() {
             console::protocol::Running::Began {
                 tool: "toolu_bg".to_string(),
                 task: Some(task.to_string()),
+                expires_in: (said.starts_with("Monitor started")).then_some(1_800_000),
             },
             "{what}"
         );
@@ -1293,4 +1294,34 @@ fn a_reply_the_cli_fetched_is_told_apart_from_an_echo() {
             .expect("rate limits")
             .fetched
     );
+}
+
+/// A monitor says when it will end at the latest, and that deadline is kept: it
+/// is what ends the work when the closing notice comes in words this console
+/// does not know.
+#[test]
+fn a_monitor_declares_its_deadline_in_either_wording() {
+    for (said, ms) in [
+        (
+            "Monitor started (task b2ib6ix9q, expires in 30m unless the source ends first; you get one notice at expiry — re-arm if you still need the watch). You will be notified on each event.",
+            Some(1_800_000),
+        ),
+        (
+            "Monitor started (task br0kou18u, expires in 1m unless the source ends first; you get one notice at expiry — re-arm if you still need the watch).",
+            Some(60_000),
+        ),
+        (
+            "Monitor started (task bajuqh4xe, timeout 1800000ms). You will be notified on each event",
+            Some(1_800_000),
+        ),
+        ("Command running in background with ID: bh0ynhbpb", None),
+    ] {
+        assert!(
+            matches!(
+                console::protocol::running(&answered("toolu_bg", said)),
+                console::protocol::Running::Began { expires_in, .. } if expires_in == ms
+            ),
+            "{said}"
+        );
+    }
 }

@@ -13,7 +13,13 @@ pub enum Running {
     /// because the two endings speak different ones: a notification names the `tool`,
     /// a kill names the `task`. `task` is `None` for a detach whose id could not be
     /// read.
-    Began { tool: String, task: Option<String> },
+    Began {
+        tool: String,
+        task: Option<String>,
+        /// How long the work said it would last at most, in milliseconds — a
+        /// monitor declares it when it starts. `None` for work that names no end.
+        expires_in: Option<i64>,
+    },
     /// The harness says one has finished, by whichever name the notification gave.
     Ended(Named),
     /// A task was stopped from here, named by its task id — the one way work ends
@@ -51,6 +57,7 @@ pub fn running(event: &Event) -> Running {
             (Some(task), _) => Running::Began {
                 tool: id.clone(),
                 task,
+                expires_in: declared_expiry(detail),
             },
             (None, Some(task)) => Running::Killed(task),
             (None, None) => Running::Quiet,
@@ -123,6 +130,38 @@ fn detached(said: &str) -> Option<Option<String>> {
         said.split_once(opening.before_id)
             .and_then(|(_, id)| id_at(id)),
     )
+}
+
+/// The deadline a monitor declares when it starts, in milliseconds — `Monitor
+/// started (task …, expires in 30m unless the source ends first …)`, or in the
+/// older words `(task …, timeout 1800000ms)`.
+///
+/// What ends the work when its closing notice comes in words this console does
+/// not know: the deadline is the harness's own, so passing it is an ending
+/// whatever the notice said.
+fn declared_expiry(said: &str) -> Option<i64> {
+    let opened = said.strip_prefix("Monitor started (task ")?;
+    if let Some((_, rest)) = opened.split_once("timeout ") {
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        return rest[digits.len()..]
+            .starts_with("ms")
+            .then(|| digits.parse().ok())
+            .flatten();
+    }
+    let rest = opened.split_once("expires in ")?.1;
+    let span: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let (digits, unit) = span.split_at(span.find(|c: char| !c.is_ascii_digit())?);
+    let count: i64 = digits.parse().ok()?;
+    let unit_ms = match unit {
+        "s" => 1_000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        _ => return None,
+    };
+    Some(count * unit_ms)
 }
 
 /// The task a kill has just ended, when this result is one. The stopping call

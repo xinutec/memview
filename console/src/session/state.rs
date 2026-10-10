@@ -116,6 +116,10 @@ pub(super) struct State {
     /// Background tool calls started and not yet ended, keyed by the call (what a
     /// notification names), carrying the task (what a kill names).
     pub(super) background: std::collections::BTreeMap<String, crate::protocol::Called>,
+    /// When each piece of background work said it would end at the latest, by
+    /// call id, in epoch milliseconds. Off the wire: what the strip draws is
+    /// [`Self::background`]; this only decides when an entry is overdue.
+    pub(super) deadlines: std::collections::BTreeMap<String, i64>,
     /// The last few tool calls seen, by call id, so a background one can be named
     /// when its result arrives. A ring: an unbounded map would hold every call of a
     /// session that runs for days.
@@ -172,6 +176,25 @@ pub(super) const DEAF_AFTER_MS: i64 = 90_000;
 /// for minutes. Longer rather than suppressed: a session can go deaf around a
 /// compaction.
 pub(super) const DEAF_AFTER_COMPACT_MS: i64 = 15 * 60_000;
+
+impl State {
+    /// Work more than `grace` past the deadline it declared, taken off the count
+    /// and returned. A deadline whose work already ended is dropped with it.
+    pub(super) fn overdue(&mut self, now: i64, grace: i64) -> Vec<crate::protocol::Called> {
+        let due: Vec<String> = self
+            .deadlines
+            .iter()
+            .filter(|(_, at)| **at + grace < now)
+            .map(|(id, _)| id.clone())
+            .collect();
+        due.into_iter()
+            .filter_map(|id| {
+                self.deadlines.remove(&id);
+                self.background.remove(&id)
+            })
+            .collect()
+    }
+}
 
 /// Drop one piece of background work from the count, by whichever name the thing
 /// that ended it knew: a removal for a call, a search for a task.
@@ -435,7 +458,16 @@ impl State {
         }
         // Work left running is decided where the events are read — [`protocol::running`].
         match protocol::running(&event) {
-            protocol::Running::Began { tool, task } => {
+            protocol::Running::Began {
+                tool,
+                task,
+                expires_in,
+            } => {
+                // From the event's own time, so work replayed after an upgrade
+                // falls due when it really did.
+                if let Some(ms) = expires_in {
+                    self.deadlines.insert(tool.clone(), at.unwrap_or(now) + ms);
+                }
                 // Unnamed rather than absent when the ring has rolled past it: that it is
                 // running is the fact worth keeping.
                 let mut named = self
@@ -456,7 +488,10 @@ impl State {
             protocol::Running::Killed(task) => {
                 forget(&mut self.background, &protocol::Named::Task(task));
             }
-            protocol::Running::Gone => self.background.clear(),
+            protocol::Running::Gone => {
+                self.background.clear();
+                self.deadlines.clear();
+            }
             protocol::Running::Quiet => {}
         }
         in_flight(self, &event, now);

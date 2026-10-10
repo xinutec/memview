@@ -606,6 +606,9 @@ impl Roster {
         };
         let root = crate::past::projects_root();
         for session in live {
+            // Two minutes past its own deadline: the closing notice normally
+            // arrives at the deadline itself.
+            session.end_overdue(120_000);
             session.take_up_decision();
             let Some((seconds, unread)) = session.check_deaf() else {
                 continue;

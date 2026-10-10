@@ -568,6 +568,24 @@ impl Session {
         self.state.lock().heard = now();
     }
 
+    /// End background work that is more than `grace` milliseconds past the
+    /// deadline it declared, and say so. Its closing notice either never came or
+    /// came in words [`crate::protocol::running`] does not know — the log line is
+    /// how a new wording gets noticed rather than leaving work counted for ever.
+    pub fn end_overdue(&self, grace: i64) -> Vec<crate::protocol::Called> {
+        let ended = self.state.lock().overdue(now(), grace);
+        for called in &ended {
+            tracing::warn!(
+                "{}: {} {} passed its declared deadline with no ending this console recognised — \
+                 taken off the count; look for a closing notice in new words",
+                self.id,
+                called.tool,
+                called.label.as_deref().unwrap_or("(unlabelled)"),
+            );
+        }
+        ended
+    }
+
     /// Clear the decision clock if the call it allowed is running — [`taken_up`].
     /// The process table is read outside the lock, so the clock is cleared only if
     /// it still holds the decision that was judged.

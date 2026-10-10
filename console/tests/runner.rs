@@ -205,6 +205,36 @@ async fn killing_one_brings_the_count_down_because_nothing_else_will() {
 }
 
 #[tokio::test]
+async fn work_past_its_declared_deadline_is_taken_off_the_count() {
+    // A monitor names its own deadline when it starts. If the closing notice is
+    // in words this console does not know, nothing else would ever bring the
+    // count down — seen on the health session, two monitors counted as running
+    // for hours after both had expired.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    session.send("watch it briefly").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::ToolResult { .. }))
+    })
+    .await;
+    assert_eq!(session.summary().background, 1, "started");
+    assert!(
+        session.end_overdue(60_000).is_empty(),
+        "within the grace period it is still running"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    let ended = session.end_overdue(0);
+    assert_eq!(ended.len(), 1, "past its deadline, it ends");
+    assert_eq!(session.summary().background, 0);
+}
+
+#[tokio::test]
 async fn one_process_serves_several_turns() {
     // The property the whole design rests on: a session is a conversation, not a
     // series of cold starts.
