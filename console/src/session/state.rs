@@ -225,7 +225,8 @@ pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
         // A decision written down the pipe of a session that asked for it. Its own
         // clock: a session blocked on a question is mid-turn, so the message test
-        // cannot fire. Silence after this is not work.
+        // cannot fire. Silence after this is not work, unless the call it allowed
+        // is running — [`taken_up`].
         Event::Answered { .. } => state.decided = state.decided.or(Some(now)),
         _ => {}
     }
@@ -314,6 +315,14 @@ pub fn deaf_after(
     };
     let waited = now - since;
     (waited >= allowed).then_some(waited)
+}
+
+/// Whether a decision has been acted on, judged by the session's children: a
+/// call it allowed runs silently until its result, but a command runs as a child
+/// started after the answer was written. One started before is other work, such as
+/// a shell left in the background, and says nothing about this answer.
+pub fn taken_up(decided: i64, children_started: &[i64]) -> bool {
+    children_started.iter().any(|&started| started >= decided)
 }
 
 /// A message written to the session's stdin that it has not read back:

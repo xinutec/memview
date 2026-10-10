@@ -1421,6 +1421,51 @@ mod deafness {
     }
 
     #[test]
+    fn an_allowed_call_that_is_running_has_taken_the_answer_up() {
+        // A command allowed from the phone ran for three minutes with nothing on
+        // the stream, and the session was called deaf while running it.
+        use console::session::taken_up;
+        assert!(
+            taken_up(NOW, &[NOW - 600_000, NOW + 40]),
+            "a child started after the answer is the call it allowed"
+        );
+        assert!(
+            !taken_up(NOW, &[NOW - 600_000]),
+            "a shell left in the background before the answer says nothing about it"
+        );
+        assert!(!taken_up(NOW, &[]), "no child, no evidence");
+    }
+
+    #[test]
+    fn a_childs_start_is_read_off_the_process_table() {
+        use console::session::children_started;
+        let before = now_ms();
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let after = now_ms();
+        let started = children_started(std::process::id()).expect("the table answers");
+        let _ = child.kill();
+        let _ = child.wait();
+        // The kernel's clock and this one agree to the millisecond, give or take
+        // the rounding of each.
+        assert!(
+            started
+                .iter()
+                .any(|&at| at >= before - 1 && at <= after + 1),
+            "{started:?} has nothing between {before} and {after}"
+        );
+    }
+
+    fn now_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    }
+
+    #[test]
     fn the_longer_of_the_two_waits_is_the_one_reported() {
         // Two ways to be waiting, and a short one starting later must not hide a
         // long one already running.

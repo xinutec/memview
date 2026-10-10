@@ -31,8 +31,8 @@ mod state;
 mod summary;
 mod view;
 
-pub use process::{Fds, finish, keepable, names_session};
-pub use state::{Backlog, Pending, Stamped, deaf_after, resumable, working_after};
+pub use process::{Fds, children_started, finish, keepable, names_session};
+pub use state::{Backlog, Pending, Stamped, deaf_after, resumable, taken_up, working_after};
 pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
 
 use process::reap_adopted;
@@ -566,6 +566,24 @@ impl Session {
     /// [`crate::roster::Roster::ask_usage`].
     fn heard(&self) {
         self.state.lock().heard = now();
+    }
+
+    /// Clear the decision clock if the call it allowed is running — [`taken_up`].
+    /// The process table is read outside the lock, so the clock is cleared only if
+    /// it still holds the decision that was judged.
+    pub fn take_up_decision(&self) {
+        let Some(decided) = self.state.lock().decided else {
+            return;
+        };
+        let Some(children) = children_started(self.pid) else {
+            return;
+        };
+        if taken_up(decided, &children) {
+            let mut state = self.state.lock();
+            if state.decided == Some(decided) {
+                state.decided = None;
+            }
+        }
     }
 
     /// Say so, once, if this session has stopped reading: how long, when this is the

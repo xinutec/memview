@@ -81,3 +81,54 @@ pub fn finish(pid: u32, id: &str) {
     // running that session; ESRCH is ignored.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
 }
+
+/// When each child of `pid` started, in epoch milliseconds. `None` when the
+/// question could not be put, which is not the same as no children.
+///
+/// What a running tool looks like from outside: Claude Code reports nothing
+/// between allowing a call and its result, but a command it runs is its child.
+#[cfg(target_os = "macos")]
+pub fn children_started(pid: u32) -> Option<Vec<i64>> {
+    const MOST: usize = 256;
+    let mut children: Vec<libc::pid_t> = vec![0; MOST];
+    let room = (MOST * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+    // SAFETY: the buffer is `room` bytes and the call writes at most that many.
+    let listed =
+        unsafe { libc::proc_listchildpids(pid as libc::pid_t, children.as_mut_ptr().cast(), room) };
+    let listed = usize::try_from(listed).ok()?.min(MOST);
+    Some(
+        children[..listed]
+            .iter()
+            .filter(|&&child| child > 0)
+            .filter_map(|&child| started(child, pid))
+            .collect(),
+    )
+}
+
+/// Elsewhere the question cannot be put. The console runs on macOS; this keeps
+/// it compiling where it is only built.
+#[cfg(not(target_os = "macos"))]
+pub fn children_started(_pid: u32) -> Option<Vec<i64>> {
+    None
+}
+
+/// When `child` started, if it is still running and still `parent`'s: a pid
+/// listed a moment ago may have ended, or been reused, since.
+#[cfg(target_os = "macos")]
+fn started(child: libc::pid_t, parent: u32) -> Option<i64> {
+    // SAFETY: an all-zero `proc_bsdinfo` is a valid value of a plain C struct.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is `size` bytes, which is what `PROC_PIDTBSDINFO` fills.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            child,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    (filled == size && info.pbi_ppid == parent)
+        .then(|| info.pbi_start_tvsec as i64 * 1000 + info.pbi_start_tvusec as i64 / 1000)
+}

@@ -606,6 +606,7 @@ impl Roster {
         };
         let root = crate::past::projects_root();
         for session in live {
+            session.take_up_decision();
             let Some((seconds, unread)) = session.check_deaf() else {
                 continue;
             };
