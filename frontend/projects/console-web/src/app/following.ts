@@ -189,13 +189,17 @@ export class Following {
     // known only when it lifts. The window is learned before every guard: it is
     // bookkeeping, and written after them the reshape reads as a first event.
     const reshaped = this.view >= 0 && box.view !== this.view;
+    const lost = reshaped ? Math.max(0, this.view - box.view) : 0;
     this.view = box.view;
     if (this.holding) return;
     if (this.at && box.top === this.wrote) return;
     // The window changed shape between this event and the last, or they have just
     // sent something and the page is re-laying out: a move the reader did not make.
-    // A follower stays one, and the new position becomes the engine's own.
-    if (this.at && (reshaped || this.settling)) {
+    // A follower stays one, and the new position becomes the engine's own. A
+    // reshape opens a gap no wider than what the window lost; anything past that
+    // is the reader, scrolling in the same frame.
+    const reshapeExplains = reshaped && box.height - box.top - box.view < lost + SLACK;
+    if (this.at && (reshapeExplains || this.settling)) {
       this.settling = false;
       this.wrote = box.top;
       return;

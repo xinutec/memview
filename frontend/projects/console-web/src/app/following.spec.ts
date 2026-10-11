@@ -369,6 +369,19 @@ describe('following · the composer takes the window', () => {
     expect(following.pinned).toBe(false);
   });
 
+  it('forgives no more than the window lost', () => {
+    // A reader who scrolls to the top in the frame the window reshapes. The two
+    // arrive as one event, and forgiving it whole snapped the page back to the
+    // end (memview#1396, the nightly scroll-to-top failure).
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved(AT_END);
+
+    following.moved({ ...COMPOSER_GREW, top: 0 });
+
+    expect(following.pinned).toBe(false);
+  });
+
   it('is not a way back for a reader who had already scrolled away', () => {
     // The keyboard opening under somebody reading the morning is not a request to
     // be taken to the newest message.
