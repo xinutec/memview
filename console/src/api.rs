@@ -1134,11 +1134,15 @@ async fn sudo(
     let id = format!("sudo-{}", uuid::Uuid::new_v4());
     let answer = roster.sudo().wait(&id);
     session.ask_sudo(&id, &asked.command);
-    let ran = match answer.await.ok().flatten() {
+    let password = answer.await.ok().flatten();
+    // Settled on the answer, not when the command ends: one that runs for minutes
+    // left the question open, and a second tap on it was read as a refusal. How the
+    // command went is the session's to read, in what this returns.
+    session.sudo_settled(&id, password.is_some());
+    let ran = match password {
         Some(password) => crate::sudo::run(&asked.cwd, &asked.command, password).await,
         None => crate::sudo::refused("refused from the console"),
     };
-    session.sudo_settled(&id, ran.status == 0);
     Json(ran)
 }
 

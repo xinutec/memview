@@ -32,7 +32,9 @@ mod summary;
 mod view;
 
 pub use process::{Fds, children_started, finish, keepable, names_session};
-pub use state::{Backlog, Pending, Stamped, deaf_after, resumable, taken_up, working_after};
+pub use state::{
+    Backlog, Pending, Stamped, deaf_after, leaves_a_decision, resumable, taken_up, working_after,
+};
 pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
 
 use process::reap_adopted;
@@ -540,18 +542,18 @@ impl Session {
             id: id.to_string(),
             call: None,
             does: crate::call::Call::read("Bash", &input),
-            tool: "sudo".to_string(),
+            tool: crate::sudo::TOOL.to_string(),
             title: None,
             detail: None,
             input,
         });
     }
 
-    /// The root password question settled, run or refused.
-    pub fn sudo_settled(&self, id: &str, ran: bool) {
+    /// The root password question settled: a password given, or refused.
+    pub fn sudo_settled(&self, id: &str, given: bool) {
         self.push(Event::Answered {
             id: id.to_string(),
-            allowed: ran,
+            allowed: given,
             reply: None,
         });
     }

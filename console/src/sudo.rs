@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::oneshot;
 
+/// The tool name a root-password question is asked under. No CLI tool has it, so
+/// it marks the one question the console answers itself.
+pub const TOOL: &str = "sudo";
+
 /// Requests waiting for their password, by ask id. `None` is a refusal.
 #[derive(Default)]
 pub struct Waiting(Mutex<BTreeMap<String, oneshot::Sender<Option<String>>>>);

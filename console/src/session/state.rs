@@ -249,8 +249,11 @@ pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
         // A decision written down the pipe of a session that asked for it. Its own
         // clock: a session blocked on a question is mid-turn, so the message test
         // cannot fire. Silence after this is not work, unless the call it allowed
-        // is running — [`taken_up`].
-        Event::Answered { .. } => state.decided = state.decided.or(Some(now)),
+        // is running — [`taken_up`]. Read before the question is forgotten, so
+        // [`leaves_a_decision`] can see what was asked.
+        Event::Answered { id, .. } if leaves_a_decision(state.pending.get(id)) => {
+            state.decided = state.decided.or(Some(now));
+        }
         _ => {}
     }
     // Anything the session says of its own accord means it is working. Not `Busy`:
@@ -348,6 +351,14 @@ pub fn taken_up(decided: i64, children_started: &[i64]) -> bool {
     children_started.iter().any(|&started| started >= decided)
 }
 
+/// Whether an answer was written down the session's pipe, leaving it something
+/// to act on. A root-password question is answered by the console, which runs the
+/// command itself: the session's only part is the shell it is already waiting in.
+/// An answer to a question never seen here is the session's, as before.
+pub fn leaves_a_decision(answered: Option<&Pending>) -> bool {
+    answered.is_none_or(|asked| asked.tool != crate::sudo::TOOL)
+}
+
 /// A message written to the session's stdin that it has not read back:
 /// [`Event::Accepted`] says the bytes reached the pipe, the CLI's replay says
 /// they were taken out. Commands are absent — the CLI never replays one.
@@ -363,6 +374,8 @@ impl State {
     /// the time to date a measurement by when the event carries none, which marks it
     /// as an echo rather than a measurement.
     pub(super) fn take(&mut self, event: Event, at: Option<i64>, now: i64) -> Stamped {
+        // First, while an answered question is still pending — [`in_flight`].
+        in_flight(self, &event, now);
         match &event {
             Event::Started { model, .. } => self.model = Some(model.clone()),
             Event::Busy { status } => self.busy = Some(status.clone()),
@@ -494,7 +507,6 @@ impl State {
             }
             protocol::Running::Quiet => {}
         }
-        in_flight(self, &event, now);
         self.issued += 1;
         let stamped = Stamped {
             seq: self.issued,

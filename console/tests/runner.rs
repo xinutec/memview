@@ -1467,6 +1467,27 @@ mod deafness {
     }
 
     #[test]
+    fn a_root_password_answer_leaves_the_session_nothing_to_take_up() {
+        // The console runs a sudo command itself; the session only waits on its
+        // own shell. Read as a decision, a second tap on the same question called
+        // a session deaf 93s later, mid-command.
+        use console::session::{Pending, leaves_a_decision};
+        let asked = |tool: &str| Pending {
+            tool: tool.to_string(),
+            call: None,
+            input: serde_json::json!({ "command": "true" }),
+            title: None,
+            detail: None,
+        };
+        assert!(!leaves_a_decision(Some(&asked(console::sudo::TOOL))));
+        assert!(leaves_a_decision(Some(&asked("Bash"))));
+        assert!(
+            leaves_a_decision(None),
+            "an answer to a question this state never saw is still the session's"
+        );
+    }
+
+    #[test]
     fn a_childs_start_is_read_off_the_process_table() {
         use console::session::children_started;
         let before = now_ms();
