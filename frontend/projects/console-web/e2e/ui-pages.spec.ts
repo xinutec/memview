@@ -3067,6 +3067,30 @@ test('session list — a blocked session says so first @ phone width', async ({ 
   await expectCleanLayout(page, testInfo);
 });
 
+test('a refused sign-in says so on the list and on the session @ phone width', async ({
+  page,
+}, testInfo) => {
+  // One login runs every session, so when it lapses they all stop at once and
+  // look idle. The cure is on the Mac, and the page says where.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [{ ...RUNNING, waiting: 0, signed_out: NEXT }],
+      } satisfies Overview,
+    }),
+  );
+  await page.goto('/');
+  await expect(page.getByText('signed out', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('waiting for you')).toHaveCount(0);
+  await expectCleanLayout(page, testInfo);
+
+  await page.goto(`/s/${RUNNING.id}`);
+  await expect(page.getByRole('alert').filter({ hasText: 'Signed out.' })).toHaveCount(1);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+});
+
 test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {
   // The one thing that moves the end of the transcript without the
   // transcript changing. The composer is `flex: 0 0 auto` above it, so every

@@ -20,6 +20,19 @@
       }
     </div>
   </header>
+  @if (session.signed_out) {
+    <!-- The login every session shares: nothing here can cure it. -->
+    <div class="deaf" role="alert">
+      <mat-icon>key_off</mat-icon>
+      <div class="what">
+        <strong>Signed out.</strong>
+        <span
+          >Claude's login has expired. Run <code>claude</code> on the Mac and sign in with
+          <code>/login</code>; every session needs it.</span
+        >
+      </div>
+    </div>
+  }
   @if (!session.alive) {
     <div class="deaf ended" role="status">
       <mat-icon>power_settings_new</mat-icon>

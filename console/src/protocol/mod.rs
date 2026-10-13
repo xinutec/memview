@@ -229,6 +229,10 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         reply: Option<Reply>,
     },
+    /// The account's sign-in has lapsed: the CLI answered with a synthetic message
+    /// whose `error` is `authentication_failed`. Every session shares the login, so
+    /// nothing will run until someone signs in again on the Mac.
+    SignedOut,
     /// The conversation was compacted: everything above this was replaced by a
     /// summary. Only ever read from a transcript — the live stream does not announce
     /// it.
@@ -266,6 +270,10 @@ enum Line {
     },
     Assistant {
         message: Message,
+        /// The API error a synthetic message stands in for — `authentication_failed`,
+        /// `rate_limit`, … — on the line itself, beside `message`.
+        #[serde(default)]
+        error: Option<String>,
     },
     User {
         message: Message,
@@ -390,6 +398,14 @@ struct Message {
 /// answers, as one complete `assistant` message with no deltas before it. [`read`]
 /// keeps only tool calls from a completed message, except from this one.
 const SYNTHETIC: &str = "<synthetic>";
+
+/// The `error` an assistant line carries when the sign-in has lapsed.
+const SIGNED_OUT: &str = "authentication_failed";
+
+/// [`Event::SignedOut`], when a line's `error` says so. Last, after the words.
+fn signed_out(error: Option<&str>) -> Option<Event> {
+    (error == Some(SIGNED_OUT)).then_some(Event::SignedOut)
+}
 
 /// `content` is a list of blocks — except on user lines where it is a bare
 /// string, and both shapes are in every transcript. Declared as `Vec<Block>`
@@ -567,7 +583,7 @@ pub fn read(line: &str) -> Vec<Event> {
         // Text is taken from the deltas, so the completed message contributes only what
         // they cannot carry whole — unless nothing generated it, in which case there
         // were no deltas and this is the only copy. See [`SYNTHETIC`].
-        Line::Assistant { message } => {
+        Line::Assistant { message, error } => {
             // The context as it stood for this request, ahead of the blocks.
             let context = message.usage.as_ref().map(|usage| Event::Context {
                 tokens: usage.prompt(),
@@ -592,6 +608,7 @@ pub fn read(line: &str) -> Vec<Event> {
                             _ => None,
                         }),
                 )
+                .chain(signed_out(error.as_deref()))
                 .collect()
         }
         // A replayed prompt: what this console sent, coming back — read by the same
@@ -724,7 +741,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         return Vec::new();
     };
     match parsed {
-        Line::Assistant { message } => {
+        Line::Assistant { message, error } => {
             // Same as the live reader: the context as it stood for this request, so a
             // resumed session knows its fullness before it finishes a turn.
             let context = message.usage.as_ref().map(|usage| Event::Context {
@@ -747,6 +764,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                             _ => None,
                         }),
                 )
+                .chain(signed_out(error.as_deref()))
                 .collect()
         }
         Line::User { message } => from_user(message.content),

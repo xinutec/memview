@@ -70,7 +70,10 @@
       <div class="head">
         <span class="place" [class.anonymous]="!row.named">{{ row.title }}</span>
         @if (row.live; as session) {
-          @if (session.deaf) {
+          @if (session.signed_out) {
+            <!-- Ahead of everything: no session runs until someone signs in on the Mac. -->
+            <span class="deaf">signed out</span>
+          } @else if (session.deaf) {
             <!-- Ahead even of a blocked session: the one state the reader cannot learn any
                  other way, and it looks exactly like busy. See `session::Session::deaf`. -->
             <span class="deaf">not reading</span>

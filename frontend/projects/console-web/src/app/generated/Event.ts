@@ -69,7 +69,7 @@ title?: string, detail?: string, does: Call, } | { "kind": "answered", id: strin
  * because an `ask` is a control request, not a transcript line, so a second
  * screen or a reload has no other way to learn what was chosen.
  */
-reply?: Reply, } | { "kind": "compacted" } | { "kind": "deaf", 
+reply?: Reply, } | { "kind": "signed_out" } | { "kind": "compacted" } | { "kind": "deaf", 
 /**
  * How many messages are waiting in the pipe.
  */

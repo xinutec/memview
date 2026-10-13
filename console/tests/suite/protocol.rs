@@ -1325,3 +1325,52 @@ fn a_monitor_declares_its_deadline_in_either_wording() {
         );
     }
 }
+
+/// A lapsed sign-in, as the CLI says it: a synthetic assistant message whose
+/// `error` names it. Read off the field, not the words, which differ by cause —
+/// a bad token reads "Failed to authenticate", an expired login "Login expired".
+mod signed_out {
+    use console::protocol::{Event, read, read_recorded};
+
+    /// Live, from `claude -p --output-format stream-json` with an invalid token.
+    const LIVE: &str = r#"{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Failed to authenticate. API Error: 401 OAuth access token is invalid."}],"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}},"error":"authentication_failed","is_api_error_message":true}"#;
+
+    /// Recorded, from a transcript the day a login expired.
+    const RECORDED: &str = r#"{"type":"assistant","error":"authentication_failed","isApiErrorMessage":true,"message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Login expired · Please run /login"}],"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}"#;
+
+    #[test]
+    fn the_live_stream_says_so_after_the_words() {
+        let events = read(LIVE);
+        assert!(
+            matches!(events.last(), Some(Event::SignedOut)),
+            "{events:?}"
+        );
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Text { text } if text.starts_with("Failed to authenticate"))
+            ),
+            "the words still reach the transcript: {events:?}"
+        );
+    }
+
+    #[test]
+    fn a_transcript_says_so_too() {
+        let events = read_recorded(RECORDED);
+        assert!(
+            matches!(events.last(), Some(Event::SignedOut)),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn another_api_error_is_not_a_lapsed_sign_in() {
+        let limited = LIVE.replace("authentication_failed", "rate_limit");
+        assert!(!read(&limited).iter().any(|e| matches!(e, Event::SignedOut)));
+        let answered = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"fine"}]}}"#;
+        assert!(
+            !read_recorded(answered)
+                .iter()
+                .any(|e| matches!(e, Event::SignedOut))
+        );
+    }
+}

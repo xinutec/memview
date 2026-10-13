@@ -155,6 +155,9 @@ pub(super) struct State {
     /// When the oldest decision the session has not acted on was written, in epoch
     /// milliseconds. See [`Session::deaf`].
     pub(super) decided: Option<i64>,
+    /// When the account's sign-in was last refused, in epoch milliseconds, until a
+    /// request is answered again. See [`crate::protocol::Event::SignedOut`].
+    pub(super) signed_out: Option<i64>,
     /// Slash commands written while a turn was running, oldest first. A command sent
     /// mid-turn does not run: the CLI parks it as a `queued_command` with
     /// `commandMode: "prompt"` and hands it to the model as words. Held here rather
@@ -459,6 +462,14 @@ impl State {
                 // to run.
                 self.held.clear();
             }
+            _ => {}
+        }
+        // A lapsed sign-in lasts until the account answers a request again. A real
+        // request has a prompt, which the synthetic message's zero usage does not.
+        match &event {
+            Event::SignedOut => self.signed_out = Some(at.unwrap_or(now)),
+            Event::Context { tokens } if *tokens > 0 => self.signed_out = None,
+            Event::Tool { .. } => self.signed_out = None,
             _ => {}
         }
         // Remember what each call is, so a detached one can be named — `State::called`.

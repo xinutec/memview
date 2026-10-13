@@ -113,6 +113,12 @@ unread: number,
  */
 deaf?: number, 
 /**
+ * When the account's sign-in was refused, in epoch milliseconds — present until
+ * a request is answered again. Every session shares the login, so the cure is
+ * signing in on the Mac. See [`crate::protocol::Event::SignedOut`].
+ */
+signed_out?: number, 
+/**
  * Slash commands waiting for the turn to end, oldest first — see [`crate::session::state::State::held`].
  * The words themselves, because the client draws them and cancels by them.
  */

@@ -175,7 +175,9 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         at: at(event),
       });
       break;
-    // Carried in the session's own state, not on the transcript.
+    // Carried in the session's own state, not on the transcript. A refused sign-in
+    // is on it already, in the CLI's own words.
+    case 'signed_out':
     case 'edited':
     case 'diverged':
     case 'started':

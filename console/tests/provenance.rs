@@ -41,7 +41,8 @@ enum Provenance {
     /// without anybody doing anything. Measured over the transcript corpus:
     /// `background command compacted context prompt text tool
     /// tool_result`, plus `shown`, which the sample held none of and
-    /// `protocol::from_user` plainly produces for an image.
+    /// `protocol::from_user` plainly produces for an image, and `signed_out`,
+    /// which a transcript records as an assistant line's `error`.
     Recorded,
     /// Only this console produces it. No file has it, so a cold seed either puts
     /// it back or it is gone.
@@ -70,7 +71,8 @@ fn provenance(event: &Event) -> Provenance {
         | Event::Tool { .. }
         | Event::ToolResult { .. }
         | Event::Background { .. }
-        | Event::Compacted => Provenance::Recorded,
+        | Event::Compacted
+        | Event::SignedOut => Provenance::Recorded,
 
         // The console's own words.
         Event::Joined { .. } => Provenance::Runtime(Care::Replayed),

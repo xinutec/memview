@@ -200,6 +200,12 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub deaf: Option<u64>,
+    /// When the account's sign-in was refused, in epoch milliseconds — present until
+    /// a request is answered again. Every session shares the login, so the cure is
+    /// signing in on the Mac. See [`crate::protocol::Event::SignedOut`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub signed_out: Option<u64>,
     /// Slash commands waiting for the turn to end, oldest first — see [`crate::session::state::State::held`].
     /// The words themselves, because the client draws them and cancels by them.
     #[serde(default)]

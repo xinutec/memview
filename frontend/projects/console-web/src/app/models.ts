@@ -82,6 +82,7 @@ export const KINDS = [
   'ask',
   'answered',
   'compacted',
+  'signed_out',
   'deaf',
   'exited',
   'trouble',

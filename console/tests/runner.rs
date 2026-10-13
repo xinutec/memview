@@ -112,6 +112,31 @@ async fn a_session_starts_takes_a_message_and_answers() {
 }
 
 #[tokio::test]
+async fn a_refused_sign_in_is_on_the_summary_until_a_request_is_answered() {
+    // Every session shares the login, and a lapsed one stops all of them with
+    // nothing on the list to say why. The summary is what the list and the fleet
+    // check both read.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("you are signed out").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::SignedOut))
+    })
+    .await;
+    assert!(session.summary().signed_out.is_some());
+
+    // Signed in again: the next real answer has a prompt, and the mark goes.
+    session.send("say how full").await.expect("send");
+    until(&session, |seen| {
+        seen.iter()
+            .any(|e| matches!(e, Event::Context { tokens } if *tokens > 0))
+    })
+    .await;
+    assert_eq!(session.summary().signed_out, None);
+}
+
+#[tokio::test]
 async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
     // The list is drawn without opening anything, so the runner counts: it
     // watches the same two events a session's page would, and the count rides the
