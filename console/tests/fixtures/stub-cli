@@ -6,6 +6,21 @@
 # or depending on the model being reachable. It understands only --session-id;
 # the *protocol* is covered against a real capture in protocol.rs.
 
+# `claude auth login`, as it runs with no terminal: the link, a prompt with no
+# newline, and the code read from stdin. One code is accepted.
+if [ "${1:-}" = auth ] && [ "${2:-}" = login ]; then
+  echo "Opening browser to sign in…"
+  echo "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=stub"
+  printf 'Paste code here if prompted > '
+  read -r code
+  if [ "$code" = "good-code" ]; then
+    echo "Login successful."
+    exit 0
+  fi
+  echo "OAuth error: invalid code" >&2
+  exit 1
+fi
+
 session="unknown"
 # The session-so-far total, because that is what the CLI reports each time.
 total=0

@@ -21,16 +21,43 @@
     </div>
   </header>
   @if (session.signed_out) {
-    <!-- The login every session shares: nothing here can cure it. -->
-    <div class="deaf" role="alert">
+    <!-- The login every session shares, signed in again from here: the console runs
+         `claude auth login`, whose link shows a code to paste back. See console::login. -->
+    <div class="deaf signin" role="alert">
       <mat-icon>key_off</mat-icon>
       <div class="what">
         <strong>Signed out.</strong>
-        <span
-          >Claude's login has expired. Run <code>claude</code> on the Mac and sign in with
-          <code>/login</code>; every session needs it.</span
-        >
+        @if (signIn().url; as url) {
+          <span
+            >Open <a [href]="url" target="_blank" rel="noopener">the sign-in page</a>, sign in, and
+            paste the code it shows.</span
+          >
+          <input
+            #code
+            class="code"
+            autocomplete="off"
+            aria-label="sign-in code"
+            placeholder="code"
+            (keydown.enter)="sendCode(code.value)"
+          />
+        } @else {
+          <span>Claude's login has expired; every session needs it.</span>
+        }
+        @if (signIn().said; as said) {
+          <span class="said">{{ said }}</span>
+        }
       </div>
+      @if (signIn().url) {
+        <button
+          mat-flat-button
+          [disabled]="signIn().busy"
+          (click)="sendCode(codeField()?.nativeElement?.value ?? '')"
+        >
+          Send
+        </button>
+      } @else {
+        <button mat-flat-button [disabled]="signIn().busy" (click)="startSignIn()">Sign in</button>
+      }
     </div>
   }
   @if (!session.alive) {

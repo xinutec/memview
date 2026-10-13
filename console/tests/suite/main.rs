@@ -19,6 +19,7 @@ mod gate;
 mod gist;
 mod hook;
 mod images;
+mod login;
 mod orphan;
 mod paging;
 mod parse;

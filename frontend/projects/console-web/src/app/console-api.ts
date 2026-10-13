@@ -11,6 +11,9 @@ import {
   type EditRecord,
   KINDS,
   type Landmark,
+  type LoginCode,
+  type LoginResult,
+  type LoginStarted,
   type Message,
   type ModeChange,
   type Overview,
@@ -146,6 +149,16 @@ export class ConsoleApi {
   /** A root password for a command waiting on one, or null to refuse it. */
   sudo(at: string, id: string, password: string | null): Observable<void> {
     return this.http.post<void>(`${session(at)}/sudo`, { id, password } satisfies SudoAnswer);
+  }
+
+  /** Start signing the account in again: the link to open. */
+  login(): Observable<LoginStarted> {
+    return this.http.post<LoginStarted>('/api/login', {});
+  }
+
+  /** The code the sign-in page showed, and how the exchange went. */
+  loginCode(code: string): Observable<LoginResult> {
+    return this.http.post<LoginResult>('/api/login/code', { code } satisfies LoginCode);
   }
 
   setMode(id: string, mode: Known): Observable<Summary> {

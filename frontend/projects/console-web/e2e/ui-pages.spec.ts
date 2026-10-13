@@ -9,6 +9,9 @@ import type {
   Described,
   EditRecord,
   Landmark,
+  LoginCode,
+  LoginResult,
+  LoginStarted,
   Overview,
   Page as Earlier,
   Parsed,
@@ -3087,8 +3090,31 @@ test('a refused sign-in says so on the list and on the session @ phone width', a
   await expectCleanLayout(page, testInfo);
 
   await page.goto(`/s/${RUNNING.id}`);
-  await expect(page.getByRole('alert').filter({ hasText: 'Signed out.' })).toHaveCount(1);
+  const banner = page.getByRole('alert').filter({ hasText: 'Signed out.' });
+  await expect(banner).toHaveCount(1);
   await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+
+  // Signed in from here: a link to open, then the code its page showed.
+  let sent = '';
+  await page.route('**/api/login', (r) =>
+    r.fulfill({
+      json: { url: 'https://claude.com/cai/oauth/authorize?state=e2e' } satisfies LoginStarted,
+    }),
+  );
+  await page.route('**/api/login/code', (r) => {
+    sent = (r.request().postDataJSON() as LoginCode).code;
+    return r.fulfill({ json: { ok: true, said: 'Login successful.' } satisfies LoginResult });
+  });
+  await banner.getByRole('button', { name: 'Sign in' }).click();
+  await expect(banner.getByRole('link', { name: 'the sign-in page' })).toHaveAttribute(
+    'href',
+    'https://claude.com/cai/oauth/authorize?state=e2e',
+  );
+  await banner.getByLabel('sign-in code').fill('the-code');
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+  await banner.getByRole('button', { name: 'Send' }).click();
+  await expect(banner.getByText('Signed in.')).toHaveCount(1);
+  expect(sent).toBe('the-code');
 });
 
 test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {

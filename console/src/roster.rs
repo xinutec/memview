@@ -51,6 +51,7 @@ pub struct Roster {
     spent: Mutex<BTreeMap<String, crate::session::Seen>>,
     /// Commands waiting for a root password. See [`crate::sudo`].
     sudo: crate::sudo::Waiting,
+    login: crate::login::Login,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -104,12 +105,23 @@ impl Roster {
             edits: Arc::new(crate::edits::Edits::new(crate::edits::edits_root())),
             spent: Mutex::new(BTreeMap::new()),
             sudo: crate::sudo::Waiting::default(),
+            login: crate::login::Login::default(),
         }
     }
 
     /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
     pub fn sudo(&self) -> &crate::sudo::Waiting {
         &self.sudo
+    }
+
+    /// The sign-in under way from the phone, if any. See [`crate::login`].
+    pub fn login(&self) -> &crate::login::Login {
+        &self.login
+    }
+
+    /// The CLI every session runs, which is also the one that signs in.
+    pub fn binary(&self) -> &str {
+        &self.config.spawn.binary
     }
 
     pub fn edits(&self) -> Arc<crate::edits::Edits> {

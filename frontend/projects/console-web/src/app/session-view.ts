@@ -47,6 +47,15 @@ import { Block, blocks } from './transcript';
 import { Updates } from './updates';
 
 /** One conversation: its transcript, what it is doing, and the box to reply in. */
+/** Where a sign-in from the banner has got to. */
+interface SignIn {
+  busy: boolean;
+  /** The link to open, while the console waits for its code. */
+  url?: string;
+  /** What the last step said. */
+  said?: string;
+}
+
 @Component({
   selector: 'app-session-view',
   templateUrl: './session-view.html',
@@ -152,6 +161,9 @@ export class SessionView implements OnDestroy {
     { initialValue: undefined },
   );
   readonly reviving = signal(false);
+  /** Signing the account in again from the banner — see `console::login`. */
+  readonly signIn = signal<SignIn>({ busy: false });
+  protected readonly codeField = viewChild<ElementRef<HTMLInputElement>>('code');
   readonly unholding = signal<string | undefined>(undefined);
   readonly loading = signal(false);
   protected readonly full = signal<string | undefined>(undefined);
@@ -379,6 +391,34 @@ export class SessionView implements OnDestroy {
         this.sending.set(false);
         this.trouble.set(reason(err));
       },
+    });
+  }
+
+  /** Ask the console for a sign-in link. */
+  startSignIn(): void {
+    if (this.signIn().busy) return;
+    this.signIn.set({ busy: true });
+    this.api.login().subscribe({
+      next: ({ url }) => this.signIn.set({ busy: false, url }),
+      error: (err: unknown) => this.signIn.set({ busy: false, said: reason(err) }),
+    });
+  }
+
+  /**
+   * Hand back the code the sign-in page showed. Either way the attempt is over:
+   * a wrong code needs a new link.
+   */
+  sendCode(code: string): void {
+    const now = this.signIn();
+    if (now.busy || !code.trim()) return;
+    this.signIn.set({ ...now, busy: true, said: undefined });
+    this.api.loginCode(code).subscribe({
+      next: ({ ok, said }) =>
+        this.signIn.set({
+          busy: false,
+          said: ok ? 'Signed in. This clears on the next answer.' : said || 'The code was refused.',
+        }),
+      error: (err: unknown) => this.signIn.set({ busy: false, said: reason(err) }),
     });
   }
 

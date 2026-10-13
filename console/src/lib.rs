@@ -14,6 +14,7 @@ pub mod drafts;
 pub mod edits;
 pub mod gist;
 pub mod images;
+pub mod login;
 pub mod marks;
 pub mod modes;
 pub mod named;

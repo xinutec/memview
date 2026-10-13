@@ -63,6 +63,8 @@ pub fn router(roster: Arc<Roster>) -> Router {
         )
         .route("/api/hook", post(hook))
         .route("/api/sudo", post(sudo))
+        .route("/api/login", post(login))
+        .route("/api/login/code", post(login_code))
         .route("/api/sessions/{id}/sudo", post(sudo_answer))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
@@ -1144,6 +1146,31 @@ async fn sudo(
         None => crate::sudo::refused("refused from the console"),
     };
     Json(ran)
+}
+
+/// Start signing the account in again: the link to open. See [`crate::login`].
+async fn login(
+    State(roster): State<Arc<Roster>>,
+) -> Result<Json<crate::login::LoginStarted>, (StatusCode, String)> {
+    roster
+        .login()
+        .start(roster.binary())
+        .await
+        .map(Json)
+        .map_err(|why| (StatusCode::BAD_GATEWAY, why))
+}
+
+/// The code the sign-in page showed, and how the exchange went.
+async fn login_code(
+    State(roster): State<Arc<Roster>>,
+    Json(code): Json<crate::login::LoginCode>,
+) -> Result<Json<crate::login::LoginResult>, (StatusCode, String)> {
+    roster
+        .login()
+        .finish(code)
+        .await
+        .map(Json)
+        .map_err(|why| (StatusCode::CONFLICT, why))
 }
 
 async fn sudo_answer(
