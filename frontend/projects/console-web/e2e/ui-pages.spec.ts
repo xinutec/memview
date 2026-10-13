@@ -3106,15 +3106,36 @@ test('a refused sign-in says so on the list and on the session @ phone width', a
     return r.fulfill({ json: { ok: true, said: 'Login successful.' } satisfies LoginResult });
   });
   await banner.getByRole('button', { name: 'Sign in' }).click();
-  await expect(banner.getByRole('link', { name: 'the sign-in page' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'the sign-in page' })).toHaveAttribute(
     'href',
     'https://claude.com/cai/oauth/authorize?state=e2e',
   );
-  await banner.getByLabel('sign-in code').fill('the-code');
-  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
-  await banner.getByRole('button', { name: 'Send' }).click();
-  await expect(banner.getByText('Signed in.')).toHaveCount(1);
+  await page.getByLabel('code').fill('the-code');
+  await expectCleanLayout(page, testInfo, { root: 'mat-bottom-sheet-container' });
+  await page.getByRole('button', { name: 'sign in', exact: true }).click();
+  await expect(page.getByText('Login successful.')).toHaveCount(1);
   expect(sent).toBe('the-code');
+});
+
+test('the login can be renewed from the menu before it lapses @ phone width', async ({ page }) => {
+  // Signing in again resets the renewal token's thirty days, so a login that is
+  // only getting old never has to lapse.
+  let asked = 0;
+  await mockRunner(page);
+  await page.route('**/api/login', (r) => {
+    asked += 1;
+    return r.fulfill({
+      json: { url: 'https://claude.com/cai/oauth/authorize?state=menu' } satisfies LoginStarted,
+    });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  await page
+    .locator('ui-scaffold')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Sign in again' }).click();
+  await expect(page.getByRole('link', { name: 'the sign-in page' })).toHaveCount(1);
+  expect(asked).toBe(1);
 });
 
 test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {

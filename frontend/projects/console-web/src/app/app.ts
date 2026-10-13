@@ -18,6 +18,7 @@ import { Summary } from './models';
 import { type Known, modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Choosing, ModesSheet } from './modes-sheet';
 import { RenameSheet } from './rename-sheet';
+import { SignInSheet } from './signin-sheet';
 import { Restyle } from './restyle';
 import { SessionSheet } from './session-sheet';
 import { JumpSheet, Where } from './jump-sheet';
@@ -194,6 +195,11 @@ export class App {
       },
       panelClass: 'start-sheet',
     });
+  }
+
+  /** Sign the account in again. See [[SignInSheet]]. */
+  protected signIn(): void {
+    this.sheets.open(SignInSheet, { panelClass: 'start-sheet' });
   }
 
   protected stop(id: string): void {

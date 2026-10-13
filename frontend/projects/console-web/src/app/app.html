@@ -68,6 +68,12 @@
           <mat-icon>label</mat-icon>
           <span>Rename</span>
         </button>
+        <!-- The login every session shares, renewed before it lapses or after.
+             See [[SignInSheet]]. -->
+        <button mat-menu-item aria-haspopup="dialog" (click)="signIn()">
+          <mat-icon>key</mat-icon>
+          <span>Sign in again</span>
+        </button>
         <!-- One row, not six: the modes have their own sheet. See [[ModesSheet]]. -->
         <button mat-menu-item (click)="chooseMode(open)">
           <!-- The mode's own icon when there is one, a neutral one when the runner has not said. -->

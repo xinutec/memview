@@ -1,0 +1,28 @@
+<h2 class="what">Sign Claude in</h2>
+
+@if (said(); as said) {
+  <p [class.trouble]="!said.ok" [class.done]="said.ok">{{ said.text }}</p>
+}
+
+@if (url(); as url) {
+  <p class="how">
+    Open <a [href]="url" target="_blank" rel="noopener">the sign-in page</a>, sign in, and paste the
+    code it shows. Every session uses this login.
+  </p>
+  <mat-form-field appearance="outline" class="code">
+    <mat-label>code</mat-label>
+    <input matInput autocomplete="off" [(ngModel)]="code" (keydown.enter)="send()" />
+  </mat-form-field>
+  <button matButton="filled" class="go" (click)="send()" [disabled]="busy() || !code().trim()">
+    <mat-icon>key</mat-icon>
+    {{ busy() ? 'signing in…' : 'sign in' }}
+  </button>
+} @else if (busy()) {
+  <p class="how">Asking for a sign-in link…</p>
+} @else if (!said()?.ok) {
+  <!-- A refused code, or no link: the attempt is over and a new one starts here. -->
+  <button matButton="filled" class="go" (click)="ask()">
+    <mat-icon>refresh</mat-icon>
+    new link
+  </button>
+}

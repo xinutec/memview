@@ -1,0 +1,32 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  // No height cap and no scroller (DL-ANGULAR-NESTED-SCROLLER).
+}
+
+.what {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+.how {
+  margin: 0 0 0.75rem;
+}
+
+.trouble {
+  margin: 0 0 0.5rem;
+  color: var(--mat-sys-error);
+}
+
+.done {
+  margin: 0 0 0.5rem;
+  color: var(--mat-sys-primary);
+}
+
+.code {
+  width: 100%;
+}
+
+.go {
+  align-self: stretch;
+}
