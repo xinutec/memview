@@ -5,7 +5,7 @@
 // e2e trees were in neither; eslint's flat config did not name them; and
 // Playwright compiles specs with esbuild, which strips types without checking
 // them. Measured rather than assumed: `const planted: number = "not a number"`
-// in `projects/console-web/e2e/ui-pages.spec.ts` passed the lint script, eslint
+// in a console-web e2e spec passed the lint script, eslint
 // aimed straight at the file, `ng build`, and a Playwright run.
 //
 // These files are the gate for how the console behaves on a phone. Being the

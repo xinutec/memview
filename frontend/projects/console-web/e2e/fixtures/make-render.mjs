@@ -14,7 +14,7 @@
 // a couple of kilobytes.
 //
 // Here rather than in the spec: the e2e project is typed without Node's library,
-// on purpose (see `tinyPng` in ui-pages.spec.ts), so `Buffer` and `node:zlib` in
+// on purpose (see `tinyPng` in console.ts), so `Buffer` and `node:zlib` in
 // a `.ts` file there are 43 lint errors about types that cannot be resolved.
 
 import { writeFileSync } from 'node:fs';

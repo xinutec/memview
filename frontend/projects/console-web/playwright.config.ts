@@ -12,4 +12,9 @@ import harness from './e2e/harness.mjs';
  * exactly the strings that push a page sideways. jsdom has no layout, so vitest
  * cannot see any of it.
  */
-export default defineConfig(phoneConfig(harness, devices, { testMatch: '**/ui-pages.spec.ts' }));
+export default defineConfig(
+  phoneConfig(harness, devices, {
+    // Not two-devices.spec.ts, which has its own config.
+    testMatch: '**/{list,transcript,asks,pictures,edits,chrome}.spec.ts',
+  }),
+);

@@ -47,7 +47,7 @@ export default tseslint.config(
     // A double asserted into the interface it stands in for is the whole point
     // of a double; getting it wrong fails a test, it never reaches a user. App
     // code stays strict.
-    files: ['src/**/*.spec.ts', 'projects/**/*.spec.ts'],
+    files: ['src/**/*.spec.ts', 'projects/**/*.spec.ts', 'projects/*/e2e/console.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-type-assertion': 'off',
     },
