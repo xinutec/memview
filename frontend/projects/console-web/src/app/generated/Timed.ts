@@ -6,23 +6,17 @@ import type { Hunk } from "./Hunk";
 import type { Reply } from "./Reply";
 
 /**
- * An event and when it happened. Separate from [`Event`] because the time comes
- * from a different place: a live event is stamped when seen, a replayed one
- * carries the transcript's time. Flattened on the wire. `at` is optional because
- * a transcript line is entitled not to have one; milliseconds since the epoch.
+ * An event and when it happened, in epoch milliseconds: stamped when seen live,
+ * the transcript's own time when replayed, absent when a line has none.
  */
 export type Timed = { at?: number, } & ({ "kind": "joined", earlier: number, 
 /**
- * Where in the transcript the seed began, as a byte offset — the cursor for
- * asking what came before. Zero means nothing older.
+ * The byte offset the seed began at — the cursor for older pages; zero is the start.
  */
 from: number, 
 /**
- * Whether the conversation was picked up by a new process, so a tool call above
- * this line that never finished never will. The client marks those dead, and
- * must not do it blindly: `Joined` is also emitted per reader at the end of a
- * seed, where the last call in the page is the one running right now. `true`
- * for [`crate::session::Session::resume`], `false` for an upgrade or a reader.
+ * Whether a new process took the conversation over, so unfinished calls above
+ * never will finish. False for an upgrade or a reader's seed.
  */
 restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "accepted", text: string, } | { "kind": "prompt", text: string, } | { "kind": "command", text: string, } | { "kind": "shown", name: string, } | { "kind": "text", text: string, } | { "kind": "context", tokens: number, } | { "kind": "tool", id: string, name: string, does: Call, } | { "kind": "background", tool?: string, task?: string, 
 /**
@@ -30,8 +24,7 @@ restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: 
  */
 status?: Ended, } | { "kind": "tool_result", id: string, ok: boolean, 
 /**
- * What it returned, as text. Empty when it returned nothing that is text; an
- * image result says so in words.
+ * What it returned, as text.
  */
 detail: string, 
 /**
@@ -39,17 +32,15 @@ detail: string,
  */
 cut?: number, 
 /**
- * Whether it returned a picture, which a client can show from the call's path.
+ * Whether it returned a picture.
  */
 image?: boolean, } | { "kind": "edited", call: string, hunks: Array<Hunk>, } | { "kind": "diverged", call: string, paths: Array<string>, } | { "kind": "turn", cost_usd: number, 
 /**
- * How big the context window is. Declared on the result line and nowhere else;
- * how full it is comes from [`Event::Context`].
+ * The context window's size, declared only here.
  */
 window?: number, turns: number, duration_ms: number, stop?: string, } | { "kind": "limit", window: string, status: Allowance, resets_at?: number, 
 /**
- * How much of the window is spent, as a fraction. Optional in the CLI's
- * schema, so optional here.
+ * How much of the window is spent, as a fraction.
  */
 utilization?: number, } | { "kind": "busy", status: string, } | { "kind": "ask", 
 /**
@@ -57,9 +48,8 @@ utilization?: number, } | { "kind": "busy", status: string, } | { "kind": "ask",
  */
 id: string, 
 /**
- * The call this is asking about — the `tool_use` id on the [`Event::Tool`] the
- * CLI emitted a moment earlier. Without it one action draws two widgets.
- * Optional because one of the CLI's three call sites omits it.
+ * The `tool_use` id asked about, so one action draws one widget. One CLI path
+ * omits it.
  */
 call?: string, tool: string, 
 /**
@@ -67,9 +57,7 @@ call?: string, tool: string,
  */
 title?: string, detail?: string, does: Call, } | { "kind": "answered", id: string, allowed: boolean, 
 /**
- * What was said, when the question was one a person answers. Carried here
- * because an `ask` is a control request, not a transcript line, so a second
- * screen or a reload has no other way to learn what was chosen.
+ * What was said, for a question a person answers; no transcript records it.
  */
 reply?: Reply, } | { "kind": "signed_out" } | { "kind": "compacted" } | { "kind": "deaf", 
 /**
@@ -77,6 +65,6 @@ reply?: Reply, } | { "kind": "signed_out" } | { "kind": "compacted" } | { "kind"
  */
 unread: number, 
 /**
- * How long it has been failing to take them, in seconds.
+ * For how long, in seconds.
  */
 seconds: number, } | { "kind": "exited", code?: number, } | { "kind": "trouble", detail: string, });

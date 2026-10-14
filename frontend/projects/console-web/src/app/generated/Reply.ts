@@ -3,13 +3,11 @@ import type { Annotation } from "./Annotation";
 import type { Answer } from "./Answer";
 
 /**
- * What a person said about a question: options picked, or words instead.
- * `response` and `answers` are alternatives — the CLI's result builder tests
- * `response` first and reports only that, so prose sent alongside
- * choices throws the choices away. The client is where that is made visible.
+ * What a person said about a question: options picked, or words instead. The CLI
+ * reports only `response` when both are sent.
  */
 export type Reply = { answers?: { [key in string]: Answer }, response?: string, 
 /**
- * Notes beside the choices — see [`Annotation`]. These travel with `answers`.
+ * Notes beside the choices — see [`Annotation`].
  */
 annotations?: { [key in string]: Annotation }, };

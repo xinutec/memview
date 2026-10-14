@@ -1,15 +1,10 @@
 //! The Claude Code stream-json protocol, read as far as the console needs it: one
 //! line in, zero or more [`Event`]s out.
 //!
-//! Deliberately partial, and safe about it: every enum has an `Other` catch-all,
-//! so a line the CLI grows tomorrow is ignored rather than fatal.
-//!
-//! The same content arrives twice — text as `stream_event` deltas and in the
-//! complete `assistant` message; tool calls in `content_block_start` with partial
-//! arguments and whole in the complete message. Text comes from the deltas, tool
-//! calls from the completed message, nothing from both.
-//!
-//! Verified against CLI 2.1.220; `tests/fixtures/turn.jsonl` is a real capture.
+//! Partial on purpose: every enum has an `Other`, so a new line shape is ignored,
+//! not fatal. Content arrives twice — as deltas and in the completed message — so
+//! text is taken from the deltas and tool calls from the completed message.
+//! `tests/fixtures/turn.jsonl` is a real capture.
 
 mod background;
 mod control;
@@ -27,14 +22,11 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-/// How much of what a tool returned is carried to the client. The head, because
-/// failures are short and a message hiding at the end is the case almost never cut.
+/// How much of what a tool returned is carried to the client: the head.
 const RESULT_SNIPPET: usize = 2000;
 
-/// An event and when it happened. Separate from [`Event`] because the time comes
-/// from a different place: a live event is stamped when seen, a replayed one
-/// carries the transcript's time. Flattened on the wire. `at` is optional because
-/// a transcript line is entitled not to have one; milliseconds since the epoch.
+/// An event and when it happened, in epoch milliseconds: stamped when seen live,
+/// the transcript's own time when replayed, absent when a line has none.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -46,25 +38,19 @@ pub struct Timed {
     pub event: Event,
 }
 
-/// What the console tells its clients about a session: a small closed set a UI
-/// can render, derived from a protocol that is neither.
+/// What the console tells its clients about a session: a small closed set.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub enum Event {
-    /// Where the console started watching: everything before it was read from the
-    /// transcript, everything after it this console saw happen.
+    /// Where the console started watching: before it, read from the transcript.
     Joined {
         earlier: usize,
-        /// Where in the transcript the seed began, as a byte offset — the cursor for
-        /// asking what came before. Zero means nothing older.
+        /// The byte offset the seed began at — the cursor for older pages; zero is the start.
         from: u64,
-        /// Whether the conversation was picked up by a new process, so a tool call above
-        /// this line that never finished never will. The client marks those dead, and
-        /// must not do it blindly: `Joined` is also emitted per reader at the end of a
-        /// seed, where the last call in the page is the one running right now. `true`
-        /// for [`crate::session::Session::resume`], `false` for an upgrade or a reader.
+        /// Whether a new process took the conversation over, so unfinished calls above
+        /// never will finish. False for an upgrade or a reader's seed.
         #[serde(default)]
         restarted: bool,
     },
@@ -74,38 +60,29 @@ pub enum Event {
         cwd: String,
         tools: usize,
     },
-    /// A message this console has written to the session's stdin, before the CLI has
-    /// read it. The gap to [`Event::Prompt`] is minutes when input arrives mid-turn,
-    /// and with only the echo to go on a sent message looks like one that never
-    /// arrived. This says *the runner has it*; `Prompt` says *the session has read it*.
+    /// A message written to stdin, not yet read: the runner has it. [`Event::Prompt`]
+    /// says the session read it, which mid-turn can be minutes later.
     Accepted {
         text: String,
     },
-    /// The prompt, echoed back by `--replay-user-messages`: the CLI's own
-    /// acknowledgement that the message arrived.
+    /// The prompt, echoed back: the session has read it.
     Prompt {
         text: String,
     },
-    /// A slash command — `/compact`, `/context` — rather than something said to the
-    /// model. A command has no read receipt: `--replay-user-messages` does not replay
-    /// one, so a *waiting to be read* marker on it would never clear.
-    /// Its own variant so that everything counting what a person said keeps counting
-    /// what a person said.
+    /// A slash command, not something said to the model. Never echoed, so never
+    /// marked waiting to be read.
     Command {
         text: String,
     },
-    /// A picture sent to this session, by the name of the copy kept for it — enough
-    /// to ask for it back at `/api/sessions/{id}/images/{name}`. The bytes are
-    /// deliberately not here: a megabyte in an event stream of small messages.
+    /// A picture sent to this session, by the name its copy is served under at
+    /// `/api/sessions/{id}/images/{name}`.
     Shown {
         name: String,
     },
     Text {
         text: String,
     },
-    /// How many tokens one request's prompt came to. Per message, not per turn: the
-    /// result line's `usage` sums every request the turn made, and can exceed the
-    /// window.
+    /// One request's prompt in tokens — per message; a turn's total can exceed the window.
     Context {
         tokens: u64,
     },
@@ -114,11 +91,8 @@ pub enum Event {
         name: String,
         does: crate::call::Call,
     },
-    /// A background task the harness has finished with, named by whichever of the
-    /// two ids the notification gave. Its own event rather than a prompt, since the
-    /// notification arrives filed as a *user* message, and the only end-of-work
-    /// signal for a backgrounded command. Exactly one of the two is present;
-    /// [`finished`] is the only thing that builds one.
+    /// Background work the harness says has ended, by whichever id it gave — exactly
+    /// one of the two. Built only by [`finished`].
     Background {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
@@ -131,25 +105,22 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         status: Option<Ended>,
     },
-    /// A tool call came back, with what it returned cut to [`RESULT_SNIPPET`]: a
-    /// verdict alone says a `grep` succeeded, not what it found.
+    /// A tool call came back, with what it returned cut to [`RESULT_SNIPPET`].
     ToolResult {
         id: String,
         ok: bool,
-        /// What it returned, as text. Empty when it returned nothing that is text; an
-        /// image result says so in words.
+        /// What it returned, as text.
         detail: String,
         /// The full length in characters, present only when `detail` is a cut of it.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         cut: Option<usize>,
-        /// Whether it returned a picture, which a client can show from the call's path.
+        /// Whether it returned a picture.
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
         image: bool,
     },
-    /// What a `Bash` call will change in the files it writes, as the reader
-    /// predicts it. See [`crate::edits`].
+    /// What a `Bash` call is predicted to change. See [`crate::edits`].
     Edited {
         call: String,
         hunks: Vec<crate::edits::Hunk>,
@@ -162,8 +133,7 @@ pub enum Event {
     /// One turn finished.
     Turn {
         cost_usd: f64,
-        /// How big the context window is. Declared on the result line and nowhere else;
-        /// how full it is comes from [`Event::Context`].
+        /// The context window's size, declared only here.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         window: Option<u64>,
@@ -173,16 +143,14 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         stop: Option<String>,
     },
-    /// A rate-limit window changed state, with its `utilization`. One window per
-    /// event, so the windows are collected as they are seen.
+    /// A rate-limit window changed state. One window per event.
     Limit {
         window: String,
         status: Allowance,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         resets_at: Option<i64>,
-        /// How much of the window is spent, as a fraction. Optional in the CLI's
-        /// schema, so optional here.
+        /// How much of the window is spent, as a fraction.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         utilization: Option<f64>,
@@ -195,9 +163,8 @@ pub enum Event {
     Ask {
         /// The control request's id, which the answer must carry back.
         id: String,
-        /// The call this is asking about — the `tool_use` id on the [`Event::Tool`] the
-        /// CLI emitted a moment earlier. Without it one action draws two widgets.
-        /// Optional because one of the CLI's three call sites omits it.
+        /// The `tool_use` id asked about, so one action draws one widget. One CLI path
+        /// omits it.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         call: Option<String>,
@@ -210,40 +177,31 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         detail: Option<String>,
         does: crate::call::Call,
-        /// The arguments as the CLI sent them, kept for the answer, which echoes them
-        /// back with any answers written in. Never sent to a client, which reads
-        /// [`Self::Ask::does`].
+        /// The arguments as sent, for the answer to echo back. Never sent to a client.
         #[serde(skip)]
         #[cfg_attr(feature = "ts", ts(skip))]
         input: serde_json::Value,
     },
-    /// A question that has been answered, so a second client stops offering a
-    /// decision already taken.
+    /// A question answered, so no other client offers it again.
     Answered {
         id: String,
         allowed: bool,
-        /// What was said, when the question was one a person answers. Carried here
-        /// because an `ask` is a control request, not a transcript line, so a second
-        /// screen or a reload has no other way to learn what was chosen.
+        /// What was said, for a question a person answers; no transcript records it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         reply: Option<Reply>,
     },
-    /// The account's sign-in has lapsed: the CLI answered with a synthetic message
-    /// whose `error` is `authentication_failed`. Every session shares the login, so
-    /// nothing will run until someone signs in again on the Mac.
+    /// The shared sign-in was refused: an assistant line whose `error` is
+    /// `authentication_failed`. See [`crate::login`].
     SignedOut,
-    /// The conversation was compacted: everything above this was replaced by a
-    /// summary. Only ever read from a transcript — the live stream does not announce
-    /// it.
+    /// The conversation was compacted. Only a transcript says so.
     Compacted,
-    /// The session has stopped reading its stdin: messages were written, it is
-    /// between turns, and it has not taken them. The console's own conclusion,
-    /// announced once per episode — see [`crate::session::Session::deaf`].
+    /// The session has stopped reading its stdin — the console's conclusion, once per
+    /// episode. See [`crate::session::Session::deaf`].
     Deaf {
         /// How many messages are waiting in the pipe.
         unread: usize,
-        /// How long it has been failing to take them, in seconds.
+        /// For how long, in seconds.
         seconds: u64,
     },
     /// The subprocess ended. Terminal: nothing follows it.
@@ -252,9 +210,7 @@ pub enum Event {
         #[cfg_attr(feature = "ts", ts(optional))]
         code: Option<i32>,
     },
-    /// Something the console itself could not do — a spawn failure, a line that was
-    /// not JSON. An event rather than a log line, since a session that has silently
-    /// stopped working is the failure mode worth spending one on.
+    /// Something the console itself could not do, such as a spawn failure.
     Trouble {
         detail: String,
     },
@@ -394,9 +350,8 @@ struct Message {
     model: Option<String>,
 }
 
-/// The `model` a message carries when nothing generated it: how a slash command
-/// answers, as one complete `assistant` message with no deltas before it. [`read`]
-/// keeps only tool calls from a completed message, except from this one.
+/// The `model` of a message nothing generated, such as a slash command's answer:
+/// no deltas precede it, so [`read`] keeps its text.
 const SYNTHETIC: &str = "<synthetic>";
 
 /// The `error` an assistant line carries when the sign-in has lapsed.
@@ -407,9 +362,7 @@ fn signed_out(error: Option<&str>) -> Option<Event> {
     (error == Some(SIGNED_OUT)).then_some(Event::SignedOut)
 }
 
-/// `content` is a list of blocks — except on user lines where it is a bare
-/// string, and both shapes are in every transcript. Declared as `Vec<Block>`
-/// alone, serde's `default` turns the string form into an empty list silently.
+/// `content`: a list of blocks, or on user lines a bare string. Both must parse.
 #[derive(Debug, Deserialize, Default)]
 #[serde(untagged)]
 enum Content {
@@ -457,8 +410,8 @@ enum Block {
     Other,
 }
 
-/// What a tool returned, as text a phone can hold, its true length when cut, and
-/// whether it held a picture. Text blocks only, joined.
+/// What a tool returned: its text blocks joined and cut, the full length if cut,
+/// and whether it held a picture.
 fn returned(content: Content) -> (String, Option<usize>, bool) {
     let blocks = content.blocks();
     let image = blocks.iter().any(|block| matches!(block, Block::Image));
@@ -484,9 +437,7 @@ fn returned(content: Content) -> (String, Option<usize>, bool) {
     )
 }
 
-/// One transcript line's own record of when it happened. Read separately from
-/// [`Line`]: the timestamp sits beside the `type` tag, on lines this reader
-/// ignores as well as ones it does not.
+/// When a transcript line happened — on every line, read apart from [`Line`].
 #[derive(Debug, Deserialize)]
 struct Recorded {
     #[serde(default)]
@@ -514,9 +465,8 @@ struct Turn {
     stop_reason: Option<String>,
 }
 
-/// The tokens one request carried. Context used is all three added together, not
-/// `input_tokens`: a cached prompt reports two tokens of input and half a million
-/// of cache read.
+/// The tokens one request carried. The prompt is all three together: cached
+/// prompts report almost nothing as `input_tokens`.
 #[derive(Debug, Deserialize)]
 struct Usage {
     #[serde(default)]
@@ -552,10 +502,7 @@ struct Limit {
     utilization: Option<f64>,
 }
 
-/// Read one output line into the events it carries. A line that is not JSON, or
-/// JSON of an unknown shape, yields nothing — the CLI prints lines for its own
-/// purposes, and a console that refused to run on meeting one would break every
-/// release.
+/// Read one output line into its events. Anything unknown yields nothing.
 pub fn read(line: &str) -> Vec<Event> {
     let Ok(parsed) = serde_json::from_str::<Line>(line) else {
         return Vec::new();
@@ -664,9 +611,8 @@ pub fn read(line: &str) -> Vec<Event> {
     }
 }
 
-/// Everything one user message says, live or read back off the disk — one
-/// function, so the two readings cannot drift apart. Read across the blocks: a sent
-/// picture is an image block and a text block, and neither says enough alone.
+/// Everything one user message says, live or on disk, read across its blocks: a
+/// picture is an image block and a text block.
 fn from_user(content: Content) -> Vec<Event> {
     let blocks = content.blocks();
     let carries = blocks.iter().any(|block| matches!(block, Block::Image));
@@ -711,17 +657,9 @@ fn from_user(content: Content) -> Vec<Event> {
         .fold(Vec::new(), said_once)
 }
 
-/// Two blocks are two messages — unless they are the same words twice.
-///
-/// Both happen: a prompt reaching the CLI twice inside a millisecond is recorded
-/// as one message of two identical blocks, and messages queued to a busy session
-/// are handed over as one message with a block each — the common case. Joining the
-/// blocks would break that: a joined echo matches neither waiting message, so both
-/// stay *waiting to be read*.
-///
-/// The words are the only thing to tell them apart by. The one case this gets
-/// wrong — the same words genuinely typed twice into a busy session — loses a
-/// bubble, the milder failure.
+/// Two blocks are two messages — queued messages arrive one block each — unless
+/// they are the same words twice, which a doubled delivery records. The same words
+/// typed twice lose a bubble, the milder failure.
 fn said_once(mut said: Vec<Event>, event: Event) -> Vec<Event> {
     let again = matches!(
         (said.last(), &event),
@@ -733,9 +671,8 @@ fn said_once(mut said: Vec<Event>, event: Event) -> Vec<Event> {
     said
 }
 
-/// One line of a transcript on disk, which is not quite one line of the stream: a
-/// transcript has no deltas, so the completed messages are the only source and
-/// there is nothing to double.
+/// One line of a transcript on disk: no deltas, so text comes from the completed
+/// messages.
 pub fn read_recorded(line: &str) -> Vec<Event> {
     let Ok(parsed) = serde_json::from_str::<Line>(line) else {
         return Vec::new();
@@ -815,9 +752,7 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     Some(text[start..end].trim())
 }
 
-/// The slash command a message typed into the console is, if it is one — decided
-/// on the way in, since a prompt is echoed and a command is not. A leading slash
-/// and then a word running to whitespace: `/Users/user/Code/…` is a path.
+/// The slash command a typed message is, if any: a slash and a word, not a path.
 pub fn is_command(text: &str) -> bool {
     let Some(rest) = text.trim().strip_prefix('/') else {
         return false;
@@ -829,9 +764,7 @@ pub fn is_command(text: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
 }
 
-/// The command a recorded message is the expansion of, put back the way it was
-/// typed: `<command-name>` and `<command-args>` together, since `/loop check` and
-/// `/loop` are different messages. Either tag can open the message.
+/// The command a recorded message expands, as typed: name and arguments.
 fn commanded(text: &str) -> Option<String> {
     let head = text.trim_start();
     if !head.starts_with("<command-name>") && !head.starts_with("<command-message>") {

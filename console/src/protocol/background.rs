@@ -5,52 +5,39 @@ use serde::{Deserialize, Serialize};
 
 use super::{Event, between};
 
-/// What one event says about work that was left running. A decision rather than
-/// a mutation, so the four cases can be tested without a session.
+/// What one event says about work left running — a decision, testable alone.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Running {
-    /// A call was started and left going, named by its own id. Both names kept
-    /// because the two endings speak different ones: a notification names the `tool`,
-    /// a kill names the `task`. `task` is `None` for a detach whose id could not be
-    /// read.
+    /// A call was left running. Both names are kept: a notification names the
+    /// `tool`, a kill names the `task`.
     Began {
         tool: String,
         task: Option<String>,
-        /// How long the work said it would last at most, in milliseconds — a
-        /// monitor declares it when it starts. `None` for work that names no end.
+        /// The longest the work said it would last, in milliseconds.
         expires_in: Option<i64>,
     },
     /// The harness says one has finished, by whichever name the notification gave.
     Ended(Named),
-    /// A task was stopped from here, named by its task id — the one way work ends
-    /// that reports nothing afterwards.
+    /// A task was stopped from here — the one ending reported nowhere else.
     Killed(String),
-    /// Nothing that was running still is — as far as anybody can tell.
+    /// Nothing that was running still is.
     Gone,
     /// This event says nothing about background work.
     Quiet,
 }
 
-/// Which of a background task's two names an ending speaks. A type rather than a
-/// convention: the count is keyed by the call, so an ending naming it is a
-/// removal, while one naming the task is a search.
+/// Which of a background task's two names an ending speaks: the call (the count's
+/// key) or the task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Named {
-    /// The `tool_use` id of the call that started the work. What all but one
-    /// kind of notification gives.
+    /// The `tool_use` id of the call that started the work.
     Call(String),
-    /// The task id the harness gave the work. What a kill speaks, and what a
-    /// monitor's timeout speaks.
+    /// The task id the harness gave it, which kills and monitor timeouts speak.
     Task(String),
 }
 
-/// Read one event for what it says about work left running.
-///
-/// `Joined` means "forget what you were counting": the replay is full of calls
-/// backgrounded hours ago, and a re-seed replays that history and then joins.
-/// `Started` is not that — the CLI emits an init line at the head of every turn.
-///
-/// A killed task is never reported finished, so the kill has to be read here.
+/// Read one event for what it says about work left running. `Joined` resets the
+/// count; `Started` does not, since every turn opens with one.
 pub fn running(event: &Event) -> Running {
     match event {
         Event::ToolResult { id, detail, .. } => match (detached(detail), stopped(detail)) {
@@ -65,8 +52,7 @@ pub fn running(event: &Event) -> Running {
         Event::Background { tool, task, .. } => match (tool, task) {
             (Some(call), _) => Running::Ended(Named::Call(call.clone())),
             (None, Some(task)) => Running::Ended(Named::Task(task.clone())),
-            // Unreachable through `finished`, which builds no such event. Quiet rather than
-            // a panic: an event naming nothing cannot bring a count down either way.
+            // `finished` builds no such event.
             (None, None) => Running::Quiet,
         },
         Event::Joined { .. } => Running::Gone,
@@ -74,21 +60,11 @@ pub fn running(event: &Event) -> Running {
     }
 }
 
-/// What a tool says when it has left work running.
-///
-/// The call's answer, not its arguments: only `Bash` accepts `run_in_background`,
-/// and a foreground command outliving its timeout is moved to the background with
-/// its input still saying `false`. Every tool that detaches says so in the first
-/// words it returns. A reworded CLI undercounts, which is the safe direction.
-///
-/// The phrase must open the result: a `contains` would count every result that
-/// quotes one of these sentences — a grep, a `Read` of this module.
-///
-/// Returns the task id the harness gave the work; `Some(None)` is a detach whose
-/// id could not be read.
+/// The task id a tool's answer says it left running — `Some(None)` when the id
+/// cannot be read. Read off the answer's opening words, not the arguments: a
+/// timed-out foreground command is backgrounded too, and a quoting result is not.
 fn detached(said: &str) -> Option<Option<String>> {
-    /// One way a result opens when it has left work running: the words it starts
-    /// with, and the marker its task id follows.
+    /// How a result opens when it left work running, and what precedes its id.
     struct Opening {
         opens: &'static str,
         before_id: &'static str,
@@ -99,15 +75,12 @@ fn detached(said: &str) -> Option<Option<String>> {
             opens: "Command running in background with ID: ",
             before_id: "Command running in background with ID: ",
         },
-        // Bash, moved to the background when it outran its timeout. The opening stops
-        // short of the id because the timeout — a number that varies — sits between.
+        // Bash, backgrounded at its timeout; the varying timeout precedes the id.
         Opening {
             opens: "Command did not complete within its",
             before_id: "and was moved to the background (ID: ",
         },
-        // Agent, which runs in the background unless told otherwise. Its id is on the
-        // following line, and the result asks that it never be repeated — so it is
-        // matched on here and rendered nowhere.
+        // Agent; its id is on the next line, matched here and rendered nowhere.
         Opening {
             opens: "Async agent launched successfully",
             before_id: "\nagentId: ",
@@ -132,13 +105,8 @@ fn detached(said: &str) -> Option<Option<String>> {
     )
 }
 
-/// The deadline a monitor declares when it starts, in milliseconds — `Monitor
-/// started (task …, expires in 30m unless the source ends first …)`, or in the
-/// older words `(task …, timeout 1800000ms)`.
-///
-/// What ends the work when its closing notice comes in words this console does
-/// not know: the deadline is the harness's own, so passing it is an ending
-/// whatever the notice said.
+/// The deadline a monitor declares, in milliseconds: `expires in 30m`, or the older
+/// `timeout 1800000ms`. Passing it ends the work whatever its notice says.
 fn declared_expiry(said: &str) -> Option<i64> {
     let opened = said.strip_prefix("Monitor started (task ")?;
     if let Some((_, rest)) = opened.split_once("timeout ") {
@@ -164,15 +132,12 @@ fn declared_expiry(said: &str) -> Option<i64> {
     Some(count * unit_ms)
 }
 
-/// The task a kill has just ended, when this result is one. The stopping call
-/// answers in JSON, so this is a prefix of the document: `{"message":"Successfully
-/// stopped task: …`.
+/// The task a kill ended, from its JSON answer's opening.
 fn stopped(said: &str) -> Option<String> {
     id_at(said.strip_prefix(r#"{"message":"Successfully stopped task: "#)?)
 }
 
-/// The id starting here, which runs until whatever ends it — a full stop, a
-/// comma, a bracket or a space.
+/// The alphanumeric id starting here.
 fn id_at(rest: &str) -> Option<String> {
     let id: String = rest
         .chars()
@@ -181,15 +146,13 @@ fn id_at(rest: &str) -> Option<String> {
     (!id.is_empty()).then_some(id)
 }
 
-/// The tool call a task notification is about, and how it ended. Read for the
-/// tool-use id, since that is what ties it to the call the client counted. Two
-/// tags out of a known block; anything without both is not one of these.
+/// The call a task notification is about, and how it ended.
 pub(super) fn finished(text: &str) -> Option<Event> {
     if !is_notification(text) {
         return None;
     }
     let status = between(text, "<status>", "</status>").map(crate::named::named);
-    // The ordinary case by a wide margin: the count is keyed by the call.
+    // The usual case: named by the call.
     if let Some(call) = between(text, "<tool-use-id>", "</tool-use-id>") {
         return Some(Event::Background {
             tool: Some(call.to_string()),
@@ -224,11 +187,8 @@ impl crate::named::Named for Ended {
     }
 }
 
-/// Whether a notification that names no call is nonetheless an ending. Most such
-/// are a monitor's ordinary output; the endings are a monitor's timeout and the
-/// harness giving up on an agent. A session's inherited tasks are a greeting.
-/// Anchored to its own tag, never `contains`: a monitor quoting the timeout line
-/// would end itself.
+/// Whether a notification naming no call is an ending: a monitor's timeout, or the
+/// harness giving up on an agent. Matched whole, so a quoting monitor cannot end itself.
 fn ends_without_naming_the_call(text: &str) -> bool {
     const TIMED_OUT: &str = "[Monitor timed out — re-arm if needed.]";
     const NO_RECORD: &str = "No completion record was found for background agent";
@@ -236,8 +196,8 @@ fn ends_without_naming_the_call(text: &str) -> bool {
         || between(text, "<summary>", "</summary>").is_some_and(|said| said.starts_with(NO_RECORD))
 }
 
-/// The newer words for a monitor's timeout, whole, with the duration and what
-/// was delivered free. The advice to widen the filter comes only after silence:
+/// The newer words for a monitor's timeout, whole; the advice to widen the filter
+/// follows only silence:
 ///
 /// `[Monitor expired after 5m with no events delivered. Re-arm it if you still
 /// need the watch — and widen the filter if silence was unexpected.]`
@@ -280,10 +240,9 @@ fn number(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|c| c.is_ascii_digit())
 }
 
-/// Whether this text is the harness reporting on a background task at all —
-/// separate from parsing it, since one that cannot be parsed still must not
-/// become a prompt. The block must end the message, or a compact summary quoting
-/// one matches. Both ends, because the harness sometimes prefixes a banner.
+/// Whether this text is a task notification — even one that will not parse, which
+/// must still not become a prompt. It must end the message, or a quoting summary
+/// would match.
 pub(super) fn is_notification(text: &str) -> bool {
     text.contains("<task-notification>") && text.trim_end().ends_with("</task-notification>")
 }
@@ -296,7 +255,6 @@ pub struct Called {
     /// The tool, as the CLI names it: `Bash`, `Monitor`, `Agent`.
     pub tool: String,
     /// A short label for what this call is doing, when the input carries one.
-    /// `None` when it does not — better unlabelled than a guess.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub label: Option<String>,
@@ -306,8 +264,7 @@ pub struct Called {
     pub task: Option<String>,
 }
 
-/// How long a label may be before it is cut: a `Bash` label falls back to the
-/// command, which can run to several hundred characters.
+/// How long a label may be before it is cut.
 const LABEL_MAX: usize = 60;
 
 /// A call as the running strip names it: the tool, and [`crate::call::Call::label`]

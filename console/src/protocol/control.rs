@@ -5,13 +5,11 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-/// The tool that asks the person a question rather than the machine a favour. It
-/// arrives as an ordinary [`super::Event::Ask`], but approving it unchanged is not an
-/// answer — see [`Answers`].
+/// The tool that asks the person a question. Approving it unchanged is no answer —
+/// see [`Answers`].
 pub const QUESTION_TOOL: &str = "AskUserQuestion";
 
-/// What was chosen: the question's own text, against the option label picked.
-/// Labels, not indexes, since the CLI matches these against what it offered.
+/// What was chosen: the question's text against the option label picked.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -24,9 +22,8 @@ pub enum Answer {
 /// Every answer to one [`QUESTION_TOOL`] call.
 pub type Answers = std::collections::BTreeMap<String, Answer>;
 
-/// Something said about one question, beside the option picked. Unlike
-/// [`Reply::response`] this combines rather than overrides: the CLI reports
-/// `"<question>"=(no option selected) notes: …` for a note with no choice.
+/// A note on one question, beside the option picked — combined with it, unlike
+/// [`Reply::response`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -39,10 +36,8 @@ pub struct Annotation {
 /// Notes against the questions of one call, by the question's own text.
 pub type Annotations = std::collections::BTreeMap<String, Annotation>;
 
-/// What a person said about a question: options picked, or words instead.
-/// `response` and `answers` are alternatives — the CLI's result builder tests
-/// `response` first and reports only that, so prose sent alongside
-/// choices throws the choices away. The client is where that is made visible.
+/// What a person said about a question: options picked, or words instead. The CLI
+/// reports only `response` when both are sent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -52,14 +47,13 @@ pub struct Reply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub response: Option<String>,
-    /// Notes beside the choices — see [`Annotation`]. These travel with `answers`.
+    /// Notes beside the choices — see [`Annotation`].
     #[serde(default, skip_serializing_if = "Annotations::is_empty")]
     pub annotations: Annotations,
 }
 
 impl Reply {
-    /// Whether there is anything here to say. An empty reply would read to the
-    /// session as "did not answer" — true, but better refused at the door.
+    /// Whether there is anything to say; an empty reply is refused.
     pub fn is_empty(&self) -> bool {
         self.answers.is_empty()
             && self.response.as_deref().unwrap_or("").trim().is_empty()
@@ -70,13 +64,8 @@ impl Reply {
     }
 }
 
-/// The answer to a `can_use_tool` question, in the shape the CLI reads.
-///
-/// An allow must carry the arguments back: `updatedInput` lets a client edit what
-/// it approves, and the console echoes the input unchanged. For [`QUESTION_TOOL`]
-/// that edit is the whole point — its `call` reads `answers` out of its own
-/// arguments, so approving unchanged yields *"The user did not answer the
-/// questions."*
+/// The answer to a `can_use_tool` question. An allow echoes the arguments back —
+/// with the answers written in, for [`QUESTION_TOOL`], which reads them from there.
 pub fn decision(
     id: &str,
     allowed: bool,
@@ -96,8 +85,7 @@ pub fn decision(
     .to_string()
 }
 
-/// The approved input, with the answers written into it. Nothing invented when
-/// there are none; a non-object input is left alone rather than replaced.
+/// The approved input with the answers written in; nothing added when there are none.
 fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Value {
     let Some(reply) = reply else {
         return input.clone();
@@ -107,13 +95,11 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
         if !reply.answers.is_empty() {
             object.insert("answers".to_string(), serde_json::json!(reply.answers));
         }
-        // Only when there is something in it: writing the key at all says a choice was
-        // overridden by nothing.
+        // An empty key would override the choices with nothing.
         if let Some(said) = reply.response.as_deref().filter(|s| !s.trim().is_empty()) {
             object.insert("response".to_string(), serde_json::json!(said));
         }
-        // Blank notes are dropped: the CLI tests `notes` for truthiness, and an empty
-        // one would make it report `(no option selected)` for a question nobody touched.
+        // A blank note would report an untouched question as answered.
         let notes: Annotations = reply
             .annotations
             .iter()
@@ -127,12 +113,8 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
     input
 }
 
-/// Rename a conversation, over the control channel — the only way to rename a
-/// session that is working. `/rename` is input, and input arriving mid-turn is
-/// parked and released as a prompt the model reads as words. A control request
-/// is out-of-band: `success` comes back at once and the transcript gains
-/// `{"type":"custom-title",…}`. `title`, and it must be a string — the CLI's own
-/// validation; a `-p` session supports the subtype.
+/// Rename a conversation over the control channel, which works mid-turn where
+/// `/rename` would reach the model as words. The transcript gains a `custom-title`.
 pub fn rename(request_id: &str, title: &str) -> String {
     serde_json::json!({
         "type": "control_request",
@@ -151,8 +133,7 @@ pub fn set_mode(request_id: &str, mode: &crate::modes::Mode) -> String {
     .to_string()
 }
 
-/// What the request id of a mode change looks like, so its answer is found. One
-/// per session: the answer to the older of two changes is of no interest.
+/// The request id of a mode change, one per session, so its answer is found.
 pub const SET_MODE: &str = "set-mode-";
 
 /// How a session answered a mode change.
@@ -160,22 +141,17 @@ pub const SET_MODE: &str = "set-mode-";
 pub enum ModeReply {
     /// The mode the CLI says it is now in, not the one asked for.
     Now(crate::modes::Mode),
-    /// The CLI refused, in its own words, which are better than any of ours.
+    /// The CLI refused, in its own words.
     Refused(String),
 }
 
-/// A session's answer to a mode change, if that is what this line is. Read it,
-/// or the screen claims a mode the CLI never entered. The two shapes:
+/// A session's answer to a mode change, if this line is one, matched on the
+/// request id: the mode it is now in, or the refusal.
 ///
 /// ```text
 /// {"subtype":"success","request_id":"…","response":{"mode":"acceptEdits"}}
-/// {"subtype":"error","request_id":"…","error":"Cannot set permission mode to
-///   bypassPermissions because the session was not launched with
-///   --dangerously-skip-permissions"}
+/// {"subtype":"error","request_id":"…","error":"Cannot set permission mode to …"}
 /// ```
-///
-/// The success carries the mode, so this confirms rather than assumes it.
-/// Matched on the request id, unlike [`usage_reply`].
 pub fn mode_reply(line: &str) -> Option<ModeReply> {
     let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
     if parsed.get("type")?.as_str()? != "control_response" {
@@ -189,7 +165,7 @@ pub fn mode_reply(line: &str) -> Option<ModeReply> {
         "success" => Some(ModeReply::Now(crate::modes::Mode::named(
             response.get("response")?.get("mode")?.as_str()?,
         ))),
-        // A refusal with no words is still a refusal: the claim on screen comes down.
+        // A refusal with no words is still a refusal.
         "error" => Some(ModeReply::Refused(
             response
                 .get("error")
@@ -201,10 +177,8 @@ pub fn mode_reply(line: &str) -> Option<ModeReply> {
     }
 }
 
-/// Ask the session what the account has spent. The only route to the routine
-/// figures: `rate_limit_event` carries the percentage only when a threshold is
-/// crossed, and the statusLine never runs for a headless session. `get_usage` is
-/// the CLI's own answer — experimental, so nothing here insists on its shape.
+/// Ask the session what the account has spent — the only routine source, since
+/// `rate_limit_event` speaks only at thresholds. Experimental in the CLI.
 pub fn get_usage(request_id: &str) -> String {
     serde_json::json!({
         "type": "control_request",
@@ -214,13 +188,8 @@ pub fn get_usage(request_id: &str) -> String {
     .to_string()
 }
 
-/// The rate limits out of a `control_response`, if that is what this line is.
-///
-/// Read field by field: the CLI warns the shape may change, and a moved shape
-/// yields no reading rather than a wrong one. A model's own allowance is not a
-/// key beside the others — `model_scoped` is an array of `{display_name,
-/// utilization, resets_at}`.
-/// Not matched on a request id: any response carrying rate limits is an answer.
+/// The rate limits out of any `control_response` carrying them. Read field by
+/// field, so a moved shape yields nothing rather than something wrong.
 pub fn usage_reply(line: &str) -> Option<UsageReply> {
     let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
     if parsed.get("type")?.as_str()? != "control_response" {
@@ -240,8 +209,7 @@ pub fn usage_reply(line: &str) -> Option<UsageReply> {
             found.extend(scoped(seen));
             continue;
         }
-        // `utilization` is a percentage here, where the stream event's is a fraction.
-        // Both become a fraction.
+        // A percentage here, a fraction on the stream: both become a fraction.
         let Some(pct) = seen.get("utilization").and_then(|it| it.as_f64()) else {
             continue;
         };
@@ -258,19 +226,15 @@ pub fn usage_reply(line: &str) -> Option<UsageReply> {
 pub struct UsageReply {
     /// Each window, by name, as a fraction and when it turns over (epoch seconds).
     pub windows: Vec<(String, f64, Option<i64>)>,
-    /// Whether the CLI fetched this from the usage service rather than repeating
-    /// the headers it last saw. The fetched shape carries a `limits` list (and the
-    /// account's spend), which headers never did; a fresh process and one hours
-    /// old gave the same figures in it moments after a reset (2026-09-27). A
-    /// fetched answer is a measurement — see [`crate::usage::fresher`].
+    /// Whether the CLI fetched this from the usage service — a measurement — rather
+    /// than repeating old headers. Only the fetched shape has a `limits` list.
     pub fetched: bool,
 }
 
 /// Where the CLI files a window belonging to one model rather than to the plan.
 const MODEL_SCOPED: &str = "model_scoped";
 
-/// The per-model windows out of that array, named by the model. An entry with no
-/// name is dropped: a bar labelled after a guess is worse than none.
+/// The per-model windows, named by the model; an unnamed entry is dropped.
 fn scoped(value: &serde_json::Value) -> Vec<(String, f64, Option<i64>)> {
     let Some(entries) = value.as_array() else {
         return Vec::new();
@@ -294,8 +258,7 @@ fn resets_at(window: &serde_json::Value) -> Option<i64> {
         .map(|when| when.unix_timestamp())
 }
 
-/// One user message, in the shape the CLI reads on stdin. `\n` terminated by
-/// the caller — the CLI reads a line at a time.
+/// One user message, as the CLI reads it on stdin; the caller adds the newline.
 pub fn prompt(text: &str) -> String {
     serde_json::json!({
         "type": "user",
@@ -308,9 +271,8 @@ pub fn prompt(text: &str) -> String {
 /// [`prompt_with_image`], read by [`shown`].
 const ALSO_AT: &str = "the image is also at ";
 
-/// The picture a user message carries, and the words with the note about it
-/// taken out — the note is addressed to the session. Only the file name comes
-/// back, never the directory.
+/// The picture a user message carries, by file name, and the words without the
+/// note that is addressed to the session.
 pub fn shown(text: &str) -> (Option<String>, String) {
     let Some(open) = text.rfind(&format!("({ALSO_AT}")) else {
         return (None, text.to_string());
@@ -327,15 +289,9 @@ pub fn shown(text: &str) -> (Option<String>, String) {
     (name, words.trim().to_string())
 }
 
-/// One user message carrying a picture and what was said about it. The CLI
-/// forwards an `image` block on stdin as the API defines one.
-/// The picture first, the words after: a question read before the thing it is
-/// about is answered from the question alone.
-///
-/// The text also names where the console kept its copy, so a session can open the
-/// file after the image is compacted away — and it is how [`shown`] finds the
-/// picture again on replay: a recorded image block holds base64 and no name.
-/// Both share [`ALSO_AT`].
+/// One user message carrying a picture, then what was said about it: a question
+/// read first is answered from the question alone. The text names the console's
+/// copy, which a session can open after compaction and [`shown`] finds on replay.
 pub fn prompt_with_image(
     text: &str,
     media_type: &str,

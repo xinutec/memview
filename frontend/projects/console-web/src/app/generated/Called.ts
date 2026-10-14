@@ -10,7 +10,6 @@ export type Called = {
 tool: string, 
 /**
  * A short label for what this call is doing, when the input carries one.
- * `None` when it does not — better unlabelled than a guess.
  */
 label?: string, 
 /**
