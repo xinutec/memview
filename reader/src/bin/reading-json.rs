@@ -5,20 +5,8 @@
 //! Defaults to `~/.claude/memview/cache/bash-corpus.jsonl` →
 //! `~/.claude/memview/cache/reading.json`, which is what the nightly runs.
 //!
-//! That default used to be `~/.claude/corpus/union.jsonl` and that whole
-//! directory is gone (memview#1240). It kept fourteen dated gzips plus a
-//! cumulative union against a window believed to be shrinking; measured, the
-//! union held **6 rows out of 177,467** that a fresh mine does
-//! not produce, and all six are the SAME commands captured worse — `ran:
-//! "unknown"` where a fresh mine resolves `ok`, three of them missing the `at`
-//! the miner now recovers. A `sort -u` union froze them as distinct lines
-//! forever. The live mine was 163 distinct commands ahead of it.
-//!
-//! Mined rather than computed per request, and the reason is a measurement:
-//! the survey takes 13 seconds over 146k commands. That is fine for a report
-//! somebody waits on and wrong for a page — it would block a request the whole
-//! time and do it again for the next viewer. The artefact it produces is ~6 kB,
-//! so both servers hold it in memory and serve it in microseconds.
+//! Mined, not computed per request: the survey takes seconds, the artefact is a
+//! few kB.
 //!
 //! It carries counts and command NAMES, never a command line. The busiest
 //! paths and the unread command names are in it; the text that named them is

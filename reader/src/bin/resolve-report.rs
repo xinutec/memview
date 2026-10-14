@@ -74,12 +74,8 @@ fn main() -> anyhow::Result<()> {
     // uses, distinct, and the first witnesses — kept in the map's own order so
     // the instrument does not choose what it shows.
     //
-    // But that order is a SORT here, and memview#1445 is what it cost.
-    // `by_word` is ordered, so `$(` sorts ahead of `$A` and the first four
-    // witnesses of a 416-shape bucket were all substitutions — which read as a
-    // finding about the bucket and was an artefact of the alphabet. So the
-    // witnesses below are labelled as first-by-name, and the COUNTS are what
-    // the conclusion rests on.
+    // That order is alphabetical, so the witnesses are labelled first-by-name:
+    // the counts carry the conclusion, not the witnesses.
     let mut by_class: BTreeMap<Unnamed, (usize, usize)> = BTreeMap::new();
     let mut witnesses: BTreeMap<Unnamed, Vec<(String, usize)>> = BTreeMap::new();
     for (word, n) in &read.by_word {
@@ -119,8 +115,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // The SCRIPT's answer to the same population, and not a second guess
-    // (memview#1450). Everything above classifies a WORD by its spelling; this
+    // The script's answer to the same population, not a second guess.
+    // Everything above classifies a WORD by its spelling; this
     // classifies it by whether the script it appeared in binds the name — a
     // question the word cannot carry, decided at extraction where the bindings
     // are in hand, and summing to the same total.
@@ -173,8 +169,8 @@ fn main() -> anyhow::Result<()> {
         "unnamed words leaked from the census"
     );
 
-    // #1447's question, and only the CROSS of the two classifications can
-    // answer it. The answerable row is decided by SPELLING: an all-uppercase
+    // Only the cross of the two classifications answers this. The answerable
+    // row is decided by SPELLING: an all-uppercase
     // name is an environment variable by convention. The convention is not a
     // binding — this corpus assigns `A="adb -s host"` and `GEB="ssh …"` as
     // script variables — so some share of that row is the script's own variable,
@@ -199,14 +195,8 @@ fn main() -> anyhow::Result<()> {
     // The population the resolver is judged against: everything the text could
     // not resolve to a path, minus what was never a path subject.
     let population = words + bounded + located - excluded;
-    // MEASURED, where this used to be a convention (memview#1447, #1450).
-    // The all-uppercase spelling cannot tell an exported variable from a
-    // script's own `A="adb -s host"`, which this corpus writes constantly, so
-    // this row was a ceiling that erred toward flattering the resolver and said
-    // so. It is now crossed against what each word's own script binds: of 630
-    // answerable by spelling on the frozen baseline, 440 — SEVENTY PER CENT —
-    // are the script's own variable. Subtracting them is not a tightening of the
-    // estimate, it is the estimate the convention could not make.
+    // Measured, not assumed: an all-uppercase word is often the script's own
+    // variable, so the row is crossed against what each word's script binds.
     let looked_up = answerable.saturating_sub(flattered);
     let exact = bounded + looked_up;
     println!("\nof the {population} subjects the text could not name:");

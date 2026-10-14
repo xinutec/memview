@@ -92,9 +92,7 @@ fn main() -> anyhow::Result<()> {
     // A wrapper whose inner shell will not parse is a hole in exactly the third
     // of the corpus that runs through one, so it is counted rather than shrugged
     // at — the same rule as every other refusal here.
-    // Ranked, not totalled. A nested script that will not read is a whole
-    // script's worth of file uses lost, and a bare number names no construct to
-    // build — which is how this sat at 405 for a day saying nothing (#1028).
+    // Ranked, not totalled: a bare number names no construct to build.
     println!(
         "  nested, unparsed  {}",
         read.nested_unparsed.values().sum::<usize>()

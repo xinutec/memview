@@ -4,8 +4,8 @@
 //!
 //!     cargo run --release -p reader --bin episode-report -- <corpus.jsonl> <said.jsonl> [--n 3] [--show 25]
 //!
-//! The corpus must carry `session` and `turn` (`bash-corpus` since 2026-10-05);
-//! an older corpus is refused rather than read as one long episode. The
+//! The corpus must carry `session` and `turn`; an older corpus is refused rather
+//! than read as one long episode. The
 //! episode is the calls that share a pair, in the order they ran.
 //!
 //! Three readings, each balanced to the unit so a leak shows in its own output:

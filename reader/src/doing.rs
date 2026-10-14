@@ -75,11 +75,8 @@ impl Verdict {
     /// `Rejected` means the harness declined, and bash declining arrives here as an
     /// ordinary `Failed`.
     ///
-    /// Left alone deliberately, on a measurement: gate 2 puts the whole corpus to bash,
-    /// and the one command in it that bash will not parse extracts no reads and no
-    /// writes anyway. Detecting the case needs bash in the mining path, which is minutes
-    /// a run to protect zero uses — memview#1074 has the repro. Only gate 2 can see that
-    /// change, because such a tree parses, round-trips and prints as valid shell.
+    /// Left alone deliberately: telling them apart needs bash in the mining path, and
+    /// gate 2 found the case costs no uses.
     pub fn admits(self, reached: crate::shell::Reached) -> bool {
         use crate::shell::Reached;
         match (self, reached) {
@@ -370,10 +367,8 @@ impl Log {
     /// As [`Log::finish`], and also the map from each episode's OLD index to its
     /// canonical one.
     ///
-    /// A caller holding episode indices of its own MUST remap them. The resume
-    /// watermarks record `open_episode()` during the scan, against the pre-canonical
-    /// numbering; saved unremapped they would name a different instruction on the next
-    /// run, silently (memview#1240).
+    /// A caller holding episode indices of its own must remap them, or they name a
+    /// different instruction next run.
     pub fn finish_canonical(
         mut self,
         generated: &str,
@@ -386,13 +381,8 @@ impl Log {
         self.rows.sort_by(|x, y| {
             (x.t, x.a, x.p, x.k, x.n, x.h, x.v).cmp(&(y.t, y.a, y.p, y.k, y.n, y.h, y.v))
         });
-        // Episode identity was its POSITION in this vector, assigned as
-        // `episodes.len()` at creation, so it depended on when the scan reached it — which
-        // is exactly what reading only the changed transcripts alters (memview#1240).
-        //
-        // Renumbered here in the order an episode is first REFERENCED by the sorted rows,
-        // so the numbering is a property of the content rather than of the traversal. An
-        // episode holds at least one row by construction, so none is dropped.
+        // Renumbered in the order the sorted rows first reference each episode, so
+        // the numbering is a property of the content, not of the scan order.
         let mut canonical: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
         let mut order: Vec<u32> = Vec::new();
         for row in &self.rows {

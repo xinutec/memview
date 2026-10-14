@@ -1823,10 +1823,8 @@ impl<'a> Run<'a> {
     /// The files an in-place rewriter's operands name, by the program's own
     /// grammar: every operand is a file, a bare `f` included. The tables name
     /// only what passes the reader's path guard — a word needs a `/`, a `~` or
-    /// an extension, which keeps `src` out of `rg foo src` — so a write to `f`
-    /// was neither predicted nor refused. Found live (2026-10-05, two
-    /// findings): `perl -pi -e … f` and `perl -ni … f` on `/tmp/perlx/f`, the
-    /// text before them predicted as the text after. An operand that does not
+    /// an extension, which keeps `src` out of `rg foo src` — so a write to a bare
+    /// `f` would be neither predicted nor refused. An operand that does not
     /// resolve — relative, after a `cd` this could not follow — withdraws what
     /// came before, as any write to an unknown path does.
     fn operand_files(&mut self, operands: &[String]) -> Vec<String> {
@@ -2085,8 +2083,7 @@ impl<'a> Run<'a> {
             return;
         }
         // `chmod`, `chown` and `chgrp` change a file's mode or owner and never
-        // its text, so there is nothing to predict and nothing to refuse — 57
-        // calls refused by name on the live census of 2026-10-05. `touch`
+        // its text, so there is nothing to predict and nothing to refuse. `touch`
         // creates a file that did not exist, empty, and leaves one that did
         // as it was.
         if let Some(Some(head)) = literal.first() {
@@ -2138,8 +2135,7 @@ impl<'a> Run<'a> {
         // A copy or move whose destination the text does not determine — a
         // relative path after a `cd` this could not follow — wrote somewhere,
         // and the tables, which only name what resolves, hand it back as a read
-        // of the source. Found live (2026-10-04): `… && cd .. && …; cp /tmp/bak
-        // mac-mini/f.py` restored a file whose `sed -i` the prediction kept.
+        // of the source — so everything predicted before it is withdrawn.
         if matches!(op, Op::Read { .. })
             && self.cwd.is_none()
             && argv

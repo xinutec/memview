@@ -154,13 +154,8 @@ fn main() -> anyhow::Result<()> {
 
     // Which verbs belong to which concept, for the crossover below.
     //
-    // By SHARE, never by count — the first version used the count and said
-    // nothing. `Page` is 63,864 rows against `Search`'s 7,690, so it holds
-    // more of almost every verb in absolute terms and "owned" them all;
-    // `Search`'s own top verb `find` was reported as a crossover into `Page`.
-    // That is the instrument measuring which concept is BIGGEST, which is
-    // already known. A verb belongs where it is most concentrated: `find` is
-    // 17.2% of `Search` and 3.8% of `Page`, so it is `Search`'s.
+    // By share, never count: by count the biggest concept owns every verb. A
+    // verb belongs where it is most concentrated.
     let mut owner: BTreeMap<&str, (&'static str, f64)> = BTreeMap::new();
     for (name, tally) in &verbs {
         let rows = lifted_rows[name].max(1) as f64;

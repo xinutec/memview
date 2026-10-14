@@ -14,7 +14,7 @@
 //!
 //! **The key is independent of the descriptions.** They are the witness, and an
 //! instrument whose key was built from them would rediscover its own input —
-//! the trap `concept-report` was built around (memview#1364). A [`Token`] is
+//! the trap `concept-report` was built around. A [`Token`] is
 //! the concept a step lifted to, or the shape the census queues it under; a
 //! gram is a run of consecutive tokens, within and across calls, with its
 //! subjects abstracted to their IDENTITY: the first distinct subject in the
@@ -32,12 +32,9 @@
 //! [`CONTEXT`]), which is dropped from the sequence so that it does not
 //! fragment every gram; a carrier
 //! (`bash -c`, `nix-shell --run`), whose work is its children's and which
-//! already has their tokens; or a modifier of the act before it. The first run
-//! of the census (2026-10-05) put a subjectless `Page` at the head of every
-//! table — 117,217 corpus rows end in a pipe to a bare pager — and
-//! `Search(A) ; Page` above `Search(A)`: `grep x f | head` is one act, and a
-//! pager on a pipe is how its product is shown, not a second thing done. So an
-//! act over a STREAM that follows another act in the same call folds into it
+//! already has their tokens; or a modifier of the act before it. `grep x f | head`
+//! is one act: a pager on a pipe shows its product. So an act over a STREAM that
+//! follows another act in the same call folds into it
 //! ([`tokens`]): a pager silently, since fewer of the same lines is the same
 //! product, and any other — `| wc -l`, `| grep -v x`, `| sed 's/a//'` — as a
 //! `+` suffix, since a count or a filtered subset is a different product the
@@ -51,10 +48,8 @@ use crate::shell_ops::{Op, basename, unwrap_command};
 /// reads through them. [`Op::Nothing`] cannot tell them from a PROGRAM that
 /// touches no file — `kubectl get pods`, `task show`, `gh run list`, `cargo
 /// build` are all "nothing with files" to the reader and all acts to the
-/// author, who describes them — so the word decides. Measured on the census's
-/// second run (2026-10-05): every bare `Page` left after the pipeline fold was
-/// a pager fed by one of those programs, which the first rule had read as
-/// context and so had nothing for the pager to fold into.
+/// author, who describes them — so the word decides, and a pager fed by one of
+/// those programs has an act to fold into.
 pub const CONTEXT: &[&str] = &[
     "cd", "pushd", "popd", "echo", "printf", "sleep", "true", "false", ":", "export", "set",
     "unset", "shift", "wait", "exit", "return", "break", "continue", "pwd", "type", "which",

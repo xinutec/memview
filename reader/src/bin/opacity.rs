@@ -20,29 +20,12 @@
 //! said `tsx`/`vitest`/`playwright` are 4,201 calls of plain file operands while
 //! `node -e` is 724 calls with 23 writes. Rank first, then build.
 //!
-//! Asked again from the other side, and it came out the same.
-//! Once the sniff stopped calling TypeScript "Python", TypeScript became the
-//! biggest carried language by bytes — 698 bodies, 953 kB — which reads like a
-//! reason to build one. `--dump` hands the bodies out and the tally settles it:
-//! **19 of the 698 write a file, 23 writes in total**, 241 only read, and 450
-//! touch no file at all. The same 23 the command-side count found. A body is
-//! large because it embeds a TypeScript AST walk, not because it does much, so
-//! **size ranked this wrongly and the operations ranked it right**. memview#1034.
+//! Rank by what bodies do, not their size: the TypeScript bodies are the
+//! largest carried language, yet `--dump` shows almost none write a file.
 //!
-//! The language of a heredoc body is SNIFFED, and a sniff is a guess. It
-//! is reported as "looks like" for that reason. The point is the ranking — is
-//! there a kilobyte of SQL here or a megabyte — not the label on any one body.
-//!
-//! And the ranking was wrong for as long as the guess had no tests. The
-//! Python bucket once stood at 1,154 bodies and 2.0 MB; **731 of them were not
-//! Python.** One line opening `import ` decided the language, and
-//! TypeScript, Kotlin, Swift and Lean all open a line that way — as does an
-//! English sentence that wraps onto a line beginning "from". Corrected, the
-//! biggest carried language is **TypeScript or JavaScript at 698 bodies and
-//! 953 kB**, ahead of Python's 423 and 850 kB, and Lean and Swift have buckets
-//! at all. `--why <label>` prints a bucket's bodies with the mark that filed
-//! each one, which is what makes the next such error findable rather than
-//! plausible.
+//! A body's language is SNIFFED — a guess, reported as "looks like"; the point
+//! is the ranking. `--why <label>` prints a bucket's bodies with the mark that
+//! filed each, so a wrong sniff is findable.
 //!
 //! The 4.4 MB of "prose" is mostly not a gap. `cat`, `git` and `task`
 //! opened 5,209 of those bodies — a heredoc redirected into a file, a commit

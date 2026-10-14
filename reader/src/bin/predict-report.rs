@@ -265,11 +265,8 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
 
     let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
     let (mut conditional, mut sets) = (0usize, 0usize);
-    // Reason → (calls it stopped, writes it refused). Ranked by CALLS: a
-    // write count weights a reason by how many files one looping program
-    // named — on 2026-10-05, 520 "after a jump" writes were three commands,
-    // one of them a script writing 253 files — where the worklist asks how
-    // many calls a construct would unlock.
+    // Reason → (calls it stopped, writes it refused), ranked by calls: one looping
+    // program can name hundreds of files.
     let mut why: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;

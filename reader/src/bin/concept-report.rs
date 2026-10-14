@@ -5,7 +5,7 @@
 //!
 //! Keyed on the variant PLUS the command, never on the variant alone. A
 //! census keyed on the `Op` variant would rediscover `reading::naming` and read
-//! as success (memview#1364, caught before it was built) — `head -5 f` and
+//! as success — `head -5 f` and
 //! `cat f` are one `Op::Read` and the `-5` is gone. So the queue's key is the
 //! operation's phrase, the unwrapped command name, its subcommand where it has
 //! one, and its flags with their values abstracted. **The key errs toward
@@ -13,14 +13,9 @@
 //! would rank a shape that does not exist — the same direction every count in
 //! this reader errs.
 //!
-//! Two counts per bucket, and the RANK uses rows. The reader unrolls
-//! loops, so a step count weights a shape by how many iterations ran — measured
-//! on the first run: `break` was 112,816 steps out of at most 4,238 rows that
-//! mention it, all iteration inflation. A vocabulary is mined from what authors
-//! *reach for*, so shapes rank by the rows that hold them, once per row — the
-//! same argument `said-report` makes for counting a repeated kind once per
-//! call. The step count stays beside it because it is the execution mass, and
-//! the balance is stated in steps.
+//! Two counts per bucket, and the RANK uses rows: the reader unrolls loops, so
+//! steps weight a shape by iterations, while a vocabulary is what authors reach
+//! for. Steps stay beside it as the execution mass.
 //!
 //! The ranking is half the instrument; the diff is the other half. The
 //! automation roadmap is the null hypothesis, never the seed

@@ -841,11 +841,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// Writes `value` where `name` is READ from, which is where a change in
     /// place happens: a module's list changed by index inside a call changes
     /// in the module. [`Self::set`] is assignment, which binds in the call —
-    /// and a change written back that way left the module's copy forgotten and
-    /// the call's copy to be dropped with its frame. Found live (2026-10-05):
-    /// a `fix(lineno, old, new)` helper doing `L[k] = L[k].replace(old, new)`
-    /// on the module's `L`, the commonest edit-helper shape in the corpus,
-    /// refused every write after it.
+    /// and a change written back that way would leave the module's copy unchanged
+    /// — as in the common helper `L[k] = L[k].replace(old, new)` on a module's `L`.
     fn hold(&mut self, name: &str, value: Value) {
         match self.frames.last_mut() {
             Some(frame) if !frame.globals.contains(name) && frame.locals.contains_key(name) => {

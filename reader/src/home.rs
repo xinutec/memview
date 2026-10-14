@@ -1,19 +1,7 @@
 //! Where memview keeps its own files, as opposed to where Claude Code keeps its.
 //!
-//! `~/.claude` is Anthropic's namespace and we were writing into it. Nine
-//! artefacts of ours sat directly beside Claude Code's own state — mined
-//! rollups, recovered dates, a study's arms — indistinguishable in `ls` from
-//! files the CLI owns and manages. Each was put there because that is where the
-//! transcripts are, which is a reason for the input's location and not the
-//! output's (memview#1240).
-//!
-//! Everything of ours now lives under one directory, so it can be found,
-//! backed up, excluded or moved as one thing.
-//!
-//! This is the only place that names it. Nine call sites across three
-//! crates each built the path themselves, so a move meant nine edits and any
-//! one of them could be missed silently — a tool would simply find no artefact
-//! and report an empty corpus.
+//! `~/.claude` is Anthropic's namespace, so everything of ours lives under one
+//! directory of its own, named only here.
 
 use std::path::{Path, PathBuf};
 
@@ -33,30 +21,17 @@ pub fn dir() -> PathBuf {
 /// One of memview's RECORDS, by name — a file nothing can rebuild, tracked in
 /// git.
 ///
-/// Two files live here and both are frozen for a reason, not merely
-/// unrebuilt: `memory-roles.json` is a model's judgement that memview#884 is
-/// pre-registered on, so re-running it is a different experiment rather than a
-/// refresh, and `trap-admissible.json` holds #1050's arms. `index-history.json`
-/// sits here too until the 2026-09-11 harvest — `--bin index-history` rebuilds
-/// it, so it is a cache wearing a record's coat until the study that pins two of
-/// its snapshots is done.
+/// Frozen for a reason, not merely unrebuilt: re-running a pre-registered
+/// judgement would be a different experiment, not a refresh.
 pub fn file(name: &str) -> PathBuf {
     dir().join(name)
 }
 
 /// One of memview's CACHES, by name — rebuilt by a command, ignored by git.
 ///
-/// The split is a directory rather than a list, and that is the point.
-/// `.gitignore` used to enumerate every derived file, which meant a new artefact
-/// was tracked-by-default and someone had to remember to add a line. It failed
-/// exactly that way once: `trap-admissible.json` sat neither tracked nor
-/// ignored — a result rescued from `/tmp` before the daily sweep, one `git add`
-/// or one cleanup away from either fate. A file written through here lands on
-/// the right side by construction.
-///
-/// The test for which function to use is not "is it derived" but "does a
-/// rebuild return the same thing, or LESS?" Run it and diff before moving a
-/// file to this side; every name here has a command that was run and compared.
+/// A directory, not a list, so a new file lands on the right side by construction.
+/// The test for this side is "does a rebuild return the same, or less?" — run it
+/// and diff before moving a file here.
 pub fn cache(name: &str) -> PathBuf {
     dir().join("cache").join(name)
 }
