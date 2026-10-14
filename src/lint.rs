@@ -1,9 +1,5 @@
-//! Static analysis for the memory corpus itself: a document set with rules that
-//! nothing checked — three links dead for weeks, twelve memories unreachable.
-//!
-//! Severity is two-tier and movable: a rule starts as a WARNING while the
-//! backlog is worked down and is promoted to ERROR at zero, so the corpus
-//! ratchets and cannot regress. Promoting is a one-word edit here.
+//! Static analysis for the memory corpus. A rule starts as a WARNING and is
+//! promoted to ERROR once the corpus reaches zero, so it ratchets.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -39,19 +35,15 @@ pub struct Finding {
     pub detail: String,
 }
 
-/// The most a single index teaser may take from the ceiling — between a teaser's
-/// length and a description's, so it catches a description pasted into the
-/// wrong field.
+/// The most one index teaser may take — catches a description in the wrong field.
 pub const TEASER_MAX: usize = 140;
 
 /// The injection ceiling, owned by [`crate::ceiling`]: one number, one owner, so
 /// the cut model and the rule agree by construction.
 pub use crate::ceiling::INDEX_CEILING;
 
-/// Rules a corpus caught mid-write can fail through no fault of its own: writing
-/// a memory is two edits, and the pre-commit gate can run between them. Here
-/// rather than in `bin/memory-lint.rs`, where it named a rule that no longer
-/// existed (memview#1456); `every_racy_rule_is_a_real_rule` fails on a rename.
+/// Rules a corpus caught between a memory's two edits can fail through no fault of
+/// its own. `every_racy_rule_is_a_real_rule` guards renames.
 pub const READ_LIMIT: usize = 2000;
 
 pub const RACY: [&str; 2] = ["unreachable", "index-points-nowhere"];
@@ -75,9 +67,7 @@ const RULES: &[(&str, Severity, &str)] = &[
          only grow (memview#1537)",
     ),
     (
-        // An error since 2026-10-03: zero on every corpus commit since the record
-        // landed on 2026-09-26 (memview#1788). Never fixed with longer lines: the
-        // index is near its ceiling (memview#822).
+        // Never fixed with longer lines: the index is near its ceiling.
         "mute-tripwire",
         Severity::Error,
         "a memory judged TRIPWIRE whose index line is only a topic word — it \
@@ -102,9 +92,7 @@ const RULES: &[(&str, Severity, &str)] = &[
          deletes the only place it fires (memview#1234)",
     ),
     (
-        // An error rather than a warning, against the usual sequencing here: the
-        // corpus holds none of these, so nothing is grandfathered, and the fault it
-        // reports is silent — a warning for that is the same fault at one remove.
+        // An error from the start: none exist, and the fault is silent.
         "misplaced-role",
         Severity::Error,
         "a `role:` written under `metadata:`, where nothing reads it — it belongs \
@@ -142,20 +130,15 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the description is what recall reads to decide relevance; without one the memory is invisible",
     ),
     (
-        // Reported INSTEAD OF the field rules, not alongside them: when the frontmatter
-        // did not parse, every field is a default and every field rule would accuse the
-        // wrong thing. A duplicate `modified:` is the way this happens in practice.
+        // Instead of the field rules, which would accuse defaults.
         "unparsable-frontmatter",
         Severity::Error,
         "the frontmatter did not parse, so every field below it reads as ABSENT — \
          recall sees no description and no type, whatever the file says",
     ),
     (
-        // Presence only, not accuracy. Do not rebuild this on mtime: most files
-        // disagree with their own stamp by days (#1219). The message names a repair
-        // tool; do NOT let that become an auto-fix — this failing is the only visible
-        // symptom of a write that skipped the stamping path, and the author is the
-        // harder half to recover.
+        // Presence only. Not on mtime, which disagrees by days; and never an
+        // auto-fix: this is the only symptom of a write that skipped stamping.
         "missing-modified",
         Severity::Error,
         "no `modified` stamp — its age cannot be judged, so a stale claim reads as current; \
@@ -201,10 +184,7 @@ const RULES: &[(&str, Severity, &str)] = &[
     ),
     (
         "index-over-ceiling",
-        // A WARNING until the corpus reaches zero: the root is over the line today, and
-        // `claude-sync` withholds the whole corpus on any lint error (#1062). A LINT and
-        // not a line in `MEMORY.md`'s header: that line has been there for weeks and the
-        // root grew past the ceiling anyway (#822).
+        // A warning until zero: any error withholds the nightly corpus.
         Severity::Warning,
         "MEMORY.md is past the injection ceiling — the bottom is silently truncated and no session can tell",
     ),
@@ -228,11 +208,7 @@ const RULES: &[(&str, Severity, &str)] = &[
         "a feedback memory needs a bold **How to apply…** section — a rule you cannot act on is a note",
     ),
     (
-        // Armed at zero. WARNING, and NOT promoted without somewhere to route it: a
-        // memory with no `originSessionId` can never be charged to anybody, so at ERROR
-        // it would fail the nightly and no session (#1047). Catching this needs the
-        // WRITER at write time (#1498). `missing-modified` does not cover it: a later
-        // Edit stamps `modified:` and never adds the origin.
+        // A warning: with no origin there is nobody to route an error to.
         "missing-origin",
         Severity::Warning,
         "no `originSessionId:` — nobody can be asked about it, and a rule that FAILED on it would block the nightly and no session",
@@ -251,10 +227,7 @@ const RULES: &[(&str, Severity, &str)] = &[
         "over half the Read tool's default line limit and growing — split it deliberately, before the tail goes quiet",
     ),
     (
-        // The failure it exists for has happened: a memory retracted a figure and went
-        // on quoting it, defended by a prose banner nobody could check. Linking the
-        // retraction is the requirement, because a phrasing cannot be read — a grep for
-        // the banner found nothing.
+        // A retracted figure quoted on: the retraction must be linked, not a banner.
         "quotes-a-retracted-figure",
         Severity::Error,
         "quotes a figure another memory declares retracted, without linking the memory that retracted it",
@@ -277,28 +250,21 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the checkout root could not be read, so no path claim was actually verified",
     ),
     (
-        // A warning, because a wrong sha and a repo not cloned here look identical.
-        // Three filters, each measured: asking only the memory's own repo reported 65
-        // dead of 237 (five of six existed elsewhere); decimal numbers that are valid
-        // hex and 8-character session-id prefixes were the rest. 27% → 7.6% → 4.1%.
+        // A warning: a wrong sha and a repo not cloned here look identical.
         "unresolvable-commit",
         Severity::Warning,
         "cites a commit hash that exists in no repository here — a mistyped sha, a rebased-away commit, or a repo that is not cloned on this machine",
     ),
     (
-        // `created-after-modified`'s blind half: that rule caught one of six, the
-        // other five having both stamps in order and both wrong. One-sided ON PURPOSE:
-        // a `created` EARLIER than the mined first write is expected, since the archive
-        // does not reach back forever.
+        // `created-after-modified`'s blind half. One-sided: an earlier `created` is
+        // expected, since the archive does not reach back forever.
         "created-after-first-write",
         Severity::Error,
         "`created` is later than the earliest write the transcripts record — a birthday typed \
          rather than looked up; `cargo run --bin memory-created` names the real one",
     ),
     (
-        // This rule's whole input is mined by a separate run, so "no findings" and
-        // "never ran" must not be the same output. WARNING: the record is absent on
-        // every machine but the Mac.
+        // "Never ran" must not look like no findings. A warning: only the Mac has the record.
         "unreadable-created-record",
         Severity::Warning,
         "the mined creation record could not be read, so birthdays went unchecked this run — \
@@ -322,10 +288,8 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
         .collect()
 }
 
-/// Run every rule over the corpus. Findings sorted by severity then memory, so
-/// the output reads as a worklist. `roles` is `memory-roles.json`, or `None`
-/// where the caller has no reason to hold it; the `unjudged-role` rule is then
-/// skipped rather than reporting a gap it cannot see.
+/// Run every rule over the corpus, findings by severity then memory. Without
+/// `roles`, `unjudged-role` is skipped.
 pub fn check(
     corpus: &Corpus,
     couse: Option<&CoUse>,
@@ -334,9 +298,7 @@ pub fn check(
     check_judged(corpus, couse, roles, None)
 }
 
-/// The one-word tripwire labels judged and kept, memory name to the label
-/// accepted (memview#1784). Frozen by design: a line not in it, or changed since,
-/// is new and reported, which is what a baseline of accepted warnings is for.
+/// The tripwire labels judged and kept — a frozen baseline: anything else is new.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct Accepted {
     pub labels: BTreeMap<String, String>,
@@ -371,9 +333,7 @@ pub fn check_judged(
         });
     };
 
-    // A bound, not a style rule: every teaser is copied into a file with a hard
-    // 24,400-byte ceiling. The longest index line is 123 bytes and a description's
-    // median is 193, so this catches a description in the wrong field.
+    // A bound: every teaser is copied into a file with a hard ceiling.
     for doc in corpus.docs.values() {
         if doc.meta.misplaced_role {
             push(
@@ -633,17 +593,12 @@ pub fn check_judged(
                 }
             }
         }
-        // Walk out from the index through the wikilinks, as a reader would — the same
-        // question `memory-rank` asks with its demotions struck out. One implementation:
-        // a second copy of this walk let that tool recommend a set that stranded a pair
-        // (#869). Bytes, not entries, on the file as injected; `crate::ceiling` owns
-        // the number and the cut model.
+        // Walk out from the index through the wikilinks, as a reader would. One
+        // implementation, shared with `memory-rank`.
         let size = index.len();
         let seen = crate::ceiling::cut(index, INDEX_CEILING);
         if !seen.is_whole() {
-            // Name the casualties, not an overage: "969 over" says nothing about which
-            // memories stopped arriving. Order-preserving, and NOT `Vec::dedup`, which
-            // drops only ADJACENT repeats.
+            // Name the casualties, not an overage. Not `Vec::dedup`: adjacent only.
             let mut seen_once = std::collections::BTreeSet::new();
             let lost: Vec<String> = crate::store::index_links(seen.dropped)
                 .into_iter()
@@ -761,11 +716,8 @@ const NOT_A_REPO: &[&str] = &[
     "check",
 ];
 
-/// Words that name an 8-hex identifier as something other than a commit, read
-/// in the [`KIND_WINDOW`] characters before the opening backtick: `snapshot`,
-/// `restic`, `magic`, `bytecode`, `blob`, `hash-object`, and a device's adb
-/// `serial`. Enumerated. `session`
-/// is deliberately NOT here — session ids are excluded by `originSessionId`.
+/// Words in the [`KIND_WINDOW`] before a token that say it is not a commit. Not
+/// `session`: those are excluded by `originSessionId`.
 const NOT_A_COMMIT_KIND: &[&str] = &[
     "restic",
     "snapshot",
@@ -783,12 +735,8 @@ const NOT_A_COMMIT_KIND: &[&str] = &[
 /// characters, measured — see [`commit_shas`].
 const KIND_WINDOW: usize = 20;
 
-/// The text of a memory a path claim can live in — prose, code and fences — with
-/// link destinations left out. Parsed with comrak, since a substring scan misread
-/// any link whose title contained `](`. Fences are KEPT here, unlike the index
-/// parser: `run ~/Code/x/deploy.sh` is an instruction whether or not fenced. One
-/// entry per TOP-LEVEL block, because the archive exemption is scoped to the
-/// block — flattened, one retirement banner cleared every stale path below it.
+/// A memory's text where a path claim can live — fences included, link targets
+/// not — one entry per top-level block, the archive exemption's scope.
 fn claimable_blocks(doc: &crate::store::MemoryDoc) -> Vec<String> {
     let options = crate::store::markdown_options();
     let arena = comrak::Arena::new();
@@ -813,9 +761,7 @@ fn claimable_blocks(doc: &crate::store::MemoryDoc) -> Vec<String> {
     blocks
 }
 
-/// Every `~/Code/<segment>` a memory names, in either spelling; the absolute
-/// form is derived from `code_root`, so no home path is baked in. Only the first
-/// segment: a repo either exists or it does not.
+/// Every `~/Code/<segment>` a memory names, in either spelling.
 fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String> {
     let absolute = format!("{}/", code_root.display());
     let prefixes = ["~/Code/", absolute.as_str()];
@@ -837,24 +783,13 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
     found
 }
 
-/// Checks that reach outside the corpus, to the checkout root the memories
-/// describe. Separate from [`check`], which is pure over the corpus.
+/// Checks against the checkout the memories describe: dead repo paths (a block
+/// naming `~/Archive/<repo>` is exempt) and dead commit shas.
 ///
-/// A repo retired to `~/Archive` was recorded in one memory while many others
-/// still sent a reader to `~/Code`, and every graph rule passed: none asks
-/// whether the corpus is TRUE. Naming the new location, `~/Archive/<repo>`,
-/// records the retirement and is exempt — per BLOCK, not per document, or a
-/// banner in the first paragraph clears live paths forty lines down.
-///
-/// Sha-shaped tokens in backticks, minus the shapes that look identical and are
-/// not commits: a decimal number is valid hex (`1048575`); a session id is
-/// written the same way, so every declared `originSessionId` is excluded by its
-/// first eight characters; and a restic snapshot, a Hermes magic number or a
-/// `hash-object` blob is excused by the word IMMEDIATELY before it. The window
-/// is 20 characters, measured: against 440 real citations it excuses none, and
-/// 30 loses 5, 80 loses 14, the enclosing block 43. The inverse rule — require a
-/// nearby word claiming the token IS a commit — was measured and REJECTED
-/// (#1249): only 51.6% of real citations name one. Do not re-propose it.
+/// A sha-shaped token is excused if decimal, a session id's prefix, or preceded
+/// within 20 characters by a word naming another kind. The inverse rule —
+/// requiring a word claiming it IS a commit — was measured and rejected:
+/// only 51.6% of real citations name one. Do not re-propose it.
 fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes: Vec<char> = body.chars().collect();
@@ -895,9 +830,7 @@ fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<Stri
     out
 }
 
-/// Whether a block records `repo` as living on a remote it names — the
-/// counterpart of the `~/Archive` exemption. Matched as the LAST segment after an
-/// org, so `github.com/xinutec/phonos` excuses `phonos` and not `xinutec`.
+/// Whether a block records `repo` on a remote it names, by the segment after the org.
 fn names_a_remote(block: &str, repo: &str) -> bool {
     for host in ["github.com/", "github.com:"] {
         let mut rest = block;
@@ -923,10 +856,8 @@ fn names_a_remote(block: &str, repo: &str) -> bool {
     false
 }
 
-/// Every git repository directly under the code root, plus the root itself (a
-/// repository too) and the archive beside it: a retired repo still holds its
-/// commits, and searching only the code root contradicted `dead-repo-path`. The
-/// archive is a SIBLING of the root, so a test root reaches nothing real.
+/// Every git repository under the code root, the root itself, and the archive
+/// beside it, where retired repos keep their commits.
 fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut repos = vec![code_root.to_path_buf()];
     let mut collect = |dir: std::path::PathBuf| {
@@ -945,9 +876,7 @@ fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     collect(code_root.to_path_buf());
     if let Some(parent) = code_root.parent() {
         collect(parent.join("Archive"));
-        // Not every repository the fleet uses lives under the code root:
-        // `~/.config/home-manager` is cited, and its commits reported as existing
-        // nowhere. The whole directory, relative to the root's parent.
+        // `~/.config/home-manager` too, cited and outside the code root.
         collect(parent.join(".config"));
         // `~/.claude` IS a repository, not a directory holding some, so `collect`
         // cannot reach it — and it is the repository the corpus itself lives in.
@@ -959,9 +888,8 @@ fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     repos
 }
 
-/// Which of `shas` no repository holds. `--batch-check` echoes the RESOLVED oid
-/// for a hit, not the input, so answers are paired by ORDER; a count mismatch
-/// skips the repo. Wrong, this reported all 394 tokens as dead.
+/// Which of `shas` no repository holds. Answers pair by order: `--batch-check`
+/// echoes the resolved oid, not the input.
 fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> BTreeSet<String> {
     let mut left: Vec<String> = shas.iter().cloned().collect();
     for repo in repos {
@@ -987,9 +915,7 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
             .map(|(s, _)| s.clone())
             .collect();
     }
-    // Everything above asked `^{commit}`, so a git object of another type is still
-    // in `left`: a `hash-object` blob was reported for a year as a sha that exists
-    // nowhere. Asked bare, only of the leftovers, and dropped when it resolves.
+    // Leftovers asked again bare: a blob or tree is not dead either.
     for repo in repos {
         if left.is_empty() {
             break;
@@ -1012,12 +938,7 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
     left.into_iter().collect()
 }
 
-/// `-C` sets the directory and loses to `GIT_DIR`, which the pre-commit hook
-/// exports to everything it spawns — so inside the gate every `cat-file` would
-/// ask the COMMITTING repository. Strip by PREFIX, never a list; `src/commits.rs`
-/// carries the same guard. No live defect was demonstrated: object lookup turns
-/// on `GIT_DIR`, `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
-/// and the old list named all three — this is drift-proofing, not a fix.
+/// Strip every `GIT_*` variable: a hook exports `GIT_DIR`, which beats `-C`.
 fn git_batch_check(repo: &std::path::Path, input: &str) -> std::io::Result<String> {
     use std::io::Write;
     let mut cmd = std::process::Command::new("git");
@@ -1067,9 +988,7 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
                 if block.contains(&format!("~/Archive/{repo}")) {
                     continue;
                 }
-                // The third state: alive, pushed, and simply not cloned here. Naming the remote
-                // beside the path is the same shape of record as naming the archive, accepted
-                // on the same terms.
+                // Pushed but not cloned here: naming the remote is accepted.
                 if names_a_remote(&block, &repo) {
                     continue;
                 }
@@ -1117,11 +1036,8 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
     findings
 }
 
-/// A frontmatter field's value, by key, at any indent; keys are matched with
-/// their colon. Deliberately reads `raw` rather than [`crate::store::MemoryMeta`],
-/// whose `modified` is `Some` for every memory that exists — `missing-modified`
-/// was first written against it and passed a corpus full of missing stamps.
-/// `mtype` has the same hazard the other way.
+/// A frontmatter field's value, by key, read from `raw` — [`crate::store::MemoryMeta`]
+/// fills defaults that hide a missing field.
 fn frontmatter_value(raw: &str, key: &str) -> Option<String> {
     let rest = raw.strip_prefix("---\n")?;
     let end = rest.find("\n---")?;
@@ -1135,8 +1051,6 @@ fn frontmatter_value(raw: &str, key: &str) -> Option<String> {
 }
 
 /// The figures a memory declares retracted, from a `retracts:` frontmatter list.
-/// A field, not a typed link: a retraction is a claim about a TOKEN, which cannot
-/// be the far end of a `[[link]]`.
 ///
 /// ```text
 /// retracts:
@@ -1192,20 +1106,9 @@ pub fn passed(findings: &[Finding]) -> bool {
     !findings.iter().any(|f| f.severity == Severity::Error)
 }
 
-/// True when nothing at ERROR severity is THIS SESSION'S to fix.
-///
-/// `session` is `CLAUDE_CODE_SESSION_ID`, and `None` means strict — the nightly
-/// still refuses on any error. A session is treated differently because
-/// `memory-lint` runs over the SHARED corpus, and a session's commit failed five
-/// times in a week on a memory another session had just written (memview #1047);
-/// the nightly's verdict reaches fleetwatch instead. `MEMORY.md` stays
-/// everybody's. An unstamped memory is nobody's, by construction.
-///
-/// `originSessionId` answers "whose memory", never "who broke it" (memview#1553),
-/// so `wrote` — the recorded LAST WRITER from `last-writer.json` — is consulted
-/// too. [`Wrote::Unrecorded`] keeps the old behaviour: about half the corpus has
-/// a recorded writer, nearly all of it the recently edited half. This closes most
-/// of the class, not all of it.
+/// True when no ERROR is this session's to fix: the corpus is shared, so a
+/// session is blocked only by its own memories. `None` is strict, for the
+/// nightly. Ownership is the origin, or the recorded last writer.
 pub fn passed_for_session(
     corpus: &Corpus,
     findings: &[Finding],
@@ -1230,9 +1133,7 @@ pub fn passed_for_session(
     })
 }
 
-/// What the write record says about who last touched a memory. Three answers,
-/// not a `bool`: "somebody else" and "nothing recorded" both mean not this
-/// session, and collapsing them hides the residual.
+/// What the write record says about who last touched a memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wrote {
     /// The record names this session as the last writer.
@@ -1280,14 +1181,12 @@ pub fn relation_usage(corpus: &Corpus) -> BTreeMap<String, usize> {
     counts
 }
 
-/// Tolerance between a frontmatter `created` and the transcript entry for the
-/// same write. Measured: a Write-tool stamp lands a hair AFTER its entry, the
-/// smallest real defect is minutes out, and this sits in the gap.
+/// Tolerance between a frontmatter `created` and its write's transcript entry:
+/// above stamping jitter, below the smallest real defect.
 const BIRTHDAY_SLACK_SECS: i64 = 60;
 
-/// Referee each memory's stated birthday against the mined creation record —
-/// `memory-created.json`, rebuilt from gigabytes of transcripts. The path is
-/// passed so "could not look" becomes a finding, not a silence.
+/// Check each memory's `created` against the mined creation record; a missing
+/// record is a finding.
 pub fn check_created(corpus: &Corpus, record: &std::path::Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
