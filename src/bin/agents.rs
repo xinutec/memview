@@ -2,10 +2,8 @@
 //!
 //!     cargo run --release --bin agents
 //!
-//! Release build on purpose: this reads every byte of every transcript under
-//! `~/.claude/projects`, which is gigabytes. Writes `agents.json` beside them —
-//! never inside `memory/`, which `scripts/sync.sh` replaces wholesale, so
-//! anything parked there is destroyed on the next sync.
+//! Release build: it reads gigabytes. Writes beside `memory/`, never inside it —
+//! the sync replaces that directory.
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -45,9 +43,7 @@ fn main() -> Result<()> {
     // nothing publishes a home directory from a public repo.
     let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code"));
 
-    // Where the corpus lives, so opening a memory is attributed to that memory
-    // instead of being discarded as "outside the code root". Same override as
-    // scripts/sync.sh uses, so the two cannot point at different corpora.
+    // Where the corpus lives — the same override `scripts/sync.sh` uses.
     let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     let generated = stamp(
@@ -57,23 +53,11 @@ fn main() -> Result<()> {
             .unwrap_or(0),
     );
 
-    // Opt-in, and it stays that way until parity is shown on the REAL
-    // corpus. The fixtures prove a resumed scan equals a whole one; a fixture
-    // is not 6.28 GB of transcripts, and a wrong resume reads no error — it
-    // mines from an offset that means something else and the artefact simply
-    // becomes untrue. `--resume` is how that comparison gets run at all.
+    // Opt-in until parity is shown on the real corpus: a wrong resume reports no error.
     let want_resume = cli.resume;
-    // `doing.json` and `effects.json` are EXPORTS, not local data. 130 MB
-    // that exists only to be pushed to the console — nothing on this Mac reads
-    // them except this miner, to resume the timeline. `--exports <dir>` sends
-    // them somewhere temporary so the push can carry them without leaving them
-    // in `~/.claude`; `--exports none` skips them entirely, which is what the
-    // hourly resumed mine wants.
-    //
-    // `none` means NOT LOADED either. A resumed run that cannot carry the
-    // previous timeline produces a wrong one — measured: 78 orphaned rows and
-    // renumbered episodes (memview#1240). So it does not pretend to produce one.
-    // Only a FULL mine writes a timeline anybody should read.
+    // `doing.json` and `effects.json` are exports for the console: `--exports <dir>`
+    // writes them elsewhere, `none` neither loads nor writes them. Only a full mine
+    // writes a timeline worth reading.
     let exports: Option<std::path::PathBuf> = match cli.exports.as_deref() {
         None => Some(std::path::Path::new(&out).with_file_name(".").to_path_buf()),
         Some("none") => None,
@@ -104,10 +88,7 @@ fn main() -> Result<()> {
                 );
                 Some(agents::Resumed {
                     carried,
-                    // Carried only when this run will WRITE a timeline. With
-                    // `--exports none` there is nothing to carry and nothing
-                    // worth producing; the roster and the day sets do not
-                    // depend on either.
+                    // Carried only when this run writes a timeline.
                     doing: match &exports {
                         Some(dir) => {
                             reader::doing::Doing::load(&dir.join("doing.json")).unwrap_or_default()
@@ -144,10 +125,7 @@ fn main() -> Result<()> {
     )?;
 
     println!("{} agents", found.agents.len());
-    // What the commit join could and could not do. An unattributed commit is
-    // the ordinary case for anything predating the corpus — but the share has
-    // to be visible, or these line
-    // counts read as a complete account of the history when they are not.
+    // What the commit join could not attribute, so the counts are not taken as complete.
     if found.commits > 0 {
         let joined = found.commits - found.unattributed;
         println!(
@@ -194,20 +172,10 @@ fn main() -> Result<()> {
         }
     }
 
-    // The timeline goes to its own file: it is a hundred times the roster's
-    // size and answers a different question, and `/api/agents` must not carry
-    // it. `Agents` marks the field `#[serde(skip)]`, so this is the only way it
-    // is ever written.
+    // The timeline goes to its own file; `/api/agents` must not carry it.
     let timeline = std::mem::take(&mut found.doing);
-    // An export may only come from a run that HOLDS the whole timeline.
-    // A resumed run that could not carry the previous one produces the tail
-    // alone — measured here as a 108-byte `doing.json` with 0 effects, which
-    // pushed to the console would replace a real timeline with nothing. A full
-    // mine always qualifies; a resumed one only if it loaded what it is about
-    // to extend.
-    //
-    // Refusing rather than warning: the push reads whatever is on disk, so a
-    // warning nobody sees would still ship the empty file.
+    // Exported only from a run holding the whole timeline, or the push would
+    // replace a real one with a tail. Refused, not warned: the push reads the disk.
     let partial = want_resume && carried_timeline_rows == 0 && !timeline.rows.is_empty();
     anyhow::ensure!(
         !(exports.is_some() && partial),
@@ -225,21 +193,9 @@ fn main() -> Result<()> {
         println!("exports skipped (--exports none): no timeline or effects written");
     }
 
-    // Who last wrote each path, kept LOCALLY even when the evidence is not.
-    // `effects.json` is an export that leaves this machine, and `staged-check`
-    // was only ever parsing 70 MB to answer this one question (memview#1258).
-    //
-    // A full mine builds from EMPTY; a resumed one absorbs onto what it
-    // carried. Folding a full read onto a stale map would keep entries for
-    // paths the read no longer mentions, so the artefact would stop being a
-    // function of the corpus and no parity check could stand on it.
-    //
-    // A resumed run must not CREATE it. Absorbing the tail onto an absent
-    // artefact yields a map of the few paths touched since the last mine — 21 of
-    // them, measured — which is indistinguishable on disk from a complete one and
-    // would answer "nobody wrote this" for everything else. Every later resume
-    // then builds on those 21 and it never recovers. `unwrap_or_default()` here
-    // was that bug, written under a doc comment warning against it.
+    // Who last wrote each path, kept locally. A full mine builds from empty; a
+    // resumed one absorbs onto what it carried, and must not create it — a tail
+    // alone looks complete and answers "nobody" for the rest.
     {
         let file = reader::home::cache(memview::last_writer::FILE);
         let carried = memview::last_writer::LastWriter::load(&file)?;
@@ -278,10 +234,7 @@ fn main() -> Result<()> {
     let size = std::fs::metadata(&effects_file)
         .map(|m| m.len())
         .unwrap_or(0);
-    // The measured size, printed rather than estimated. memview#93 was
-    // planned against 55 MB, then against 20 MB once the unit was measured; both
-    // were arithmetic on dictionaries, not a file on disk. Whoever adds this to
-    // `sync.sh` should be reading a number nobody had to compute.
+    // The measured size, printed rather than estimated.
     println!(
         "{} effects over {} paths, {} commands, {} patterns → {} ({:.1} MB)",
         effects.rows.len(),
@@ -292,30 +245,14 @@ fn main() -> Result<()> {
         size as f64 / 1e6,
     );
 
-    // The memory days go the same way and for the same reason — a different
-    // question, and one no view draws. `memory-rank` reads this file.
-    //
-    // "The same way" now includes HOW it is written. This was the one
-    // sibling on a plain `fs::write` while `agents.json`, `doing.json` and
-    // `effects.json` all went through `atomic::write` — so a `memory-rank` run
-    // during the 00:30 mine could read a half-written file, and the mine takes
-    // ~8 minutes. Write-then-rename or the reader sees half.
+    // The memory days, for `memory-rank`, written atomically like the rest.
     let mut days = std::mem::take(&mut found.memory_days);
     let days_file = std::path::Path::new(&out).with_file_name("memory-days.json");
-    // Union with what earlier runs saw — see [`memview::agents::carry_forward`].
-    // #884's outcome IS this file, over a pre-period of 2026-07-17..08-14 that has
-    // to survive to a harvest on 2026-09-11. Membership was already protected
-    // this way (`index-history.json`); the outcome variable never was.
+    // Union with what earlier runs saw — [`memview::agents::carry_forward`].
     let carried = memview::agents::carry_forward(&days_file, &mut days)?;
     if carried > 0 {
-        // Said out loud rather than folded into a total: a silent carry
-        // reads exactly like a complete re-mine.
-        //
-        // It used to say "transcripts have been pruned", and that is false
-        // — memview#1240 measured that nothing holding a conversation has been
-        // deleted since the archive began. What vanishes is temp-directory
-        // sessions, which carried no conversation, plus whatever predates
-        // 2026-07-31. The message states the observation, not a cause.
+        // Said out loud: a silent carry reads like a complete re-mine. It states
+        // the observation, not a cause.
         println!("carried {carried} memory-day(s) from sessions with no surviving transcript");
     }
     memview::atomic::write(&days_file, serde_json::to_string(&days)?.as_bytes())
@@ -344,15 +281,8 @@ fn main() -> Result<()> {
     found.save(std::path::Path::new(&out))?;
     println!("wrote {out}");
 
-    // Written on EVERY run, including a whole one. A full mine is how the
-    // resume state is bootstrapped and how it is repaired after a
-    // `Plan::Full` — writing it only when `--resume` was asked for would mean
-    // the first resumable run could never happen.
-    //
-    // Written LAST, after every artefact it describes. These marks assert
-    // "the corpus up to here is already in those files"; saved first, a crash in
-    // between would leave a resume state promising work no artefact holds, and
-    // the next run would skip it silently.
+    // Every run writes it — a full mine bootstraps it — and last, after the
+    // artefacts it vouches for, or a crash would leave it promising work.
     resume_state.save(&resume_file)?;
     println!(
         "wrote {} ({} transcript mark(s))",

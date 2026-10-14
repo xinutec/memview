@@ -5,20 +5,12 @@
 //!     cargo run --release --bin memory-tiers -- --lease-days 21 --breadth 5
 //!     cargo run --release --bin memory-tiers -- --excluding memview
 //!
-//! A REPORT, not an editor, like `memory-rank`. Breadth — distinct agents, not
-//! opens — is the measure: volume cannot separate forty reads by one session
-//! from a few by many, and a set cardinality survives the transcripts'
-//! duplication. Unprovable opens are shown and never scored (#1214), so breadth
-//! is a floor. A stale mine is disclosed, never refused: the refusal it replaced
-//! forced two full re-mines in an afternoon over one changed file (#1240).
+//! A report, not an editor. Measured by breadth — distinct agents — a floor,
+//! since unprovable opens are not scored. A demotion is proposed only for a memory
+//! judged a pointer ([`memview::study::role_for`]).
 //!
-//! #884's freeze runs until [`HARVEST`] and is on the SPLIT; what it covers is
-//! printed under HELD. A demotion is proposed only for a memory judged a
-//! POINTER through [`memview::study::role_for`] — frontmatter first, the record
-//! behind it (memview#1537) — since for a tripwire a low open count is success.
-//!
-//! Reads four private files under `~/.claude`; memory NAMES are private and
-//! none may ever be committed to this public repo.
+//! Reads private files under `~/.claude`: memory names are private and must
+//! never be committed to this public repo.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -72,9 +64,7 @@ fn main() -> Result<()> {
     let memory_dir = reader::home::memory_dir().to_string_lossy().into_owned();
 
     let corpus = Corpus::load(&memory_dir)?;
-    // Brought up to date before it is read: #1210 came within one step of arguing
-    // a demotion from breadth figures that were zero only because the mine had not
-    // seen the memories. Refreshing costs about 0.3s.
+    // Brought up to date first: a stale mine reads unseen memories as unused.
     let mined = memview::fresh::mined(
         &memview::fresh::Where::from_env(),
         memview::agents::Needs::MEMORIES,
@@ -86,9 +76,7 @@ fn main() -> Result<()> {
         )
     })?;
 
-    // Disclose a stale mine; do NOT refuse on one (#1240). Ages come from
-    // `memory-created.json` and `today`, never from the mine, and nothing here is
-    // decay-weighted, so a stale mine means one thing: a floor, stated below.
+    // A stale mine is disclosed, not refused: it only makes breadth a floor.
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
     let freshness = mined.freshness(
         &[std::path::Path::new(&projects)],
@@ -145,10 +133,8 @@ fn main() -> Result<()> {
         .map(|name| {
             let breadth = memview::tiers::breadth(&mined.agents, name, excluding.as_deref());
             Entry {
-                // The memory's own frontmatter first, the sidecar as a fallback: once every
-                // memory carries `created:` the sidecar can go (#1240). `get`, not `[]`: a
-                // memory no transcript dates has no entry, and a panic would turn a DETECTION
-                // gap into a crash.
+                // Frontmatter first, the sidecar as fallback; `get`, since an undated
+                // memory has no entry.
                 created: corpus
                     .docs
                     .get(name)

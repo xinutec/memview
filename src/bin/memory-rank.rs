@@ -2,28 +2,13 @@
 //!
 //!     cargo run --release --bin memory-rank [-- --half-life 7]
 //!
-//! A REPORT, and deliberately not an editor: what is live is a judgement, and
-//! the cut stays the user's (`feedback_memory_index_is_the_working_set`).
+//! A report, not an editor: the cut stays the user's. Counts days on which a
+//! memory was opened or edited; a matching corpus grep is shown, never scored.
 //!
-//! ## What is counted
-//!
-//! Days, not opens; only `Read` and `Edit` tool calls and shell reads (mentions
-//! are unusable — re-injection made one name recur 3,370 times). A corpus grep
-//! that MATCHED is shown beside a row and never scored: ~17% of the corpus
-//! arrives only that way (memview#1238), but 8 agents run corpus-wide greps,
-//! so scoring it would compress the bottom of the list where demotions are
-//! decided. `maybe_reads` — shell reads whose success cannot be established — are
-//! discarded (#1214).
-//!
-//! ## The two hazards it prints rather than hides
-//!
-//! The teaser paradox: for the best entries the index LINE is the memory, so
-//! opens under-measure exactly the rules doing their job. Which entries those
-//! are is a JUDGEMENT through [`memview::study::role_for`], never a name prefix
-//! — the prefix test put 192 tripwires on the demotion list (memview#884).
-//!
-//! The ratchet: being listed causes opens, so the measurement is entangled with
-//! the intervention. DEMOTED BUT STILL CONSULTED is the counter-evidence.
+//! Two hazards are printed, not hidden. The teaser paradox: for a tripwire the
+//! index line is the memory, so opens under-measure it — judged by
+//! [`memview::study::role_for`], never a name prefix. The ratchet: being listed
+//! causes opens; DEMOTED BUT STILL CONSULTED is the counter-evidence.
 
 use std::collections::BTreeSet;
 
@@ -110,9 +95,7 @@ fn main() -> Result<()> {
             )
         })?)?;
 
-    // No staleness check any more: every figure is anchored to the mine's stamp,
-    // and a stale artefact moved the day every age is measured from (#1210). The
-    // artefact is refreshed above instead, so `--stale-ok` never trains anybody.
+    // Refreshed above, so no staleness check is needed.
 
     // The artefact's own stamp, so re-reading the report never changes it.
     let today = day_number(&mined.generated).unwrap_or(0);
@@ -165,11 +148,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Whether this entry may be PROPOSED for demotion — judged a pointer, and
-/// nothing else. This replaced a `feedback_`/`user_` prefix test, which put 136
-/// `reference_` and 56 `project_` tripwires on the list: a tripwire works by
-/// being read and never opened. The harvest came back uninterpretable, so this
-/// rests on the argument, as #884 closed recommending.
+/// Whether this entry may be proposed for demotion: only one judged a pointer. A
+/// tripwire works by being read in the index, never opened.
 fn may_demote(role: Option<Role>) -> bool {
     matches!(role, Some(Role::Pointer))
 }
@@ -311,9 +291,7 @@ fn report(
         "  {} indexed tripwires, {never} of them never opened in the window",
         rules.len()
     );
-    // The third state, printed rather than dropped: an unjudged entry is in
-    // neither half, and the size of what one unblinded pass does not cover is part
-    // of reading the report.
+    // Unjudged entries, printed rather than dropped.
     let unjudged = standings
         .iter()
         .filter(|s| s.indexed && s.role.is_none())
