@@ -1,9 +1,6 @@
 //! The JSON API, and the event stream behind it.
 //!
-//! Reading a session is server-sent events rather than polling: an answer appears
-//! while it is being written. Every stream begins with the transcript so far and
-//! continues live, so a client that connects late or reconnects sees one
-//! consistent record.
+//! A session is read as server-sent events: the transcript so far, then live.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -36,8 +33,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
         .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
-        // The one route that needs its own body limit: axum's default 2 MB would refuse
-        // an image as a bare 413 before [`crate::images::keep`] could say why.
+        // Its own body limit, so [`crate::images::keep`] can say why an image is refused.
         .route(
             "/api/sessions/{id}/image",
             post(show).layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT)),
@@ -70,25 +66,20 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
         .route("/api/telemetry", post(trace::record))
-        // The stream is compressed too: tower-http flushes the encoder when the body has
-        // nothing more to give, so a live event is not held back — pinned by
-        // `a live event is not held back by the compressor` in `tests/cold.rs`. Applied
-        // here rather than in `main` so the tests exercise the stack the phone talks to.
+        // The stream too: tower-http flushes when the body pauses, so live events are
+        // not held back. Here, not in `main`, so the tests run this stack.
         .layer(CompressionLayer::new().compress_when(SizeAbove::new(SMALL)))
         .with_state(roster)
 }
 
-/// GET /api/reading — the corpus survey, as the nightly mined it. Read per request:
-/// the artefact is small. Not computed here — a pass over the whole corpus is a
-/// mining job (`reader --bin reading-json`).
+/// GET /api/reading — the corpus survey the nightly mined.
 async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
     let path = std::env::var("READING_FILE").unwrap_or(
         reader::home::cache("reading.json")
             .to_string_lossy()
             .into_owned(),
     );
-    // A missing artefact is a 404 the view can say "not mined yet" about, never a
-    // `CorpusRead` of zeroes.
+    // Not mined yet is a 404, never a survey of zeroes.
     let text = std::fs::read_to_string(&path).map_err(|_| StatusCode::NOT_FOUND)?;
     serde_json::from_str(&text)
         .map(Json)
@@ -98,9 +89,8 @@ async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
 /// Below this many bytes a response goes uncompressed.
 const SMALL: u64 = 1024;
 
-/// How large a request carrying an image may be: [`crate::images::LIMIT`] plus
-/// base64's third again plus the JSON, generous so the refusal that names the size
-/// can still be given.
+/// How large a request carrying an image may be: [`crate::images::LIMIT`] as base64,
+/// with room to spare.
 const BODY_LIMIT: usize = crate::images::LIMIT * 2;
 
 /// Everything a client needs to draw the front page in one request.
@@ -113,32 +103,21 @@ pub struct Overview {
     /// The repositories inside those, for the client's picker.
     pub repos: Vec<String>,
     pub sessions: Vec<Summary>,
-    /// A fingerprint of the bundle this runner is serving, when it serves one. The
-    /// client reloads when it differs from the one it booted from — there is no
-    /// service worker, deliberately, behind a client-certificate gate.
+    /// A fingerprint of the bundle being served; the client reloads when it changes.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bundle: Option<String>,
-    /// How much of the subscription is spent, when a reading has ever arrived — see
-    /// [`crate::usage`]. Absent means no reading, and the front page draws nothing: a
-    /// bar at 0% is a claim.
+    /// How much of the subscription is spent, once any reading has arrived.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub usage: Option<crate::usage::Reading>,
-    /// What each conversation is about, by session id — written by a model, and
-    /// marked as such by the client. See [`crate::gist`]. Keyed rather than folded
-    /// into each session because it covers the conversations on disk too.
+    /// What each conversation is about, by session id, written by a model.
     pub gists: std::collections::BTreeMap<String, crate::gist::Gist>,
-    /// Who is holding what — see [`crate::tasks`]. Keyed by session id for the same
-    /// reason [`Self::gists`] is; the rest is the user and the unassigned pile.
+    /// Who holds which tasks — see [`crate::tasks`].
     pub tasks: crate::tasks::Sweep,
-    /// The unsent words each conversation is holding, by session id. Carried here
-    /// because the roster is already polled every five seconds, and a draft is a
-    /// sentence.
+    /// Each conversation's unsent words, by session id.
     pub drafts: std::collections::BTreeMap<String, crate::drafts::Draft>,
-    /// How big the memory index is, against the size Claude Code cuts it at —
-    /// past it, the bottom of the file is never shown to a session. Absent when
-    /// there is no index to measure.
+    /// The memory index's size against where Claude Code cuts it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub index: Option<IndexSize>,
@@ -162,10 +141,7 @@ fn index_size() -> Option<IndexSize> {
     })
 }
 
-/// The bundle's identity, from the bytes of the page that loads it: index.html
-/// carries the hashed chunk names, so any change to the app changes this and an
-/// identical rebuild does not. Read per request. Unreadable means None — the
-/// desk runs `ng serve` and serves no bundle.
+/// The bundle's identity: a hash of index.html, which names the hashed chunks.
 fn bundle(dir: Option<&str>) -> Option<String> {
     use sha2::{Digest, Sha256};
     let page = std::fs::read(format!("{}/index.html", dir?)).ok()?;
@@ -175,8 +151,7 @@ fn bundle(dir: Option<&str>) -> Option<String> {
 async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
     Json(Overview {
         bundle: bundle(roster.config().static_dir.as_deref()),
-        // From memory, never from the network: a sleeping dashboard must not hold up the
-        // list of sessions. See [`crate::usage`].
+        // From memory, never the network.
         usage: roster.usage().reading(&roster.spent()).await,
         dirs: roster
             .config()
@@ -186,10 +161,10 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
             .collect(),
         repos: roster.config().repos(),
         sessions: roster.list(),
-        // From memory, like the usage; the writing happens on its own timer.
+        // From memory; written on its own timer.
         gists: roster.gists(),
         drafts: roster.drafts().all(),
-        // Swept per request, off the executor and off the cached marks. See [`Roster::tasks`].
+        // Off the executor — see [`Roster::tasks`].
         tasks: roster.tasks().await,
         index: index_size(),
     })
@@ -221,8 +196,7 @@ async fn start(
     .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     if let Some(prompt) = body.prompt.as_deref().filter(|p| !p.trim().is_empty()) {
         session.send(prompt).await.map_err(|err| {
-            // The session exists and did not take the message; say both, since the caller
-            // now owns a session it did not expect.
+            // The session exists but did not take the message: say both.
             (
                 StatusCode::BAD_GATEWAY,
                 format!("started {} but could not send: {err:#}", session.id),
@@ -247,9 +221,7 @@ async fn input(
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    // A receipt, because a message arriving twice leaves no other trace: the CLI
-    // merges it into a single message carrying the words twice. The length,
-    // not the words: a log is not where a conversation belongs.
+    // A receipt — a doubled message leaves no other trace. The length, not the words.
     tracing::info!(
         "{id}: accepted {} characters to send",
         body.text.chars().count()
@@ -269,9 +241,7 @@ pub struct Since {
     pub since: Option<u64>,
 }
 
-/// Every draft past the caller's checkpoint. The protocol is life's — see
-/// `life/src/sync/types.rs` and `life/docs/design/sync.md`; a client library drives
-/// pull and push.
+/// Every draft past the caller's checkpoint, by life's sync protocol.
 async fn pull_drafts(
     State(roster): State<Arc<Roster>>,
     Query(from): Query<Since>,
@@ -279,10 +249,8 @@ async fn pull_drafts(
     Json(roster.drafts().pull(from.since.unwrap_or(0)))
 }
 
-/// Apply a batch of edits, and answer with the ones that lost. A conflict is a
-/// 200 carrying the current master, not a 409: a batch can both land and lose in
-/// one request. This is the only way to write drafts: two ways to write one map
-/// let them disagree.
+/// Apply a batch of edits and answer with the ones that lost — a 200, since one
+/// batch can both land and lose. The only way drafts are written.
 async fn push_drafts(
     State(roster): State<Arc<Roster>>,
     Json(entries): Json<Vec<crate::drafts::PushEntry>>,
@@ -295,11 +263,9 @@ async fn push_drafts(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Shown {
-    /// The bytes, base64 as the API wants them — the client already has them so (a
-    /// canvas hands back a data URL).
+    /// The bytes, base64.
     pub data: String,
-    /// What the client believes it is sending. Checked against the bytes — see
-    /// [`crate::images::keep`].
+    /// What the client believes it is sending, checked against the bytes.
     #[serde(default)]
     pub media_type: String,
     /// What was said about it. Optional: a screenshot alone is a complete message.
@@ -307,12 +273,8 @@ pub struct Shown {
     pub text: String,
 }
 
-/// Hand back a picture that was sent to a session, so the person who took it can
-/// see it too.
-///
-/// Not asked of the roster first: the conversation is usually one that stopped
-/// days ago. [`crate::images::find`] guards it, reading only a name it could have
-/// written. Cached hard: a kept picture is never rewritten.
+/// Hand back a picture sent to a session, cached hard: a kept picture never
+/// changes. [`crate::images::find`] reads only names it could have written.
 async fn picture(Path((id, name)): Path<(String, String)>) -> Response {
     match crate::images::find(&crate::images::images_root(), &id, &name) {
         Some((bytes, media_type)) => (
@@ -330,13 +292,8 @@ async fn picture(Path((id, name)): Path<(String, String)>) -> Response {
     }
 }
 
-/// GET /api/picture?url=… — a picture a session pointed at, fetched from here.
-/// Not session-scoped: the URL is the whole of what is asked for, and a session id
-/// would be decoration that reads like a guard. Why the console fetches, and why
-/// that grants nothing new, is in [`crate::images::fetch`].
-///
-/// Not cached: this is a window onto a file that gets re-rendered, and a cache
-/// would answer the second look with the first render.
+/// GET /api/picture?url=… — a picture a session pointed at, fetched from here. Not
+/// cached: the file is re-rendered. See [`crate::images::fetch`].
 async fn elsewhere(Query(asked): Query<Elsewhere>) -> Response {
     let fetched = crate::images::fetch(&asked.url).await;
     // Decoding and scaling is CPU work, kept off the executor.
@@ -357,8 +314,7 @@ async fn elsewhere(Query(asked): Query<Elsewhere>) -> Response {
             got.bytes,
         )
             .into_response(),
-        // Whose fault it was, in the status as well as the sentence, for whatever reads
-        // the log.
+        // Whose fault, in the status as well as the words.
         Err(why @ crate::images::Reason::Asked(_)) => {
             (StatusCode::BAD_REQUEST, why.to_string()).into_response()
         }
@@ -377,9 +333,7 @@ struct Elsewhere {
     small: bool,
 }
 
-/// Show a session a picture. Its own route rather than a field on [`input`]: a
-/// megabyte where that is a sentence, it writes a file, and it fails for reasons
-/// text cannot.
+/// Show a session a picture — its own route: a megabyte, a file, its own failures.
 async fn show(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -398,8 +352,7 @@ async fn show(
                 format!("that image is not base64: {why}"),
             )
         })?;
-    // UTC, and named so. `now_local` is refused outright in a threaded program on
-    // this platform.
+    // UTC: `now_local` is refused in a threaded program here.
     let stamp = time::OffsetDateTime::now_utc()
         .format(&time::macros::format_description!(
             "[year]-[month]-[day]-[hour][minute][second]Z"
@@ -438,9 +391,7 @@ pub struct Decision {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub why: Option<String>,
-    /// What was said about a question — options picked, or words instead. Absent for
-    /// every other tool, and refused if sent for one; see
-    /// [`crate::session::Session::decide`] and [`console_protocol::Reply`].
+    /// What was said about a question; refused for any other tool.
     #[serde(default, flatten)]
     pub reply: console_protocol::Reply,
 }
@@ -461,12 +412,11 @@ async fn decide(
             &body.id,
             body.allow,
             body.why.as_deref().unwrap_or(REFUSED),
-            // Nothing said is not a reply: an ordinary approval arrives with these absent.
+            // An ordinary approval says nothing.
             Some(&body.reply).filter(|reply| !reply.is_empty()),
         )
         .await
-        // CONFLICT rather than NOT_FOUND: usually the question was answered a moment
-        // ago, on another screen.
+        // Usually answered a moment ago on another screen.
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(roster.summary_of(&session)))
 }
@@ -484,8 +434,7 @@ async fn mode(
     Path(id): Path<String>,
     Json(body): Json<ModeChange>,
 ) -> Result<Json<Summary>, (StatusCode, String)> {
-    // Only a mode the CLI declares, so an unknown one is refused here rather than by a
-    // session out of sight.
+    // An unknown mode is refused here, not by the session out of sight.
     if let crate::modes::Mode::Unknown(name) = &body.mode {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -499,8 +448,7 @@ async fn mode(
         .set_mode(&body.mode)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    // Only once the session has taken it: a mode the request failed to apply must
-    // not come back at the next resume — see [`crate::modes`].
+    // Only once taken, so a failed mode does not return at the next resume.
     roster.remember_mode(&id, &body.mode);
     Ok(Json(roster.summary_of(&session)))
 }
@@ -513,10 +461,8 @@ struct Renaming {
     title: String,
 }
 
-/// Rename a conversation, including one that is working. The answer is not the
-/// new name: the CLI writes a `custom-title` line and the roster reads names from
-/// the transcript, so the summary carries the old one until the next listing —
-/// reporting the request as the state would be the console describing its intent.
+/// Rename a conversation, even a working one. The summary keeps the old name until
+/// the CLI's `custom-title` line is read.
 async fn rename(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -536,9 +482,7 @@ async fn rename(
     Ok(Json(roster.summary_of(&session)))
 }
 
-/// Take back a command that is waiting for the turn to end. A command no longer
-/// held is not an error: two screens can look at one session, and the turn can
-/// end between the chip being drawn and the tap. The summary is the honest answer.
+/// Take back a command held for the turn's end; one already released is not an error.
 async fn unhold(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -570,10 +514,8 @@ async fn stop(
     Ok(Json(roster.summary_of(&session)))
 }
 
-/// Stop a session that has stopped listening and start it again on the same
-/// conversation — see [`Roster::revive`]. Slow on purpose: it waits for the old
-/// process to leave the process table, up to about thirty seconds, or one
-/// transcript gets two writers.
+/// Restart a session that stopped listening — [`Roster::revive`]. Slow: it waits
+/// for the old process to go, so one transcript never has two writers.
 async fn revive(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -597,9 +539,7 @@ async fn forget(State(roster): State<Arc<Roster>>, Path(id): Path<String>) -> im
 /// read by the same reader as the seed.
 #[derive(serde::Deserialize)]
 struct Earlier {
-    /// The cursor from the page the reader holds — the byte offset its first line
-    /// began at. Absent means the newest page. Not a count: the file grows under one,
-    /// and the client counts folded entries, not events. See [`crate::past::page`].
+    /// The byte offset the reader's page began at; absent for the newest page.
     #[serde(default)]
     before: Option<u64>,
 }
@@ -614,17 +554,13 @@ struct Page {
 }
 
 /// Everywhere in this conversation worth jumping to.
-///
-/// `spawn_blocking`: the walk parses the whole transcript — seconds for a large
-/// one — and no gate ahead of the parser survives the format; see
-/// [`crate::past::landmarks`]. The first ask pays it; [`crate::marks`] keeps what
-/// the walk found and extends it.
+/// The first ask parses the whole transcript, off the executor; [`crate::marks`]
+/// keeps the result.
 async fn landmarks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<crate::past::Landmark>>, (StatusCode, String)> {
-    // Through the roster, so this reads only a transcript belonging to a session
-    // this console owns — the boundary every other route has.
+    // Through the roster: only a transcript this console owns.
     roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
@@ -676,9 +612,7 @@ async fn earlier(
     }))
 }
 
-/// One event on the wire, carrying its number so the browser can quote it back.
-/// `EventSource` sends the last `id:` as `Last-Event-ID` on every reconnect, which
-/// is what turns a dropped connection from a wipe into a gap that gets filled.
+/// One event on the wire, numbered, so a reconnect's `Last-Event-ID` fills the gap.
 fn wire(stamped: Stamped) -> Sse {
     Sse::default()
         .id(stamped.seq.to_string())
@@ -694,18 +628,13 @@ fn wire(stamped: Stamped) -> Sse {
 /// Where a client says it had got to, when it is asking rather than reconnecting.
 #[derive(Debug, Deserialize)]
 struct Resume {
-    /// The last sequence number this client holds. The header covers a dropped
-    /// connection; this covers a page that closed the stream on purpose and still
-    /// holds the transcript. A string rather than a `u64`, so an unreadable value is
-    /// this function's problem: a 400 here is a session page showing nothing.
+    /// The last sequence number held, for a page that reopens its stream. A string,
+    /// so an unreadable value is ignored rather than a 400.
     #[serde(default)]
     after: Option<String>,
 }
 
-/// Where a client holds the transcript through, from whichever end says so. The
-/// header wins when both are there — on a reconnect of a stream opened with
-/// `?after=`, the URL names where the page started, the header where it got to.
-/// Unparseable is absent: the honest answer is everything.
+/// Where a client holds the transcript through: the header, else `?after=`.
 pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
     headers
         .get("last-event-id")
@@ -714,21 +643,9 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
         .or_else(|| asked.and_then(|value| value.parse::<u64>().ok()))
 }
 
-/// What a client that holds nothing is sent: the end of the transcript.
-///
-/// Not the log: that is the resume window, hours of it on a session watched all
-/// day. This is [`crate::session::Session::seed`] applied when a reader joins.
-///
-/// The page is read before the number is taken: number first lets an event
-/// pushed in between arrive twice, and a duplicated paragraph no client can undo.
-///
-/// Console-only events (`busy`, `accepted`, `started`) are in no transcript and
-/// not replayed — except a question, put back below, since a session blocked on
-/// one nothing draws is stopped. `console/tests/provenance.rs` makes that decision
-/// for every variant, so an unclassified one does not compile. `Accepted` is left
-/// out: it draws *waiting to be read* against a message parked mid-turn.
-///
-/// `None` when there is no transcript to read.
+/// What a client holding nothing is sent: the transcript's last page, read before
+/// the number is taken so nothing arrives twice, then any open question. Which
+/// console-only events are replayed is decided in `tests/provenance.rs`.
 fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> {
     let root = crate::past::projects_root();
     let path = crate::past::transcript_of(&root, id)?;
@@ -738,12 +655,9 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     }
     let through = session.issued();
     let earlier = page.events.len();
-    // The end of the page, not the clock: stamped `now()` this would be a fact about
-    // the connection, re-dated on every open. `None` when the last line carried no
-    // time.
+    // The page's own time, not the connection's.
     let ends = page.events.last().and_then(|timed| timed.at);
-    // Unnumbered, so a connection dropped part-way leaves the browser asking for the
-    // seed again. The number arrives once, on the `joined` that ends the page.
+    // Unnumbered until the closing `joined`, so a half-sent seed is asked for again.
     let mut held: Vec<Sse> = page
         .events
         .into_iter()
@@ -755,16 +669,12 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
         event: Event::Joined {
             earlier,
             from: page.from,
-            // A reader joined; the session did not restart. The last call in this page is
-            // very likely the one running now.
+            // A reader joined; nothing restarted.
             restarted: false,
         },
     }));
-    // After the marker, and not optional: a question is a control request no
-    // transcript holds, so a seed cannot carry it — while `Summary::asked` says
-    // *waiting for you* regardless; without this a blocked session shows nothing
-    // to answer. The same shape [`crate::session::Session::adopt`]
-    // uses after its seed. Unnumbered: the real `Ask` is already at or below `through`.
+    // Open questions, which no transcript holds, or a blocked session shows nothing
+    // to answer. Unnumbered: the real `Ask` is at or below `through`.
     for (id, question) in session.asking() {
         held.push(unnumbered(ends, question.ask(id)));
     }
@@ -793,13 +703,11 @@ async fn events(
 
     let after = resume_from(&headers, asked.after.as_deref());
 
-    // Subscribe before reading the backlog, so an event landing between the two is
-    // delivered late rather than lost; it then arrives twice, and `through` is what
-    // makes the second copy recognisable.
+    // Subscribe first, so an event between the two is late rather than lost;
+    // `through` drops its second copy.
     let live = BroadcastStream::new(session.listen());
     let backlog = session.since(after);
-    // A client that holds nothing is seeded from the transcript — see [`cold`]. The
-    // log stands in only when there is no transcript.
+    // A client holding nothing is seeded from the transcript, else the log.
     let (held, through) = match backlog.resumed {
         true => (
             backlog.events.into_iter().map(wire).collect(),
@@ -822,8 +730,7 @@ async fn events(
         }
     );
 
-    // A named event, not a field on a domain one: about the connection, so
-    // `onmessage` never sees it. The page listens and empties what it holds.
+    // A named event about the connection: the page empties what it holds.
     let prelude = tokio_stream::iter((!backlog.resumed).then(|| {
         Sse::default()
             .event("reset")
@@ -832,11 +739,8 @@ async fn events(
 
     let held = tokio_stream::iter(held);
 
-    // Where the past stops, per connection: everything above is replay, everything
-    // below is happening, and a replayed `turn` looks exactly like one that just
-    // ended, so the page would read `idle` over work in progress. Named, like `reset`,
-    // and deliberately not the `Joined` event, which lives in the log and can be
-    // trimmed out from under a late client; this is emitted on every connection.
+    // Where replay ends on this connection, so a replayed `turn` does not read as
+    // idle. Per connection, unlike `Joined`, which the log can trim.
     let caught_up = tokio_stream::iter([Sse::default()
         .event("caught-up")
         .data("everything after this is happening now")]);
@@ -845,9 +749,7 @@ async fn events(
         // Already sent as part of the backlog.
         Ok(stamped) if stamped.seq <= through => None,
         Ok(stamped) => Some(wire(stamped)),
-        // The listener fell far enough behind that the channel dropped events; the
-        // transcript this client holds now has a hole. Unnumbered, so the client keeps
-        // quoting the last id it can vouch for.
+        // The channel dropped events; unnumbered, so the client keeps its last good id.
         Err(_) => Some(
             Sse::default()
                 .json_data(Event::Trouble {
@@ -866,14 +768,12 @@ async fn events(
         .map(Ok::<Sse, Infallible>);
 
     Ok(SseResponse::new(stream).keep_alive(
-        // A session can sit silent while a tool runs, and a silent connection is one an
-        // intermediary may close.
+        // Keeps a silent connection from being closed along the way.
         KeepAlive::new().interval(Duration::from_secs(15)),
     ))
 }
 
-/// Conversations that already exist and could be picked up, filtered to what the
-/// config allows — the rest would name private work the console cannot open anyway.
+/// Conversations that could be picked up, within the configured directories.
 async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conversation>> {
     let root = crate::past::projects_root();
     let allowed: Vec<crate::past::Conversation> = crate::past::conversations(&root)
@@ -884,11 +784,7 @@ async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conver
 }
 
 /// One `Bash` command, read the way the index reads it. See [`crate::parse`].
-///
-/// The working directory comes from the session, never the body: a caller free to
-/// choose it could make this view name any file. A live session's own directory
-/// where there is one, else the transcript's. Ungated on the session running, like
-/// [`tasks`]: a finished conversation's command is exactly when somebody wants this.
+/// The directory comes from the session, never the body, so no caller picks it.
 async fn parse(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -902,8 +798,7 @@ async fn parse(
     Json(crate::parse::parsed(&asked, dir.as_deref(), &home))
 }
 
-/// A session's task list, without the prose. See [`crate::tasks`]. Not gated on
-/// the session running: a conversation that has ended still has a list.
+/// A session's task list, without the prose — ended sessions included.
 async fn tasks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -914,8 +809,7 @@ async fn tasks(
 /// What one task says, fetched when it is opened rather than with the list.
 async fn task(
     State(roster): State<Arc<Roster>>,
-    // The session is in the route and deliberately unused: a task belongs to the
-    // service and its number is unique. The path keeps it so bookmarks survive.
+    // The session in the path is unused: task numbers are unique.
     Path((_session, task)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match roster.task_detail(&task).await {
@@ -931,12 +825,8 @@ struct Described {
     description: String,
 }
 
-/// The app itself for a route the app owns, or a plain 404 for a file that is
-/// not there. Answering the index for a missing font breaks the icons with
-/// nothing logged.
-///
-/// "Looks like a file" is the last path segment carrying a dot: every asset is
-/// hashed (`main-JLBKO2QH.js`) and every SPA route is a word or an id.
+/// The app for its own routes; a 404 for a missing file — a path whose last
+/// segment has a dot — rather than the index served as a font.
 pub fn spa(index: &str, path: &str) -> axum::response::Response {
     use axum::response::IntoResponse as _;
 
@@ -956,9 +846,7 @@ pub fn spa(index: &str, path: &str) -> axum::response::Response {
     }
 }
 
-/// GET /api/sessions/{id}/edits — what this conversation's `Bash` calls were
-/// predicted to change, and which did not end up as predicted. Kept on disk, so it
-/// outlives the events that announced them.
+/// GET /api/sessions/{id}/edits — predicted changes, and which diverged, from disk.
 async fn edits(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -1059,8 +947,7 @@ async fn workflow_agent(
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
-/// What a Claude Code hook sends, as far as this reads it. Every field defaults: a
-/// payload this cannot read must answer, not block the call with a 422.
+/// What a hook sends, every field defaulted: an unreadable payload must not block a call.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Hooked {
@@ -1083,9 +970,8 @@ enum Hook {
     Other,
 }
 
-/// POST /api/hook — a `Bash` call about to run, or just finished. Before: predict
-/// what it will change and tell the session's listeners. After: check the files
-/// against the prediction, and say when they diverge. The hook waits on this.
+/// POST /api/hook — before a `Bash` call, predict its changes; after, report any
+/// divergence. The hook waits on this.
 async fn hook(State(roster): State<Arc<Roster>>, Json(hooked): Json<Hooked>) -> StatusCode {
     let crate::call::Call::Bash { command, .. } =
         crate::call::Call::read(&hooked.tool_name, &hooked.tool_input)
@@ -1137,9 +1023,8 @@ async fn sudo(
     let answer = roster.sudo().wait(&id);
     session.ask_sudo(&id, &asked.command);
     let password = answer.await.ok().flatten();
-    // Settled on the answer, not when the command ends: one that runs for minutes
-    // left the question open, and a second tap on it was read as a refusal. How the
-    // command went is the session's to read, in what this returns.
+    // Settled on the answer, not the command's end, so a long command does not
+    // leave it open to a second tap.
     session.sudo_settled(&id, password.is_some());
     let ran = match password {
         Some(password) => crate::sudo::run(&asked.cwd, &asked.command, password).await,

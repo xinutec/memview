@@ -5,13 +5,11 @@
  */
 export type Shown = { 
 /**
- * The bytes, base64 as the API wants them — the client already has them so (a
- * canvas hands back a data URL).
+ * The bytes, base64.
  */
 data: string, 
 /**
- * What the client believes it is sending. Checked against the bytes — see
- * [`crate::images::keep`].
+ * What the client believes it is sending, checked against the bytes.
  */
 media_type: string, 
 /**

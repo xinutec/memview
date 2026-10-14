@@ -19,37 +19,26 @@ dirs: Array<string>,
  */
 repos: Array<string>, sessions: Array<Summary>, 
 /**
- * A fingerprint of the bundle this runner is serving, when it serves one. The
- * client reloads when it differs from the one it booted from — there is no
- * service worker, deliberately, behind a client-certificate gate.
+ * A fingerprint of the bundle being served; the client reloads when it changes.
  */
 bundle?: string, 
 /**
- * How much of the subscription is spent, when a reading has ever arrived — see
- * [`crate::usage`]. Absent means no reading, and the front page draws nothing: a
- * bar at 0% is a claim.
+ * How much of the subscription is spent, once any reading has arrived.
  */
 usage?: Reading, 
 /**
- * What each conversation is about, by session id — written by a model, and
- * marked as such by the client. See [`crate::gist`]. Keyed rather than folded
- * into each session because it covers the conversations on disk too.
+ * What each conversation is about, by session id, written by a model.
  */
 gists: { [key in string]: Gist }, 
 /**
- * Who is holding what — see [`crate::tasks`]. Keyed by session id for the same
- * reason [`Self::gists`] is; the rest is the user and the unassigned pile.
+ * Who holds which tasks — see [`crate::tasks`].
  */
 tasks: Sweep, 
 /**
- * The unsent words each conversation is holding, by session id. Carried here
- * because the roster is already polled every five seconds, and a draft is a
- * sentence.
+ * Each conversation's unsent words, by session id.
  */
 drafts: { [key in string]: Draft }, 
 /**
- * How big the memory index is, against the size Claude Code cuts it at —
- * past it, the bottom of the file is never shown to a session. Absent when
- * there is no index to measure.
+ * The memory index's size against where Claude Code cuts it.
  */
 index?: IndexSize, };
