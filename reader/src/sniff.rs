@@ -9,21 +9,13 @@
 
 /// What a heredoc body looks like, **and the mark that decided it**.
 ///
-/// Anchored, and rewritten once because the first version was mostly wrong.
-/// It tested for marks *anywhere* in the body: `contains("SELECT ")` filed Python
-/// and shell under SQL because prose says "select", `starts_with('[')` filed an
-/// INI file under JSON, and `contains("\n#")` filed Rust under shell on the
-/// strength of `#[test]`. A sniff that can fire on a substring of a comment is
-/// not a sniff. Every test below is anchored to the start of the body or to the
-/// start of a line, and JSON is not sniffed at all — it is parsed.
+/// Anchored: a mark found *anywhere* fires on prose and comments ("select",
+/// `#[test]`). Every test is anchored to the start of the body or of a line, and
+/// JSON is parsed, not sniffed.
 ///
-/// The mark is returned because the first rewrite was still wrong and
-/// nothing said so. A bucket labelled "Python" holding TypeScript reads as a
-/// megabyte of Python left unread, and that is what ranks the next reader — the
-/// census is the instrument, so an unauditable guess inside it is worse than a
-/// wrong number, because the number looks the same either way. `--why <label>`
-/// prints the bodies under a label with the mark each one fired, which is how a
-/// guess becomes checkable.
+/// The mark is returned so a guess is auditable: `--why <label>` prints each
+/// body with the mark that filed it, since a mislabelled bucket misranks the
+/// next reader.
 ///
 /// Order is by how distinctive the mark is, not by how common the language is.
 /// The Python test carries a second shape because the corpus's commonest Python

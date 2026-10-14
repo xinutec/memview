@@ -161,15 +161,14 @@ pub struct Reading {
     /// what this does not know, stated by the thing that does not know it.
     pub unnamed: usize,
     pub by_word: BTreeMap<String, usize>,
-    /// The same refusals as [`Reading::by_word`], split by WHY — the by-reason
-    /// census #1142 built for Python and shell never had (memview#1450).
+    /// The same refusals as [`Reading::by_word`], split by why.
     ///
     /// Sums to `by_word`, and a test says so. Two maps over one population
     /// that can disagree are two accounts of it; the invariant is what makes
     /// this a split rather than a second guess.
     pub refused_why: BTreeMap<crate::shell_files::Refused, usize>,
-    /// The refused words their own script binds, by word — the half of the
-    /// split that can be crossed with a spelling-based class (memview#1447).
+    /// The refused words their own script binds, by word — to cross with a
+    /// spelling-based class.
     pub refused_bound: BTreeMap<String, usize>,
     /// Subjects a glob loop BOUNDED — still unnamed, but a subset of a pattern
     /// rather than of anything at all.
@@ -306,10 +305,8 @@ impl Reading {
                 .entry(name.clone())
                 .or_insert(0) += n;
         }
-        // The total comes from `subjects_not_named`, which folds in the Python
-        // and JavaScript readers' accounts too — the map below is the shell's
-        // words alone, and reading a total off it is the undercount memview#824
-        // was about.
+        // The total comes from `subjects_not_named`, which includes the Python and
+        // JavaScript readers; the map below is the shell's words alone.
         self.unnamed += found.subjects_not_named();
         self.javascript_unnamed +=
             found.javascript.unresolved.values().sum::<usize>() + found.javascript.refused.total();
@@ -320,7 +317,7 @@ impl Reading {
         // to it. `by_word` is keyed by word and aggregated over every script,
         // so the scope that answers "does this script bind the name?" is gone by
         // the time anything reads it. The split is therefore made at extraction
-        // and only carried here (memview#1450).
+        // and only carried here.
         for (why, n) in &found.refused_why {
             *self.refused_why.entry(*why).or_insert(0) += n;
         }

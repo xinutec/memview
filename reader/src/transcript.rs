@@ -153,13 +153,8 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// An unknown type is indistinguishable from a corrupt one, so a type the harness
 /// starts writing reads as damage until it is named here.
 ///
-/// `atis-latch` is that same lesson a second time. The harness began writing
-/// `{type, atis, sessionId}` — no identity, like everything else here — and because
-/// this list did not name it, every one read as damage, across every transcript and
-/// still climbing while live sessions wrote more. The cost was that `transcript-lint`
-/// failed for any session whose OWN transcript held one, which by then was every
-/// session. The nightly alone was exempt, having no session to call its own — the
-/// asymmetry #1546 built deliberately.
+/// When the harness adds a type, `transcript-lint` fails every session until it is
+/// named here.
 pub const METADATA_TYPES: [&str; 14] = [
     "last-prompt",
     "permission-mode",

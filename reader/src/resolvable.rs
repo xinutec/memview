@@ -12,10 +12,8 @@
 //! This classifies a shape and never asks the world; asking is the console's
 //! job (`docs/reader.md`). The `opaque-shapes` census cuts the same population by
 //! shape instead, and two subjects of identical shape fall on opposite sides of
-//! this line — which is how `$(cd .. && pwd -P)/dev-lint` came to be labelled an
-//! environment lookup (memview#1445). Hence: the substitution test comes **first
-//! and matches anywhere in the word**, and no arm absorbs what the arms above
-//! could not read.
+//! this line. Hence the substitution test comes **first and matches anywhere in
+//! the word**, and no arm absorbs what the arms above could not read.
 
 /// What a subject the text could not name would take to answer.
 ///
@@ -29,9 +27,8 @@ pub enum Unnamed {
     ///
     /// An UPPER BOUND: all-uppercase is a convention, not a binding. `A="adb -s
     /// host"` is a *script* assignment wearing the same spelling, and telling the two
-    /// apart needs the script's own assignments, which a word classifier does not have
-    /// (memview#1447). Printed by the census as "at most", because the error flatters
-    /// the resolver.
+    /// apart needs the script's own assignments, which a word classifier does not
+    /// have. Printed as "at most", since the error flatters the resolver.
     Environment,
     /// `$f`, `$d`, `${line}` — bound by the script a few lines above, where no lookup
     /// reaches.
@@ -128,8 +125,7 @@ pub fn names(word: &str) -> Vec<String> {
 
 /// Classify one unnamed subject, as the text wrote it.
 ///
-/// The order is the whole correctness argument, and two of the four steps are
-/// there because getting them wrong has already happened.
+/// The order is the whole correctness argument.
 ///
 /// 1. A word spanning lines is a program body, not a subject. A `jq` filter and a
 ///    TypeScript body both reach this bucket and both can open with a comment;
@@ -137,9 +133,8 @@ pub fn names(word: &str) -> Vec<String> {
 ///    program fragment is counted as a file.
 /// 2. Arithmetic before substitution: `$((300 * i))` contains `$(`, and reading it
 ///    as a substitution files a non-path as an unanswerable subject.
-/// 3. **Substitution anywhere in the word, before any name rule** — the
-///    memview#1445 fix. A whole-word parse fails on a trailing `/dev-lint`, and
-///    whatever it drops must not land in a name arm.
+/// 3. **Substitution anywhere in the word, before any name rule**: a whole-word
+///    parse fails on `$(…)/dev-lint`, and what it drops must not land in a name arm.
 /// 4. Digits before capitals: `$1` is vacuously all-uppercase, so an environment
 ///    rule tested first swallows every positional.
 pub fn unnamed(word: &str) -> Unnamed {
@@ -153,7 +148,7 @@ pub fn unnamed(word: &str) -> Unnamed {
     if word.contains("$(") || word.contains('`') {
         return Unnamed::Substitution;
     }
-    // Every parameter, not the first (memview#1455). Resolvability across a word
+    // Every parameter, not the first. Resolvability across a word
     // is a conjunction: `/tmp/$HOME/$f` is unanswerable because `$f` is. The first
     // part the world cannot answer is what the word is.
     let mut answerable = false;

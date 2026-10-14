@@ -668,9 +668,7 @@ fn translate(pattern: &str, extended: bool) -> Result<(String, bool, bool), Refu
                     // A boundary is judged against a span, not the line.
                     'b' | 'B' => return Err("word boundary".to_string()),
                     // GNU's classes. The host's sed is BSD's, which reads `\s` as
-                    // the letter s: `^\(\s*\)x` leaves "  x" alone. Found live
-                    // (2026-10-01): an insert predicted after a line it never
-                    // matched.
+                    // the letter s: `^\(\s*\)x` leaves "  x" alone.
                     's' | 'S' | 'w' | 'W' => return Err(format!("GNU class \\{next}")),
                     '1'..='9' => return Err("backreference".to_string()),
                     '<' | '>' | '`' | '\'' => return Err("word edge".to_string()),

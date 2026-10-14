@@ -425,9 +425,8 @@ impl Walk {
             // anyway because a call site names no files at all. So it lands in
             // "runs sometimes and the text cannot say when".
             CommandKind::Function(function) => {
-                // The NAME, which the walk used to drop. Without it a call to
-                // this function is indistinguishable from a program the table
-                // has never heard of — see [`Ran::defines`].
+                // The NAME: without it a call to this function looks like a
+                // program the table has never heard of — [`Ran::defines`].
                 self.defines.insert(function.name.clone());
                 self.items(&function.body, scope, reached.and(Reached::Sometimes));
             }

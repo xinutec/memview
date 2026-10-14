@@ -52,8 +52,8 @@ pub enum Reached {
     /// text cannot say when — the bucket that must never be counted as certain, whatever
     /// the call's exit status turned out to be.
     ///
-    /// The `||` half of this is knowable and is thrown away on purpose. Measured,
-    /// memview#101, and the answer was no. A non-zero exit on `a || b` proves `b` ran:
+    /// The `||` half of this is knowable and is thrown away on purpose — measured,
+    /// and not worth it. A non-zero exit on `a || b` proves `b` ran:
     /// had `a` succeeded the chain would have exited 0. Only a failing call can confirm
     /// one, few calls fail, and fewer still contain a `||` — the reachable gain is a
     /// fraction of a percent of the bucket.
@@ -105,8 +105,7 @@ pub struct Simple {
     pub scope: Vec<usize>,
     /// Files named by `>`, `>>` or `<` on this command. Kept apart from `argv`
     /// because a redirect target is a file the command *uses* without ever being
-    /// passed it — and because leaving it in argv makes `> /tmp/log` look like an
-    /// argument, which is what the first version did.
+    /// passed it — left in argv, `> /tmp/log` would look like an argument.
     pub redirects: Vec<Redirect>,
     /// Whether the shell would WORD-SPLIT each argv word's expansions, by position.
     /// Empty from the flat grammar, which never had the distinction.
@@ -688,11 +687,8 @@ fn collect_redirect(
 /// Every command a word runs before the word is a word: `$( … )` and backticks, at
 /// any depth inside it.
 ///
-/// The depth is the point. A word's expansions used to be read from its
-/// immediate children only, which was right for `$(git rev-parse HEAD)` and silently
-/// wrong for `"$(git rev-parse HEAD)"` — the quoted form was one opaque token, so
-/// the command inside it was never walked and its files were never attributed
-/// (memview#918).
+/// The depth is the point: in `"$(git rev-parse HEAD)"` the command sits inside a
+/// quoted token, and its files are attributed only if it is walked.
 ///
 /// It does NOT descend into `squoted`: single quotes expand nothing, so
 /// `'$(rm -rf /)'` is text and running it would be inventing a command.
@@ -799,12 +795,8 @@ fn unquote(word: &str) -> String {
             // Outside quotes a backslash escapes, and dropping it is the
             // point. `'\''` is how POSIX puts a quote inside a quoted string —
             // close, escaped quote, reopen — and reading the `\'` as two literal
-            // characters gave back a word with a backslash where the quote
-            // belongs. Every later stage then saw a word nobody wrote. Found by
-            // the round-trip probe (memview#833); 274 corpus calls contain a
-            // `\'`, most of them `ssh host '…'` payloads whose inner script
-            // quotes something, which are exactly the ones naming files
-            // elsewhere.
+            // characters gives a word with a backslash where the quote belongs —
+            // common in `ssh host '…'` payloads, which name files elsewhere.
             //
             // A trailing backslash with nothing after it stays as itself: there
             // is no character for it to escape.

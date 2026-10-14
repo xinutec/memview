@@ -460,10 +460,7 @@ impl Survey<'_> {
                             heredocs.push((delimiter, strip_tabs));
                         }
                     } else {
-                        // Every other `<`/`>` form is modelled now — but an operator with NOTHING AFTER IT
-                        // is not, and `parse` refuses it (memview#1370). `a >` alone was enough to make the
-                        // second gate print that the survey had drifted and its figures were unsound, over
-                        // the very ranking the next build is chosen from.
+                        // An operator with nothing after it is not modelled, and `parse` refuses it.
                         //
                         // The whole operator must be stepped over BEFORE asking, and `>|` is why. `|`
                         // is itself an end-of-command byte, so testing after the first `>` would call every
@@ -541,8 +538,7 @@ impl Survey<'_> {
                         && (at_command_start || is_declaration(&command_name))
                     {
                         // `x=(a b)` is an array literal, which is not a
-                        // grouping at all — 16 of the 28 commands this reason
-                        // used to hold. Legal as a command PREFIX and after a
+                        // grouping at all. Legal as a command PREFIX and after a
                         // declaration builtin, and a syntax error anywhere else,
                         // which is why the command name is tracked.
                         self.array_literal();

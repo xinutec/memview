@@ -87,8 +87,7 @@ pub struct Program {
 }
 
 /// Why one file operation's path could not be known — the permanent census of the
-/// remainder, so sizing the next slice never needs a temporary probe again
-/// (memview#1142 accumulated three stale inventories for want of this).
+/// remainder.
 ///
 /// **Each variant names the rule that would shrink it**: `Computed` yields to
 /// evaluating more assignments, `Expression` to more value rules, `Loop` to more
@@ -103,7 +102,7 @@ pub enum Why {
     Computed,
     /// A loop variable whose iterable is not a language — `for p in files`. Includes
     /// the refuted listing shape: `os.listdir` yields bare entry names, not paths, so
-    /// recording the listed directory would be a wrong claim (memview#1161).
+    /// recording the listed directory would be a wrong claim.
     Loop,
     /// An inline expression with no value here: a call's result, a subscript,
     /// an attribute, a join or concatenation whose rendered shape was refused.
