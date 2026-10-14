@@ -5,7 +5,6 @@
  */
 export type Window = { pct: number, 
 /**
- * How long until this window turns over, in milliseconds. Absent once it has
- * passed, which is ordinary for a reading hours old.
+ * How long until this window turns over, in milliseconds; absent once passed.
  */
 resets_in_ms?: number, };

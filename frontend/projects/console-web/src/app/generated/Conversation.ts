@@ -13,23 +13,19 @@ id: string,
  */
 dir: string, 
 /**
- * When anything last happened in it, in milliseconds since the epoch — from the
- * last line of the conversation, not the file's date; see [`last_moved`].
+ * When anything last happened in it, in epoch milliseconds — [`last_moved`].
  */
 modified: number, 
 /**
- * How much was said. A rough weight, and the cheap one.
+ * How much was said, roughly.
  */
 bytes: number, 
 /**
- * What the conversation calls itself — `music`, `health` — or none. A hex prefix
- * identifies a transcript; only this identifies the work.
+ * What the conversation calls itself — `music`, `health` — if anything.
  */
 name: string | null, 
 /**
- * How full the context was at the last request recorded, in tokens. No window
- * to divide by: that is declared on the CLI's stdout, never in the file. `None`
- * when the tail holds no assistant message.
+ * How full the context was at the last recorded request, in tokens.
  */
 context?: number, 
 /**
