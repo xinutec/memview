@@ -27,10 +27,8 @@ export interface Held {
    */
   readonly doing: WritableSignal<string | undefined>;
   /**
-   * When it started working, in milliseconds — for the timer beside [doing]. Set
-   * when it stops being idle, not on every status: the question is how long you
-   * have been waiting. From the event's own stamp, so a replayed burst is not
-   * dated to the reconnection.
+   * When it started working, in milliseconds, for the timer beside [doing] — set
+   * on leaving idle, from the event's own stamp.
    */
   readonly since: WritableSignal<number | undefined>;
   /**
@@ -40,11 +38,8 @@ export interface Held {
    */
   readonly spoken: WritableSignal<boolean>;
   /**
-   * Whether the stream has got past the replay and is describing now. The runner
-   * marks the boundary with a named `caught-up` event — not `joined`, which lives
-   * in the log and can be trimmed out from under a late client. Separate from
-   * [spoken]: this is *has the past finished*, that is *has the present been
-   * described*.
+   * Whether the stream is past the replay — the runner's `caught-up` event. Not
+   * [spoken], which is whether the present has been described.
    */
   readonly live: WritableSignal<boolean>;
   /**
@@ -54,13 +49,8 @@ export interface Held {
    */
   readonly source: WritableSignal<'stream' | 'kept'>;
   /**
-   * Whether the stream has been down long enough to say so, and the raw state
-   * behind that — see [[Patience]].
-   *
-   * The gap it fills is a stream that stays dead while the poll behind the roster
-   * keeps answering. Then the list looks healthy, nothing is said, and the
-   * transcript simply stops — which on screen is indistinguishable from a session
-   * that is thinking.
+   * Whether the stream has been down long enough to say so — see [[Patience]]. A
+   * dead stream otherwise looks like a session thinking.
    */
   readonly link: Patience;
   /**
@@ -84,14 +74,9 @@ export interface Held {
 }
 
 /**
- * The transcripts being read, and the streams that fill them.
- *
- * Root-provided because the person is the reader, not the component: held in the
- * component, every page scrolled back to is thrown away by a navigation. The
- * stream is closed on the way out — browsers allow a handful of connections to
- * one host, and abandoned streams would starve the state poll — and re-opening
- * resumes. Deliberately not kept: the scroll position, which means nothing
- * against a transcript that has grown.
+ * The transcripts being read, and the streams that fill them. Root-provided, so
+ * a navigation keeps what was read; a stream is closed on leaving, since browsers
+ * allow few connections per host.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionStore {
@@ -159,10 +144,8 @@ export class SessionStore {
   }
 
   /**
-   * Show what was last kept, for a conversation whose stream is not connected.
-   * Every condition matters: entries on screen mean it is arriving, a sequence
-   * number means it arrived and was cleared by a reset, and a stream that came
-   * back wants none of it. See [[Kept]].
+   * Show what was last kept, while a conversation's stream is not connected and
+   * nothing has arrived. See [[Kept]].
    */
   private async hydrate(id: string, held: Held): Promise<void> {
     const copy = await this.kept.entries(id);
@@ -206,10 +189,8 @@ export class SessionStore {
   }
 
   /**
-   * Show the page that ends at a landmark, leaving the live stream behind. The
-   * stream is closed first, or the next thing said would be appended under an
-   * hour-old page with nothing between them. Replaces rather than prepends: this
-   * is somewhere else entirely.
+   * Show the page that ends at a landmark, closing the live stream first so
+   * nothing new lands under an old page.
    */
   goTo(id: string, at: number): Observable<void> {
     const held = this.held.get(id) ?? this.fresh(id);
@@ -277,10 +258,8 @@ export class SessionStore {
     }
     // Only ever forward: unnumbered events arrive as 0.
     if (seq > held.seen) held.seen = seq;
-    // Activity is state, kept beside the transcript. A turn ending is what says the
-    // work stopped. Live events only: a seed ends with the `turn` that closed the
-    // previous work, and applied as news it clears `doing` and switches off the
-    // fallback to the runner's flag, showing `idle` over a session running tools.
+    // Activity is state beside the transcript, from live events only: a seed's
+    // closing `turn` would show `idle` over a session running tools.
     if (held.live()) {
       if (event.kind === 'busy') {
         // Only the first one starts the clock — see [Held.since].
@@ -308,10 +287,8 @@ export class SessionStore {
   }
 
   /**
-   * Drop everything held about a conversation: the entries, where the page
-   * begins, and how far the transcript had got. What it was doing goes too — a
-   * turn that ends while this client is disconnected clears nothing, and the
-   * timer would run for as long as the page stays open.
+   * Drop everything held about a conversation, its activity included, or a turn
+   * that ended unseen leaves the timer running.
    */
   private forget(held: Held): void {
     held.link.right();

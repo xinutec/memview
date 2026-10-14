@@ -77,11 +77,8 @@ interface Row {
 }
 
 /**
- * The order the list is read in. Working first, because that is the question
- * the page is opened to answer; blocked second — it needs an answer but is not
- * going anywhere. Work left running is its own rank above idle: a session with
- * two background tasks is silent until they finish, and would sink like one that
- * has stopped for the day. Within a rank, last activity.
+ * The order the list is read in: working, blocked, background work still
+ * running, then idle — each by last activity.
  */
 const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
 
@@ -127,10 +124,8 @@ export class SessionsView {
   readonly state = this.roster.state;
   readonly trouble = signal('');
   /**
-   * The one thing worth saying about the link. A failed action beats a failing
-   * poll: the two have opposite lifetimes — a failed action stays true until it is
-   * retried, a failed poll is superseded five seconds later — and it is the one
-   * the reader just caused.
+   * The one thing worth saying about the link: a failed action, the reader's own,
+   * before a failing poll, which the next poll supersedes.
    */
   readonly notice = computed<Notice | undefined>(() =>
     notice({ acting: this.trouble(), runner: this.roster.notice() }),
@@ -209,9 +204,7 @@ export class SessionsView {
               : session.background
                 ? RANK.background
                 : RANK.idle,
-        // Last activity, not when the process started: a conversation that runs all day
-        // would read `13h ago` with a transcript seconds old. `started` (seconds)
-        // only for a session with no transcript yet.
+        // Last activity, not process start; `started` (seconds) only with no transcript.
         at: session.touched ?? session.started * 1000,
       });
     }
@@ -245,9 +238,7 @@ export class SessionsView {
     // The roster does the asking; this says the list is being read, and stops when
     // the page goes.
     this.until.onDestroy(this.roster.follow());
-    // The conversations on disk are this page's alone, so it keeps its own timer.
-    // Stopped when the page goes: rebuilt on every navigation back, a poll left
-    // running accumulates a timer per visit, each walking every transcript on the Mac.
+    // This page's own timer for the conversations on disk, stopped when it goes.
     const poll = setInterval(() => this.pastStore.load(), 5000);
     this.until.onDestroy(() => clearInterval(poll));
     this.pastStore.load();
