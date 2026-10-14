@@ -1,12 +1,6 @@
-//! The root's two populations, and the one operation that trades between them.
-//! `MEMORY.md` holds RECENT work, which is supposed to turn over, and
-//! CONSOLIDATED rules, which belong there because by the time they matter
-//! nobody knows to go looking (`docs/memory.md`). Conflating them is why cuts
-//! evict precisely the entries whose value is that they fire elsewhere.
-//!
-//! Breadth — how MANY distinct agents opened a memory — is the factor a session
-//! cannot observe about itself. Set cardinalities, never raw counts: a fifth of
-//! the corpus is second copies (`reference_claude_transcript_rewrites_history`).
+//! The index's two populations — recent work, which turns over, and consolidated
+//! rules, which must stay (`docs/memory.md`) — and the exchange between them.
+//! Breadth counts distinct agents, never raw opens.
 
 use std::collections::BTreeMap;
 
@@ -27,9 +21,7 @@ pub enum Tier {
     Middle,
     /// Past its lease and consulted by almost nobody.
     Thin,
-    /// No creation date, so its lease cannot be judged. Its own tier rather than a
-    /// default: old makes it a demotion candidate on a missing field, new exempts
-    /// it forever. A DETECTION gap, not a loss to pruning.
+    /// No creation date, so its lease cannot be judged — its own tier, not a default.
     Undated,
 }
 
@@ -100,26 +92,18 @@ pub struct Entry {
     pub entry_cost: usize,
     /// What the line is for, where #884 has judged it.
     pub role: Option<Role>,
-    /// Whether the INDEX LINE states its claim — [`crate::study::states_a_claim`].
-    /// Read separately from [`Self::role`] because the two can disagree, and when
-    /// they do it is the line that a reader meets.
+    /// Whether the index line states its claim — [`crate::study::states_a_claim`].
     pub claims: bool,
     /// Reachable memories that already link it — the homes a demotion could
     /// land in without stranding it.
     pub homes: Vec<String>,
     /// Whether #884's freeze covers it. See [`Trade::held`].
     pub frozen: bool,
-    /// How many links a reader follows from the index to reach it — 1 for a root
-    /// line, `None` if nothing reaches it. The half of the root/traversal decision
-    /// that use cannot answer: fifteen agents from four hops and fifteen from one
-    /// were the same reading.
+    /// How many links from the index reach it — 1 for a root line, `None` if none.
     pub depth: Option<usize>,
 }
 
-/// Where a demoted entry's target lands. `None` after the demotion means
-/// STRANDED, the one outcome a demotion must never produce, so it is named
-/// loudly. A demotion's cost is this number: one hop further and four hops
-/// further are both "safe" and not the same trade.
+/// Where a demoted entry's target lands; `None` is stranded, never allowed.
 pub fn falls(before: Option<usize>, after: Option<usize>) -> String {
     match (before, after) {
         (_, None) => "STRANDS".to_string(),
@@ -191,15 +175,8 @@ pub struct Breadth {
     pub unswept: usize,
 }
 
-/// The [`Breadth`] of `memory`.
-///
-/// `excluding` is for the session judging a candidate, which is one of its
-/// readers — reading a memory to decide whether to demote it can lift it out of
-/// the thin tier, so the candidate set drains by inspection.
-///
-/// Not filtered by default: the mine cannot tell an adjudication from a genuine
-/// consultation, and guessing wrong understates use, which pushes toward
-/// demotion — the direction that loses a rule.
+/// The [`Breadth`] of `memory`, without `excluding` — the session judging it,
+/// whose own reading would otherwise count.
 pub fn breadth(agents: &[crate::agents::Agent], memory: &str, excluding: Option<&str>) -> Breadth {
     let mut out = Breadth::default();
     for agent in agents
@@ -248,9 +225,7 @@ pub enum Held {
     /// An absent judgement is not a pointer: it fails toward deleting a rule that
     /// fires from its line.
     Unjudged,
-    /// Its THIN verdict turns on opens that were collected and never scored; count
-    /// them and it is not thin (#1214). Not a reason to score them — this holds the
-    /// one case where the discard is deciding.
+    /// Thin only because unscored opens were discarded.
     Unproven,
     /// #884's freeze is on the SPLIT: acting on it perturbs a running series.
     Frozen,
@@ -267,10 +242,7 @@ pub struct HeldEntry {
 /// whether the root is smaller afterwards.
 #[derive(Debug, Clone, Default)]
 pub struct Trade {
-    /// Not indexed, and found widely enough for tenure — by agents outside a sweep
-    /// ([`Entry::unswept_breadth`]). Every qualifier, not
-    /// only the ones there is room for: "eleven have earned a slot and none fit" is
-    /// the finding that argues for a demotion pass.
+    /// Not indexed, yet found widely enough outside sweeps for tenure — all of them.
     pub admit: Vec<Entry>,
     /// How many of `admit`, from the front, the budget actually covers.
     pub affordable: usize,
@@ -280,10 +252,8 @@ pub struct Trade {
     /// Would qualify on opens, and must not be demoted anyway. Held, not dropped:
     /// the reason is the finding.
     pub held: Vec<HeldEntry>,
-    /// Memories the tenure bar excludes only because their unprovable opens do not
-    /// count. 43.7% of corpus opens arrive through the shell and 23 of 124 sessions
-    /// read that way predominantly, so breadth — a count over sessions — is exactly
-    /// the axis that distorts (#1214). Counted, never admitted.
+    /// Memories kept from tenure only by uncountable shell opens — counted,
+    /// never admitted.
     pub unproven_admissions: usize,
     /// Memories that clear the tenure bar only through agents that reached them
     /// in a sweep: audited, not found (#1735). Counted, never admitted.
@@ -302,10 +272,8 @@ impl Trade {
     }
 }
 
-/// Propose an exchange, both halves in one operation: the root grows by
-/// judgement and shrinks by measurement, a ratchet pointing the wrong way, and
-/// two tools reproduce it. A demotion whose only home is another demotion is not
-/// offered — `strands` names those, and the caller asks reachability of the set.
+/// Propose an exchange, both halves at once. A demotion whose only home is another
+/// demotion is not offered.
 pub fn propose(
     entries: &[Entry],
     today: i64,
@@ -322,9 +290,7 @@ pub fn propose(
         .collect();
     candidates.sort_by(|a, b| a.breadth.cmp(&b.breadth).then(a.name.cmp(&b.name)));
 
-    // The tier alone must never select a demotion: for a tripwire a low open count
-    // is success. `memory-rank` held these back by name prefix, which #884 showed
-    // is the wrong classifier (#1234).
+    // The tier alone never selects a demotion: a tripwire's low count is success.
     let mut free: Vec<Entry> = Vec::new();
     for entry in candidates {
         // Would counting the unprovable opens lift it out of THIN?
@@ -332,9 +298,7 @@ pub fn propose(
         let why = match entry.role {
             Some(Role::Tripwire) => Some(Held::Tripwire),
             None => Some(Held::Unjudged),
-            // Before the two reasons that can lift: a line that states a claim does
-            // not stop stating it on a date, where the freeze and the unproven-opens
-            // hold both expire.
+            // First: a stated claim does not expire; the other holds do.
             Some(Role::Pointer) if entry.claims => Some(Held::Claims),
             Some(Role::Pointer) if entry.returns >= at.working_days => Some(Held::WorkingSet),
             Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
@@ -402,9 +366,7 @@ pub fn propose(
     trade
 }
 
-/// Entries that crossed out of the lease within the last `window` days. A lease
-/// expiring is an EVENT: "past its lease" is most of the root, "crossed since
-/// you last looked" is a handful somebody can act on.
+/// Entries whose lease ran out within the last `window` days.
 pub fn expired(entries: &[Entry], today: i64, at: &Thresholds, window: i64) -> Vec<Entry> {
     let mut out: Vec<Entry> = entries
         .iter()

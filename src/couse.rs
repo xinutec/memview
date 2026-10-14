@@ -1,17 +1,6 @@
-//! Which memories get used together in one unit of thinking — how the corpus
-//! is USED, where the written `[[links]]` say how it describes itself. Mined
-//! from the session transcripts.
-//!
-//! The unit is a turn (`promptId`), not a session and not a clock window:
-//! sessions span weeks of unrelated work, and several run at once. A session is
-//! a tree — `parentUuid` chains messages, a rewind starts a sibling branch — so
-//! `promptId`, present on a third of messages, is inherited down the parent
-//! chain rather than carried in file order.
-//!
-//! Nothing but names and counts leaves this module. The transcripts contain the
-//! whole medical case file and every credential ever pasted; the artefact is
-//! memory names, project names and integers. An earlier version served the
-//! literal history and was removed for exactly that.
+//! Which memories are used together in one turn (`promptId`, inherited down the
+//! `parentUuid` tree), mined from the transcripts. Only names and counts leave
+//! this module: the transcripts hold medical records and pasted credentials.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -28,9 +17,7 @@ pub struct Pair {
     pub turns: usize,
     /// Distinct sessions those turns came from. This is the support.
     pub sessions: usize,
-    /// Normalised pointwise mutual information; the artefact carries only (0, 1]
-    /// because the mine drops below-chance pairs — see [`scan`]. Raw counts rank
-    /// the hubs and nothing else.
+    /// Normalised pointwise mutual information, in (0, 1]: below chance is dropped.
     pub npmi: f64,
 }
 
@@ -48,9 +35,7 @@ pub struct Usage {
     pub edits: usize,
     /// Most recent mention, ISO-8601, or absent if never seen.
     pub last: Option<String>,
-    /// Mentions per project, from the `cwd` of the line that named it — the context
-    /// a memory is consulted in, which its text does not say. `cwd` rather than any
-    /// text signal: MEMORY.md names every project and is injected everywhere.
+    /// Mentions per project, by the `cwd` of the line that named it.
     #[serde(default)]
     pub projects: BTreeMap<String, usize>,
 }
@@ -65,11 +50,8 @@ pub struct CoUse {
     /// Pairs above the session floor, strongest first. Every mention counts,
     /// injected ones included: this is the layout's affinity, which wants breadth.
     pub pairs: Vec<Pair>,
-    /// The stricter list link suggestions come from (`memory-lint --co-use`): only
-    /// memories USED in a turn — opened, or named in the session's own words — and
-    /// only turns touching at most [`MAX_SUGGEST_BASKET`] of them. Measured on
-    /// 2026-10-04 against the broad list: unlinked suggestions 74 → 6, and about
-    /// four of the six real, against roughly one in eight.
+    /// The stricter list link suggestions come from: memories used in a turn, in
+    /// turns using at most [`MAX_SUGGEST_BASKET`].
     #[serde(default)]
     pub suggest: Vec<Pair>,
     /// Per-memory usage, for every memory seen at least once.
@@ -77,24 +59,18 @@ pub struct CoUse {
     pub usage: BTreeMap<String, Usage>,
 }
 
-/// Distinct sessions a pair must meet in before it is reported. The session is
-/// the sample; the turn is only how a meeting is detected — scored per turn, the
-/// strongest pair was 710 turns of one health-sync week. Small numbers: there
-/// are only about thirteen sessions.
+/// Distinct sessions a pair must meet in before it is reported — sessions are the
+/// sample, not turns.
 pub const MIN_SESSIONS: usize = 3;
 
 /// Most memories one turn may contribute before it is discarded: a turn touching
 /// half the corpus has quoted MEMORY.md or bulk-edited the directory.
 const MAX_BASKET: usize = 40;
 
-/// Most memories one LINE may contribute: a line naming many is a listing — a
-/// grep result, or a bullet of MEMORY.md naming seventeen, which manufactured
-/// 136 pairs that outranked everything real. The per-turn cap does not catch it.
+/// Most memories one line may contribute; more is a listing, not use.
 const MAX_PER_LINE: usize = 6;
 
 /// Most memories one turn may hold and still suggest a link between two of them.
-/// A turn that used thirty memories says almost nothing about any two; at eight,
-/// 92% of the pairs mined were ones the corpus already links (2026-10-04).
 pub const MAX_SUGGEST_BASKET: usize = 8;
 
 impl CoUse {
@@ -109,11 +85,8 @@ impl CoUse {
             .with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Pairs used together that the corpus connects nowhere — neither directly nor
-    /// through a memory linking both. Returns the worklist and the count held back.
-    /// A shared neighbour is a connection, and counting it removed 59% of the
-    /// report: a hub and its own children co-occur BECAUSE the hub sent the reader
-    /// to each. One hop only.
+    /// Pairs used together that the corpus connects nowhere, not even through one
+    /// shared neighbour, and the count held back.
     pub fn unlinked<'a>(
         &'a self,
         adjacency: &BTreeMap<String, BTreeSet<String>>,
@@ -154,9 +127,7 @@ pub(crate) fn last_at(hay: &[u8], needle: &[u8]) -> Option<usize> {
         .find(|&i| &hay[i..i + needle.len()] == needle)
 }
 
-/// The value of a `"key":"…"` field, as bytes, without parsing the line: a
-/// `serde_json` parse of every line costs minutes across three gigabytes.
-/// `"uuid":"` cannot collide with `"parentUuid":"`.
+/// The value of a `"key":"…"` field, as bytes, without parsing the line.
 pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let needle = format!("\"{key}\":\"");
     let start = find_at(line, needle.as_bytes(), 0)? + needle.len();
@@ -164,11 +135,8 @@ pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
     Some(&line[start..end])
 }
 
-/// Every corpus memory named anywhere in the line — any mention, not only a
-/// file opened: counting reads gave 14 usable pairs against 829, since most
-/// memories reach a session by recall. Sound because a pair needs two memories
-/// in ONE turn; it does not generalise to single memories — see
-/// [`crate::agents::MemoryUse`].
+/// Every corpus memory named anywhere in the line — sound for pairs in one turn,
+/// not for single memories ([`crate::agents::MemoryUse`]).
 fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     // Candidate runs of [a-z0-9_], checked against the corpus; cannot invent one.
@@ -217,9 +185,7 @@ fn scan_session(
     let mut prompt_of: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     // (uuid, name) pairs, resolved to turns once the whole tree is known.
     let mut refs: Vec<(Vec<u8>, String)> = Vec::new();
-    // The subset the session USED: opened, or named in its own (assistant) words.
-    // A user-typed line is where the harness injects recalled memories and where
-    // tool results come back, and neither is a choice to consult two memories.
+    // Used: opened, or named in the session's own words — not injected text.
     let mut used: Vec<(Vec<u8>, String)> = Vec::new();
 
     for line in text.split(|&c| c == b'\n') {
@@ -421,9 +387,7 @@ fn rank(baskets: &[(usize, BTreeSet<String>)], session_count: usize) -> Vec<Pair
                 b: b.to_string(),
                 turns: pair_turns[&(a, b)],
                 sessions: k,
-                // pab = 1 makes the formula 0/0: a pair present in EVERY session is 1 by
-                // definition, not NaN — which would fail the filter below and drop the
-                // best-supported pair in a small corpus.
+                // pab = 1 is 0/0: a pair in every session is 1, not NaN.
                 npmi: if pab >= 1.0 {
                     1.0
                 } else {
@@ -431,10 +395,7 @@ fn rank(baskets: &[(usize, BTreeSet<String>)], session_count: usize) -> Vec<Pair
                 },
             }
         })
-        // Below chance is not an affinity: two popular memories sharing the minimum
-        // three sessions can co-occur LESS than chance, and keeping those made 78% of
-        // the artefact weightless (memview#1307). Dropped at the mine, where every
-        // consumer agrees.
+        // Below chance is not an affinity; dropped here, for every consumer.
         .filter(|pair| pair.npmi > 0.0)
         .collect();
     pairs.sort_by(|x, y| {

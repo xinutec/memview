@@ -1,24 +1,13 @@
 //! A memory whose content changed while its `modified:` stamp did not.
 //!
-//! `memory-lint`'s `missing-modified` cannot see this. That rule asks whether a
-//! stamp EXISTS; this asks whether it MOVED. A memory edited by `sed`, a python
-//! script or any tool that is not Edit/Write keeps a stamp describing a version that
-//! no longer exists — and the stamp is what recall's age banner reads, so the memory
-//! then claims to be fresher than its content.
-//!
-//! A DIFF, not the filesystem and not git. mtime is a property of the
-//! filesystem rather than of the corpus and misfires on any synced or restored copy.
-//! And git is ruled out inside a hook, which exports `GIT_DIR` to every child, so a
-//! binary running `git -C <other repo>` writes into the COMMITTING repo instead.
-//! Reading a unified diff on stdin needs neither.
+//! `missing-modified` asks whether a stamp exists; this asks whether it moved, as a
+//! script edit leaves it stale. Reads a diff on stdin — not mtimes, and not git,
+//! which a hook's `GIT_DIR` would misdirect.
 
 /// The stamp line, as the corpus writes it in frontmatter.
 const STAMP: &str = "modified:";
 
 /// Which halves of a memory's provenance its frontmatter does not carry.
-///
-/// Named rather than a `(bool, bool)`: the two are not interchangeable, and a
-/// transposed pair reads as correct at every call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Missing {
     /// No `originSessionId:` — who wrote it is unrecorded.
@@ -34,18 +23,8 @@ impl Missing {
     }
 }
 
-/// What a memory's frontmatter does not say about its own provenance.
-///
-/// Frontmatter only: a `modified:` in the body is prose and not a stamp.
-///
-/// BOTH fields, because asking only about the stamp made `memory-stamp` blind to
-/// the field it exists to recover (memview#1499). Every memory carried a
-/// `modified:` while a handful carried no `originSessionId`, so every one of those
-/// gaps had a stamp, none was returned, and the tool reported "every memory carries
-/// a stamp" over them.
-///
-/// In the library rather than the bin, so a test can reach it. That defect
-/// survived as long as it did because it lived in a `bin`.
+/// What a memory's frontmatter does not say about its provenance — both
+/// fields, `modified:` and `originSessionId`.
 pub fn missing(raw: &str) -> Missing {
     let front = raw.split("\n---").next().unwrap_or_default();
     Missing {
@@ -54,22 +33,14 @@ pub fn missing(raw: &str) -> Missing {
     }
 }
 
-/// A recovered `modified:`: the file's mtime, in the corpus's
-/// `2026-09-24T14:26:40.123Z` form.
-///
-/// Not the transcript's time, which is when a session first wrote the file and
-/// predates any later edit.
+/// A recovered `modified:`: the file's mtime — not the transcript's first write.
 pub fn modified_from_mtime(path: &std::path::Path) -> std::io::Result<String> {
     let mtime: chrono::DateTime<chrono::Utc> = std::fs::metadata(path)?.modified()?.into();
     Ok(mtime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
-/// What a diff says about stamps: which memories went stale, and which files could
-/// not be judged at all.
-///
-/// Two lists rather than one, because they call for different words from the caller —
-/// the first is the author's mistake, the second is this tool failing to do its job,
-/// and collapsing them would let the second pass as "nothing wrong".
+/// What a diff says about stamps: memories gone stale, and files that could not be
+/// judged — kept apart, or a failure reads as clean.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stale {
     /// Memories whose body moved while their `modified:` did not.
@@ -79,37 +50,10 @@ pub struct Stale {
     pub unread: Vec<String>,
 }
 
-/// Memories in this diff whose body changed but whose stamp did not, in the
-/// order they appear.
-///
-/// A file that is being ADDED is not reported: it has no previous stamp to
-/// advance, and a new memory carrying one is the ordinary case. A file being
-/// DELETED is not reported either — every line of it is a removal, the
-/// `modified:` line included, so its stamp counts as moved.
-///
-/// A file with no `modified:` at all is SKIPPED, not reported
-/// (memview#1319). `MEMORY.md` is the index, not a memory: it has no
-/// frontmatter by design, so it has no stamp to advance and never will. The
-/// index rule is "to add a line, take one out in the same edit", so nearly
-/// every memory written touches it — and this check fired on it at every single
-/// commit, a check that cannot go green on a file it is applied to. It has
-/// fired twice in one session: once falsely on `MEMORY.md`, once
-/// TRULY on a memory a python rewrite had skipped. Identical output, so the
-/// false one is what made the true one easy to wave through.
-///
-/// The predicate is "no stamp to move", NOT the name `MEMORY.md`. A name
-/// test misses the next index and breaks silently the day the file is renamed
-/// (`feedback_a_name_outlives_its_thing`). Absence of a stamp is the same
-/// predicate the corpus already uses to decide what IS a memory, and it makes
-/// the skip true by construction: there is nothing this rule could demand.
-/// Whether a memory SHOULD have a stamp stays `memory-lint`'s `missing-modified`
-/// — the division this module's own header draws.
-///
-/// `body` resolves a diff path to that file's text. It returns `Option`,
-/// and `None` is reported rather than skipped: "could not read it" and "it is
-/// not a memory" are the same silence, and treating an unreadable file as
-/// exempt is how this rule would go quiet everywhere at once if it were ever
-/// run from the wrong directory.
+/// Memories in this diff whose body changed but whose stamp did not, in order.
+/// Added and deleted files are not reported, nor files with no `modified:` at all
+/// — judged by the stamp's absence, never the name `MEMORY.md`. A file `body`
+/// cannot read is reported, not skipped.
 pub fn unstamped(diff: &str, body: impl Fn(&str) -> Option<String>) -> Stale {
     let mut out = Vec::new();
     let mut file: Option<String> = None;
@@ -150,9 +94,7 @@ pub fn unstamped(diff: &str, body: impl Fn(&str) -> Option<String>) -> Stale {
             added = true;
             continue;
         }
-        // The `+++`/`---` file headers begin with the same characters as
-        // content lines and must not be read as changes; `+++ b/x` would
-        // otherwise make every file in the diff look edited.
+        // `+++`/`---` file headers are not content lines.
         if line.starts_with("+++") || line.starts_with("---") || line.starts_with("@@") {
             continue;
         }

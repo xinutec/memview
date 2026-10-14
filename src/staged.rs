@@ -1,18 +1,8 @@
 //! Whose work is in the index, for a commit that is about to take all of it.
 //!
-//! `git add <explicit paths>` is not sufficient, and that is the whole point.
-//! `git commit` takes the entire INDEX, so another session staging between your add
-//! and your commit puts their work in your commit. Measured once: three files added
-//! by name, nine staged, hundreds of lines of another session's in-progress work
-//! about to ship under a message about something else.
-//!
-//! It WARNS and must never block. Two sessions legitimately edit the same file,
-//! and a hard refusal would wedge a shared repo. The failure being silent is the
-//! problem; naming it is the fix.
-//!
-//! No git here. A pre-commit hook exports `GIT_DIR` to every child, so a checker
-//! that shelled out would ask the committing repository about paths it was handed.
-//! Paths come in, findings come out.
+//! `git commit` takes the whole index, so another session's staged work rides in
+//! your commit. This warns, never blocks: two sessions may edit one file. No git
+//! here — a hook's `GIT_DIR` would misdirect it.
 
 /// A staged path whose last recorded writer is not the session committing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,19 +14,9 @@ pub struct Foreign {
     pub minute: i64,
 }
 
-/// Which of `staged` were last written by somebody other than `me`.
-///
-/// `staged` are repo-relative paths as git reports them; `repo` is that
-/// repository's ABSOLUTE path.
-///
-/// The artefact keys paths ABSOLUTELY. The first version of this joined
-/// `repo/path` and matched NOTHING against real data while five fixture tests
-/// passed, because the fixture agreed with the same wrong assumption. Check the
-/// format against the artefact, never against your own fixture.
-///
-/// Unknown is NOT foreign. A path with no recorded write — new, or written by a
-/// tool the reader cannot see — yields nothing. A warning that fires on every new
-/// file is one people learn to scroll past.
+/// Which of `staged` (repo-relative) were last written by somebody other than
+/// `me`. The artefact keys absolute paths. A path with no recorded write is not
+/// foreign.
 pub fn foreign(
     last: &crate::last_writer::LastWriter,
     repo: &str,
@@ -73,31 +53,11 @@ pub struct Shape {
     pub better_count: usize,
 }
 
-/// Whether an empty verdict should be believed, or is a path-shape mistake.
-///
-/// The difference between "nothing is foreign" and "nothing matched". Both make
-/// [`foreign`] return empty and only one is good news. `~/Code` is a symlink to an
-/// external volume here, so anything that resolves it — `pwd -P`, `realpath`, some
-/// `git rev-parse` spellings — yields `/Volumes/…/<repo>/…` while the record holds
-/// `~/Code/<repo>/…`.
-///
-/// Existence is NOT the test, and that was the first attempt. The record holds
-/// BOTH spellings for one repo, and a couple of stragglers make "does this prefix
-/// appear" answer yes for the spelling that matches almost nothing. So this compares
-/// the spellings and reports the lopsided ones, which needs no threshold.
-///
-/// The NAME cannot be the only way in (memview#1556). Candidates used to come
-/// solely from a `/<basename>/` needle, which finds the other spelling only when both
-/// end in the same segment. The corpus repository's two spellings are
-/// `/Volumes/Backup/claude` and `~/.claude` — `claude` against `.claude` — so the
-/// needle matched one entry and the guard stayed silent across a huge discrepancy.
-/// `staged` now supplies candidates too, by suffix, which consults no name at all.
-///
-/// A candidate must then be CONFIRMED, or a sibling repo gets reported. Suffix
-/// matching alone is too loose: `memview-web/src/lib.rs` makes `memview-web` look
-/// like a spelling of `memview`, and the caller then treats an unrelated directory
-/// as a misconfiguration and stops checking. Two routes confirm, and each is exact:
-/// the basenames agree, or the two paths CANONICALISE to one directory.
+/// Whether an empty verdict is to be believed, or the repo is recorded under
+/// another spelling (`~/Code` resolves to an external volume). Compares the
+/// spellings' match counts — mere existence is not the test, since stragglers
+/// exist. Candidates come by name and by the staged paths' suffix, and must be
+/// confirmed by basename or canonical path, or a sibling repo is reported.
 pub fn wrong_shape(
     last: &crate::last_writer::LastWriter,
     repo: &str,
@@ -119,10 +79,7 @@ pub fn wrong_shape(
         }
     }
 
-    // Route 2 — the paths actually being asked about, which name nothing.
-    //
-    // A HANDFUL of them, not all: this is identifying a prefix, and the twentieth
-    // staged path says nothing the first few did not.
+    // Route 2: a handful of the staged paths themselves.
     for path in staged.iter().take(SAMPLED) {
         let tail = format!("/{}", path.trim_start_matches('/'));
         for key in last.0.keys() {
@@ -147,13 +104,8 @@ pub fn wrong_shape(
 /// How many staged paths are enough to identify which spelling the record uses.
 const SAMPLED: usize = 8;
 
-/// Whether two paths name the same repository.
-///
-/// Canonicalising is the exact test and the basename is the fallback, not the
-/// other way round. A basename can agree between genuinely different repositories,
-/// and it can differ between two spellings of one (`claude` and `.claude`). It is
-/// kept because it is the only route available when the paths do not exist — which
-/// is every fixture, and also a record that outlived the directory it describes.
+/// Whether two paths name the same repository: canonically, or by basename when
+/// they no longer exist.
 fn same_repo(a: &str, b: &str) -> bool {
     if let (Ok(a), Ok(b)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         return a == b;
