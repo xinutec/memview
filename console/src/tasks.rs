@@ -1,19 +1,14 @@
 //! The work a conversation is holding, read from the tasks service.
 //!
-//! Not `~/.claude/tasks/`, which stays empty: the CLI re-sends that store's
-//! whole contents with every message.
-//!
-//! "This session's tasks" means the ones assigned to it, not the ones its prompt
-//! sees. And reading is not being: the service makes writers name the conversation
-//! they speak for, but this only reads, so it names itself — see [`IDENTITY`].
+//! A session's tasks are the ones assigned to it. The console only reads, so it
+//! names itself — [`IDENTITY`].
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-/// Where the service is. Overridable for a test, and the same variable the `task`
-/// CLI and the prompt hook read.
+/// Where the service is — the variable the `task` CLI reads too.
 fn service() -> String {
     std::env::var("TASKS_URL")
         .ok()
@@ -23,12 +18,10 @@ fn service() -> String {
         .to_string()
 }
 
-/// Who the console says it is. A constant, not a session id: the service's own
-/// record would otherwise show a session making requests while asleep.
+/// Who the console says it is — not a session, which may be asleep.
 const IDENTITY: &str = "agent-console";
 
-/// The shared secret, from the environment or the file — the two places the `task`
-/// CLI looks, in the same order. Never on argv.
+/// The shared secret, from where the `task` CLI looks. Never on argv.
 fn token() -> Option<String> {
     if let Ok(value) = std::env::var("TASKS_TOKEN")
         && !value.trim().is_empty()
@@ -72,8 +65,7 @@ impl crate::named::Named for Status {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Task {
-    /// The service's number, as a string: what a session calls a task in its prose
-    /// (`#418 done`) and what the sheet prints.
+    /// The service's number, as a string.
     #[serde(deserialize_with = "as_text")]
     pub id: String,
     pub subject: String,
@@ -82,27 +74,22 @@ pub struct Task {
     /// Whether there is prose behind it worth fetching.
     #[serde(default)]
     pub detailed: bool,
-    /// How urgent, in the service's own words — `P0` to `P4`. Absent on most rows,
-    /// and absence is not a sixth level: an unranked task sorts where `P2` does.
-    /// Nothing here sorts on it; `repo::list` is the service's only ordering. A string,
-    /// so a level invented later is news to draw, not a parse failure.
+    /// How urgent, `P0` to `P4`, as the service says it. A string, so a new level
+    /// draws rather than fails.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub priority: Option<String>,
-    /// The day it has to be done by, `YYYY-MM-DD`. Never sorted on: a deadline is
-    /// evidence for a priority, not a competing answer to what-next.
+    /// The day it has to be done by, `YYYY-MM-DD`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub due: Option<String>,
-    /// Whether that day has passed. Server-decided, from the database's clock, and not
-    /// recomputed from [`Self::due`] on a phone in another timezone.
+    /// Whether that day has passed, by the server's clock.
     #[serde(default)]
     pub overdue: bool,
     /// Which tasks this one is waiting for, by number. Absent when empty.
     #[serde(default, deserialize_with = "as_texts")]
     pub blocked_on: Vec<String>,
-    /// Whether it is actually still waiting. Server-decided, and not `blocked_on`
-    /// being non-empty: the link survives its blocker closing, as a record.
+    /// Whether it still waits — the link outlives a closed blocker.
     #[serde(default)]
     pub blocked: bool,
 }
@@ -126,15 +113,12 @@ fn as_text<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error
     })
 }
 
-/// How much a conversation is holding, for a row drawn without opening it. `total`
-/// is what is assigned now, not what ever was, so finishing work does not make the
-/// fraction worse.
+/// How much a conversation is holding now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct TaskCount {
-    /// Anything not done. The difference between the two kinds of open is what
-    /// the sheet is for.
+    /// Anything not done.
     pub open: usize,
     /// Open and finished together. Never smaller than [`Self::open`].
     pub total: usize,
@@ -143,8 +127,7 @@ pub struct TaskCount {
     pub stray: usize,
 }
 
-/// Somebody holding tasks who is not one of this console's conversations —
-/// the user, and the unassigned pile, which appears on no card otherwise.
+/// A holder that is not a conversation: the user, or the unassigned pile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -166,13 +149,8 @@ pub struct Sweep {
     pub elsewhere: Vec<Holder>,
 }
 
-/// What each conversation has left in `~/.claude/tasks/<session-id>/`, the CLI's
-/// built-in store. Every file there is re-sent to its session with every message,
-/// so any count here is cost: leftovers, or something still filing there.
-///
-/// Counts files rather than reading them; `.lock` and `.highwatermark` are the
-/// CLI's. Unreadable is nothing rather than an error: a console running anywhere
-/// but this Mac cannot see the old store.
+/// How many files each conversation has in the CLI's built-in task store, each
+/// re-sent with every message — pure cost.
 fn strays(store: &std::path::Path) -> BTreeMap<String, usize> {
     let Ok(sessions) = std::fs::read_dir(store) else {
         return BTreeMap::new();
@@ -203,15 +181,12 @@ struct HolderRow {
     total: i64,
 }
 
-/// The service, and the last answer it gave. The cache is what makes a per-poll
-/// read affordable: the front page polls every five seconds, the service is across
-/// the VPN, and a sleeping isis would stall the poll behind a timeout.
+/// The service, and its last answer, cached so a sleeping server cannot stall a poll.
 pub struct Tasks {
     http: reqwest::Client,
     base: String,
     token: Option<String>,
-    /// The built-in store to count leftovers in — see [`strays`]. A path rather than
-    /// `$HOME` read on the spot, so a test can point at a fixture.
+    /// The built-in store to count leftovers in — see [`strays`].
     store: std::path::PathBuf,
     held: tokio::sync::RwLock<Option<Kept>>,
 }
@@ -239,12 +214,9 @@ impl Tasks {
         Self::at(service())
     }
 
-    /// A reader pointed at one service. The address is an argument, not the
-    /// environment: parallel tests setting `TASKS_URL` would clobber each other's stub.
+    /// A reader pointed at one service, by argument so parallel tests do not clash.
     pub fn at(base: impl Into<String>) -> Self {
-        // Here and not only in `main`: building a TLS client with no process-wide crypto
-        // provider panics inside reqwest, and a test that builds a Roster has run no
-        // `main`. Idempotent.
+        // Also here, for tests that run no `main`.
         let _ = rustls::crypto::ring::default_provider().install_default();
         Self {
             http: reqwest::Client::builder()
@@ -274,15 +246,8 @@ impl Tasks {
         request.header("X-Session-Id", IDENTITY)
     }
 
-    /// Everybody holding something, and how much. One request for the whole page. A
-    /// conversation holding nothing is absent rather than zero, which is the rule the
-    /// client draws by.
-    ///
-    /// `/api/holders`, not `/api/sessions`: the tally is its own endpoint so the two
-    /// cannot drift, and it can answer for the person and the pile.
-    ///
-    /// Whatever goes wrong, the last known answer is served, and an empty one only
-    /// when there has never been one.
+    /// Everybody holding something, and how much, in one request. On failure, the
+    /// last known answer.
     pub async fn sweep(&self) -> Sweep {
         if let Some(kept) = self.held.read().await.as_ref()
             && kept.at.elapsed() < Self::TTL
@@ -298,8 +263,7 @@ impl Tasks {
                 swept
             }
             Err(failure) => {
-                // Debug: a console running through a reboot of isis would otherwise say this
-                // every thirty seconds.
+                // Debug: it would repeat through a reboot of isis.
                 tracing::debug!("the tasks service did not answer: {failure}");
                 self.held
                     .read()
@@ -319,8 +283,7 @@ impl Tasks {
             .error_for_status()?
             .json()
             .await?;
-        // Off the executor: a handful of `readdir`s is not quick on a cold cache, and
-        // this runs behind the front page's poll.
+        // Off the executor: behind the front page's poll.
         let store = self.store.clone();
         let mut left = tokio::task::spawn_blocking(move || strays(&store))
             .await
@@ -333,15 +296,13 @@ impl Tasks {
             match (row.kind.as_str(), row.id) {
                 ("session", Some(id)) => {
                     let stray = left.remove(&id).unwrap_or(0);
-                    // Nothing ever assigned, rather than nothing open: `0/n` is all done, and
-                    // no row at all is a different fact.
+                    // Nothing ever assigned: no row, unlike all done.
                     if total == 0 && stray == 0 {
                         continue;
                     }
                     swept.sessions.insert(id, TaskCount { open, total, stray });
                 }
-                // Person and pile keep the service's order, so `task sessions`, the app and this
-                // cannot disagree.
+                // The service's order.
                 _ if total > 0 => swept.elsewhere.push(Holder {
                     name: row.name.unwrap_or_else(|| row.kind.clone()),
                     open,
@@ -350,8 +311,7 @@ impl Tasks {
                 _ => {}
             }
         }
-        // Leftovers from a session the service has never heard of: no holder row by
-        // definition, so a loop over holders alone cannot find it.
+        // Leftovers from sessions the service has never heard of.
         for (id, stray) in left {
             swept.sessions.insert(
                 id,
@@ -365,8 +325,7 @@ impl Tasks {
         Ok(swept)
     }
 
-    /// One conversation's tasks, oldest first, without their prose. The list and a
-    /// task's words are two requests: bodies run to kilobytes each.
+    /// One conversation's tasks, oldest first, without their prose.
     pub async fn listed(&self, session: &str) -> Vec<Task> {
         let asked = self
             .asking("/api/tasks")
@@ -386,8 +345,7 @@ impl Tasks {
         }
     }
 
-    /// One task's prose, fetched when a row is opened. `None` rather than an empty
-    /// string, so the sheet can tell "nothing written" from "not fetched yet".
+    /// One task's prose; `None` when nothing is written.
     pub async fn detail(&self, id: &str) -> Option<String> {
         #[derive(Deserialize)]
         struct Body {

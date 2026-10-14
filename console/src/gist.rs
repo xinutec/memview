@@ -1,13 +1,5 @@
-//! One sentence about what each conversation is currently about, since a name
-//! and a warmth say nothing about what it is for.
-//!
-//! This is inference — Haiku guessing from a few thousand characters — and the
-//! client marks it as such, with the moment it was written.
-//!
-//! Only when there is something new to read: each sentence is kept against the
-//! byte length of the transcript it came from. A file, because the console
-//! restarts whenever it is upgraded. Dropped when the conversation is — see
-//! [`Gists::forget`].
+//! One sentence about what each conversation is about, guessed by Haiku and marked
+//! as a guess. Rewritten only when the transcript has grown; kept in a file.
 
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -24,34 +16,26 @@ use tokio::io::AsyncWriteExt;
 pub struct Gist {
     /// One sentence, as the model returned it.
     pub text: String,
-    /// A few words for the same conversation, offered when somebody renames it and
-    /// never applied on its own. Optional for ever: older gists lack one, a model may
-    /// answer with a single line, and [`answer`] refuses a name that looks like a
-    /// second sentence.
+    /// A few words offered as a name when renaming, never applied on their own.
     #[serde(default)]
     pub name: Option<String>,
-    /// When it was written, in epoch milliseconds — so a client can say how old
-    /// the sentence is rather than implying it is current.
+    /// When it was written, in epoch milliseconds.
     pub at: i64,
-    /// How long the transcript was when it was written. The whole of the
-    /// freshness test: a file that has not grown has nothing new to say.
+    /// The transcript's length when it was written — the freshness test.
     #[serde(default)]
     pub bytes: u64,
 }
 
-/// The model that writes them: the cheapest, since this rides the sessions' own
-/// allowance. Named in full so a change of model is a change to this line.
+/// The model that writes them: the cheapest, on the sessions' allowance.
 const MODEL: &str = "claude-haiku-4-5-20251001";
 
 /// How many exchanges from the end to show it.
 const RECENT: usize = 20;
 
-/// How long one summary may take. Generous, because the failure this guards is a
-/// process that never returns.
+/// How long one summary may take, against a process that never returns.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(90);
 
-/// How many summaries one sweep will pay for — the rest wait for the next sweep,
-/// and it caps what a transcript that always looks changed can spend.
+/// How many summaries one sweep will pay for.
 const PER_SWEEP: usize = 8;
 
 /// The sentences, and the file they are kept in.
@@ -61,11 +45,9 @@ pub struct Gists {
 }
 
 impl Gists {
-    /// Read whatever the last run wrote. An unreadable or absent file is an empty set:
-    /// the worst case is paying for the sentences again.
+    /// Read whatever the last run wrote; unreadable is empty.
     pub fn load(store: PathBuf) -> Self {
-        // Said out loud: the console is about to pay for sentences it already had, and
-        // the list looks the same either way.
+        // Logged: the sentences will be paid for again.
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str(&text) {
                 Ok(held) => held,
@@ -77,7 +59,7 @@ impl Gists {
                     BTreeMap::new()
                 }
             },
-            // No file at all is the ordinary first run, and says nothing.
+            // No file: the first run.
             Err(_) => BTreeMap::new(),
         };
         Self {
@@ -100,14 +82,7 @@ impl Gists {
         self.write(&all);
     }
 
-    /// Drop the sentences whose conversations are no longer there; nothing else ever
-    /// removes one.
-    ///
-    /// An empty list is not an answer: [`crate::past::conversations`] is empty both
-    /// when there are no conversations and when it could not read the directory, and
-    /// the true empty case has nothing to forget anyway. That walk hides
-    /// conversations run from a temporary directory, and [`Self::sweep`] never writes
-    /// for those either, so the two halves agree.
+    /// Drop the sentences of conversations no longer there; an empty list drops nothing.
     pub fn forget(&self, alive: &std::collections::BTreeSet<String>) {
         if alive.is_empty() {
             return;
@@ -128,8 +103,7 @@ impl Gists {
         self.write(&all);
     }
 
-    /// Written whole each time: a few kilobytes, one line per conversation, and a
-    /// rewrite cannot leave a half-updated entry.
+    /// Written whole each time.
     fn write(&self, all: &BTreeMap<String, Gist>) {
         if let Ok(text) = serde_json::to_string_pretty(all)
             && let Some(dir) = self.store.parent()
@@ -147,12 +121,8 @@ impl Gists {
             .is_some_and(|gist| gist.bytes == bytes)
     }
 
-    /// Write a sentence for every conversation that has moved since its last one,
-    /// newest first and no more than [`PER_SWEEP`] of them.
-    ///
-    /// Sequential: these are model calls against the same allowance the sessions use.
-    /// The walk is taken once for both halves — forgetting and writing — since the
-    /// loop stops after [`PER_SWEEP`] and has no opinion about what it never reached.
+    /// Write a sentence for each conversation that has moved, newest first, at most
+    /// [`PER_SWEEP`], one at a time.
     pub async fn sweep(&self, binary: &str, root: &Path) {
         let conversations = crate::past::conversations(root);
         self.forget(&conversations.iter().map(|c| c.id.clone()).collect());
@@ -183,15 +153,14 @@ impl Gists {
                         bytes: conversation.bytes,
                     },
                 ),
-                // Not recorded: a failed call must not mark the conversation as summarised.
+                // A failure must not count as summarised.
                 None => tracing::warn!("gists: nothing came back for {}", conversation.id),
             }
         }
     }
 }
 
-/// What Haiku is asked. The shape of the answer is most of the prompt: asked
-/// plainly, a model returns a paragraph with a preamble.
+/// What Haiku is asked; mostly the shape of the answer.
 fn prompt(material: &crate::past::Material) -> String {
     let mut text = String::from(
         "Below is part of a conversation between a person and a coding agent, \
@@ -219,23 +188,16 @@ fn prompt(material: &crate::past::Material) -> String {
     text
 }
 
-/// Put the question to a one-shot session, take its answer, and leave nothing
-/// behind.
-///
-/// Every call is a conversation, and a conversation is a file that outlives it —
-/// filed under `~/.claude/projects/` and hidden from the list. So the id is named
-/// here and the file removed the moment the answer is in hand — see [`discard`].
+/// Ask a one-shot session and remove the transcript it leaves — [`discard`].
 async fn ask(binary: &str, prompt: &str) -> Option<(String, Option<String>)> {
     let named = uuid::Uuid::new_v4().to_string();
     let said = call(binary, prompt, &named).await;
-    // Before the answer is examined and on the failing paths too: a call that timed
-    // out has left the same file as one that worked.
+    // On every path: a timed-out call leaves the file too.
     discard(&crate::past::projects_root(), &named);
     answer(&said?)
 }
 
-/// The call itself. The prompt goes on stdin, not the argument list: it is a few
-/// thousand characters of somebody's transcript.
+/// The call itself, with the prompt on stdin, not argv.
 async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
     let mut child = tokio::process::Command::new(binary)
         .current_dir(std::env::temp_dir())
@@ -248,27 +210,23 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
         .kill_on_drop(true)
         .spawn()
         .ok()?;
-    // Logged at the spawn, so a `<defunct>` under the console can be traced to a
-    // spawn site. `unwrap_or(0)` rather than `{:?}`: read beside what `ps` prints.
+    // Logged, so a `<defunct>` can be traced to its spawn.
     tracing::info!(
         "gists: asking pid {} about {named}",
         child.id().unwrap_or(0)
     );
-    // Every `?` here must still end in a wait: `kill_on_drop` cannot kill a child
-    // that has already exited, so its `<defunct>` would stay.
+    // Every path must end in a wait, or an exited child stays `<defunct>`.
     let sent = async {
         let mut stdin = child.stdin.take()?;
         stdin.write_all(prompt.as_bytes()).await.ok()?;
         stdin.flush().await.ok()?;
-        // Closed, because `-p` reads until end of file and would otherwise wait
-        // for the rest of a prompt that has already been sent in full.
+        // Closed: `-p` reads to end of file.
         drop(stdin);
         Some(())
     }
     .await;
     if sent.is_none() {
-        // Reaped rather than leaked. The answer is lost either way; the process
-        // table entry need not be.
+        // Reaped, not leaked.
         let _ = child.wait().await;
         return None;
     }
@@ -279,38 +237,29 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Remove the transcript one of these calls left behind. Found by id rather than
-/// by working out the path: the folder under `projects/` is named by an
-/// undocumented encoding, and [`crate::past::transcript_of`] already answers this.
-/// Silent when there is nothing to remove.
+/// Remove the transcript one of these calls left, found by id.
 pub fn discard(root: &Path, id: &str) {
     let Some(path) = crate::past::transcript_of(root, id) else {
         return;
     };
     if let Err(why) = std::fs::remove_file(&path) {
-        // Debug, not warn: the sentence was written either way, and this would otherwise
-        // repeat every quarter of an hour for ever.
+        // Debug: it would repeat every sweep.
         tracing::debug!("gists: {} would not go ({why})", path.display());
     }
 }
 
-/// The one line of what came back that is the answer: a model asked for a
-/// sentence sometimes adds a blank line, a preamble or a wrapper.
+/// The line of what came back that is the answer.
 pub fn sentence(said: &str) -> Option<String> {
     tidy(said.lines().map(str::trim).find(|line| !line.is_empty())?)
 }
 
-/// The longest a suggested name may be. A little over the thirty the prompt asks
-/// for: a model that overshoots by a word has still answered, one that returns a
-/// second sentence has not.
+/// The longest a suggested name may be — a little over what the prompt asks.
 const NAME_AT_MOST: usize = 40;
 
-/// The most words a name may be, for the same reason.
+/// The most words a name may be.
 const NAME_WORDS_AT_MOST: usize = 6;
 
-/// Both lines of an answer: the sentence, and the name if there is one. A name
-/// that does not look like one is refused rather than trimmed — a plausible
-/// half-sentence offered as a suggestion reads as considered.
+/// Both lines of an answer: the sentence, and the name if it looks like one.
 pub fn answer(said: &str) -> Option<(String, Option<String>)> {
     let mut lines = said.lines().map(str::trim).filter(|line| !line.is_empty());
     let text = tidy(lines.next()?)?;
@@ -325,9 +274,7 @@ pub fn answer(said: &str) -> Option<(String, Option<String>)> {
 fn tidy(line: &str) -> Option<String> {
     // Models return quotes despite being asked not to.
     let line = line.trim_matches(|c| c == '"' || c == '\'').trim();
-    // And the marks: the card draws this as plain text, where they would show as
-    // punctuation.
-    // Backticks and asterisks only: an underscore is likelier part of a name.
+    // Backticks and asterisks; an underscore is likelier part of a name.
     let line: String = line.chars().filter(|c| *c != '`' && *c != '*').collect();
     let line = line.trim();
     (!line.is_empty()).then(|| line.to_string())

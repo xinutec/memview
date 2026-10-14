@@ -1,19 +1,11 @@
 //! What a `Bash` call will change in the files it writes, as the reader predicts
 //! it — and, once it has run, whether it did.
 //!
-//! The IO edges of [`reader::predict`]. A `PreToolUse` hook hands every command to
-//! [`Edits::before`]: the files the prediction depends on are read and passed in,
-//! and what comes back is drawn at once as hunks. The `PostToolUse` hook calls
-//! [`Edits::finished`], which reads the predicted files again and asks
-//! [`reader::predict::check`] whether they hold what was predicted — or, for a
-//! call sent to the background, leaves that to [`Edits::ended`]. A divergence
-//! is a defect in the evaluator, kept in full so it can become a test — see
-//! `docs/evaluator.md`, "The live oracle". A file predicted
-//! only on the condition that an unknown program left it alone is checked the
-//! same way, but its divergence is kept apart: either may be wrong. Every file
-//! checked, and every prediction never checked, leaves an outcome row.
-//!
-//! Nothing here runs the command or writes a file it names.
+//! The IO edges of [`reader::predict`]: [`Edits::before`] predicts from the
+//! `PreToolUse` hook, [`Edits::finished`] (or [`Edits::ended`] for background
+//! work) checks the files afterwards. A divergence is an evaluator defect, kept
+//! whole to become a test — `docs/evaluator.md`, "The live oracle". Nothing here
+//! runs the command or writes a file it names.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -55,9 +47,8 @@ pub struct Alternative {
     pub of: usize,
 }
 
-/// The unknown programs a conditional prediction assumes did not touch its
-/// file: those run before its last write, which may have changed what the
-/// write read, and those run after it.
+/// The unknown programs a conditional prediction assumes left its file alone,
+/// before its last write and after it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -102,9 +93,8 @@ pub struct Record {
     pub diverged: Vec<Diverged>,
 }
 
-/// A call whose files did not end up as predicted: the finding, in full. It
-/// carries what the evaluator was given, so `predict-report --live` can make the
-/// prediction again under a later evaluator and say whether it still diverges.
+/// A call whose files did not end up as predicted, with what the evaluator was
+/// given, so `predict-report --live` can predict it again later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
     pub session: String,
@@ -125,8 +115,7 @@ pub struct Finding {
     pub alternatives: Vec<Option<String>>,
 }
 
-/// A conditional prediction that diverged: the finding, and what it assumed.
-/// Not a finding yet — the program assumed harmless may have made the change.
+/// A conditional prediction that diverged — the assumed-harmless program may be why.
 #[derive(Serialize)]
 struct Doubted<'a> {
     #[serde(flatten)]
@@ -134,10 +123,8 @@ struct Doubted<'a> {
     assumed: &'a Assumed,
 }
 
-/// What became of one predicted file: `agreed`, `diverged`, or `unchecked`
-/// with why. Kept for good: what a file held after its call cannot be looked
-/// at again, and the rate of each is how the evaluator and its assumptions are
-/// judged.
+/// What became of one predicted file: `agreed`, `diverged`, or `unchecked` with
+/// why. Kept for good: the rates judge the evaluator.
 #[derive(Serialize)]
 struct Outcome<'a> {
     at: String,
@@ -170,15 +157,13 @@ pub fn edits_root() -> PathBuf {
         .join("edits")
 }
 
-/// What a live call's prediction did not follow, by the census's names, with
-/// what the evaluator was given: `predict-report --live` predicts again under the
-/// current evaluator rather than counting names an older one wrote.
+/// What a live call's prediction did not follow, with what the evaluator was
+/// given, for `predict-report --live` to predict again.
 #[derive(Serialize)]
 struct Refused {
     session: String,
     call: String,
-    /// When, so the rows can be pruned: a refusal is recomputable from the
-    /// transcript and only recent ones rank.
+    /// When, for pruning.
     at: String,
     command: String,
     cwd: String,
@@ -203,17 +188,14 @@ struct Pending {
     conditional: Vec<Conditional>,
     alternatives: Vec<Alternatives>,
     since: std::time::Instant,
-    /// For a backgrounded call, its files when it was sent to the background: a
-    /// later edit can change them before its task ends.
+    /// A backgrounded call's files when it was backgrounded.
     early: Option<Files>,
 }
 
-/// How long a prediction waits for its call to end. A backgrounded call in a
-/// session the console does not run never reports its end here.
+/// How long a prediction waits for its call to end.
 const HELD: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
-/// How long a refusal row is kept. Nothing in it is golden: the command is in
-/// the transcript, and the ranking wants recent traffic.
+/// How long a refusal row is kept; the transcript has the rest.
 const REFUSALS_KEPT: time::Duration = time::Duration::days(30);
 
 /// How often the refusal rows are pruned, at most.
@@ -236,10 +218,8 @@ impl Edits {
         }
     }
 
-    /// Keep a refusal row, then drop rows older than [`REFUSALS_KEPT`] and any
-    /// without a date, at most once per [`PRUNE_EVERY`]. Under one lock: the
-    /// hook runs on a blocking pool, and a row appended while another thread
-    /// rewrites the file would be lost.
+    /// Keep a refusal row and prune old ones, under one lock: the hook runs on a
+    /// thread pool.
     fn keep_refusal(&self, refused: &Refused) -> std::io::Result<()> {
         let mut pruned = self.pruned.lock();
         let file = self.root.join("refused.jsonl");
@@ -378,9 +358,8 @@ impl Edits {
         Some(edited)
     }
 
-    /// The call's hook says it is done. A call sent to the background has only
-    /// started, so its check waits for [`Self::ended`], with a first look at its
-    /// files kept for then; any other is checked now.
+    /// The call's hook says it is done: checked now, or at [`Self::ended`] for a
+    /// backgrounded call.
     pub fn finished(&self, call: &str, response: &serde_json::Value) -> Option<(String, Diverged)> {
         if response
             .get("backgroundTaskId")
@@ -391,9 +370,7 @@ impl Edits {
             }
             return None;
         }
-        // A script that raised did not do what its text says, though the shell's
-        // exit code can hide that behind a later command (`python3 … ; grep …`).
-        // The interpreter's own marker is read where it puts it, at a line start.
+        // A script that raised did not do what it says, whatever the exit code.
         if raised(response) {
             if let Some(pending) = self.pending.lock().remove(call) {
                 self.unchecked(call, &pending, "raised");
@@ -403,8 +380,7 @@ impl Edits {
         self.check(call)
     }
 
-    /// A backgrounded call's task ended. One that did not complete did not do
-    /// what its text says, so its prediction is dropped unchecked.
+    /// A backgrounded call's task ended; an incomplete one is not checked.
     pub fn ended(
         &self,
         call: &str,
@@ -428,8 +404,7 @@ impl Edits {
         let all = pending.all();
         let seen = look(&pending.paths());
         let mut diverged = check(&all, &seen);
-        // Either look holding the prediction agrees: a later edit may have
-        // overtaken the first.
+        // Either look agreeing will do: a later edit may overtake the first.
         if let Some(early) = &pending.early {
             let first = check(&all, early);
             diverged.retain(|late| first.iter().any(|d| d.path == late.path));
@@ -639,9 +614,7 @@ fn lines<T: serde::de::DeserializeOwned>(file: &Path) -> Vec<T> {
         .collect()
 }
 
-/// Sight from this disk, asked for as the evaluator reaches each file, keeping
-/// what it showed: a finding or a refusal carries it, so the prediction can be
-/// made again. Reads only — see `docs/evaluator.md`, "Sight".
+/// Sight from this disk, recording what it showed for a later replay. Reads only.
 #[derive(Default)]
 struct Seen {
     files: std::cell::RefCell<Files>,
@@ -669,10 +642,8 @@ impl Sight for Seen {
 /// The most text [`named_files`] keeps beside what the evaluator asked for.
 const NAMED_KEPT: usize = 4 * 1024 * 1024;
 
-/// Every file the command names, as the reconstruction reads it, added as it
-/// is before the call to what the evaluator was shown: a later evaluator that
-/// reaches further is replayed on them, rather than finding them unread. Kept
-/// up to [`NAMED_KEPT`]; reads only.
+/// Every file the command names, as it was before the call, kept for a later
+/// evaluator that reaches further. Reads only.
 fn named_files(command: &str, cwd: &str, home: &str, files: &mut Files) {
     let Ok(parsed) = reader::project::read(command) else {
         return;
@@ -698,8 +669,7 @@ fn named_files(command: &str, cwd: &str, home: &str, files: &mut Files) {
 /// Larger directories are not listed: a hook waits on this.
 const LARGEST_DIR: usize = 10_000;
 
-/// A directory's names: `Some(None)` when it does not exist, `None` when it
-/// cannot be listed here — not a directory, too large, or a name not UTF-8.
+/// A directory's names: `Some(None)` when absent, `None` when unlistable here.
 fn list(path: &Path) -> Option<Option<Vec<String>>> {
     let entries = match std::fs::read_dir(path) {
         Err(why) if why.kind() == std::io::ErrorKind::NotFound => return Some(None),
@@ -727,8 +697,7 @@ fn raised(response: &serde_json::Value) -> bool {
     })
 }
 
-/// A file's text: `Some(None)` when it does not exist, `None` when it cannot be
-/// read here — too large, not text, or not a regular file.
+/// A file's text: `Some(None)` when absent, `None` when unreadable here.
 fn read(path: &Path) -> Option<Option<String>> {
     match std::fs::metadata(path) {
         Err(why) if why.kind() == std::io::ErrorKind::NotFound => Some(None),

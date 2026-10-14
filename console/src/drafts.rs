@@ -1,18 +1,8 @@
 //! What has been written and not sent, per conversation, shared between devices.
 //!
-//! A draft is a record, not an instruction: it acts on nothing until a person
-//! presses send, so it can be replicated freely.
-//!
-//! The runner holds it because both clients talk to this process. One way in,
-//! `/api/sync/drafts`, in the shape life uses: two mechanisms writing one map is
-//! how drafts diverge silently.
-//!
-//! A draft is a [`yrs`] document and a push is an update, which merges, so there
-//! is no conflict to resolve. Two devices typing produce one text; the usual
-//! disagreement is one device a few keystrokes behind the other.
-//!
-//! Text only. A picture is hundreds of kilobytes and there is no meaningful way
-//! to combine two; it stays in the client's own storage.
+//! A draft is a [`yrs`] document and a push an update, which merges: there is no
+//! conflict to resolve. One way in, `/api/sync/drafts`, in life's shape. Text only;
+//! a picture stays in the client.
 
 use base64::Engine;
 use parking_lot::RwLock;
@@ -23,44 +13,32 @@ use serde::{Deserialize, Serialize};
 use yrs::updates::decoder::Decode;
 use yrs::{GetString, ReadTxn, Text, Transact};
 
-/// The name of the shared text inside a draft's document. Both ends must agree on
-/// it or each would read an empty string out of the other's writes.
+/// The name of the shared text inside a draft's document; both ends must agree.
 pub const TEXT: &str = "text";
 
-/// One conversation's unsent words, as the roster reports them.
-///
-/// A view of the document, not the document: what the session list draws is the
-/// sentence, and handing it the encoded state would put a CRDT somewhere that
-/// only wants a string.
+/// One conversation's unsent words, as the roster reports them — the text, not the
+/// document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Draft {
     /// What is being typed, read out of the merged document.
     pub text: String,
-    /// Bumped on every merge, and used for one thing: ordering a pull. It counts
-    /// across the whole store, not per conversation — see [`Drafts::merge`].
+    /// The store-wide revision, for ordering a pull — see [`Drafts::merge`].
     pub rev: u64,
     /// Unix milliseconds of the last merge that changed the text.
     pub at: u64,
 }
 
-/// One draft on the wire: the merged document, and the text it reads as.
-///
-/// `ulid` is the session id — a draft is one per conversation, and the
-/// conversation already has a stable identity.
+/// One draft on the wire: the merged document and its text. `ulid` is the session id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct DraftDoc {
     pub ulid: String,
-    /// The whole document state, base64. Applying it is idempotent and
-    /// order-independent, which is the whole reason this design has no conflicts: a
-    /// client that applies it twice, or applies it after its own newer edit,
-    /// converges either way.
+    /// The whole document state, base64 — idempotent and order-independent to apply.
     pub update: String,
-    /// What [`Self::update`] reads as, for anything that wants the sentence rather
-    /// than the document. Never read as input — the document is the truth.
+    /// What [`Self::update`] reads as. Never input.
     #[serde(default)]
     pub text: String,
     pub at: u64,
@@ -86,11 +64,7 @@ pub struct Checkpoint {
     pub rev: u64,
 }
 
-/// One change from a client: an update to merge into whatever is held.
-///
-/// No assumed state, and nothing to refuse. An update carries its own
-/// causal context, so the runner never has to be told what the client thought was
-/// here.
+/// One change from a client: an update carrying its own causal context.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -104,17 +78,14 @@ pub struct PushEntry {
 /// One conversation's document, as it is kept.
 #[derive(Debug, Clone)]
 struct Held {
-    /// The merged state, encoded. Kept encoded rather than as a live document
-    /// because that is what goes to disk and to clients, and decoding per write
-    /// costs nothing at a draft's size.
+    /// The merged state, encoded as disk and clients take it.
     state: Vec<u8>,
     text: String,
     rev: u64,
     at: u64,
 }
 
-/// What is written to disk: [`Held`] with the state in base64, so the file stays
-/// readable text like every other the console keeps.
+/// What is written to disk: [`Held`] with the state in base64.
 #[derive(Debug, Serialize, Deserialize)]
 struct Stored {
     update: String,
@@ -129,12 +100,8 @@ pub struct Drafts {
     held: RwLock<BTreeMap<String, Held>>,
 }
 
-/// The document an encoded update reads as, or `None` if it is not one.
-///
-/// A bad update is dropped, never fatal. It arrives over the wire from a
-/// client that may be older than this binary, and refusing to start — or
-/// poisoning the store — would turn one malformed push into an outage for every
-/// conversation.
+/// The document an encoded update reads as, or `None`: a bad push is dropped,
+/// never fatal.
 fn decoded(update: &[u8]) -> Option<yrs::Doc> {
     let doc = yrs::Doc::new();
     let update = yrs::Update::decode_v1(update).ok()?;
@@ -159,14 +126,12 @@ fn to_base64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// Bytes out of base64, or `None` — the same tolerance as [`decoded`], for the
-/// same reason.
+/// Bytes out of base64, or `None`.
 pub fn from_base64(text: &str) -> Option<Vec<u8>> {
     base64::engine::general_purpose::STANDARD.decode(text).ok()
 }
 
-/// A document holding `text`, encoded — for a caller that has words rather than a
-/// document, which is every test and nothing in production.
+/// A document holding `text`, encoded — for tests.
 pub fn document_of(text: &str) -> Vec<u8> {
     let doc = yrs::Doc::new();
     let shared = doc.get_or_insert_text(TEXT);
@@ -178,17 +143,14 @@ pub fn document_of(text: &str) -> Vec<u8> {
 }
 
 impl Drafts {
-    /// Read what the last run wrote. An unreadable file is an empty set and a loud
-    /// line, as in [`crate::modes::Modes::load`]: the cost is a draft missing from the
-    /// other device, which still holds its own copy.
+    /// Read what the last run wrote; unreadable is empty, and logged.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str::<BTreeMap<String, Stored>>(&text) {
                 Ok(held) => held
                     .into_iter()
                     .filter_map(|(id, one)| {
-                        // A row that will not decode is dropped rather than kept as an empty
-                        // draft, which would look like somebody had cleared it.
+                        // Dropped, not kept empty, which would read as cleared.
                         let state = from_base64(&one.update)?;
                         let text = reads_as(&decoded(&state)?);
                         Some((
@@ -223,8 +185,7 @@ impl Drafts {
         self.held.read().get(id).map(Held::seen)
     }
 
-    /// Every draft, for the roster — a client that has just connected learns which
-    /// conversations hold unsent words without asking per session.
+    /// Every draft, for the roster.
     pub fn all(&self) -> BTreeMap<String, Draft> {
         self.held
             .read()
@@ -233,14 +194,8 @@ impl Drafts {
             .collect()
     }
 
-    /// Merge a device's document into what is held, and answer with the result.
-    ///
-    /// This cannot fail on a disagreement, and that is the point. Two updates
-    /// written without knowledge of each other merge into one document holding both
-    /// edits, and applying the same update twice changes nothing. There is no state a
-    /// caller can be in that this has to refuse.
-    ///
-    /// `None` only when the bytes are not a document at all.
+    /// Merge a device's document into what is held and answer with the result —
+    /// never refused; `None` only for bytes that are not a document.
     pub fn merge(&self, id: &str, update: &[u8], at: u64) -> Option<Draft> {
         let update = yrs::Update::decode_v1(update).ok()?;
         let (one, all) = {
@@ -251,12 +206,9 @@ impl Drafts {
             };
             doc.transact_mut().apply_update(update).ok()?;
             let text = reads_as(&doc);
-            // One counter for the whole store: the pull cursor is one number across the
-            // collection, so a per-document counter would leave a fresh conversation at
-            // rev 1 behind a client already at 3, never synced.
+            // Store-wide: the pull cursor is one number across all drafts.
             let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
-            // A merge that changed no character does not move the clock the list dates a
-            // draft by: a device can contribute history without anybody having typed.
+            // Only a changed text moves the draft's date.
             let at = match held.get(id) {
                 Some(was) if was.text == text => was.at,
                 _ => at,
@@ -274,8 +226,7 @@ impl Drafts {
         Some(one.seen())
     }
 
-    /// Drop the drafts of conversations no longer on disk. An empty `alive` is a
-    /// sweep that found nothing, not evidence that everything has gone.
+    /// Drop the drafts of conversations no longer on disk; an empty `alive` drops nothing.
     pub fn forget(&self, alive: &std::collections::BTreeSet<String>) {
         if alive.is_empty() {
             return;
@@ -296,8 +247,7 @@ impl Drafts {
         self.write(&all);
     }
 
-    /// Every draft past `since`, oldest revision first, with the new checkpoint. Not
-    /// paged: a sentence per conversation cannot outgrow one response.
+    /// Every draft past `since`, oldest revision first, with the new checkpoint.
     pub fn pull(&self, since: u64) -> PullResponse {
         let held = self.held.read();
         let mut documents: Vec<DraftDoc> = held
@@ -313,10 +263,7 @@ impl Drafts {
         }
     }
 
-    /// Merge everything a client sent, and answer with the merged documents.
-    ///
-    /// Always the merged state, never a refusal. The client applies what comes
-    /// back and is then level with the runner.
+    /// Merge everything a client sent and answer with the merged documents.
     pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {
         entries
             .into_iter()
@@ -337,8 +284,7 @@ impl Drafts {
             .collect()
     }
 
-    /// Written whole each time — a short line per conversation, and a rewrite cannot
-    /// leave a half-updated entry.
+    /// Written whole each time.
     fn write(&self, all: &BTreeMap<String, Held>) {
         let stored: BTreeMap<&String, Stored> = all
             .iter()

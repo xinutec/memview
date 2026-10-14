@@ -6,8 +6,7 @@ import type { Status } from "./Status";
  */
 export type Task = { 
 /**
- * The service's number, as a string: what a session calls a task in its prose
- * (`#418 done`) and what the sheet prints.
+ * The service's number, as a string.
  */
 id: string, subject: string, status: Status, 
 /**
@@ -15,20 +14,16 @@ id: string, subject: string, status: Status,
  */
 detailed: boolean, 
 /**
- * How urgent, in the service's own words — `P0` to `P4`. Absent on most rows,
- * and absence is not a sixth level: an unranked task sorts where `P2` does.
- * Nothing here sorts on it; `repo::list` is the service's only ordering. A string,
- * so a level invented later is news to draw, not a parse failure.
+ * How urgent, `P0` to `P4`, as the service says it. A string, so a new level
+ * draws rather than fails.
  */
 priority?: string, 
 /**
- * The day it has to be done by, `YYYY-MM-DD`. Never sorted on: a deadline is
- * evidence for a priority, not a competing answer to what-next.
+ * The day it has to be done by, `YYYY-MM-DD`.
  */
 due?: string, 
 /**
- * Whether that day has passed. Server-decided, from the database's clock, and not
- * recomputed from [`Self::due`] on a phone in another timezone.
+ * Whether that day has passed, by the server's clock.
  */
 overdue: boolean, 
 /**
@@ -36,7 +31,6 @@ overdue: boolean,
  */
 blocked_on: Array<string>, 
 /**
- * Whether it is actually still waiting. Server-decided, and not `blocked_on`
- * being non-empty: the link survives its blocker closing, as a record.
+ * Whether it still waits — the link outlives a closed blocker.
  */
 blocked: boolean, };

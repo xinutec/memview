@@ -9,19 +9,14 @@ export type Gist = {
  */
 text: string, 
 /**
- * A few words for the same conversation, offered when somebody renames it and
- * never applied on its own. Optional for ever: older gists lack one, a model may
- * answer with a single line, and [`answer`] refuses a name that looks like a
- * second sentence.
+ * A few words offered as a name when renaming, never applied on their own.
  */
 name: string | null, 
 /**
- * When it was written, in epoch milliseconds — so a client can say how old
- * the sentence is rather than implying it is current.
+ * When it was written, in epoch milliseconds.
  */
 at: number, 
 /**
- * How long the transcript was when it was written. The whole of the
- * freshness test: a file that has not grown has nothing new to say.
+ * The transcript's length when it was written — the freshness test.
  */
 bytes: number, };
