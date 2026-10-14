@@ -1,9 +1,6 @@
 //! The landmarks of each transcript, walked once and then only extended.
 //!
-//! The walk is the wait, not the payload, so only an incremental walk moves it.
-//! Append-only is what makes the cache correct — [`crate::past::counted`] already
-//! trusts everything before a stored offset — and a file that shrank (compaction
-//! rewrites history) is re-walked, not extended.
+//! Correct because transcripts are append-only; a file that shrank is re-walked.
 
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -30,24 +27,17 @@ impl Marks {
         Self::default()
     }
 
-    /// Every landmark in this transcript, walking only what has arrived since last time.
-    ///
-    /// Blocking, and it must stay off the executor: the first call pays the whole walk,
-    /// seconds on a large file. The lock is not held across it — two requests for the
-    /// same conversation both walk and the later answer wins, rather than every other
-    /// sheet queueing behind this one.
+    /// Every landmark in this transcript, walking only what is new. Blocking — keep it
+    /// off the executor. The lock is not held across the walk.
     pub fn of(&self, id: &str, path: &Path) -> Vec<Landmark> {
         let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         let known = self.held.read().get(id).cloned().unwrap_or_default();
 
-        // Nothing complete has arrived since the last walk. `through` is where the walk
-        // stopped, so a half-written tail line is re-read until it is finished — bounded
-        // by one line.
+        // Nothing complete has arrived since the last walk.
         if len == known.through {
             return known.found;
         }
-        // The file went backwards, so every offset kept here may name a byte in
-        // a different line. Start again rather than splice two histories.
+        // The file shrank: start again.
         let from = if len < known.through {
             0
         } else {
@@ -75,8 +65,7 @@ impl Marks {
         found
     }
 
-    /// Forget a conversation this console no longer holds; otherwise the map only
-    /// grows, a Vec per conversation.
+    /// Forget a conversation this console no longer holds.
     pub fn forget(&self, id: &str) {
         self.held.write().remove(id);
     }

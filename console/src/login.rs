@@ -1,9 +1,6 @@
-//! Signing the account in again from the phone. Every session shares one login,
-//! and when it lapses the cure was a terminal on the Mac. `claude auth login`
-//! needs none: it prints a link whose page shows a code, and waits for the code on
-//! its stdin. The console runs it, hands the link to the phone, and writes back
-//! the code the phone sends. The code is never logged or kept: it lives in this
-//! process until the CLI has read it.
+//! Signing the shared login in again from the phone: the console runs `claude auth
+//! login`, hands its link to the phone, and writes back the code the link's page
+//! shows. The code is never logged or kept.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,8 +14,7 @@ const LINK_WITHIN: Duration = Duration::from_secs(30);
 /// How long it may take to exchange a code once it has one.
 const EXCHANGED_WITHIN: Duration = Duration::from_secs(120);
 
-/// The one sign-in under way, if any. One at a time: the login is the account's,
-/// and a second start replaces the first, whose process is killed with it.
+/// The one sign-in under way, if any; a second start replaces the first.
 #[derive(Default)]
 pub struct Login(tokio::sync::Mutex<Option<Attempt>>);
 
@@ -36,8 +32,7 @@ pub struct LoginStarted {
     pub url: String,
 }
 
-/// The code the sign-in page showed. No `Debug`, so it cannot be logged by
-/// accident.
+/// The code the sign-in page showed. No `Debug`, so it cannot be logged.
 #[derive(Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -69,7 +64,7 @@ impl Login {
             .spawn()
             .map_err(|why| format!("could not start {binary} auth login: {why}"))?;
         let said = Arc::new(parking_lot::Mutex::new(String::new()));
-        // Both streams: which one the link is printed on is the CLI's business.
+        // Both streams: the link may be on either.
         if let Some(out) = child.stdout.take() {
             tokio::spawn(collect(out, Arc::clone(&said)));
         }
@@ -112,7 +107,7 @@ impl Login {
             .await
             .take()
             .ok_or("no sign-in is waiting for a code")?;
-        // What came before is the link and the prompt; only the answer is news.
+        // Only what follows the code.
         let before = said.lock().len();
         stdin
             .write_all(format!("{}\n", code.code.trim()).as_bytes())
@@ -146,8 +141,7 @@ async fn collect(mut from: impl AsyncRead + Unpin, into: Arc<parking_lot::Mutex<
     }
 }
 
-/// The sign-in link in what the CLI has said so far: a whole URL, so only once
-/// the line it is on has ended.
+/// The sign-in link, once its line has ended.
 fn link(said: &str) -> Option<String> {
     said.lines()
         .take(said.matches('\n').count())

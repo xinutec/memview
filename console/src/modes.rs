@@ -1,10 +1,6 @@
 //! What each conversation was last allowed to do without asking.
 //!
-//! Nothing else records it: the mode goes to the CLI on the command line, and the
-//! transcript's mode lines belong to whichever session was resumed (see
-//! [`crate::session::Summary::mode`]). Without this file a session left in `auto`
-//! resumes Manual after a restart and stops at its first approval, with
-//! nothing saying why.
+//! Nothing else records it, so without this a session resumes Manual.
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -24,9 +20,7 @@ pub enum Mode {
     AcceptEdits,
     Auto,
     BypassPermissions,
-    /// A mode the CLI reported that this console does not know, as it was named.
-    /// Kept rather than dropped: the CLI gains modes between releases, and the
-    /// header must still say something.
+    /// A mode this console does not know, by the CLI's name for it.
     Unknown(String),
 }
 
@@ -64,8 +58,7 @@ pub struct Modes {
 }
 
 impl Modes {
-    /// Read what the last run wrote. An unreadable file is an empty set and a loud log
-    /// line: sessions then come back Manual, as they would with no file at all.
+    /// Read what the last run wrote; unreadable is empty, and logged.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str(&text) {
@@ -78,7 +71,7 @@ impl Modes {
                     BTreeMap::new()
                 }
             },
-            // No file at all is the ordinary first run, and says nothing.
+            // No file: the first run.
             Err(_) => BTreeMap::new(),
         };
         Self {
@@ -92,8 +85,7 @@ impl Modes {
         self.held.read().get(id).cloned()
     }
 
-    /// Remember a conversation's mode, if it has changed — this runs on every spawn
-    /// and every mode request.
+    /// Remember a conversation's mode, if it has changed.
     pub fn set(&self, id: &str, mode: &Mode) {
         let all = {
             let mut held = self.held.write();
@@ -106,8 +98,7 @@ impl Modes {
         self.write(&all);
     }
 
-    /// Written whole each time — one short line per conversation, like
-    /// [`crate::gist::Gists`], and a rewrite cannot leave a half-updated entry.
+    /// Written whole each time.
     fn write(&self, all: &BTreeMap<String, Mode>) {
         if let Ok(text) = serde_json::to_string_pretty(all)
             && let Some(dir) = self.store.parent()

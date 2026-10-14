@@ -1,11 +1,5 @@
-//! A workflow run, read from what the harness writes beside the session's
-//! transcript: `<session>/subagents/workflows/<run>/`, holding `journal.jsonl` —
-//! a line when each agent starts and when it returns — and, per agent, its
-//! transcript `agent-<id>.jsonl` and `agent-<id>.meta.json`.
-//!
-//! The journal says which agents exist and which have returned. Where a `started`
-//! line carries no label or phase, the agent's meta file does. Nothing marks the
-//! run itself finished: that is the session's background task ending.
+//! A workflow run, from `<session>/subagents/workflows/<run>/`: its `journal.jsonl`
+//! of agents starting and returning, and each agent's transcript and meta file.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -70,8 +64,7 @@ pub struct Meta {
     pub phase: Option<String>,
 }
 
-/// The run as its journal says, with `meta` answering for the agents whose
-/// `started` line did not name their label or phase. Pure: `latest` is left empty.
+/// The run as its journal says, with `meta` filling in labels and phases.
 pub fn read(journal: &str, meta: impl Fn(&str) -> anyhow::Result<Meta>) -> anyhow::Result<Run> {
     let lines: Vec<Journaled> = journal
         .lines()
@@ -125,15 +118,14 @@ pub fn read(journal: &str, meta: impl Fn(&str) -> anyhow::Result<Meta>) -> anyho
     Ok(Run { phases })
 }
 
-/// Whether `run` has the shape the harness gives run ids, `wf_` and hex with
-/// dashes — checked before it becomes part of a path.
+/// Whether `run` looks like a run id — checked before it joins a path.
 pub fn is_run(run: &str) -> bool {
     run.strip_prefix("wf_").is_some_and(|rest| {
         !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     })
 }
 
-/// Whether `agent` has the shape of an agent id — checked before it becomes part of a path.
+/// Whether `agent` looks like an agent id — checked before it joins a path.
 pub fn is_agent(agent: &str) -> bool {
     !agent.is_empty() && agent.chars().all(|c| c.is_ascii_alphanumeric())
 }
@@ -152,8 +144,7 @@ pub fn transcript(dir: &Path, agent: &str) -> PathBuf {
     dir.join(format!("agent-{agent}.jsonl"))
 }
 
-/// The run in `dir`, with each working agent's last tool call. `None` when the run
-/// has no journal; an error when an agent's meta file cannot be read.
+/// The run in `dir`, with each working agent's last tool call; `None` with no journal.
 pub fn run(dir: &Path) -> anyhow::Result<Option<Run>> {
     let journal = match std::fs::read_to_string(dir.join("journal.jsonl")) {
         Ok(journal) => journal,

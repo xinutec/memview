@@ -1,22 +1,11 @@
 //! What a session is called to the other sessions on this machine.
 //!
-//! A conversation has two names and they are not the same thing. The title is
-//! what a person renamed it to, lives in the transcript, and is what this console
-//! puts on a card ([`crate::past::named`]). The name in here is the one
-//! `ListAgents` prints and `SendMessage` resolves, and it lives in a file the CLI
-//! keeps per process.
-//!
-//! They drift because only `-n` at spawn writes this one — a rename reaches the
-//! transcript and stops. A console showing the title alone therefore cannot say
-//! whether a session is reachable under the name on its card.
+//! Not the title on a card ([`crate::past::named`]) but the name `SendMessage`
+//! resolves, kept per process. Only `-n` at spawn sets it, so the two drift.
 
 use std::path::{Path, PathBuf};
 
-/// Where the CLI keeps one record per running session, named by pid.
-///
-/// The override exists for the same reason [`crate::past::projects_root`] has
-/// one: a test must not read the machine's real sessions, and must not be able
-/// to pass by finding them.
+/// Where the CLI keeps one record per running session, by pid; overridable for tests.
 pub fn sessions_root() -> PathBuf {
     if let Ok(set) = std::env::var("CLAUDE_SESSIONS_DIR") {
         return PathBuf::from(set);
@@ -26,12 +15,7 @@ pub fn sessions_root() -> PathBuf {
         .join("sessions")
 }
 
-/// What the session running as `pid` answers to, when it answers to anything.
-///
-/// `None` covers every way this can be unknown — no record, unreadable, or a
-/// record with no name — because the console has nothing different to say about
-/// them: in all three cases it does not know what peers call this session, and
-/// guessing would put a name on a card that nothing would reach.
+/// What the session running as `pid` answers to; `None` whenever unknown.
 pub fn named(root: &Path, pid: u32) -> Option<String> {
     let raw = std::fs::read_to_string(root.join(format!("{pid}.json"))).ok()?;
     let record: serde_json::Value = serde_json::from_str(&raw).ok()?;

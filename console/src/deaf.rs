@@ -15,12 +15,10 @@ use std::process::Stdio;
 /// How much of the transcript's tail to keep, in bytes: the last few turns.
 const TAIL: u64 = 64 * 1024;
 
-/// How long any one probe may take: `sample` is asked for ten seconds, plus room
-/// to write them out.
+/// How long any one probe may take; `sample` runs for ten seconds.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Where captures go. Overridable because this writes, and a test has no home
-/// directory worth writing to.
+/// Where captures go; overridable for tests.
 pub fn evidence_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_DEAF_DIR") {
         return PathBuf::from(set);
@@ -30,8 +28,7 @@ pub fn evidence_root() -> PathBuf {
         .join("deaf")
 }
 
-/// One probe: what to run, and what to call what it says. `sample` goes first,
-/// being the only one whose subject moves while it is asked.
+/// One probe: what to run, and what to call its output.
 fn probes(pid: u32) -> Vec<(&'static str, &'static str, Vec<String>)> {
     let pid = pid.to_string();
     vec![
@@ -54,9 +51,8 @@ fn probes(pid: u32) -> Vec<(&'static str, &'static str, Vec<String>)> {
     ]
 }
 
-/// Capture what can be known about a deaf session without root, and return where
-/// it was put. Errors are reported, not propagated: a failed capture must not be
-/// why nobody is told the session is stuck.
+/// Capture a deaf session without root and return where it went. A failed capture
+/// must not stop the session being reported.
 pub async fn capture(
     root: &Path,
     id: &str,
@@ -70,9 +66,7 @@ pub async fn capture(
         return None;
     }
     for (name, program, args) in probes(pid) {
-        // `spawn` + `wait_with_output` rather than `output()`, which never hands back a
-        // pid — a zombie under the console needs its origin logged. The timeout behaviour
-        // is `output()`'s own; `tests/suite/orphan.rs` forces it.
+        // Not `output()`, which hides the pid a zombie's origin needs.
         let Ok(probe) = tokio::process::Command::new(program)
             .args(&args)
             .stdin(Stdio::null())
@@ -118,8 +112,7 @@ pub async fn capture(
     Some(into)
 }
 
-/// The last [`TAIL`] bytes of a file, from the first line boundary inside them,
-/// so no reader meets half a JSON line.
+/// The last [`TAIL`] bytes of a file, from a line boundary.
 async fn tail(path: &Path) -> Option<Vec<u8>> {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 

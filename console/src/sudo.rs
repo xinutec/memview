@@ -1,8 +1,5 @@
-//! A command run as root on a password typed on the phone. Claude asks through
-//! `agent-console sudo`; the console shows the command and a password field, and
-//! runs `sudo` itself with the password on its stdin. The password never passes
-//! through anything the session can read, and is never logged or kept: it lives
-//! in this process until `sudo` has read it.
+//! A command run as root on a password typed on the phone: the console runs `sudo`
+//! with it on stdin. The session never sees it; it is never logged or kept.
 
 use std::collections::BTreeMap;
 
@@ -11,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::oneshot;
 
-/// The tool name a root-password question is asked under. No CLI tool has it, so
-/// it marks the one question the console answers itself.
+/// The tool name a root-password question is asked under — no CLI tool has it.
 pub const TOOL: &str = "sudo";
 
 /// Requests waiting for their password, by ask id. `None` is a refusal.
@@ -51,8 +47,7 @@ pub struct Ran {
     pub stderr: String,
 }
 
-/// The phone's answer: a password to run it with, or none to refuse. No
-/// `Debug`, so it cannot be logged by accident.
+/// The phone's answer: a password, or none to refuse. No `Debug`, so it cannot be logged.
 #[derive(Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -61,8 +56,7 @@ pub struct SudoAnswer {
     pub password: Option<String>,
 }
 
-/// Run `command` under bash as root. `-k`: no cached login is used or left
-/// behind, so nothing else the session runs gains root from this.
+/// Run `command` under bash as root. `-k` leaves no cached login behind.
 pub async fn run(cwd: &str, command: &str, password: String) -> Ran {
     let spawned = tokio::process::Command::new("/usr/bin/sudo")
         .args(["-k", "-S", "-p", "", "--", "/bin/bash", "-c", command])

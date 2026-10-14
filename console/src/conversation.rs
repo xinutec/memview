@@ -35,16 +35,12 @@ fn said(row: &serde_json::Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// Both sides of the conversation, in the order recorded.
-///
-/// The human side is read by `reader`, which owns what counts as a human turn for
-/// the whole workspace (a queued message lives in an `attachment` row, a
-/// `tool_result` wears the user's role). The assistant side needs only the dedupe rule.
+/// Both sides of the conversation, in the order recorded; `reader` decides what
+/// counts as a human turn.
 pub fn conversation(bytes: &[u8]) -> Vec<Line> {
     let mut lines: Vec<Line> = reader::transcript::human_turns(bytes)
         .into_iter()
-        // A compaction summary wears his role and is not his: a model wrote it.
-        // `human_turns` rightly keeps it; a reader asking for his words does not want it.
+        // A compaction summary has the user's role but a model wrote it.
         .filter(|turn| !turn.text.starts_with(COMPACTED))
         .map(|turn| Line {
             at: turn.at,
@@ -58,9 +54,7 @@ pub fn conversation(bytes: &[u8]) -> Vec<Line> {
         let Ok(row) = serde_json::from_slice::<serde_json::Value>(row) else {
             continue;
         };
-        // The CLI rewrites earlier stretches back into the same file, so a linear read
-        // returns some turns twice, the later copy degraded. Same rule as
-        // `reader::transcript::human_turns`.
+        // The CLI rewrites earlier stretches into the file: keep the first copy.
         let uuid = row["uuid"].as_str().unwrap_or_default().to_string();
         if !uuid.is_empty() && !seen.insert(uuid) {
             continue;
@@ -73,9 +67,7 @@ pub fn conversation(bytes: &[u8]) -> Vec<Line> {
             });
         }
     }
-    // ISO-8601 in a fixed zone sorts as text. A queued turn is stamped when it was
-    // enqueued, so it can sort before the reply to the message ahead of it — that is
-    // when it was typed, not a bug.
+    // ISO-8601 sorts as text; a queued turn sorts by when it was typed.
     lines.sort_by(|a, b| a.at.cmp(&b.at));
     lines
 }

@@ -1,26 +1,20 @@
 //! A `<defunct>` under the console, recorded at the moment it is seen.
 //!
-//! A zombie's command is gone (`comm` and `command` both read `<defunct>`), so a
-//! sighting carries `ppid` and `lstart`; the start time is what pairs it with the
-//! `asking pid N` lines the spawn sites log, safely across pid reuse.
-//!
-//! This reads the process table and must never reap: `SIGCHLD` as `SIG_IGN` or
-//! `waitpid(-1, …)` would take the exit status [`crate::session::Session::reap`] reads.
+//! A sighting carries `ppid` and `lstart`, which pair it with the spawn sites'
+//! `asking pid N` lines. Never reaps: that would take exit statuses
+//! [`crate::session::Session::reap`] needs.
 
 use std::collections::HashSet;
 
-/// One `<defunct>` child, as much of it as survives. No command field: a recorded
-/// `"<defunct>"` would read like a fact.
+/// One `<defunct>` child, as much of it as survives.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Sighting {
     pub pid: u32,
-    /// `lstart`, verbatim as `ps` prints it — the pairing key, not a timestamp
-    /// to compute with.
+    /// `lstart`, verbatim — the pairing key.
     pub started: String,
 }
 
-/// The zombies whose parent is `parent`, from a `ps` table of `pid ppid state
-/// lstart` — four columns, the last of them five words. Shorter rows are skipped.
+/// The zombies whose parent is `parent`, from a `ps` table of `pid ppid state lstart`.
 pub fn parse(table: &str, parent: u32) -> Vec<Sighting> {
     let mut out = Vec::new();
     for row in table.lines() {
@@ -47,16 +41,14 @@ pub fn parse(table: &str, parent: u32) -> Vec<Sighting> {
     out
 }
 
-/// What has already been reported, so each zombie is logged once and not once a
-/// minute for as long as it lasts.
+/// What has been reported, so each zombie is logged once.
 #[derive(Default)]
 pub struct Watch {
     seen: HashSet<Sighting>,
 }
 
 impl Watch {
-    /// The sightings new since the last sweep, and the ones gone. Departures matter:
-    /// a zombie still there an hour later is a leak, one that disappears is late reaping.
+    /// The sightings new since the last sweep, and the ones gone.
     pub fn sweep(&mut self, table: &str, parent: u32) -> (Vec<Sighting>, Vec<Sighting>) {
         let now: HashSet<Sighting> = parse(table, parent).into_iter().collect();
         let fresh = now.difference(&self.seen).cloned().collect();
@@ -75,8 +67,7 @@ fn table() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Log every `<defunct>` under this process as it appears, and as it goes. A
-/// minute apart — often enough to catch one that something reaps late.
+/// Log every `<defunct>` under this process as it appears and goes, once a minute.
 pub async fn watch() {
     let parent = std::process::id();
     let mut watch = Watch::default();
@@ -84,8 +75,7 @@ pub async fn watch() {
         if let Some(table) = table() {
             let (fresh, gone) = watch.sweep(&table, parent);
             for zombie in fresh {
-                // Beside `gists: asking pid N` and `deaf: asking pid N`, which
-                // is what this line is for.
+                // Pairs with the spawn sites' `asking pid N`.
                 tracing::warn!(
                     "zombies: <defunct> pid {} under this console, started {} \
                      — match the pid against an `asking pid` line above",
