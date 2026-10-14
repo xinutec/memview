@@ -1,16 +1,8 @@
 //! Who last wrote each file — the one question `staged-check` asks, kept small
 //! enough to live on this machine.
 //!
-//! This exists because `effects.json` LEFT. The evidence it is folded from is
-//! an export the nightly builds in a temp directory and deletes (memview#1240), so
-//! the check that reads it could not run here at all. Last-writer-per-path is the
-//! same answer at a fraction of the size, because it keeps one row per path.
-//!
-//! A fold with carried state, which is the bug family this repo has already paid
-//! for. The rule that keeps it right: a FULL mine builds from empty, a RESUMED
-//! mine loads and absorbs the tail. Absorbing onto a stale map after a full read
-//! would leave entries for paths the full read no longer mentions, and the artefact
-//! would stop being a function of the corpus.
+//! One row per path, where `effects.json` is too big to keep. A full mine builds
+//! from empty; only a resumed mine absorbs onto the carried map.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -29,22 +21,13 @@ pub struct Wrote {
     pub minute: i64,
 }
 
-/// Absolute path → its last recorded writer.
-///
-/// Keyed ABSOLUTELY, like the rows it is folded from. A first attempt at
-/// the check joined `repo/path` and matched nothing against real data while five
-/// fixture tests passed, because the fixture agreed with the same wrong
-/// assumption.
+/// Absolute path → its last recorded writer. Keyed absolutely, like its rows.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LastWriter(pub BTreeMap<String, Wrote>);
 
 impl LastWriter {
-    /// Fold a scan's WRITE rows on top of what is already known.
-    ///
-    /// `>=`, not `>`. Rows arrive in order and a minute is coarse, so
-    /// several writes to one path commonly share a stamp; taking the later of
-    /// two equal stamps is what makes "last" mean last-seen rather than
-    /// first-seen-in-that-minute.
+    /// Fold a scan's write rows on top of what is known; `>=`, so the last of
+    /// several writes in one minute wins.
     pub fn absorb(&mut self, effects: &reader::effects::Effects) {
         for row in &effects.rows {
             if !matches!(row.k, reader::effects::Did::Wrote) {
@@ -56,10 +39,7 @@ impl LastWriter {
             ) else {
                 continue;
             };
-            // An empty path is not a path. The real artefact grew one
-            // (`"" -> dev-lint`): harmless, since a lookup is always
-            // `repo/path` and never empty, but an entry that cannot be
-            // addressed is one a reader has to explain every time they see it.
+            // An empty path is not a path.
             if path.is_empty() {
                 continue;
             }
@@ -87,14 +67,8 @@ impl LastWriter {
         self.0.get(path)
     }
 
-    /// The agent last recorded writing a memory, named the way the corpus names
-    /// it — a filename stem, or `MEMORY.md` for the index.
-    ///
-    /// `memory_dir` must be the LOGICAL spelling. The record keys these
-    /// under `~/.claude/projects/…`; handing it a resolved
-    /// `/Volumes/Backup/claude/…` matched 1 of 733 memories where the logical
-    /// spelling matched 390 — and a miss looks exactly like an empty record
-    /// (memview#1553; #1556 is the guard that cannot catch this one).
+    /// The agent last recorded writing a memory, by stem. `memory_dir` must be the
+    /// logical `~/.claude` spelling, or every lookup misses silently.
     pub fn of_memory(&self, memory_dir: &str, memory: &str) -> Option<&str> {
         let dir = memory_dir.trim_end_matches('/');
         // The index is named in full; every other memory is a stem.
@@ -115,10 +89,7 @@ impl LastWriter {
         self.0.is_empty()
     }
 
-    /// Absent is `None`, never an empty map. A caller that read a missing
-    /// artefact as "nobody has written anything" would report all-clear from no
-    /// evidence, which is worse than not running — the same distinction
-    /// `fresh::effects` refuses on.
+    /// Absent is `None`, never an empty map that would read as all-clear.
     pub fn load(at: &Path) -> Result<Option<Self>> {
         if !at.exists() {
             return Ok(None);

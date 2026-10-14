@@ -1,12 +1,7 @@
 //! MEMORY.md's membership over time, recovered from the transcripts.
 //!
-//! The index is edited in place and versioned nowhere before 2026-08-14, so what it
-//! CONTAINED on a given day exists only where a session happened to read it back.
-//!
-//! This was believed unrecoverable and it is not. The artefact it rebuilds
-//! carried a note calling the baseline perishable — the premise memview#1240
-//! refuted. It was unrecomputable because nobody had written this, not because the
-//! evidence had gone.
+//! Read back from wherever a session read the index, since it was versioned
+//! nowhere early on.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -36,13 +31,8 @@ pub fn day_of(stamp: &str) -> Option<&str> {
     (stamp.len() >= 10).then(|| &stamp[..10])
 }
 
-/// Pull the memory names out of one rendering of the index.
-///
-/// Link targets only, never prose. An entry is `[label](name.md)` and the
-/// labels carry arbitrary text, file names in backticks among it. Reading
-/// anything but the parenthesised target would count a memory that is merely
-/// MENTIONED as one that is indexed — the exact distinction the demotion study
-/// turns on.
+/// Pull the memory names out of one rendering of the index — link targets only,
+/// so a mention is not an entry.
 pub fn names_in(text: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let mut at = 0;
@@ -70,19 +60,11 @@ pub fn names_in(text: &str) -> BTreeSet<String> {
 }
 
 impl Readings {
-    /// Fold one reading in, keeping the day's LAST.
-    ///
-    /// Chosen by timestamp, never by arrival. Transcripts are walked file
-    /// by file, so readings reach this out of order and "whatever landed last"
-    /// would pick a different day's winner on a different filesystem. And it is
-    /// the last rather than the largest deliberately: the index is edited
-    /// through a day, so taking the largest would pin every day to its
-    /// high-water mark and make a demotion look a day late.
+    /// Fold one reading in, keeping the day's last by timestamp — not by arrival,
+    /// and not the largest.
     pub fn absorb(&mut self, stamp: &str, names: BTreeSet<String>) {
         let Some(day) = day_of(stamp) else { return };
-        // An empty reading is a Read that returned something other than the
-        // index — a truncated result, an error. It is not a day on which the
-        // index was empty, and recording it as one would invent a mass demotion.
+        // An empty reading is a failed read, not an empty index.
         if names.is_empty() {
             return;
         }

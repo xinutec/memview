@@ -1,18 +1,9 @@
 //! The `MEMORY.md` the corpus itself declares, beside the one a session wrote:
 //! the difference between two whole files shows what no per-line rule can.
 //!
-//! The user: *"You write and maintain MEMORY.md, and we'll have an algorithm that
-//! generates the MEMORY.md we WOULD generate … but it's guiding you, not
-//! replacing you."* It never writes `MEMORY.md`; when the two disagree the
-//! ALGORITHM is the first suspect. Do not let it become authoritative by accident
-//! (memview#1310).
-//!
-//! It assembles and never writes prose: each memory carries its own `teaser:`.
-//! It does NOT decide ADMISSION — memview#884 harvested to a bounded null and
-//! the retirement route is closed, so admission is a judgement no measurement
-//! here can make. It does NOT decide ORDER either: the sections are a curated
-//! taxonomy, and a generated ordering would make every line a diff line. What
-//! it decides: which declared lines exist, what each says, and whether they fit.
+//! It guides, never replaces: it never writes `MEMORY.md`, and when the two
+//! disagree it is the first suspect. It assembles each memory's `teaser:`; it does
+//! not decide admission or order.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,9 +15,7 @@ pub struct Line {
     pub name: String,
     /// The memory's own `teaser:` — never this module's words.
     pub teaser: String,
-    /// What the line in the file says today, when the file carries one and it
-    /// differs from the teaser. `None` when they agree or the memory is absent
-    /// from the index.
+    /// What the file's line says, when it differs from the teaser.
     pub written: Option<String>,
 }
 

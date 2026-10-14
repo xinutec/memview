@@ -1,11 +1,8 @@
 //! What was committed, in lines, and which agent to credit it to — the only
 //! evidence that counts SIZE, and what survived review.
 //!
-//! Every commit has the same git author, so the join runs the other way: a hash
-//! exists nowhere until the commit is made, so the session that mentions it
-//! FIRST made it ([`crate::agents::scan`]). Arrived at by getting it wrong
-//! twice: a 9-character prefix attributed 1 of 17 (`git commit` prints seven),
-//! and any mention put five agents on one commit.
+//! Every commit has one git author, so a commit is credited to the session that
+//! mentions its hash first — it existed nowhere before.
 
 use anyhow::Context;
 use std::path::{Path, PathBuf};
@@ -33,14 +30,8 @@ pub struct Commit {
     pub files: Vec<FileDelta>,
 }
 
-/// Every repository directly under the code root, at depth two (there are no
-/// submodules or worktrees).
-///
-/// A failure here must not read as an empty fleet: `.flatten()` and `.exists()`
-/// turned a transient `EMFILE` under three gates into "there are no
-/// repositories" (memview#1243). An error is an error; empty is a CLAIM. Two
-/// answers are DEFINITE: an absent root, and `ENOTDIR` from `<entry>/.git` — a
-/// plain file like `~/Code/.gitignore`, which the hardening first died on.
+/// Every repository directly under the code root. An error is an error, never an
+/// empty fleet; only an absent root and a plain file (`ENOTDIR`) are definite.
 pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(code_root) {
@@ -64,10 +55,8 @@ pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Every commit in one repository, with per-file line counts. Renames are
-/// detected: `--no-renames` restated every moved file as a whole deletion and
-/// addition, inflating lines deleted by 33–41% and landing on whoever ran
-/// `git mv`. Merges are skipped: a merge's diff restates changes already counted.
+/// Every commit in one repository, with per-file line counts — renames detected,
+/// merges skipped.
 pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     let prefix = repo
         .strip_prefix(code_root)
@@ -77,10 +66,7 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     // \x01 as the field separator: it cannot occur in a commit subject.
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo);
-    // `-C` names the directory; an inherited `GIT_DIR` wins over it, and anything
-    // started from a git hook has one set. Strip EVERY GIT_* variable, not a list —
-    // an enumerated subset that missed one bound a fresh repo to the committing
-    // repo's dirs.
+    // Strip every `GIT_*` variable: a hook's `GIT_DIR` beats `-C`.
     for (key, _) in std::env::vars() {
         if key.starts_with("GIT_") {
             cmd.env_remove(key);
@@ -144,9 +130,8 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     Ok(commits)
 }
 
-/// The old and new names in a `--numstat` path, when it reports a rename: git
-/// brackets what changed — `a/{b => c}/d`, `a/{ => c}/d` — and drops the braces
-/// when nothing is shared. `(None, path)` for an ordinary change.
+/// The old and new names in a `--numstat` rename (`a/{b => c}/d`); `(None, path)`
+/// otherwise.
 pub fn renamed(path: &str) -> (Option<String>, String) {
     let Some((open, rest)) = path.split_once('{') else {
         return match path.split_once(" => ") {
@@ -178,11 +163,8 @@ pub fn all(code_root: &Path) -> anyhow::Result<Vec<Commit>> {
 /// and requiring more found 1 commit of 17.
 pub const SHORT: usize = 7;
 
-/// The hash-shaped tokens on a line, as candidate mentions. Fussy, since a false
-/// positive credits one agent's work to another: 7 to 40 characters (sha256s in
-/// lockfiles are 64); at least one letter, which costs the 3.4% of commits with
-/// an all-digit short hash — counted in `Agents::unattributed` rather than
-/// hidden; bounded by non-alphanumerics, so a run inside a base64 blob is not one.
+/// The hash-shaped tokens on a line: 7 to 40 hex characters with a letter,
+/// bounded by non-alphanumerics. Fussy, since a false hit credits the wrong agent.
 pub fn hash_candidates(line: &[u8]) -> Vec<&str> {
     let mut out = Vec::new();
     let mut i = 0;

@@ -21,12 +21,7 @@ pub struct Config {
     /// API-only (dev, where `ng serve` proxies).
     pub static_dir: Option<String>,
 
-    /// The co-use artefact, if one has been mined.
-    ///
-    /// Optional everywhere: it is derived from the session transcripts, which
-    /// exist only on the Mac, and the graph is worth serving without it. Never
-    /// inside `memory_dir` — the sync replaces that directory wholesale, and
-    /// this is not a memory.
+    /// The co-use artefact, if mined — never inside `memory_dir`, which the sync replaces.
     pub couse_file: Option<String>,
     /// Path to `agents.json`. Absent on any machine without the transcripts.
     pub agents_file: Option<String>,
@@ -36,9 +31,7 @@ pub struct Config {
     /// The evidence under the timeline. Optional for the same reason, and the
     /// largest of them — a deployment may deliberately not carry it.
     pub effects_file: Option<String>,
-    /// The corpus survey: how much of the fleet's shell the reader understands,
-    /// and what it did. Optional like the rest, and the SMALLEST of them at
-    /// ~7 kB — mined rather than computed because the survey takes 13 seconds.
+    /// The corpus survey, mined because computing it takes seconds.
     pub reading_file: Option<String>,
 }
 
@@ -59,10 +52,8 @@ pub struct AuthConfig {
     pub nc_client_secret: String,
     /// Must match the redirect URI registered for the OAuth2 client.
     pub nc_redirect_uri: String,
-    /// Nextcloud user ids permitted to log in. The corpus holds private and
-    /// medical context and the host is on a shared VPN, so access is
-    /// fail-closed: an empty list (or a user not on it) is rejected. Set via
-    /// ALLOWED_USERS (comma-separated).
+    /// Nextcloud user ids permitted to log in, fail-closed: the corpus is private
+    /// and the VPN shared. From `ALLOWED_USERS`.
     pub allowed_users: Vec<String>,
 }
 

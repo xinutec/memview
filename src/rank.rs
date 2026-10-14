@@ -1,10 +1,6 @@
 //! Ranking for the memory search: tokenise, require every term, order by BM25.
 //!
-//! The substring match this replaced failed both ways: multi-word queries
-//! returned nothing (six of seven realistic ones), since the words never appear
-//! contiguously, and single-word queries returned everything in alphabetical
-//! order, since only seven scores were possible. BM25 saturates term frequency,
-//! normalises for length, and its IDF lets the rare word decide.
+//! BM25 saturates term frequency, normalises for length, and lets the rare word decide.
 use std::collections::HashMap;
 
 use crate::couse::Usage;
@@ -14,9 +10,7 @@ const K1: f64 = 1.2;
 /// Length normalisation, 0 = off, 1 = full. The standard 0.75.
 const B: f64 = 0.75;
 
-/// How much a term in the memory's NAME counts over one in its body: the name is
-/// chosen, not written. Large, but not so large that a filename keyword beats a
-/// memory that genuinely covers the subject.
+/// How much a term in the memory's name counts over one in its body.
 const NAME_BOOST: f64 = 3.0;
 
 /// The description is also chosen, and is a summary rather than a title.
@@ -34,10 +28,8 @@ const PREFIX_WEIGHT: f64 = 0.45;
 /// tiebreaker, or a search becomes a list of favourites.
 const PRIOR_MAX: f64 = 0.35;
 
-/// A term as searched: lowercase, alphanumeric, plus the joined form of any
-/// hyphenated compound — what makes `"one-way VPN peer"` find
-/// `project_mac_oneway_vpn`. Hyphens only: splitting on every separator would
-/// fuse `mysql.proc` into `mysqlproc`.
+/// A term as searched: lowercase, alphanumeric, plus the joined form of a
+/// hyphenated compound (`one-way` finds `oneway`).
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for run in text.split(|c: char| !c.is_alphanumeric() && c != '-') {
@@ -57,10 +49,8 @@ pub fn tokenize(text: &str) -> Vec<String> {
     out
 }
 
-/// A word with its commonest English inflection taken off, so `abandoned`,
-/// `abandoning` and `abandon` are one term. Light on purpose: `-ing`, `-ed`,
-/// `-es` after a sibilant, a plural `-s`, then a final `-e`, and never below
-/// three letters. A word it does not recognise comes back as it was.
+/// A word with its commonest English inflection taken off — `-ing`, `-ed`, `-es`,
+/// `-s`, a final `-e` — never below three letters.
 pub fn stem(word: &str) -> String {
     let w = word;
     let keep = |n: usize| w.len() >= n + 3;
@@ -153,9 +143,7 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
     // says `abandoning`, which a substring test on the word as typed cannot.
     let roots: Vec<String> = terms.iter().map(|term| stem(term)).collect();
 
-    // Pass one, over EVERY doc: pick the candidates and count corpus-wide document
-    // frequency in the same sweep. It MUST be corpus-wide: over the candidates
-    // df == n and the idf collapses to a constant.
+    // Document frequency over every doc, not the candidates, or idf is constant.
     let mut df: HashMap<&str, usize> = HashMap::new();
     let mut candidates: Vec<usize> = Vec::new();
     for (i, doc) in docs.iter().enumerate() {

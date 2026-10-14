@@ -79,16 +79,8 @@ pub async fn login(
         .into_response()
 }
 
-/// Which pending sign-in this callback is for: the one named in the URL, or —
-/// when the provider dropped it — the one this browser is carrying.
-///
-/// Nextcloud loses the `state` it was given: it stashes it in its PHP session
-/// (`LoginRedirectorController.php:95`), and a sign-in that crosses its own
-/// login page comes back as `state=&code=…`; its `__Host-nc_sameSiteCookiestrict`
-/// is withheld on the cross-site redirect in, so it demands a login even when
-/// signed in. An `HttpOnly` cookie proves the flow is this browser's just as
-/// well; what it cannot say is WHICH flow, so two present and disagreeing is
-/// refused.
+/// Which pending sign-in this callback is for: the URL's, or — since Nextcloud can
+/// drop `state` — the one this browser's cookie carries. Two that disagree are refused.
 pub fn state_to_consume<'a>(
     from_url: &'a str,
     from_cookie: &'a str,
@@ -103,9 +95,7 @@ pub fn state_to_consume<'a>(
     }
 }
 
-/// A sign-in that could not be finished, drawn for the BROWSER: `/auth/callback`
-/// is somewhere a browser is sent, and `AppError`'s JSON on a phone reads as the
-/// application being broken.
+/// A sign-in that could not be finished, as a page for the browser, not JSON.
 fn sign_in_problem(status: StatusCode, said: &str) -> Response {
     let said = said
         .replace('&', "&amp;")
