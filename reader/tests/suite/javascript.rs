@@ -178,7 +178,7 @@ fn one_unknown_word_makes_the_whole_argv_unusable() {
 
 /// The census of WHY an operation named nothing — the same account the Python
 /// reader keeps, because `Tally.why` is one shared type and a census that only
-/// one reader fills would read as the other reader missing nothing (#1142).
+/// one reader fills would read as the other reader missing nothing.
 #[test]
 fn a_missed_path_carries_the_reason_it_was_missed() {
     use reader::javascript::Why;

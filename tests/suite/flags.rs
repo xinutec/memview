@@ -61,7 +61,7 @@ fn a_tool_with_no_arguments_takes_none() {
 }
 
 /// `--` ends the flags: what follows is an operand however it is spelled
-/// (memview#1525).
+///.
 #[test]
 fn everything_after_a_double_dash_is_an_operand() {
     let out = run(LINT, &["--", "--not-a-flag"]);

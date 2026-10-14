@@ -15,7 +15,7 @@
 //! which is the constant `reader/tests/suite/concept.rs` already uses.
 //!
 //! Every test here is a guard against ONE classifier, in ONE order. The
-//! defect it exists to prevent (memview#1445) was not a missing rule — it was a
+//! defect it exists to prevent was not a missing rule — it was a
 //! rule reached too late, so a word that failed to parse as a substitution fell
 //! through to the bare-name arm and was counted as answerable. A bucket that
 //! absorbs what the rules above it could not read does not announce itself: it
@@ -23,7 +23,7 @@
 
 use reader::resolvable::{Unnamed, unnamed};
 
-/// The regression this file was written for (memview#1445). A
+/// The regression this file was written for. A
 /// substitution with anything after its closing paren is still a substitution.
 /// `opaque-shapes` tried a whole-word substitution parse, failed on the
 /// trailing `/dev-lint`, and filed 4,118 uses under *a bare name, bound
@@ -99,7 +99,7 @@ fn a_script_bound_name_is_not_answerable_however_short_it_is() {
 }
 
 /// Resolvability across a word is a CONJUNCTION, and the first version read
-/// only the first parameter (memview#1455). `/tmp/$HOME/$f` answered
+/// only the first parameter. `/tmp/$HOME/$f` answered
 /// `Environment` — answerable — while `$f` makes the word unanswerable, and the
 /// error ran in the flattering direction, in the very function written to stop
 /// #1447 flattering the same number.
@@ -130,7 +130,7 @@ fn a_word_whose_parts_are_all_environment_names_stays_answerable() {
 /// It is left rather than guessed at — a length floor or an underscore
 /// requirement would be a rule with no test, which is memview#1445's disease —
 /// and the real fix needs the script's own assignments, which a word classifier
-/// does not have (memview#1447). The census prints this side as "at most" for
+/// does not have. The census prints this side as "at most" for
 /// exactly this reason. **This test exists so that narrowing the rule is a
 /// deliberate act with a measurement behind it, not a tidy-up.**
 #[test]

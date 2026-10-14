@@ -31,7 +31,7 @@ fn effect<'a>(call: &'a str, did: Did, minute: i64) -> Effect<'a> {
 ///
 /// Measured on the real corpus: this artefact was the last of the
 /// four still failing the parity check, at identical byte length and a different
-/// hash (memview#1240).
+/// hash.
 #[test]
 fn row_order_does_not_depend_on_the_order_the_effects_arrived() {
     let build = |reversed: bool| {

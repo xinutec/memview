@@ -872,7 +872,7 @@ fn here(text: &str) -> reader::syntax::ast::Heredoc {
 ///
 /// [`here`] asserts a single-item script, which is right for the cases it was
 /// written for and wrong for the ones where the terminator decides how many
-/// commands there are (memview#1564): the whole question there is whether the
+/// commands there are: the whole question there is whether the
 /// text after the body is a command or is body, so the item count is the
 /// finding and cannot also be a precondition.
 fn first_here(text: &str) -> reader::syntax::ast::Heredoc {
@@ -1007,7 +1007,7 @@ fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
     assert_eq!(here("cat <<EOF\n\\$lit\nEOF").body, "\\$lit\n");
 }
 
-/// A join that FORMS the delimiter is the terminator (memview#1564).
+/// A join that FORMS the delimiter is the terminator.
 ///
 /// This asserted a refusal once, reasoning that `EO\` + `F` makes a
 /// body line reading `EOF` the printer could not write back. Both halves were
@@ -3063,7 +3063,7 @@ fn a_substring_length_that_is_not_arithmetic_is_refused() {
 }
 
 /// The survey has to SEE a dangling redirect, not merely the parser
-/// (memview#1370).
+///.
 ///
 /// The two scanners are deliberately separate, and the invariant is that
 /// whatever `parse` refuses appears in the survey's set. `parse.rs::
@@ -3123,7 +3123,7 @@ fn a_redirect_with_a_target_reports_nothing() {
     }
 }
 
-/// `$(( ))` expands its interior and only THEN evaluates it (memview#1370).
+/// `$(( ))` expands its interior and only THEN evaluates it.
 ///
 /// This parser evaluated the grammar first, so two operands with nothing between
 /// them were refused — and in bash that is how a value is spliced into a number.
@@ -3221,7 +3221,7 @@ fn an_escaped_pattern_character_survives_the_operand_printer() {
     assert_ne!(tree(r"x=${p%%\?*}"), tree(r"x=${p%%?*}"));
 }
 
-/// An expansion inside arithmetic includes ARITHMETIC (memview#1370).
+/// An expansion inside arithmetic includes ARITHMETIC.
 ///
 /// `$(( 1 + $(( 2 * 3 )) ))` is 7 and a backtick in the same position works too,
 /// but the operand reader admitted only `$x` and `$(cmd)` — so a corpus command
@@ -3258,7 +3258,7 @@ fn arithmetic_nests_inside_arithmetic() {
     );
 }
 
-/// ANSI-C quoting is legal in every `${…}` operator (memview#1370).
+/// ANSI-C quoting is legal in every `${…}` operator.
 ///
 /// `operand` read a `$(…)` and a backtick in this position and refused `$'…'`
 /// alone, which was a gap rather than a boundary. It is the spelling the operand

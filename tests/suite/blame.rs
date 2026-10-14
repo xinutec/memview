@@ -1,4 +1,4 @@
-//! Turning a lint error into a task somebody is actually addressed by (#1235).
+//! Turning a lint error into a task somebody is actually addressed by.
 
 use std::path::Path;
 

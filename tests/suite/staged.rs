@@ -332,7 +332,7 @@ fn a_sibling_repo_is_not_mistaken_for_this_one() {
     );
 }
 
-/// Two spellings of one repository whose BASENAMES DIFFER (memview#1556).
+/// Two spellings of one repository whose BASENAMES DIFFER.
 ///
 /// The corpus is reached as `/Volumes/Backup/claude` and as `~/.claude`, so a
 /// needle built from the caller's last path segment — `/claude/` — never matches

@@ -1,4 +1,4 @@
-//! What the tiering must get right about the root's two populations (#1210).
+//! What the tiering must get right about the root's two populations.
 
 use memview::tiers::{
     Breadth, Entry, Held, HeldEntry, Role, Thresholds, Tier, breadth, census, expired,
@@ -238,7 +238,7 @@ fn unprovable_opens_do_not_buy_tenure() {
 /// so a demote filter that reads only the tier selects exactly the entries doing
 /// their job best. `memory-rank` held these back by name prefix; #884 showed the
 /// prefix is the wrong classifier, and dropping it without a replacement left
-/// this half unguarded (#1234).
+/// this half unguarded.
 #[test]
 fn a_tripwire_is_never_offered_for_demotion() {
     let at = Thresholds::default();
@@ -364,7 +364,7 @@ fn one_agents_opens_can_be_subtracted_from_breadth() {
 }
 
 /// An agent that reached a memory only during a sweep still counts in `proven`,
-/// and not in `unswept`: the audit is shown beside the finds, not merged (#1735).
+/// and not in `unswept`: the audit is shown beside the finds, not merged.
 #[test]
 fn an_agent_that_only_swept_a_memory_is_not_an_independent_find() {
     let name = "reference_reached_by_an_audit";
@@ -482,7 +482,7 @@ fn a_frozen_claim_stating_pointer_is_held_on_the_line_not_the_freeze() {
 
 /// A thin verdict that DEPENDS on discarded evidence is not a verdict.
 /// Unprovable opens — a shell read after `&&`, or inside a script with one exit
-/// status — are collected and never scored (#1214), which is right: counting
+/// status — are collected and never scored, which is right: counting
 /// them overstates the record. But when counting them would lift a memory out of
 /// THIN, the tier is an artefact of what was thrown away, and proposing a
 /// demotion on it is acting on evidence known to be incomplete.
@@ -544,7 +544,7 @@ fn admission_near_misses_that_turn_on_unprovable_opens_are_counted_apart() {
 /// An agent that reached a memory only while sweeping the corpus did not find
 /// it. ADMIT needs the bar in agents outside a sweep, and what clears it only on
 /// raw breadth is counted apart. DEMOTE stays on raw breadth: undercounting use
-/// there is the direction that loses a rule (#1735).
+/// there is the direction that loses a rule.
 #[test]
 fn an_admission_needs_agents_that_found_it_outside_a_sweep() {
     let at = Thresholds::default();
@@ -570,7 +570,7 @@ fn an_admission_needs_agents_that_found_it_outside_a_sweep() {
     assert!(trade.demote.is_empty(), "{:?}", trade.demote);
 }
 
-// ── What a demotion COSTS: how far the target falls (#822) ──────────────────
+// ── What a demotion COSTS: how far the target falls ──────────────────
 
 /// The outcome `propose` exists to prevent, so the report must not whisper
 /// it. A dash in a column of arrows reads as "nothing happened"; this is the

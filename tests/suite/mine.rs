@@ -450,7 +450,7 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
     };
 
     let (first, carried) = run(None);
-    // Two failures look identical to a sum (memview#1596): an EMPTY agent
+    // Two failures look identical to a sum: an EMPTY agent
     // list is 0, and so is an agent found but missing its commit. The second reads
     // as "the miner drops commits", which is the serious claim, so ask the
     // narrower question first.

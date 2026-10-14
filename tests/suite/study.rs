@@ -1,4 +1,4 @@
-//! The demotion study's estimator (#884), tested on synthetic data only.
+//! The demotion study's estimator, tested on synthetic data only.
 //!
 //! Synthetic because the real corpus's post-period does not exist yet and must
 //! not be consulted while these choices are being made — see `memview::study`.

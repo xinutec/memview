@@ -1,4 +1,4 @@
-//! Where a transcript's bytes go (#1199).
+//! Where a transcript's bytes go.
 //!
 //! Every test here is really the same test: the buckets PARTITION. The
 //! ticket this serves exists because `claude_disk.py` charts three lines that do
@@ -137,7 +137,7 @@ fn the_envelope_absorbs_what_the_parts_do_not_claim() {
     assert_eq!(out.total(), line.len() as u64);
 }
 
-// ── The WHERE dimension: parts that sum, and concentration (#1199, #1200) ────
+// ── The WHERE dimension: parts that sum, and concentration ────
 
 #[test]
 fn every_top_level_entry_is_weighed_and_a_directory_is_its_contents() {
@@ -194,7 +194,7 @@ fn concentration_of_fewer_files_than_asked_for_leaves_no_remainder() {
     assert_eq!(others, 0);
 }
 
-// ── The artefact, whose labels become permanent fleetwatch trend keys (#1200) ─
+// ── The artefact, whose labels become permanent fleetwatch trend keys ─
 
 /// A label that appears once creates a series that exists for ever.
 /// fleetwatch keys a trend on `(source, collector, section, label)`, so emitting

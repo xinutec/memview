@@ -1,4 +1,4 @@
-//! Text claims about tickets, checked against the service (#1179, #1227).
+//! Text claims about tickets, checked against the service.
 
 use std::collections::BTreeSet;
 

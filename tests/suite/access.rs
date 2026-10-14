@@ -77,7 +77,7 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
     );
     // An admission from the same turn, which must travel with it.
     one(Did::Unnamed, None, "wc -l $OUT/report.txt", 100);
-    // A located one counts as an admission too (memview#1458). It carries
+    // A located one counts as an admission too. It carries
     // a path, so a counter keyed on "has no path" would read it as resolved —
     // and `unnamed` is what tells the reader the page is not a complete account.
     one(

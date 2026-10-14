@@ -165,7 +165,7 @@ fn an_unexpanded_variable_is_refused() {
 
 #[test]
 fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
-    // The gap this closes (#92). A refused word left no trace at all, so a
+    // The gap this closes. A refused word left no trace at all, so a
     // command that used a file nobody can name was recorded exactly like a
     // command that used none — and the second is a claim, not an absence. 592
     // distinct such subjects stood in the corpus, led by `$f`, `$p` and `$d`
@@ -333,7 +333,7 @@ fn home_is_the_one_expansion_with_a_knowable_value() {
 
 #[test]
 fn a_seq_the_text_counts_out_is_run_like_any_other_list() {
-    // The largest class the reader still folded (#821) — 1,029 loops,
+    // The largest class the reader still folded — 1,029 loops,
     // against 735 over a glob. `$(seq …)` carries a `$` and so failed the
     // determinacy test with every other substitution, but nothing about it is
     // unknown: it is arithmetic on numbers already in the text.
@@ -1475,7 +1475,7 @@ fn a_cd_into_the_directory_the_line_is_already_in_moves_nothing() {
     // The transcript's `cwd` means two different things — some
     // single-call lines record the directory their command STARTED in and some
     // the one it ENDED in, in the same transcript at the same CLI version
-    // (memview #449). On a line of
+    //. On a line of
     // the second kind, applying the command's own `cd` again doubles the
     // segment: all 84 landed in a directory that has never existed.
     //
@@ -1609,7 +1609,7 @@ fn located(script: &str) -> Vec<String> {
 fn a_literal_directory_ahead_of_the_variable_is_a_locus() {
     // `some file` and `some file under Verified/Geo` are different facts,
     // and the reader had both and reported the weaker one. The directory is
-    // written out; only the leaf is unknown (memview#1080).
+    // written out; only the leaf is unknown.
     assert_eq!(
         located("cat Verified/Geo/${s%%:*}"),
         ["/home/example/Code/health/Verified/Geo"]
@@ -1900,7 +1900,7 @@ fn the_words_a_split_produces_are_read_as_arguments() {
 /// enters the corpus as a file this Mac read. It is the single biggest thing
 /// splitting corrected: 213 of the 230 reads it removed are four spellings of
 /// this one blob, produced by `GEB="ssh -o UserKnownHostsFile=… root@…"`, which
-/// occurs 59 times in the history (#1173).
+/// occurs 59 times in the history.
 #[test]
 fn a_variable_holding_an_ssh_command_is_not_a_local_file() {
     let script = "SSH=\"ssh -o StrictHostKeyChecking=no root@10.0.0.1\"; $SSH cat /etc/hostname";
@@ -1920,7 +1920,7 @@ fn a_variable_holding_an_ssh_command_is_not_a_local_file() {
 /// The other half of what splitting corrected: `FILES="a.py b.py"` glued its
 /// members into one 26-word "path" that matched nothing, so every real file in
 /// it went uncounted. 59 of the reads splitting added land on paths that already
-/// existed — they were inside a blob, not absent (#1173).
+/// existed — they were inside a blob, not absent.
 #[test]
 fn several_files_in_one_variable_are_counted_separately() {
     let cmds = parse("FILES=\"one.py two.py\"; wc -l $FILES").unwrap();
@@ -1944,7 +1944,7 @@ fn several_files_in_one_variable_are_counted_separately() {
 ///
 /// `$S` and `$v` hold no whitespace, so bash runs one `awk` with one program.
 /// Splitting the whole word cut it at the spaces that were inside the single
-/// quotes and filed `/^#` and `1\//{p=1;next}` as files (#1195).
+/// quotes and filed `/^#` and `1\//{p=1;next}` as files.
 #[test]
 fn quoted_whitespace_beside_an_expansion_does_not_split_the_word() {
     let script =
@@ -1969,7 +1969,7 @@ fn quoted_whitespace_beside_an_expansion_does_not_split_the_word() {
 /// A substitution's text is not its output, so none of it splits.
 /// `du -sk $(cat list.txt)` runs on whatever the file holds, which this reader
 /// cannot know. Splitting the source text made `list.txt)` — closing paren and
-/// all — into a path that was never used (#1195).
+/// all — into a path that was never used.
 #[test]
 fn an_unevaluated_substitution_is_not_cut_into_paths() {
     let script = "SC=/home/example/s; du -sk $(cat $SC/todelete.txt)";
@@ -2065,7 +2065,7 @@ fn every_refusal_has_exactly_one_reason() {
 }
 
 /// `scope` marks SUBSHELLS and nothing else — a loop body is invisible to
-/// it (memview#1364).
+/// it.
 ///
 /// The multi-step concept seeds (`Poll`, `Glance`, `Probe`) rested on a written
 /// hypothesis: *"`Step.scope` is the chain of subshells a node sits in, so a

@@ -1,4 +1,4 @@
-//! Where memview's own files live, as opposed to Claude Code's (#1240).
+//! Where memview's own files live, as opposed to Claude Code's.
 
 #![expect(
     unsafe_code,

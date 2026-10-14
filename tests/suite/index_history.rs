@@ -1,4 +1,4 @@
-//! Recovering MEMORY.md's membership from a transcript (#1240).
+//! Recovering MEMORY.md's membership from a transcript.
 //!
 //! Every failure here is SILENT in production. The output is a list of
 //! names that looks plausible whatever it contains, and it is the pre-period of

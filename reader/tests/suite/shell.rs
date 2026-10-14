@@ -167,7 +167,7 @@ fn a_substitution_inside_double_quotes_is_still_a_command() {
     // REGRESSION, and the largest one this reader has had. `dquoted` was
     // fully atomic, so `"$( … )"` was a single opaque token and the command
     // inside it was never walked — 8,300 distinct commands, 6.5% of the corpus,
-    // 12,755 occurrences (memview#918). Worse in kind than an unparsed command:
+    // 12,755 occurrences. Worse in kind than an unparsed command:
     // that at least raises a count, while this parsed clean and recorded less
     // than happened.
     //
@@ -321,7 +321,7 @@ fn a_backslash_outside_quotes_escapes_the_character_after_it() {
     // `'\''` is how a single quote gets inside a single-quoted string —
     // close, escaped quote, reopen — and reading the `\'` as two literal
     // characters gave back a word with a backslash where the quote belongs.
-    // Found by the round-trip probe (memview#833) rather than by a failing case:
+    // Found by the round-trip probe rather than by a failing case:
     // 274 corpus calls contain a `\'`, mostly `ssh host '…'` payloads whose
     // inner script quotes something.
     assert_eq!(argvs(r"echo 'it'\''s here'"), [vec!["echo", "it's here"]]);

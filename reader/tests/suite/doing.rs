@@ -135,7 +135,7 @@ fn zsh_prose_in_the_same_position_is_still_not_a_refusal() {
     assert!(refused_dirs(said).is_empty());
 }
 
-// ── Resuming a fold (#1240) ──────────────────────────────────────────────────
+// ── Resuming a fold ──────────────────────────────────────────────────
 //
 // The mine is 347 s over 5.9 GB and only reading less makes it cheaper, which
 // means a run has to be able to pick up where the last one stopped. These say
@@ -258,7 +258,7 @@ fn a_call_answered_after_the_cut_keeps_no_verdict() {
 /// `episodes.len()` at creation — so it depended on the order the scan reached
 /// things, which is exactly what reading only the changed transcripts alters.
 /// Measured on the real corpus: most rows differed by nothing but this index
-/// (memview#1240).
+///.
 ///
 /// Two logs holding the same work, built in different orders, must finish
 /// identical.

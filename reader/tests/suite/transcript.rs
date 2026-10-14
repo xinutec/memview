@@ -110,11 +110,11 @@ fn the_cli_s_own_description_is_not_a_name() {
     }
 }
 
-// --- whose damage fails a run (memview #1062) --------------------------------
+// --- whose damage fails a run --------------------------------
 
 use reader::transcript::fatal_damage;
 
-/// Outside a session — the nightly — damage fails NOTHING (memview#1546).
+/// Outside a session — the nightly — damage fails NOTHING.
 ///
 /// This test asserted the reverse once, and it was the reverse that was wrong:
 /// two unrepairable transcripts held `verify/memview` red for weeks, hiding
@@ -144,7 +144,7 @@ fn a_session_still_fails_on_its_own_transcript() {
     assert_eq!(fatal_damage(1, Some("session-1")), 1);
 }
 
-// ── human_turns: one test per fact the crate now owns (memview#1215) ─────────
+// ── human_turns: one test per fact the crate now owns ─────────
 
 fn turns(lines: &[&str]) -> Vec<reader::transcript::Turn> {
     reader::transcript::human_turns(lines.join("\n").as_bytes())

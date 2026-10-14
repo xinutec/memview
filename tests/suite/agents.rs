@@ -665,7 +665,7 @@ fn opening_a_memory_is_attributed_to_that_memory_not_to_a_project() {
 }
 
 /// A day on which an agent opened more than [`SWEEP`] distinct memories is an
-/// audit, not a find (#1735). A memory it opened only on such days is swept; one
+/// audit, not a find. A memory it opened only on such days is swept; one
 /// it also opened on an ordinary day is not, and another agent's ordinary open of
 /// the same memory is unaffected.
 #[test]
@@ -1478,7 +1478,7 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 "2026-07-01T10:03:00Z",
             ),
             result("t4"),
-            // The case that was emitted by nothing (memview#1458). The
+            // The case that was emitted by nothing. The
             // directory is written down and the basename is a hole, so the
             // reader locates it without naming it. `Step` has carried these all
             // along; the writer knew about the two above and not this one, and
@@ -2008,7 +2008,7 @@ fn a_corrupt_previous_file_fails_rather_than_being_overwritten() {
 }
 
 /// A `generated` field nobody consults is decoration. `agents.json` has
-/// carried one all along and still produced three wrong analyses (#1210); the
+/// carried one all along and still produced three wrong analyses; the
 /// fourth was a demotion argued from breadth figures for memories written after
 /// the mine. These pin the refusal.
 ///
@@ -2098,7 +2098,7 @@ fn a_memory_written_beside_an_index_edit_is_still_named() {
 // `cat > written_by_heredoc.md` with no directory and expected a memory named
 // `written_by_heredoc`; the reader resolves the path and correctly refuses it.
 // Superseded by `a_heredoc_write_to_a_memory_is_seen`, which names a real corpus
-// path, and by `a_markdown_file_outside_the_corpus_is_not_a_memory` (#1218).
+// path, and by `a_markdown_file_outside_the_corpus_is_not_a_memory`.
 
 /// Prose is not a path. A transcript says things like "memory/preferences
 /// cannot fulfil them"; a bare `/memory/` substring match invented
@@ -2149,7 +2149,7 @@ fn bash_row(stamp: &str, command: &str) -> String {
 }
 
 /// `echo x > /tmp/note.md` is not a memory, and the `> name.md` heuristic
-/// this replaced counted it whenever the stem collided with one (#1218).
+/// this replaced counted it whenever the stem collided with one.
 #[test]
 fn a_markdown_file_outside_the_corpus_is_not_a_memory() {
     let dir = tempfile::tempdir().expect("tempdir");

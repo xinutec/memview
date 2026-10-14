@@ -365,7 +365,7 @@ const EFFECTS = {
       // the template's `!e.reached` could never fire in production — while this
       // fixture's `false` below made the assertion at the bottom of this file
       // pass regardless. A green check over a marker that had never once drawn
-      // (memview#1459). The `did` field was corrected and this one was not.
+      //. The `did` field was corrected and this one was not.
       reached: 'a',
       verdict: 'ok',
       certain: true,
@@ -394,7 +394,7 @@ const EFFECTS = {
       certain: true,
     },
     {
-      // The subject the text LOCATED but did not name (memview#1458).
+      // The subject the text LOCATED but did not name.
       // It carries a `path` like a resolved row does, which is the whole trap:
       // drawn bare it would read as a `wc` of the directory itself.
       at: 29_412_600,
@@ -528,7 +528,7 @@ test('the suite really runs at phone geometry', async ({ page }) => {
 });
 
 // A service worker can serve an index naming a bundle a later deploy removed, and
-// the app's own recovery is inside that bundle (#1786). The recovery is inline in
+// the app's own recovery is inside that bundle. The recovery is inline in
 // `src/index.html`; this is the check that it is there and works.
 test('a bundle a deploy removed reloads into the app, not a blank screen', async ({ page }) => {
   await mockApi(page);
@@ -647,7 +647,7 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.getByText('searched', { exact: true }).waitFor();
 
   // A locus is drawn as a PHRASE, and the negative is the real assertion
-  // (memview#1458). Its `path` is the directory the subject sits in, so a
+  //. Its `path` is the directory the subject sits in, so a
   // template printing it bare would say `/…/health/src` on a row whose command
   // is a `wc` — indistinguishable from having read the directory itself, and
   // claiming a name the reader deliberately refused to give.
@@ -660,7 +660,7 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   // Exactly one of the three, and the count is the point. This assertion
   // passed for years over a fixture holding a boolean the wire never sends, so
   // it proved the template works given a boolean rather than given an effect
-  // (memview#1459). Counting pins which rows draw it, so a condition that fires
+  //. Counting pins which rows draw it, so a condition that fires
   // for all of them — or none — fails here rather than reading as fine.
   await expect(page.getByText('may not have run')).toHaveCount(1);
   await page.getByText('and 12 more this could not name a subject for').waitFor();

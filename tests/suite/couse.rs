@@ -328,7 +328,7 @@ fn work_outside_the_code_root_has_no_project() {
 /// Support admits a pair; npmi judges it. Two memories that are EVERYWHERE and
 /// meet in only a few sessions co-occur less than chance would give — that is
 /// not a habit, and keeping such pairs made 78% of the live artefact weightless
-/// (memview#1307): counted, drawn as companions, ignored by the layout.
+///: counted, drawn as companions, ignored by the layout.
 #[test]
 fn a_below_chance_pair_is_dropped_at_the_mine() {
     // Three sessions where alpha and beta meet inside one turn…

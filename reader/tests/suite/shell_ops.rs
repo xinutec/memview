@@ -850,7 +850,7 @@ fn replays_page_number_is_not_a_file() {
 /// A kind for a caller that has no business with flag tables, and the
 /// obvious way to give it one is a build failure: [`Verb`] carries [`Flags`], so
 /// making it public emits `private_interfaces`, and the gate runs
-/// `-D warnings`. `verb_kind` is the payload-free half (memview#1364).
+/// `-D warnings`. `verb_kind` is the payload-free half.
 #[test]
 fn a_command_name_has_a_kind_without_exposing_its_flag_table() {
     assert_eq!(verb_kind("cat"), Some("read"));

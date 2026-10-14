@@ -110,7 +110,7 @@ fn a_computed_argument_names_nothing() {
     // `root + '/x.ts'` is not a file, but the literal carries its
     // own separator, so the NAME is certain and the shape is `*/x.ts` — a
     // language, never a use. The danger this test exists for is unaffected: the
-    // assertion above still refuses to record `/x.ts` as the file (#1142).
+    // assertion above still refuses to record `/x.ts` as the file.
     let concatenated = read("open(root + '/x.ts', 'w')");
     assert_eq!(
         concatenated.bounded["*/x.ts"], 1,
@@ -127,7 +127,7 @@ fn a_computed_argument_names_nothing() {
 /// An f-string is not a shrug, and calling it one lost the certain half.
 /// `f'{root}/x.ts'` does not name a file, but it does say the file is called
 /// `x.ts` — a language, in `bounded`, never a use. Before this the whole thing
-/// went to `unresolved`, which reads as "nothing is known" (#1142).
+/// went to `unresolved`, which reads as "nothing is known".
 #[test]
 fn an_interpolated_f_string_is_a_language_not_a_shrug() {
     let program = read("open(f'{root}/x.ts', 'w')");
@@ -202,7 +202,7 @@ fn predicates_are_not_uses() {
 /// of". Both produce no use, so it passed while `os.path.exists` sat third in
 /// the reader's own worklist of calls it does not know, at 102 — the method
 /// spelling was handled and the module spelling was not. This asserts the
-/// difference the worklist sees (#1142).
+/// difference the worklist sees.
 #[test]
 fn a_predicate_is_understood_in_both_spellings() {
     for source in [
@@ -382,7 +382,7 @@ fn an_unterminated_string_ends_at_its_line() {
     // expect `src/x.ts` back: the grammar stops a one-line literal at its line's
     // end, so reading continues and the write is found. Recovery is still right
     // for READING — but CPython refuses this source outright, so the write never
-    // happened and counting it invented work (memview #1033).
+    // happened and counting it invented work.
     //
     // The grammar is unchanged; what is new is that `did_not_run` vetoes the
     // program first. Measured over all 12,240 distinct programs, the rule that
@@ -447,7 +447,7 @@ fn an_unclosed_literal_is_a_program_that_never_ran() {
     // Closure, not syntax: a quote that never finds its partner cannot be a
     // program under any reading, so saying so stays inside `python.pest`'s rule
     // that no program is rejected whole. The corpus's shape is a heredoc body
-    // cut short (memview #1033).
+    // cut short.
     assert!(reader::python::did_not_run("x = '''unterminated\nmore text\n").is_some());
     assert!(reader::python::did_not_run("open('a.txt").is_some());
     assert!(reader::python::did_not_run("print(open('a.txt').read()").is_some());
@@ -669,7 +669,7 @@ fn a_parenthesised_iterable_is_not_a_call_to_in() {
 
 /// One unknown part must not discard the known ones, in any of the three
 /// spellings of a join. `os.path.join(BACKUP, name)` is `BACKUP/*` — a locus
-/// with an uncertain leaf — and before this the whole call was a shrug (#1142).
+/// with an uncertain leaf — and before this the whole call was a shrug.
 #[test]
 fn a_join_with_one_unknown_part_keeps_the_known_ones() {
     for source in [
@@ -724,7 +724,7 @@ fn a_join_of_known_parts_is_still_a_path() {
     );
 }
 
-// ── concatenation: the same slice, one separator weaker (#1142) ─────────────
+// ── concatenation: the same slice, one separator weaker ─────────────
 
 /// The literal carries the separator, so the DIRECTORY survives.
 ///
@@ -789,7 +789,7 @@ fn a_concatenation_of_known_parts_stays_an_exact_path() {
 /// `os.path.expanduser` already does here — it is a name-identity call, so the
 /// `~` it is handed comes back untouched — and the corpus is full of paths
 /// written that way by hand. Expanding one spelling and not the other would make
-/// the reader report two different files for the same directory (#1142).
+/// the reader report two different files for the same directory.
 #[test]
 fn the_home_directory_is_a_path_in_both_spellings() {
     // The import is load-bearing in the TEST as well as in the code. Without
@@ -882,7 +882,7 @@ fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
     assert_eq!(program.why.get(&Why::Computed), Some(&1));
 }
 
-// --- a parameter bound at its call site (memview#1142) -----------------------
+// --- a parameter bound at its call site -----------------------
 
 /// `Why::Outside` said "the value came from outside the text, so no rule can
 /// ever read it" — and the value was four lines below.
@@ -894,7 +894,7 @@ fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
 ///
 /// Its cost was not only a census row. `blame::attribute` asks the reader what a
 /// command wrote, so these writes were invisible and `originSessionId` named a
-/// later editor than the creator for thirteen memories (memview#1499).
+/// later editor than the creator for thirteen memories.
 #[test]
 fn a_parameter_takes_the_literal_its_call_site_passes() {
     let program =
@@ -924,7 +924,7 @@ fn a_parameter_two_functions_share_is_refused_rather_than_guessed() {
 }
 
 /// Called twice with two literals is TWO WRITES, not a set — and this test
-/// asserted the opposite when it was written hours earlier (memview#1499).
+/// asserted the opposite when it was written hours earlier.
 ///
 /// Feeding a call site into `bound` like an assignment made the bound-twice rule
 /// apply, which gave a bounded set for free and looked like a bonus. It is

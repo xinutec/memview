@@ -112,7 +112,7 @@ fn the_last_file_in_the_diff_is_still_judged() {
     assert_eq!(stale(&diff).len(), 1);
 }
 
-// --- a file with no stamp to move (memview#1319) -----------------------------
+// --- a file with no stamp to move -----------------------------
 
 /// A diff touching one path's body, in the shape the corpus produces.
 fn body_edit(path: &str) -> String {
@@ -182,7 +182,7 @@ fn a_clean_commit_reads_no_files() {
     assert_eq!(found, memview::stamped::Stale::default());
 }
 
-// --- what a memory does not say about itself (memview#1499) ------------------
+// --- what a memory does not say about itself ------------------
 
 /// One memory's raw text, with either half of its provenance present or not.
 fn frontmatter(origin: bool, modified: bool) -> String {
@@ -198,7 +198,7 @@ fn frontmatter(origin: bool, modified: bool) -> String {
     meta
 }
 
-/// The case that made `memory-stamp` useless at its own job (memview#1499).
+/// The case that made `memory-stamp` useless at its own job.
 ///
 /// It selected on a missing `modified:` alone. All twelve gaps in the live
 /// corpus HAD a stamp and lacked only the author, so none was returned and the

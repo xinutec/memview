@@ -3,7 +3,7 @@
 //!
 //! This exists because six bugs of one family were found BY HAND, each
 //! needing a stronger fixture than the one before it
-//! (memview#1240). All six were the same shape — a fold written to run over
+//!. All six were the same shape — a fold written to run over
 //! everything, made to run over what changed — and none was visible to the test
 //! that preceded it:
 //!

@@ -194,7 +194,7 @@ fn predicted(script: &str, root: &Path) -> Vec<Claim> {
         // record is spelled rather than whether the reading is right.
         //
         // The spelling still matters to whoever displays a step beside the claim
-        // it supports (memview#93), which is filed separately — it is a
+        // it supports, which is filed separately — it is a
         // different question from this one.
         .filter_map(|step| {
             let argv: Vec<String> = reader::shell_ops::unwrap_command(&step.argv).to_vec();

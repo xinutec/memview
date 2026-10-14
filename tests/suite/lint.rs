@@ -67,7 +67,7 @@ fn a_memory_nothing_links_is_an_error() {
     assert_eq!(findings(&found, "unreachable"), ["project_island"]);
 }
 
-// --- whose error fails the gate (memview #1047) ------------------------------
+// --- whose error fails the gate ------------------------------
 
 /// One memory, optionally stamped with the session that wrote it.
 fn stamped(dir: &std::path::Path, name: &str, origin: Option<&str>) -> Corpus {
@@ -133,7 +133,7 @@ fn a_session_still_fails_on_its_own_memory() {
 }
 
 /// A missing author is REPORTED, and reported as a WARNING — two halves of
-/// one claim, pinned together (memview#1499).
+/// one claim, pinned together.
 ///
 /// Reported at all, because nothing used to ask. `modified:` was an ERROR and
 /// sat at the whole corpus; `originSessionId` was checked by no rule and had
@@ -210,7 +210,7 @@ fn an_error_in_the_index_still_fails_a_session() {
     ));
 }
 
-// --- who BROKE it, not whose it is (memview#1553) ----------------------------
+// --- who BROKE it, not whose it is ----------------------------
 
 /// The case the whole ticket is about: I damaged a memory I did not write.
 ///
@@ -412,7 +412,7 @@ fn a_memory_that_does_not_quote_the_figure_is_untouched() {
     assert!(findings(&found, "quotes-a-retracted-figure").is_empty());
 }
 
-// ── The injection ceiling, as a check rather than as prose (#822) ────────────
+// ── The injection ceiling, as a check rather than as prose ────────────
 
 fn all_findings(corpus: &Corpus, rule: &str) -> Vec<memview::lint::Finding> {
     check(corpus, None, None)
@@ -460,7 +460,7 @@ fn an_index_under_the_ceiling_is_silent() {
 /// ERROR and withholds the entire corpus from its history — so promoting this
 /// while the root is over would not tighten the budget, it would stop every
 /// memory being committed at all. A gate that can never go green is not a
-/// signal; that is how memview's own gate became unpassable (#1062). Promote it
+/// signal; that is how memview's own gate became unpassable. Promote it
 /// in a one-word edit once the root is under, and delete this test in the same
 /// edit rather than around it.
 #[test]
@@ -478,7 +478,7 @@ fn the_ceiling_rule_is_a_warning_while_the_corpus_is_over_it() {
     assert_eq!(found[0].severity, Severity::Warning);
 }
 
-// ── The teaser: a memory's own line in the index (#1310) ─────────────────────
+// ── The teaser: a memory's own line in the index ─────────────────────
 //
 // The user: "Let's make the teaser text part of the doc itself. The
 // automation will be structural, not linguistic." So the field is where the
@@ -553,7 +553,7 @@ fn a_memory_without_a_teaser_is_not_a_finding() {
     assert!(found.is_empty(), "{found:?}");
 }
 
-// ── A memory cannot have been changed before it existed (#1321) ──────────────
+// ── A memory cannot have been changed before it existed ──────────────
 
 /// One memory carrying both stamps, and an index that reaches it.
 fn dated(dir: &std::path::Path, created: &str, modified: &str) -> Corpus {
@@ -630,7 +630,7 @@ fn the_stamps_are_compared_as_instants_and_not_as_text() {
 }
 
 /// Every racy rule must be a rule, and this test exists because one was
-/// not (memview#1456). `RACY` named `"not-in-index"`, renamed to
+/// not. `RACY` named `"not-in-index"`, renamed to
 /// `"unreachable"` when the rule became reachability rather than
 /// membership. The dead string compiled, read as deliberate, and matched no
 /// finding — so `memory-lint`'s settle-and-retry protected one of its two rules
@@ -715,7 +715,7 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
 }
 
 /// A lone topic word is CORRECT for a pointer and mute for a tripwire
-/// (memview#822, #1734): it names a subject and warns nobody. The pointer half
+///: it names a subject and warns nobody. The pointer half
 /// is the control that makes the tripwire half mean anything.
 #[test]
 fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
@@ -869,7 +869,7 @@ fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field(
 }
 
 /// One-word tripwires judged and kept stop being warnings, so a NEW one is seen
-/// rather than arriving as number 73 of 73 (memview#1784). The acceptance is of
+/// rather than arriving as number 73 of 73. The acceptance is of
 /// a label, not a memory: relabelled, it is new again.
 #[test]
 fn an_accepted_one_word_tripwire_is_quiet_and_a_new_one_is_not() {

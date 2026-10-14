@@ -509,7 +509,7 @@ fn dropping_one_index_line_leaves_it_reachable_through_its_neighbour() {
 
 #[test]
 fn two_memories_that_house_each_other_are_stranded_when_both_lines_go() {
-    // THE defect this exists for (#869). Asked one at a time, each of these is
+    // THE defect this exists for. Asked one at a time, each of these is
     // housed by the other and looks safe to demote; asked together, nothing
     // reaches either. `memory-rank` summed 25 candidates as if independent and
     // offered exactly such a pair — the stranding recorded in
@@ -536,7 +536,7 @@ fn a_memory_with_its_own_index_line_survives_its_only_inbound_link_being_demoted
 
 /// The viewer's "updated" is the memory's own stamp, not the file's mtime.
 /// mtime records a touch: measured over the whole corpus, most files disagree
-/// with their own stamp, by a median of days and a worst case of weeks (#1219).
+/// with their own stamp, by a median of days and a worst case of weeks.
 /// `memory-lint` enforces the stamp; the viewer had no
 /// business preferring the filesystem.
 #[test]

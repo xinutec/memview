@@ -1,5 +1,5 @@
 //! Whether a transcript can be resumed, and the cases where it must not be
-//! (#1240).
+//!.
 
 use std::io::Write;
 
@@ -138,7 +138,7 @@ fn the_fold_state_is_written_beside_the_offset_not_under_it() {
     assert!(!text.contains("episode"), "{text}");
 }
 
-// ── What a run may do, given what it read last time (#1240) ──────────────────
+// ── What a run may do, given what it read last time ──────────────────
 //
 // Every test here is about failing CLOSED. A wrong resume produces no error:
 // it mines from an offset that means something else, and the artefact becomes

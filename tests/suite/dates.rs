@@ -1,4 +1,4 @@
-//! Putting a memory's creation date back into the memory (#1210).
+//! Putting a memory's creation date back into the memory.
 
 use memview::dates::{created_in, with_created};
 
