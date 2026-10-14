@@ -16,27 +16,9 @@ use tracing::Level;
 
 use crate::state::AppState;
 
-/// How long a static response may be reused without asking again.
-///
-/// `index.html` MUST REVALIDATE, and shipping it without saying so cost a
-/// deploy nobody could see. With no `Cache-Control` at all a client falls back
-/// to *heuristic* caching from `Last-Modified`, and is free to keep the document
-/// for as long as it likes without ever asking again. MEASURED on a sibling
-/// app: an Android WebView fetched the whole API — `/api/me`,
-/// `/api/conversations`, a whole thread — and never once requested `main-*.js`.
-/// The phone ran a build several deploys old for hours while the server had been
-/// serving the new one all along.
-///
-/// The symptom is "the change did not deploy", which sends you to CI, the
-/// image tag, the rollout and the manifests — all of which are correct. What
-/// identified it was a rendering detail that could only come from old code.
-///
-/// `no-cache` rather than `no-store`: it means "ask first", not "never keep", so
-/// the ETag still turns the usual case into a 304 with no body.
-///
-/// Everything else Angular emits carries a content hash in its NAME, so a new
-/// build is a new URL and the old one can never be wrong. Those are the one kind
-/// of response `immutable` is honestly available for.
+/// How long a static response may be reused. `index.html` must revalidate
+/// (`no-cache`): without it a WebView kept an old build for hours. Hashed assets
+/// are `immutable`.
 fn cache_control_for(res: &Response<ServeFileSystemResponseBody>) -> Option<HeaderValue> {
     let is_html = res
         .headers()
@@ -50,17 +32,8 @@ fn cache_control_for(res: &Response<ServeFileSystemResponseBody>) -> Option<Head
     })
 }
 
-/// Serve the app's page for a client-side ROUTE, and 404 anything that plainly
-/// named a file.
-///
-/// A missing FILE must not be handed the page, and the mistake is
-/// invisible: the wrong answer is a `200`, so a browser that asked for a
-/// woff2 and got HTML renders broken icons and reports nothing anywhere.
-/// Measured — `/media/nope.woff2` answered `200 text/html` (#1478).
-///
-/// The test is a dot in the last path segment. It is a heuristic, and the
-/// alternative — enumerating the bundle's own asset names — would have to be
-/// rebuilt whenever `ng build` changes a hash.
+/// Serve the app for a client-side route, and 404 anything naming a file (a dot
+/// in the last segment) — a page served as a font fails silently.
 fn spa(index: &str, path: &str) -> axum::response::Response {
     use axum::response::IntoResponse as _;
 
@@ -114,9 +87,7 @@ pub fn router(state: AppState) -> Router {
             let index = index.clone();
             async move { spa(&index, uri.path()) }
         }));
-        // The layer wraps only the STATIC service: an API response is neither
-        // a document to revalidate nor an immutable asset, and giving JSON a
-        // year-long `immutable` would be the same bug pointing the other way.
+        // Only the static service: JSON must not be `immutable`.
         let serve = ServiceBuilder::new()
             .layer(SetResponseHeaderLayer::overriding(
                 header::CACHE_CONTROL,
@@ -128,27 +99,13 @@ pub fn router(state: AppState) -> Router {
         app
     };
 
-    // One line per request: method, path, status, latency. The app had none, so
-    // the only evidence it had ever served anything was that it was still
-    // running — no way to tell a slow corpus read from a client that gave up, or
-    // to see a 401 storm from a stale cookie.
-    //
-    // The levels are set explicitly rather than left at the defaults. TraceLayer
-    // logs under the `tower_http` target, and the deployment's filter is
-    // `info,memview=debug` — which raises *this crate* to debug and leaves
-    // tower_http at info. Taking the default DEBUG therefore shipped a layer that
-    // could never emit a line, in the name of adding observability. Responses at
-    // INFO make the useful half independent of a filter string maintained in a
-    // different repository.
+    // One line per request. At INFO explicitly: `tower_http` logs at DEBUG by
+    // default, which the deployment's filter hides.
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
-    // /healthz is registered AFTER the layer, so it is deliberately untraced.
-    // kubelet probes it twice on two schedules — roughly three times every twenty
-    // seconds, about 26,000 lines a day — and logging that buries the handful of
-    // requests a person actually made. A log nobody can skim is not observability,
-    // and the first version of this shipped with the probes in it.
+    // /healthz after the layer, untraced: the probes would bury real requests.
     app.layer(trace)
         .route("/healthz", get(|| async { "ok" }))
         .with_state(state)

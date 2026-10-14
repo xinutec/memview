@@ -70,10 +70,7 @@ pub async fn memories(
     Ok(Json(load_corpus(&app)?.list()))
 }
 
-/// Who wrote a memory: the session its frontmatter names, and the agent that
-/// session belongs to when the roster still knows. Optional because a memory can
-/// outlive the transcript that wrote it — a handful predate the archive, not
-/// pruning (memview#1240).
+/// Who wrote a memory: its session, and that session's agent if still known.
 #[derive(Serialize)]
 pub struct Origin {
     session: String,
@@ -128,10 +125,8 @@ pub async fn memory(
     }))
 }
 
-/// GET /api/graph — the corpus as a link graph, one payload because a layout
-/// needs every node before it can place any. Every node carries its
-/// `description`, so measure the size rather than trusting a number here —
-/// the last one rotted by two orders of magnitude. See memview#1306.
+/// GET /api/graph — the corpus as a link graph, in one payload: a layout needs
+/// every node first.
 pub async fn graph(State(app): State<AppState>, Owner(_): Owner) -> Result<Json<Graph>, AppError> {
     let mut graph = load_corpus(&app)?.graph();
     if let Some(path) = &app.cfg.couse_file
@@ -211,9 +206,7 @@ pub struct Moment {
     pub kind: String,
     pub n: u32,
     pub verdict: reader::doing::Verdict,
-    /// How many effects `/api/effects` would return for this row. On the row because
-    /// 12.6% of rows have NONE, and a tap to learn "nothing was recorded" is a tap
-    /// wasted; the median carries 10 and the 90th percentile 85.
+    /// How many effects `/api/effects` would return for this row.
     pub effects: u32,
     /// Which instruction this was part of — an index into [`Timeline::episodes`]. An
     /// id, not the episode: a stretch of one instruction is dozens of rows.
@@ -403,11 +396,8 @@ pub struct Effect {
     pub command: String,
     pub reached: reader::shell::Reached,
     pub verdict: reader::doing::Verdict,
-    /// Whether this use may be attributed — [`reader::doing::Verdict::admits`].
-    /// Computed here because a client joining the two fields would be a third copy
-    /// of the rule (`console/src/parse.rs` is the second); the timeline once decided
-    /// from `reached` alone, typed `boolean` against a wire sending `"a"`
-    /// (memview#1459). One-sided: `false` means "cannot say".
+    /// Whether this use may be attributed — [`reader::doing::Verdict::admits`],
+    /// decided here so no client copies the rule. `false` means cannot say.
     pub certain: bool,
 }
 

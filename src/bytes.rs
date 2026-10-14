@@ -1,10 +1,5 @@
-//! Where the bytes in a transcript actually are. `claude_disk.py` charts three
-//! lines that do not sum to its total, because they name WHERE bytes sit and
-//! never WHAT they are (memview#1199, #1200).
-//!
-//! The buckets PARTITION: every byte lands in exactly one, so the report sums to
-//! the file on disk. Copy is the dimension nothing had — the CLI re-appends
-//! earlier stretches, and on the largest transcript that is 48.5% of 1.7 GB.
+//! What the bytes in a transcript are. The buckets partition every byte, so the
+//! report sums to the file — re-appended copies included.
 
 use std::collections::BTreeMap;
 
@@ -86,12 +81,8 @@ fn tool_of(part: &serde_json::Value) -> String {
     part["name"].as_str().unwrap_or("?").to_string()
 }
 
-/// Bucket one transcript line. `seen` is per FILE: the same uuid in two
-/// transcripts is two conversations referring to one message.
-///
-/// `raw` is the bytes the line OCCUPIES, newline included, counted while reading:
-/// `line.len()` strips the terminator, and comparing against a later
-/// `metadata()` measured a file still being written — 13,611 bytes unexplained.
+/// Bucket one transcript line. `seen` is per file; `raw` is the bytes the line
+/// occupies, newline included.
 pub fn absorb(
     out: &mut Bytes,
     line: &str,
@@ -135,9 +126,7 @@ pub fn absorb(
     let mut accounted = 0u64;
     if let Some(parts) = content.as_array() {
         for part in parts {
-            // Propagated, never defaulted to zero: charged as 0 the part's bytes fall
-            // silently into `Envelope`, and the partition still balances while the
-            // attribution is wrong.
+            // Never zero: the bytes would fall silently into `Envelope`.
             let size = serde_json::to_string(part)?.len() as u64;
             let kind = match part["type"].as_str().unwrap_or("?") {
                 "thinking" | "redacted_thinking" => Kind::Thinking,
@@ -189,9 +178,7 @@ pub struct Part {
     pub files: u64,
 }
 
-/// Bytes and file counts per top-level entry, largest first. Apparent size, not
-/// allocated blocks: `du` would disagree by block size times file count, and
-/// `file-history/` holds 25,000 small files.
+/// Bytes and file counts per top-level entry, largest first — apparent size.
 pub fn top_level(root: &std::path::Path) -> std::io::Result<Vec<Part>> {
     let mut parts = Vec::new();
     for entry in std::fs::read_dir(root)? {
@@ -241,9 +228,8 @@ pub fn concentration(mut sizes: Vec<u64>, n: usize) -> (u64, u64, usize) {
     (top, rest, sizes.len().saturating_sub(n))
 }
 
-/// The census as an artefact, for a collector that must not read 6 GB itself.
-/// Every field becomes a fleetwatch TREND KEY, forever, so the bucket names are a
-/// FIXED set with an `other` catch-all, never the raw [`Kind`].
+/// The census as an artefact. Each field is a permanent fleetwatch trend key, so
+/// the bucket names are a fixed set with `other`.
 #[derive(Debug, Default, Serialize, serde::Deserialize)]
 pub struct Census {
     /// When the walk finished, so a reader can grade its own staleness.
@@ -262,9 +248,8 @@ pub struct Census {
     pub rest_bytes: u64,
 }
 
-/// The stable label for a bucket, or `None` for one that folds into `other`.
-/// Adding a name here adds a permanent chart line: the set is the buckets above
-/// 1% when first measured.
+/// The stable label for a bucket, or `None` for `other`. A new name is a permanent
+/// chart line.
 pub fn stable_label(kind: &Kind) -> Option<&'static str> {
     Some(match kind {
         Kind::Envelope => "envelope",
