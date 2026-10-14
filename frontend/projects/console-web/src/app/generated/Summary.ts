@@ -12,14 +12,11 @@ export type Summary = { id: string, dir: string,
  */
 started: number, 
 /**
- * When anything last happened, in milliseconds, from the transcript — not
- * `started`, which is when this console picked the process up. Filled by the
- * roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
+ * When anything last happened, in milliseconds, from the transcript.
  */
 touched?: number, 
 /**
- * How much the transcript weighs, in bytes. Not [`Self::context`], which is the
- * last request's prompt in tokens.
+ * The transcript's size in bytes.
  */
 bytes?: number, alive: boolean, model?: string, 
 /**
@@ -27,44 +24,31 @@ bytes?: number, alive: boolean, model?: string,
  */
 busy?: string, 
 /**
- * Whether a turn is running — observed by the runner, not narrated by the CLI.
- * [`Self::busy`] cannot answer this: a status is announced when it changes, so
- * a long stretch of one activity leaves nothing standing.
- * Deliberately not a timeout: a turn can legitimately be quiet for minutes.
+ * Whether a turn is running, as observed — [`Self::busy`] is announced only on change.
  */
 working: boolean, 
 /**
- * How many times someone has spoken to this session since it was last
- * compacted — exchanges, not messages. See [`crate::past::counted`].
+ * Exchanges since the last compaction. See [`crate::past::counted`].
  */
 interactions: number, 
 /**
- * What this session's tokens would have cost at API list prices. Not money: the
- * session runs on the subscription. Shown only when [`Self::limit`] says the
- * account has stopped being all-you-can-eat.
+ * The tokens at API list prices — not money spent, on a subscription.
  */
 cost_usd: number, 
 /**
- * How many tokens the last request's prompt came to, and the window it went
- * into. Per message, not per turn — the result line sums every request the turn
- * made. Input + cache-creation + cache-read: the cached part is almost all of it.
+ * The last request's prompt in tokens, cached parts included.
  */
 context?: number, window?: number, 
 /**
- * How many background tool calls this session has started and not had reported
- * finished. Only the ones the harness tracks: `nohup … &` is invisible. Counted
- * by the runner so the list can rank on it without opening anything.
+ * Background calls started and not reported finished. `nohup … &` is invisible.
  */
 background: number, 
 /**
- * Which background calls are still running. `background` is kept beside this:
- * the list wants a number, the strip wants the name.
+ * The background calls still running, by name.
  */
 running: Array<Called>, 
 /**
- * The account's own verdict on its rate limit, when it has given one:
- * `allowed`, `allowed_warning` or `rejected`. `None` until the
- * account says something — the reason cost is hidden by default.
+ * The account's verdict on its rate limit, once it has given one.
  */
 limit?: Allowance, 
 /**
@@ -72,54 +56,40 @@ limit?: Allowance,
  */
 asked?: string, 
 /**
- * What the conversation calls itself — `memview`, `health`. Filled by the roster
- * from the transcript; see [`crate::past::named`].
+ * What the conversation calls itself — `memview`, `health`.
  */
 name?: string, 
 /**
- * What the other sessions on this machine call this one — the name
- * `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
- * the title in the transcript: only `-n` at spawn writes this one, so a
- * conversation renamed while it runs keeps the name its peers already knew
- * until it is next resumed. Shown so that gap is visible rather than
- * discovered by a session reporting that a name does not exist. Filled by the
- * roster; see [`crate::peers::named`].
+ * What other sessions call this one. Set only at spawn, so it can lag a rename
+ * until the next resume.
  */
 peer_name?: string, 
 /**
- * What the session may do without asking: `default`, `plan`, `dontAsk`,
- * `acceptEdits`, `auto`, `bypassPermissions`. What the console set, not what the
- * transcript says — a resumed session carries the previous session's mode
- * lines.
+ * What the session may do without asking, as the console set it.
  */
 mode?: Mode, 
 /**
- * Why the last mode change was refused, in the CLI's own words. Present only
- * until the next change is asked for: it describes an attempt, not a state.
+ * Why the last mode change was refused, until the next is asked for.
  */
 mode_refused?: string, 
 /**
- * How many questions it is blocked on — the one number that means "this
- * session cannot go on without you".
+ * How many questions it is blocked on.
  */
 waiting: number, 
 /**
- * How many messages have been written to this session and not read back.
+ * Messages written and not read back.
  */
 unread: number, 
 /**
- * How long it has been failing to read them, in seconds — present only when the
- * console is prepared to call it deaf. See [`crate::session::Session::deaf`].
+ * How long it has failed to read them, in seconds, once it counts as deaf.
  */
 deaf?: number, 
 /**
- * When the account's sign-in was refused, in epoch milliseconds — present until
- * a request is answered again. Every session shares the login, so the cure is
- * signing in on the Mac. See [`crate::protocol::Event::SignedOut`].
+ * When the shared sign-in was refused, in epoch milliseconds, until a request
+ * is answered again. See [`crate::login`].
  */
 signed_out?: number, 
 /**
- * Slash commands waiting for the turn to end, oldest first — see [`crate::session::state::State::held`].
- * The words themselves, because the client draws them and cancels by them.
+ * Slash commands waiting for the turn to end, oldest first, word for word.
  */
 held: Array<string>, };

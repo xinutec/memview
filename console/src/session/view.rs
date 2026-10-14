@@ -33,9 +33,7 @@ impl Session {
         }
     }
 
-    /// Questions this session is still waiting on. A cold reader has to be offered
-    /// these again: an `Ask` is a control request no transcript records, so a seed
-    /// cannot contain one — `crate::api::cold` needs this as [`super::Session::adopt`] does.
+    /// Questions this session still waits on, which no transcript records.
     pub fn asking(&self) -> Vec<(String, Pending)> {
         self.state
             .lock()
@@ -59,13 +57,9 @@ impl Session {
         self.state.lock().heard
     }
 
-    /// How long this session has been failing to read what was written to it, in
-    /// milliseconds — `None` for one that is merely busy, or quiet. See [`crate::deaf`].
-    ///
-    /// Three things at once: a message is in flight; the session is between turns
-    /// ([`super::State::idle_since`]) — one mid tool call parks input on purpose; and long
-    /// enough, [`super::state::DEAF_AFTER_MS`] or [`super::state::DEAF_AFTER_COMPACT_MS`]. The clock starts at
-    /// whichever came second. It cannot see a session that goes deaf mid-turn.
+    /// How long this session has failed to read what was written to it, in
+    /// milliseconds: a message in flight, between turns, for long enough. Blind to a
+    /// session that goes deaf mid-turn. See [`crate::deaf`].
     pub fn deaf(&self) -> Option<i64> {
         deaf_for(&self.state.lock(), now())
     }
@@ -75,8 +69,7 @@ impl Session {
         self.state.lock().mode.clone()
     }
 
-    /// What was written to this session and never read, oldest first — the other
-    /// half of the cure, since a restart loses the old pipe. See
+    /// What was written and never read, oldest first — resent by
     /// [`crate::roster::Roster::revive`].
     pub fn unread(&self) -> Vec<String> {
         self.state
@@ -97,12 +90,11 @@ impl Session {
             .collect()
     }
 
-    /// What a client that says it holds everything through `after` still needs.
-    /// Resuming is refused rather than approximated — see [resumable].
+    /// What a client holding everything through `after` still needs — or a fresh
+    /// start, never an approximation. See [resumable].
     pub fn since(&self, after: Option<u64>) -> Backlog {
         let state = self.state.lock();
-        // With an empty log nothing is held, so the earliest number still honourable
-        // is the next one to be issued.
+        // An empty log holds from the next number.
         let held_from = state
             .log
             .front()
@@ -132,9 +124,7 @@ impl Session {
         }
     }
 
-    /// The last sequence number this session has issued, for a client seeded from
-    /// the transcript — see [`crate::api`]. Every event at or below it has been
-    /// written, so nothing after it is sent twice.
+    /// The last sequence number issued, for a client seeded from the transcript.
     pub fn issued(&self) -> u64 {
         self.state.lock().issued
     }
@@ -152,8 +142,7 @@ impl Session {
         self.state.lock().alive
     }
 
-    /// Whether a turn is running right now — [`Summary::working`], and not
-    /// [`Summary::busy`], which cannot answer this.
+    /// Whether a turn is running — [`Summary::working`].
     pub fn working(&self) -> bool {
         self.state.lock().working
     }
@@ -168,7 +157,7 @@ impl Session {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            // Left for the roster, which reads the transcript once per listing.
+            // Filled by the roster.
             touched: None,
             bytes: None,
             alive: state.alive,
@@ -185,7 +174,7 @@ impl Session {
             background: state.background.len(),
             running: state.background.values().cloned().collect(),
             asked: state.asked.clone(),
-            // Filled in by the roster, which knows where the transcripts are.
+            // Filled by the roster.
             name: None,
             peer_name: None,
             waiting: state.pending.len(),

@@ -1,10 +1,8 @@
 //! One live Claude Code session: the subprocess, its transcript, its listeners.
 //!
-//! A session is one long-lived process: with `--input-format stream-json` it
-//! serves turn after turn on an open stdin and exits 0 when stdin closes, so
-//! closing stdin is the polite way to end one. The id is ours, chosen before the
-//! process exists (`--session-id`), so a client can subscribe to a session that
-//! is still starting and `--resume` later takes the same id.
+//! One process serves turn after turn on an open stdin and exits 0 when it closes.
+//! The id is ours, chosen before the process exists, so a client can subscribe to
+//! a session still starting.
 
 #![expect(
     unsafe_code,
@@ -40,20 +38,19 @@ pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
 use process::reap_adopted;
 use state::{State, deaf_for, forget};
 
-/// Where a session's instructions go. A trait object because a session is
-/// spawned, with the child's own [`ChildStdin`], or adopted across an upgrade,
-/// with the same pipe reopened from a raw descriptor.
+/// Where a session's instructions go: the child's stdin, or the same pipe reopened
+/// from a raw descriptor after an upgrade.
 type Sink = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
 
-/// How long a session gets to finish after its stdin closes, before it is killed.
-/// Generous: the clean exit is the one that flushes the transcript.
+/// How long a session gets to exit after its stdin closes. Generous: a clean exit
+/// flushes the transcript.
 const GRACE: Duration = Duration::from_secs(30);
 
 /// How much of the child's stderr to keep for diagnosis.
 const STDERR_KEPT: usize = 4000;
 
-/// How often to re-read the transcript while the child says nothing. The read
-/// is incremental, so this is set by how long a wrong number may stay on screen.
+/// How often to re-read the transcript while the child is quiet: how long a wrong
+/// number may stay on screen.
 const RECOUNT_EVERY: Duration = Duration::from_secs(5);
 
 /// Now, in milliseconds since the epoch.
@@ -78,8 +75,7 @@ pub struct Session {
     tx: broadcast::Sender<Stamped>,
 }
 
-/// By hand because the sink is a trait object, and the identity is the
-/// interesting half anyway.
+/// By hand: the sink is a trait object.
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Session")
@@ -96,18 +92,11 @@ impl std::fmt::Debug for Session {
 pub struct Spawn {
     pub binary: String,
     pub model: Option<String>,
-    /// What this session is called to its peers — `-n`, which is the only thing that
-    /// writes a chosen name into `~/.claude/sessions/<pid>.json`, the file
-    /// `ListAgents` reads and `SendMessage` addresses. Without it every session in
-    /// one directory derives the same name from that directory and is told apart
-    /// only by a hash, so a session asked to reach `memview` finds no such peer.
-    /// `rename_session` does not do this: the CLI calls it the user-facing title and
-    /// it goes no further than the transcript. See [`crate::roster::Roster::resume`],
-    /// which is where a conversation's own name becomes this argument.
+    /// What peers call this session: `-n`, the only way a name reaches
+    /// `~/.claude/sessions/<pid>.json`, which `SendMessage` addresses.
+    /// `rename_session` reaches only the transcript.
     pub name: Option<String>,
-    /// What the session may do without being asked. In headless mode there is nobody
-    /// to answer a prompt, so under the CLI's default every tool call needing
-    /// permission is refused.
+    /// What the session may do without asking.
     pub permission_mode: Option<crate::modes::Mode>,
 }
 
@@ -117,26 +106,17 @@ impl Session {
         Self::spawn(id, dir, spawn, false)
     }
 
-    /// Pick up a conversation that already exists, keeping its id. `--resume` rather
-    /// than `--session-id`: an id the CLI has never seen is an error, not a fresh
-    /// session wearing a real one's name. The transcript is not a lock — a `claude`
-    /// in a terminal is invisible to the roster.
+    /// Pick up an existing conversation by `--resume`, which refuses an unknown id
+    /// rather than starting a fresh session under it.
     pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        // Nothing recorded here about the file's date: resuming appends `mode`,
-        // `permission-mode` and `bridge-session` lines, so a floor taken from the file
-        // would say `just now` about a conversation opened after two days. See
-        // [`crate::past::last_moved`].
         let session = Self::spawn(id, dir, spawn, true)?;
-        // A new `claude` on an old conversation: whatever the transcript shows still
-        // running was written by a process that is gone.
+        // Whatever the transcript shows running belonged to a process that is gone.
         session.seed(true);
         Ok(session)
     }
 
-    /// Put what was already said in front of what happens next. `--resume` restores
-    /// the CLI's context and replays none of it on stdout, so without this a resumed
-    /// session opens empty. The same vocabulary the stream uses, read the other way
-    /// — [`crate::protocol::read_recorded`]. Silent when there is no transcript.
+    /// Put what was already said in front of what happens next: `--resume` replays
+    /// none of it on stdout. Read by [`crate::protocol::read_recorded`].
     fn seed(self: &Arc<Self>, restarted: bool) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
@@ -157,16 +137,14 @@ impl Session {
         for timed in seed.events {
             self.push_at(timed.event, timed.at);
         }
-        // Last, so it sits between what was read and what we watch, carrying the cursor.
-        // Stamped now, because joining is the one thing here that did happen now.
+        // Between what was read and what is watched, carrying the cursor.
         self.push(Event::Joined {
             earlier: count,
             from: seed.from,
             restarted,
         });
-        // From the head of the file, overriding whatever the page set: the replay is
-        // the last page and full of prompts. Set unconditionally, including to `None`;
-        // `origin_read` is what makes `None` stick. See [`crate::past::opening`].
+        // From the head of the file, not the replayed page; `origin_read` makes a
+        // `None` stick.
         {
             let mut state = self.state.lock();
             state.asked = crate::past::opening(&path);
@@ -176,32 +154,25 @@ impl Session {
     }
 
     /// Count the exchanges the transcript has gained — [`crate::past::counted`].
-    /// Reads the file outside the lock, which is why this is a method and not a line
-    /// in `push_at`. Safe from the reading task only: it reads the offset, then the
-    /// file, then writes both back.
+    /// Reads the file outside the lock; call it from the reading task only.
     fn recount(&self) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             return;
         };
         let mut so_far = self.state.lock().counted;
-        // A seed arrives at zero, and zero is the whole file — gigabytes, on the
-        // executor. Start where the last megabyte begins; [`crate::past::seed_from`]
-        // says why the two agree exactly.
+        // Zero would read the whole file, gigabytes, on the executor.
         if so_far.through == 0 {
             so_far.through = crate::past::seed_from(&path);
         }
         let found = crate::past::counted(&path, so_far);
         let mut state = self.state.lock();
         state.counted = found.counted;
-        // Work the harness reported finished, closing the count here because there is
-        // no event — see [`crate::past::Appended::finished`].
+        // Work the file says finished, which no event announces.
         for named in &found.finished {
             forget(&mut state.background, named);
         }
-        // A compaction is announced in the file and nowhere else, so this read is the
-        // only way a running session learns its fullness is stale. Taken from the file
-        // rather than cleared: the same bytes may carry a request made after the boundary.
+        // A compaction is announced only in the file.
         if found.compacted {
             state.context = found.context;
         }
@@ -224,9 +195,7 @@ impl Session {
             } else {
                 ["--session-id", &id]
             })
-            // The switch that makes approvals possible at all; `--help` does not list it,
-            // the TypeScript SDK uses it. Without it a session in `manual` mode
-            // refuses every tool call outright and no question ever reaches the client.
+            // Unlisted in `--help`; without it no permission question reaches us.
             .args(["--permission-prompt-tool", "stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -246,8 +215,7 @@ impl Session {
         let mut child = command
             .spawn()
             .with_context(|| format!("spawning {} in {}", spawn.binary, dir.display()))?;
-        // Read before the handles are moved out: after the upgrade these numbers are
-        // all that is left of the connection.
+        // Before the handles move: after an upgrade these numbers are the connection.
         let fds = Fds {
             stdin: child.stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
             stdout: child.stdout.as_ref().map_or(-1, AsRawFd::as_raw_fd),
@@ -264,8 +232,7 @@ impl Session {
             started: SystemTime::now(),
             state: Mutex::new(State {
                 alive: true,
-                // What was actually asked for. Unset is not unknown — it is the CLI's own
-                // default, under which every tool call needing permission comes back here.
+                // Unset is the CLI's default mode, not unknown.
                 mode: Some(
                     spawn
                         .permission_mode
@@ -288,10 +255,9 @@ impl Session {
         Ok(session)
     }
 
-    /// Take over a session the previous image was running: same pid, same pipes,
-    /// same conversation. What is lost is the [`Child`] handle, so exit is noticed by
-    /// end of file and killing goes through the pid. The scrollback does not survive;
-    /// a reconnecting client is reseeded from the transcript, and [`Tally`] is carried.
+    /// Take over a session the previous image ran: same pid and pipes, no [`Child`]
+    /// handle, so exit is noticed at end of file and a kill goes by pid. The
+    /// scrollback is reseeded from the transcript; [`Tally`] is carried.
     pub fn adopt(
         id: String,
         dir: PathBuf,
@@ -300,10 +266,8 @@ impl Session {
         mut tally: Tally,
     ) -> Result<Arc<Self>> {
         let pending = std::mem::take(&mut tally.pending);
-        // Taken out for the same reason as `pending`, and put back after the seed.
+        // Put back after the seed, like `pending`.
         let background = std::mem::take(&mut tally.background);
-        // The scrollback does not survive the exec, so an adopted session reseeds from
-        // the transcript exactly as a resumed one does — see [`Self::seed`].
         // SAFETY: these descriptors were handed over by the image that exec'd, which
         // cleared close-on-exec so they would survive.
         let (stdin, stdout, stderr) = unsafe {
@@ -334,17 +298,15 @@ impl Session {
                 alive: true,
                 model: tally.model,
                 mode: tally.mode,
-                // Before the seed runs, so the replay cannot overwrite it: `asked` is only ever
-                // set when `None`. See the field's note in [`Tally`].
+                // Before the seed, which sets `asked` only when it is `None`.
                 asked: tally.asked,
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
-                // Carried like the rest of the tally: nothing on disk records it.
+                // Nothing on disk records it.
                 spent: tally.spent,
                 counted: tally.counted,
-                // The turn that was in flight is still in flight; its next status line or
-                // `Turn` corrects this.
+                // Still in flight; its next status or `Turn` corrects it.
                 busy: tally.busy,
                 ..State::default()
             }),
@@ -354,19 +316,13 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
-        // The same child across the exec, so nothing above the boundary is dead on
-        // account of the upgrade — see [`crate::protocol::Event::Joined`].
+        // The same child across the exec: nothing above the boundary died.
         session.seed(false);
-        // After the seed, so the question lands at the end of the conversation, where
-        // it is still standing. Pushed as an ordinary `Ask`: one mechanism, so a
-        // reconnecting client is offered the decision again and the session is
-        // recorded as waiting for it.
+        // After the seed, at the end where it still stands, as an ordinary `Ask`.
         for (id, question) in pending {
             session.push(question.ask(id));
         }
-        // After the seed, because the seed ends with a `Joined`, which
-        // `protocol::running` reads as `Running::Gone` — right for a resume, wrong for
-        // an adoption whose children are still running.
+        // After the seed, whose `Joined` clears the count — wrong for an adoption.
         if !background.is_empty() {
             tracing::info!(
                 "{}: {} background task(s) carried across the upgrade",
@@ -380,10 +336,9 @@ impl Session {
         Ok(session)
     }
 
-    /// Read the child's streams until they end. `ends_on_eof` decides who declares
-    /// the session over: for an adopted session end of file is the only signal; for
-    /// a spawned one [`Self::reap`] must say so, because only it knows the exit code,
-    /// and letting the reader win turns every clean exit into `code: None`.
+    /// Read the child's streams until they end. `ends_on_eof` for an adopted session,
+    /// which has no other signal; a spawned one is ended by [`Self::reap`], which knows
+    /// the exit code.
     fn read_from<O, E>(self: Arc<Self>, stdout: Option<O>, stderr: Option<E>, ends_on_eof: bool)
     where
         O: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -399,20 +354,16 @@ impl Session {
                 loop {
                     let line = tokio::select! {
                         line = lines.next_line() => line,
-                        // The transcript changes when the process says nothing: a compaction is written
-                        // to the file and announced on no stream, so a read tied to `Turn` alone leaves
-                        // a stale fullness on screen.
+                        // The file changes while the process is quiet, e.g. a compaction.
                         _ = beat.tick() => {
                             session.recount();
                             continue;
                         }
                     };
                     let Ok(Some(line)) = line else { break };
-                    // Every line, whatever it is: the record of when the process last spoke, which
-                    // is how the roster decides who to ask for usage. See [`Session::heard`].
+                    // Every line: who to ask for usage — [`Session::heard`].
                     session.heard();
-                    // Before the events and separately: a control response is an answer to
-                    // something the console asked, not something that happened in the conversation.
+                    // An answer to the console, not part of the conversation.
                     if let Some(reply) = protocol::usage_reply(&line) {
                         session.record_usage(reply);
                         continue;
@@ -423,24 +374,21 @@ impl Session {
                         continue;
                     }
                     for event in protocol::read(&line) {
-                        // The end of a turn is the one moment the exchange count can have changed, and
-                        // the CLI has written the whole exchange by then. Here rather than in `push_at`,
-                        // which holds the state lock and must not read files; the count is wanted now.
+                        // A turn's end is when the exchange count changes; counted here,
+                        // outside the lock `push_at` holds.
                         let counted = matches!(event, Event::Turn { .. });
                         session.push(event);
                         if counted {
                             session.recount();
-                            // The moment the commands parked mid-turn have been waiting for. Here for the
-                            // same reason as the recount: this writes to a pipe. A failure is logged, not
-                            // propagated — ending this loop would take the transcript with it.
+                            // Commands parked mid-turn go now. Logged, not propagated: ending
+                            // this loop would end the transcript.
                             if let Err(err) = session.release_held().await {
                                 tracing::warn!("{}: holding a command back: {err:#}", session.id);
                             }
                         }
                     }
                 }
-                // The pipe closed, so the process did — but only say so when nothing better is
-                // watching.
+                // The pipe closed; say so only when no reaper will.
                 if ends_on_eof {
                     session.ended(None);
                 }
@@ -472,8 +420,7 @@ impl Session {
         });
     }
 
-    /// Record that the process is gone, once — the reader and the reaper can both
-    /// notice.
+    /// Record that the process is gone, once: reader and reaper can both notice.
     fn ended(&self, code: Option<i32>) {
         {
             let mut state = self.state.lock();
@@ -485,10 +432,8 @@ impl Session {
         self.push(Event::Exited { code });
     }
 
-    /// End the session: close stdin, and kill it if it has not gone on its own.
-    /// The deadline is recorded as well as slept on, because the sleep does not
-    /// survive an upgrade: `handover` re-execs this process and the sleep is lost.
-    /// [`crate::roster::Roster::finish_stopping`] reads it.
+    /// End the session: close stdin, and kill it if it lingers. The deadline is also
+    /// recorded, for [`crate::roster::Roster::finish_stopping`] after an upgrade.
     pub async fn stop(self: &Arc<Self>) {
         self.stdin.lock().await.take();
         self.state.lock().stopping = Some(now() + GRACE.as_millis() as i64);
@@ -563,17 +508,14 @@ impl Session {
         self.push_at(event, Some(now()));
     }
 
-    /// Note that the process said something, whatever it was. About the process,
-    /// not the conversation: which one holds a current answer to `get_usage`. See
+    /// The process said something: it holds a current answer to `get_usage`. See
     /// [`crate::roster::Roster::ask_usage`].
     fn heard(&self) {
         self.state.lock().heard = now();
     }
 
-    /// End background work that is more than `grace` milliseconds past the
-    /// deadline it declared, and say so. Its closing notice either never came or
-    /// came in words [`crate::protocol::running`] does not know — the log line is
-    /// how a new wording gets noticed rather than leaving work counted for ever.
+    /// End background work more than `grace` ms past its declared deadline, and log
+    /// it: its closing notice never came, or came in new words.
     pub fn end_overdue(&self, grace: i64) -> Vec<crate::protocol::Called> {
         let ended = self.state.lock().overdue(now(), grace);
         for called in &ended {
@@ -588,9 +530,8 @@ impl Session {
         ended
     }
 
-    /// Clear the decision clock if the call it allowed is running — [`taken_up`].
-    /// The process table is read outside the lock, so the clock is cleared only if
-    /// it still holds the decision that was judged.
+    /// Clear the decision clock if the call it allowed is running — [`taken_up`] —
+    /// and the clock still holds the decision judged.
     pub fn take_up_decision(&self) {
         let Some(decided) = self.state.lock().decided else {
             return;
@@ -606,10 +547,8 @@ impl Session {
         }
     }
 
-    /// Say so, once, if this session has stopped reading: how long, when this is the
-    /// call that noticed, and `None` on later sweeps of the same episode. The pid
-    /// comes back with it so the caller can capture the process before the cure
-    /// destroys it — [`crate::roster::Roster::watch_for_deafness`].
+    /// Say so, once per episode, if this session has stopped reading: how long, and
+    /// how many messages wait. `None` on later sweeps of the same episode.
     pub fn check_deaf(&self) -> Option<(u64, usize)> {
         let mut state = self.state.lock();
         let seconds = (deaf_for(&state, now())? / 1000) as u64;
@@ -623,11 +562,11 @@ impl Session {
         Some((seconds, unread))
     }
 
-    /// Record an event and hand it to whoever is listening. `at` is passed rather
-    /// than taken because a seeded event happened whenever the transcript says.
+    /// Record an event and hand it to listeners. `at`, because a seeded event
+    /// happened when the transcript says.
     fn push_at(&self, event: Event, at: Option<i64>) {
         let stamped = self.state.lock().take(event, at, now());
-        // An error here means nobody is listening, which is normal.
+        // No listener is normal.
         let _ = self.tx.send(stamped);
     }
 

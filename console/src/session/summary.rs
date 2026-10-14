@@ -7,70 +7,55 @@ use serde::Serialize;
 
 use super::Pending;
 
-/// What a session has counted, for an upgrade to hand on. None of this is in the
-/// transcript: cost, rate-limit status, window and model arrive on the stream
-/// only. Fullness is deliberately absent, since every assistant message records
-/// it and a re-seed recovers it — anything derivable from the file is derived.
+/// What a session has counted that the transcript does not record, for an
+/// upgrade to hand on. Anything derivable from the file is derived instead.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Tally {
-    /// Seconds since the epoch. Carried because `execve` leaves the child's clock alone.
+    /// Seconds since the epoch.
     pub started: u64,
     pub model: Option<String>,
     pub cost_usd: f64,
     pub window: Option<u64>,
     pub limit: Option<crate::protocol::Allowance>,
-    /// See [`Summary::mode`]. Carried because the console is the only thing that knows it.
+    /// See [`Summary::mode`].
     pub mode: Option<crate::modes::Mode>,
-    /// The first thing this session was asked to do — see [`Summary::asked`]. A
-    /// fallback: [`crate::past::opening`] reads it from the head of the transcript and
-    /// overwrites this, which is used only for a session with no transcript.
+    /// See [`Summary::asked`]. Only for a session with no transcript to read it from.
     #[serde(default)]
     pub asked: Option<String>,
-    /// What the session is doing, if anything. See [`Summary::busy`]. A re-seed cannot
-    /// recover this: a status is announced on stdout when it changes and never
-    /// written to the transcript.
+    /// See [`Summary::busy`]; never written to the transcript.
     #[serde(default)]
     pub busy: Option<String>,
-    /// Questions the session is blocked on. A `can_use_tool` request is a control
-    /// message, not a transcript line, and the session stays blocked on it across an
-    /// upgrade: dropped, the question is orphaned.
+    /// Questions the session is blocked on: control messages, not transcript lines.
     #[serde(default)]
     pub pending: BTreeMap<String, Pending>,
-    /// Background tasks still running — see [`Summary::background`]. A re-seed
-    /// recovers only the ones started inside the last page, while `execve` leaves
-    /// the children running; what is running now is a fact about the present.
+    /// See [`Summary::background`]. A re-seed sees only the last page's.
     #[serde(default)]
     pub background: BTreeMap<String, crate::protocol::Called>,
-    /// What the API last said about each rate-limit window, keyed by the CLI's own
-    /// name (`five_hour`, `seven_day`, …). Account-wide, so any session's reading is
-    /// the truth for all; kept per session because that is where the stream arrives.
+    /// The API's last word on each rate-limit window, by the CLI's name (`five_hour`,
+    /// …). Account-wide, but arriving per session.
     #[serde(default)]
     pub spent: BTreeMap<String, Seen>,
-    /// The exchange count and how far into the transcript it accounts for. Carried
-    /// for the cost: an upgrade re-seeds every session at once, and the files reach
-    /// gigabytes. See [`crate::past::counted`].
+    /// The exchange count and how far it has read — carried so an upgrade need not
+    /// re-read gigabytes. See [`crate::past::counted`].
     #[serde(default)]
     pub counted: crate::past::Counted,
 }
 
-/// When a rate-limit window turns over, in epoch seconds — the CLI's unit. It
-/// names which instance of the window a figure belongs to. A type rather than an
-/// `i64` because it sits beside [`Heard`] and the two are neither the same clock
-/// nor the same unit; see [`crate::usage::fresher`].
+/// When a rate-limit window turns over, in epoch seconds — not [`Heard`]'s clock
+/// or unit.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct ResetsAt(pub i64);
 
 impl ResetsAt {
-    /// The same instant in milliseconds. The one place the conversion is written.
+    /// The same instant in milliseconds.
     pub fn in_ms(self) -> i64 {
         self.0 * 1000
     }
 }
 
-/// When this console heard a reading, in epoch milliseconds, by this machine's
-/// clock. Arrival, not freshness: a session answers from cached headers.
+/// When this console heard a reading, in epoch milliseconds — arrival, not freshness.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
@@ -84,12 +69,8 @@ pub struct Seen {
     #[serde(default)]
     pub resets_at: Option<ResetsAt>,
     pub at: Heard,
-    /// Whether the API itself said this, at a moment we can date: a
-    /// `rate_limit_event`, a dashboard row, or a `get_usage` answer, dated by the
-    /// API's last answer to that process (see [`crate::usage::echo_dated`]). Only a
-    /// `get_usage` answer from a process the API has not answered since it started
-    /// is undated, an echo. A measurement moves the figure both ways, an echo can
-    /// only fill in — see [`crate::usage::fresher`]. Defaulted false.
+    /// Whether the API said this at a datable moment. An echo can only fill in; a
+    /// measurement moves the figure both ways — [`crate::usage::fresher`].
     #[serde(default)]
     pub measured: bool,
 }
@@ -103,14 +84,11 @@ pub struct Summary {
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
-    /// When anything last happened, in milliseconds, from the transcript — not
-    /// `started`, which is when this console picked the process up. Filled by the
-    /// roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
+    /// When anything last happened, in milliseconds, from the transcript.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub touched: Option<u64>,
-    /// How much the transcript weighs, in bytes. Not [`Self::context`], which is the
-    /// last request's prompt in tokens.
+    /// The transcript's size in bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bytes: Option<u64>,
@@ -122,39 +100,26 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub busy: Option<String>,
-    /// Whether a turn is running — observed by the runner, not narrated by the CLI.
-    /// [`Self::busy`] cannot answer this: a status is announced when it changes, so
-    /// a long stretch of one activity leaves nothing standing.
-    /// Deliberately not a timeout: a turn can legitimately be quiet for minutes.
+    /// Whether a turn is running, as observed — [`Self::busy`] is announced only on change.
     pub working: bool,
-    /// How many times someone has spoken to this session since it was last
-    /// compacted — exchanges, not messages. See [`crate::past::counted`].
+    /// Exchanges since the last compaction. See [`crate::past::counted`].
     pub interactions: u32,
-    /// What this session's tokens would have cost at API list prices. Not money: the
-    /// session runs on the subscription. Shown only when [`Self::limit`] says the
-    /// account has stopped being all-you-can-eat.
+    /// The tokens at API list prices — not money spent, on a subscription.
     pub cost_usd: f64,
-    /// How many tokens the last request's prompt came to, and the window it went
-    /// into. Per message, not per turn — the result line sums every request the turn
-    /// made. Input + cache-creation + cache-read: the cached part is almost all of it.
+    /// The last request's prompt in tokens, cached parts included.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub context: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub window: Option<u64>,
-    /// How many background tool calls this session has started and not had reported
-    /// finished. Only the ones the harness tracks: `nohup … &` is invisible. Counted
-    /// by the runner so the list can rank on it without opening anything.
+    /// Background calls started and not reported finished. `nohup … &` is invisible.
     #[serde(skip_serializing_if = "none")]
     pub background: usize,
-    /// Which background calls are still running. `background` is kept beside this:
-    /// the list wants a number, the strip wants the name.
+    /// The background calls still running, by name.
     #[serde(default)]
     pub running: Vec<crate::protocol::Called>,
-    /// The account's own verdict on its rate limit, when it has given one:
-    /// `allowed`, `allowed_warning` or `rejected`. `None` until the
-    /// account says something — the reason cost is hidden by default.
+    /// The account's verdict on its rate limit, once it has given one.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub limit: Option<crate::protocol::Allowance>,
@@ -162,52 +127,37 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub asked: Option<String>,
-    /// What the conversation calls itself — `memview`, `health`. Filled by the roster
-    /// from the transcript; see [`crate::past::named`].
+    /// What the conversation calls itself — `memview`, `health`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
-
-    /// What the other sessions on this machine call this one — the name
-    /// `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
-    /// the title in the transcript: only `-n` at spawn writes this one, so a
-    /// conversation renamed while it runs keeps the name its peers already knew
-    /// until it is next resumed. Shown so that gap is visible rather than
-    /// discovered by a session reporting that a name does not exist. Filled by the
-    /// roster; see [`crate::peers::named`].
+    /// What other sessions call this one. Set only at spawn, so it can lag a rename
+    /// until the next resume.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub peer_name: Option<String>,
-    /// What the session may do without asking: `default`, `plan`, `dontAsk`,
-    /// `acceptEdits`, `auto`, `bypassPermissions`. What the console set, not what the
-    /// transcript says — a resumed session carries the previous session's mode
-    /// lines.
+    /// What the session may do without asking, as the console set it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub mode: Option<crate::modes::Mode>,
-    /// Why the last mode change was refused, in the CLI's own words. Present only
-    /// until the next change is asked for: it describes an attempt, not a state.
+    /// Why the last mode change was refused, until the next is asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub mode_refused: Option<String>,
-    /// How many questions it is blocked on — the one number that means "this
-    /// session cannot go on without you".
+    /// How many questions it is blocked on.
     pub waiting: usize,
-    /// How many messages have been written to this session and not read back.
+    /// Messages written and not read back.
     pub unread: usize,
-    /// How long it has been failing to read them, in seconds — present only when the
-    /// console is prepared to call it deaf. See [`crate::session::Session::deaf`].
+    /// How long it has failed to read them, in seconds, once it counts as deaf.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub deaf: Option<u64>,
-    /// When the account's sign-in was refused, in epoch milliseconds — present until
-    /// a request is answered again. Every session shares the login, so the cure is
-    /// signing in on the Mac. See [`crate::protocol::Event::SignedOut`].
+    /// When the shared sign-in was refused, in epoch milliseconds, until a request
+    /// is answered again. See [`crate::login`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub signed_out: Option<u64>,
-    /// Slash commands waiting for the turn to end, oldest first — see [`crate::session::state::State::held`].
-    /// The words themselves, because the client draws them and cancels by them.
+    /// Slash commands waiting for the turn to end, oldest first, word for word.
     #[serde(default)]
     pub held: Vec<String>,
 }
