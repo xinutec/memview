@@ -1,12 +1,8 @@
 //! What a shell command *does*, as a type rather than a table lookup.
 //!
-//! [`crate::shell`] gives words; this gives meaning. The first version went straight
-//! from words to "which paths, read or written", and that projection threw away
-//! everything else the command said: `grep hsmmDecode src/x.ts` became one read,
-//! indistinguishable from `cat src/x.ts`, though only one of them records *what was
-//! being looked for*.
-//!
-//! Naming the operation keeps that. A [`Op::Search`] knows its pattern, a
+//! [`crate::shell`] gives words; this gives meaning. Paths alone would make
+//! `grep hsmmDecode src/x.ts` one read like `cat src/x.ts`; naming the operation
+//! keeps what was looked for. A [`Op::Search`] knows its pattern, a
 //! [`Op::Move`] knows a file's old name as well as its new one. The file use
 //! [`crate::shell_files`] mines is then a *projection* of these rather than a second
 //! table to keep in step with this one.
@@ -16,12 +12,9 @@
 //! `~`/`$HOME`, nothing is looked up on disk, and a word must be shaped like a path
 //! before it can be one.
 //!
-//! Two of those are principles and one was a limitation. *Permanent:* nothing
-//! is looked up on disk — the filesystem of the day is gone — and **nothing is ever
-//! guessed**, because an invented path makes every count downstream a lie. *Now a
-//! measurement:* a subject that cannot be determined used to vanish instead of
-//! counting, so a command that named an unreadable file looked exactly like one that
-//! named none. Those subjects are collected — see [`paths`] and [`undetermined`].
+//! Nothing is looked up on disk — the filesystem of the day is gone — and **nothing
+//! is ever guessed**: an invented path makes every count downstream a lie. A subject
+//! the text cannot determine is counted, not dropped — [`paths`], [`undetermined`].
 //!
 //! Counting them is the whole of what can be done about them: a glob is answered by
 //! the filesystem of the day and a `$(…)` by running something, and neither is
@@ -114,11 +107,9 @@ pub enum Op {
     /// A program run on another machine **with no shell anywhere**:
     /// `kubectl exec pod -- mariadb -e 'SELECT …'`, `docker exec c ls /etc`.
     ///
-    /// The distinction [`Op::Remote`] cannot express, and getting it wrong accounted
-    /// for nearly every nested refusal (memview#1028). `kubectl exec` and `docker
-    /// exec` hand their words to `exec()`; nothing re-splits them and nothing removes a
-    /// quote. Joining them back into one string and parsing that as shell put SQL and
-    /// JavaScript in front of the shell grammar.
+    /// Not [`Op::Remote`]: `kubectl exec` and `docker exec` hand their words to
+    /// `exec()`, unsplit and unquoted, so parsing them as shell would read SQL and
+    /// JavaScript as shell.
     ///
     /// So the payload stays an **argv to classify**, never text to parse — the same
     /// choice [`Verb::Carries`] makes, and for the same reason. `-- sh -c '…'` is still
@@ -255,10 +246,9 @@ pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
 /// awk '/^# page 1/{p=1;next} {print > "'$S'/'$v'.pg"}' $S/$v.words
 /// ```
 ///
-/// is ONE word — `$S` and `$v` hold no whitespace — and splitting the whole of it
-/// shredded a single-quoted `awk` program into fragments and filed them as files
-/// (#1195). The spans are byte ranges into the returned string, in order and
-/// non-overlapping.
+/// is ONE word — `$S` and `$v` hold no whitespace — so splitting it whole would
+/// shred the quoted `awk` program. The spans are byte ranges into the returned
+/// string, in order and non-overlapping.
 ///
 /// A substitution nobody could evaluate produces no span, so nothing inside
 /// `$(cat list.txt)` splits either: its text is not its output.
@@ -372,10 +362,8 @@ fn normalise(path: &str) -> String {
 /// The paths among these words, resolved and in order — and, into `unnamed`, the
 /// subjects that were refused because the text does not determine them.
 ///
-/// A refusal used to leave no trace, which made an unknown look like an
-/// absence. `wc -l "$f"` inside a glob loop recorded exactly what `wc -l` with no
-/// operand records: nothing. The first is a file this reader cannot name, the second
-/// is a command that named none. See [`undetermined`].
+/// A refusal is recorded, so an unknown does not look like an absence: `wc -l "$f"`
+/// in a glob loop names a file this reader cannot name. See [`undetermined`].
 fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in words {
@@ -796,11 +784,8 @@ struct Flags {
     pair_file: &'static [&'static str],
     /// Flags that consume the following **two** words — a name and a value.
     ///
-    /// `jq --arg dt 2026-01-01 '.filter' data.json` was read with the operand list
-    /// shifted by one. Skipping a single word left the VALUE as the first operand, so
-    /// the date was recorded as the jq program and the real filter fell through to the
-    /// path list — where its `$dt` made it an unnamed file subject. Two wrong facts from
-    /// one missing word.
+    /// `jq --arg dt VALUE '.filter' data.json`: skipping one word would take the
+    /// value for the program.
     pair: &'static [&'static str],
     /// Flags that supply the pattern or program.
     script: &'static [&'static str],
@@ -1535,11 +1520,8 @@ pub fn classify_naming(
 /// Whether this path names a program that was installed rather than a file in
 /// the work — a `bin` directory, or a build's output.
 ///
-/// The path, and NOT "is the basename a known verb" — which is what #799
-/// proposed and what the corpus refused. `gradlew` is in the verb table, beside
-/// `mvn`, `pip` and `ng`, so that rule deleted every `./gradlew` in the fleet —
-/// **more reads of a script that lives in the repo than of the noise it was
-/// aimed at.** Measured by ablation over the whole corpus of Bash calls.
+/// The path, NOT "is the basename a known verb": `gradlew` is in the verb table,
+/// and that rule — measured by ablation, and rejected — dropped every `./gradlew`.
 ///
 /// This test keeps the two apart because it asks the question that actually
 /// distinguishes them: `/nix/store/…/bin/adb` and `.venv/bin/python` are things
@@ -1919,11 +1901,8 @@ fn act(
         Verb::Git => git(unnamed, argv, cwd, home),
         Verb::Remote(kind) => remote(kind, argv),
         Verb::NoFiles => {
-            // `launchctl` starting a job runs the program its plist or its words
-            // name, which the text does not show: an unknown program, like `nix
-            // run`. Found live (2026-10-04, four findings): a log removed before
-            // `launchctl bootstrap` was predicted absent, and the job wrote it.
-            // A query (`list`, `print`) and a stop (`bootout`) touch nothing.
+            // `launchctl` starting a job runs a program the text does not show — an
+            // unknown program, like `nix run`. A query or a stop touches nothing.
             if argv
                 .first()
                 .is_some_and(|head| basename(head) == "launchctl")

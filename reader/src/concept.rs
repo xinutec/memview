@@ -24,7 +24,7 @@
 //! [`Op::Transform { program, in_place }`], so two spellings meet in one concept and
 //! the cross-language claim has something real to assert. `Page` was the intuitive
 //! first pick and is the wrong one: [`Op::Read`] keeps only paths, so `head -5 f`
-//! and `cat f` are one key and the range is gone (memview#1364).
+//! and `cat f` are one key and the range is gone.
 //!
 //! Shell-only, and that is a correction to the design doc. The type both
 //! carried readers share is `FileUse { path, write, reached }`, so `python::record`
@@ -64,10 +64,8 @@ pub enum Subject {
 
 /// Which part of a file a [`Concept::Page`] shows.
 ///
-/// The range is the point, and the projection below throws it away — the
-/// census measured that (memview#1364): `Op::Read` keeps only paths, so `head -5 f`
-/// and `cat f` are one key there. So the range is read off [`Step::argv`], the one
-/// place it survives.
+/// The range is the point, and `Op::Read` keeps only paths, so it is read off
+/// [`Step::argv`], the one place it survives.
 ///
 /// The vocabulary is closed to the shapes the corpus actually spells. A byte count,
 /// a follow (`tail -f`), a `+N` prefix drop and a `$`-relative address are
@@ -309,12 +307,9 @@ pub enum Concept {
 
 /// Why a step did not lift.
 ///
-/// The census's key, born with the layer. #1142 rebuilt three temporary
-/// inventories before keying misses by reason, and this layer starts with its `Why`
-/// so the remainder is never a bare count. [`Why::NoLens`] is the queue — ranked by
-/// shape, it is where the next concept comes from. The rest are the lenses' own
-/// refusals: steps a lens *looked at* and turned down, each a design question the
-/// census sizes.
+/// The census's key, so the remainder is never a bare count. [`Why::NoLens`] is the
+/// queue the next concept comes from; the rest are steps a lens looked at and
+/// turned down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
     /// No lens covers this shape. The counted remainder, and the queue.
@@ -884,10 +879,7 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let mut operands = 0;
     let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        // `--` ends the FLAGS, not the loop — and this read `break`, which stopped
-        // the COUNT with them (memview#1525). Every operand after the separator vanished,
-        // the count came out short of `subjects.len()`, and the row refused
-        // [`Why::UnreadSubject`].
+        // `--` ends the flags, not the count: operands after it still count.
         if !after_sep && word == "--" {
             after_sep = true;
             continue;
@@ -934,8 +926,7 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
 /// queue: the first two hand back metadata rather than a reading of the contents,
 /// and the `stat` shapes carry format strings.
 ///
-/// Operands are counted PAST a `--`, the way `status` and `stage` count and
-/// `search_shape` does not (memview#1525).
+/// Operands are counted past a `--`.
 fn measure(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let argv = own_command(step).ok_or(Why::NoLens)?;
     if basename(argv.first().ok_or(Why::NoLens)?) != "wc" {
@@ -1025,10 +1016,7 @@ fn stage<'a>(
     rest: impl Iterator<Item = &'a str>,
 ) -> Result<Concept, Why> {
     let (mut all, mut operands) = (false, 0usize);
-    // The same invariant the other four readers hold: `--` ends the flags, and a word
-    // after it is an operand HOWEVER IT IS SPELLED. This wrote `continue`, which
-    // skipped the separator and then read `-weird-name` as a flag — conservative but
-    // wrong about what the author declared (memview#1525).
+    // `--` ends the flags: a word after it is an operand however it is spelled.
     let mut after_sep = false;
     for word in rest {
         if !after_sep && word == "--" {
@@ -1193,8 +1181,7 @@ fn search_shape(step: &Step) -> Result<Shape, Why> {
     };
     let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        // Everything after `--` is an operand, however it is spelled — and this said
-        // so in a comment above a `break`, which counted none of them (memview#1525).
+        // Everything after `--` is an operand, however it is spelled.
         if !after_sep && word == "--" {
             after_sep = true;
             continue;
@@ -1471,16 +1458,10 @@ fn flagless(argv: &[String]) -> bool {
 /// `Op::Transform.paths` holds only what RESOLVED, which is the whole
 /// reason this cannot be built from the operation alone: `sed -i 's/a/b/'
 /// "$TARGET"` arrives with `paths: []` and the subject in `step.unnamed`, and a
-/// lift reading `paths` would report a rewrite of nothing at all. Measured, not
-/// assumed — the first version of this did exactly that and the acceptance test
-/// for holes caught it.
+/// lift reading `paths` would report a rewrite of nothing at all.
 ///
-/// Read off the accounts, never re-derived. The first version matched
-/// resolved paths back to their words by comparing leaves, which is a second
-/// implementation of resolution and would disagree **silently** the moment a
-/// `cd`, a loop variable or a `~` made the word and the path differ — the same
-/// argument `shell_files::trace` is built on. The accounts already say which of
-/// the three kinds each subject is; this reads them in that order.
+/// Read off the accounts, never re-derived: matching paths back to words would
+/// be a second resolver, silently wrong after a `cd`, a loop or a `~`.
 ///
 /// The order is named, described, then counted — the reader's own three-part
 /// artefact, so two occurrences of one shape produce the same list.
@@ -1725,8 +1706,7 @@ pub fn lower(concept: &Concept) -> String {
 /// This is the CONCEPT's phrase, not any one surface's. A view building
 /// its own would be a second reading, free to drift from the one the gates
 /// hold. A surface too narrow for the whole sentence shortens what this returns
-/// rather than rewording it — at phone width the resolved path is already
-/// carried by the use row and the sheet's footer (memview#1454).
+/// rather than rewording it.
 ///
 /// A hole must READ as a hole. `"$UNNAMED"` is right for the lowered
 /// text, which has to read back as an admission; on a card it looks like a
@@ -1956,7 +1936,7 @@ pub fn name(concept: &Concept) -> &'static str {
 ///
 /// Keyed on the operation's phrase PLUS the command, never on the `Op` variant
 /// alone: a census keyed on the variant would rediscover [`crate::reading`]'s
-/// naming and read as success (memview#1364, caught before it was built), and
+/// naming and read as success, and
 /// `head -5 f` and `cat f` are one `Op::Read` with the `-5` gone. The phrase
 /// carries the variant *and its discriminating fields* (`transform (in place)`
 /// vs `transform`); the command name and subcommand carry what `operands()`

@@ -58,9 +58,8 @@ pub struct FileUse {
 /// not be followed; reusing it here would collapse the one distinction this census
 /// exists to make — whether the value comes from outside the script at all.
 ///
-/// `bind()` collapses *not-keepable* and *bound twice to different values* into a
-/// single `None`, so those cannot be told apart without changing `Option<String>` to
-/// carry a reason (#1450). Both land in [`Refused::BoundInScript`] meanwhile.
+/// `bind()` returns one `None` for *not keepable* and *bound twice differently*, so
+/// both land in [`Refused::BoundInScript`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Refused {
     /// No visible scope binds the name.
@@ -192,7 +191,7 @@ pub struct Extract {
     /// subset of `…/*.log`" rather than "some file".
     ///
     /// Falsifiable, which is the point: run the loop for real and every path it touches
-    /// must match the pattern (`S ⊆ L`) — memview#818 does exactly that.
+    /// must match the pattern (`S ⊆ L`).
     ///
     /// These are still **not named**, and [`Extract::subjects_not_named`] counts them.
     pub bounded: BTreeMap<String, usize>,
@@ -210,32 +209,20 @@ pub struct Extract {
     /// does NOT escape (`a/b//c` is `a/b/c`); only `..` does. Stated this way it stays
     /// falsifiable in the one direction that matters.
     ///
-    /// The variable does not have to be in the leaf: `Code/$p/node_modules` is rooted at
-    /// `Code`, and a first version that split at the last `/` threw away the largest
-    /// single shape it was built for. These are still not named.
+    /// The variable need not be in the leaf: `Code/$p/node_modules` is rooted at
+    /// `Code`. These are still not named.
     pub located: BTreeMap<String, usize>,
-    /// Why each refused word was refused — the by-reason census #1142 built for Python
-    /// and this never had for shell (memview#1450).
-    ///
-    /// A count of refusals said nothing about what to build: `unnamed` is keyed by WORD,
-    /// so the refusals were one undifferentiated heap in which the only reason that can
-    /// ever be answered by reading the world — a name no scope here binds — was
-    /// indistinguishable from the one that never can.
+    /// Why each refused word was refused, so the one reason the world can answer — a
+    /// name no scope here binds — is told apart from those it never can.
     pub refused_why: BTreeMap<Refused, usize>,
-    /// The refused words whose name their own script binds, by word.
-    ///
-    /// The totals cannot answer #1447; only this can. That ticket asks how many
-    /// all-uppercase words are the script's own variable wearing the environment's
-    /// spelling. A count per reason cannot say, because the two classifications are made
-    /// in different places over different keys. Crossing them needs the WORDS.
+    /// The refused words whose name their own script binds, by word — the words, so
+    /// the two classifications can be crossed.
     pub refused_bound: BTreeMap<String, usize>,
     /// Nested scripts the reader could not read, by the construct that stopped it.
     /// Reported rather than dropped: a devshell wrapper whose inner shell fails to parse
     /// is a silent hole in exactly the third of the corpus that runs through one.
     ///
-    /// A bare count named no construct, so nothing could be done about it (memview#1028).
-    /// Keyed by [`crate::syntax::Reason`] it ranks itself, as the tree's own refusals do
-    /// in `syntax-report`.
+    /// Keyed by [`crate::syntax::Reason`], so it ranks itself as `syntax-report` does.
     pub nested_unparsed: BTreeMap<String, usize>,
     /// The walk itself, command by command — empty unless [`trace`] asked for it.
     ///
@@ -634,7 +621,7 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
 ///
 /// Whitespace that was in the word all along does not split it. It got there by
 /// being quoted — `'a b'` is one word in any shell — so cutting on it invents words
-/// the shell never ran (#1195).
+/// the shell never ran.
 fn split_produced(expanded: &str, produced: &[(usize, usize)]) -> Vec<String> {
     let mut words = Vec::new();
     let mut word = String::new();
@@ -712,7 +699,7 @@ fn turned_down(argv: &[String], refused: &[String]) -> bool {
 /// The rule that makes the transcript's `cwd` usable without settling what it
 /// means. On single-call lines beginning with a relative `cd X`, some carry the
 /// directory the command *started* in and some the one it *ended* in — both
-/// readings, in the same transcript, at the same CLI version (memview#449).
+/// readings, in the same transcript, at the same CLI version.
 ///
 /// It does not have to be settled, because one rule is right under both:
 ///
@@ -831,9 +818,8 @@ fn carried(
         // computed — and a wrong directory is how a real path becomes an
         // invented one.
         let anchored = used.path.starts_with('/') || used.path.starts_with('~');
-        // Each refusal is recorded, not dropped. A use turned away here left no trace
-        // at all until memview#824, so a program that named a file this layer would not
-        // resolve counted exactly as a program that named none.
+        // Each refusal is recorded, or a program naming an unresolvable file would
+        // count as one naming none.
         if !anchored && program.chdir {
             refused.moved += 1;
         } else if !looks_like_path(&used.path) {
@@ -1041,13 +1027,9 @@ fn extract_nested(
                         located_here.push(dir);
                     }
                     None => {
-                        // Classified HERE, where the bindings are still in hand (memview#1450).
-                        // `unnamed` is keyed by word and aggregated across every script, so by the time
-                        // anything reads it the scope is gone and this question cannot be asked at all.
-                        //
-                        // The word is not the name: `$d/gate.json`, `${line}`, `/tmp/$X/y`.
-                        // `resolvable::names` is the same reading `unnamed()` does, factored out rather
-                        // than repeated.
+                        // Classified here, while the bindings are in hand: `unnamed` loses the
+                        // scope. The word is not the name (`$d/gate.json`); `resolvable::names`
+                        // reads it as `unnamed()` does.
                         let names = crate::resolvable::names(&word);
                         let why = if names.iter().any(String::is_empty) {
                             Refused::Unreadable
@@ -1116,14 +1098,9 @@ fn extract_nested(
                 if name == "cd" {
                     dirs.insert(cmd.scope.clone(), None);
                 }
-                // A call to a function THIS TEXT declares is not a command nobody taught the
-                // table — it is one nobody ever could, since `probe` is a different function in
-                // every script that declares one. It was the largest single category on the
-                // worklist, and every one of them work that cannot be done (memview#1124).
-                //
-                // Counted, never dropped: the file work in the body IS recorded, at the definition
-                // under `Reached::Sometimes`, but what the CALL passes as arguments is still
-                // unread. Folding these into `handled` would claim that gap closed.
+                // A call to a function this text declares is no command the table could be
+                // taught. Counted, not folded into `handled`: the body's file work is recorded
+                // at the definition, but what the call passes stays unread.
                 else if ran.defines.contains(name) {
                     *out.local.entry(name.clone()).or_insert(0) += 1;
                     continue;

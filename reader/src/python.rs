@@ -172,7 +172,7 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
 ///
 /// Measured against CPython over every distinct program: every one it catches,
 /// CPython refuses, and it over-claims none — the direction that costs, since
-/// flagging a program discards every file it named (memview#1033).
+/// flagging a program discards every file it named.
 fn never_closed(chars: &[char]) -> Option<&'static str> {
     let mut i = 0;
     let mut depth = 0i64;
@@ -412,8 +412,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     let mut looped: BTreeSet<String> = BTreeSet::new();
     let mut imported = BTreeSet::new();
     let mut bound: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
-    // Function name to its parameter names, in order — the left half of the
-    // call-site binding below (memview#1142).
+    // Function name to its parameter names, in order — for call-site binding below.
     let mut defs: BTreeMap<String, Vec<String>> = BTreeMap::new();
     // Parameter to the literal each call site passes — kept apart from `bound`
     // for the reason [`Value::EachOf`] gives.
@@ -519,14 +518,9 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
-    // A parameter bound by its call site is bound BY THE PROGRAM, and is fed into
-    // `bound` exactly as an assignment is (memview#1142). Everything downstream then
-    // applies unchanged: one literal makes a const, two make a candidate set, anything
-    // computed makes it `Why::Computed` rather than `Why::Outside`.
-    //
-    // Before this, `def write(fname, …)` called with `write('x.md', …)` filed its
-    // `open(fname)` as "from outside the program, so no rule can ever read it" while
-    // the value sat four lines below.
+    // A parameter bound by its call site is bound by the program, fed into `bound`
+    // like an assignment: one literal makes a const, two a candidate set, anything
+    // computed `Why::Computed` rather than `Why::Outside`.
     {
         let mut uses_it: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
         for (function, params) in &defs {
@@ -915,8 +909,8 @@ enum Value {
     /// **Every** one of these, one per invocation — a function parameter, with the
     /// literal each call site passes.
     ///
-    /// The distinction from [`Value::OneOf`] is semantic rather than stylistic
-    /// (memview#1499). `p = 'a'; p = 'b'; open(p)` is ONE open holding one value, and
+    /// The distinction from [`Value::OneOf`] is semantic rather than stylistic.
+    /// `p = 'a'; p = 'b'; open(p)` is ONE open holding one value, and
     /// which one is not knowable — a set. A parameter bound at three call sites is THREE
     /// invocations, each with its own value, and all three files were written. Calling
     /// that a set says *one of these* where the program says *all of these*.
@@ -1916,8 +1910,8 @@ fn writes(mode: Option<&Value>) -> bool {
 
 /// A join where only some parts are known, as a language.
 ///
-/// One unknown part used to discard the known ones, in all three spellings of a
-/// join. But `os.path.join(BACKUP, name)` is not unknowable: it is `BACKUP/*`, a
+/// An unknown part does not discard the known ones: `os.path.join(BACKUP, name)` is
+/// `BACKUP/*`, a
 /// locus with an uncertain leaf, and `os.path.join(d, 'meta.json')` is `*/meta.json`.
 /// The same object an interpolated f-string produces, judged by the same
 /// [`path_shaped`].

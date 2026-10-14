@@ -306,10 +306,6 @@ struct Parser<'t> {
 }
 
 /// A heredoc's opener, held until the line it was written on ends.
-///
-/// No `span`: it existed only to place the collision refusal `finish_body`
-/// used to raise, and that refusal cannot arise any more (memview#1564). A field
-/// kept "in case" is one the next reader has to work out the purpose of.
 struct Pending {
     delimiter: String,
     quoted: bool,
@@ -457,30 +453,19 @@ impl<'t> Parser<'t> {
     /// the whole point. The printer writes the delimiter back, which is a normalisation
     /// the law permits.
     ///
-    /// The terminator is matched against the JOINED line, not the raw one
-    /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it reads,
-    /// so the delimiter is compared against what the continuations make. Matching raw
-    /// lines instead produced a WRONG TREE, unrefused, in both directions — measured
-    /// against `bash` itself:
+    /// For an unquoted delimiter the terminator is matched against the JOINED line:
+    /// bash removes `\`-newline as it reads. Measured against bash:
     ///
     /// ```text
     ///   cat <<EOF / X\ / EOF / echo after
-    ///     ours   2 items — body "X", then `echo after` as a COMMAND
-    ///     bash   1 item  — `X\⏎EOF` joins to `XEOF`, no terminator, so the
-    ///                      heredoc runs to end of file and swallows `echo after`
+    ///     `X\⏎EOF` joins to `XEOF`: no terminator, so the body runs to end of
+    ///     file and swallows `echo after`
     ///
     ///   cat <<EOF / EO\ / F / EOF
-    ///     ours   one heredoc whose body is `EOF`
-    ///     bash   `EO\⏎F` IS the terminator: empty body, then a stray `EOF`
+    ///     `EO\⏎F` IS the terminator: empty body, then a stray `EOF`
     /// ```
     ///
-    /// The first is the one that mattered: nothing refused it, so a reader was told a
-    /// command ran that bash never ran — a false lower bound, the single thing `S ⊆ L`
-    /// forbids.
-    ///
-    /// A QUOTED delimiter joins NOTHING and still matches raw lines. The two cases
-    /// genuinely differ, and treating them alike would break the quoted one to fix the
-    /// unquoted one.
+    /// A QUOTED delimiter joins nothing and matches raw lines.
     fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
         let mut body = String::new();
         // The raw lines of the logical line being assembled, kept verbatim
@@ -546,14 +531,8 @@ impl<'t> Parser<'t> {
 
     /// Resolve a body once its extent is known, however it ended.
     ///
-    /// No collision check any more, because a collision can no longer arise
-    /// (memview#1564, closing #1509). This used to refuse a joined body holding a line
-    /// equal to the delimiter. Now that `heredoc_body` tests the JOINED line, such a
-    /// line is the terminator and never reaches the body.
-    ///
-    /// That also retires the miscount #1509 was about: the refusal claimed the TEXT was
-    /// broken while bash ACCEPTS the input. It is gone rather than renamed, so no new
-    /// `Reason` was spent.
+    /// No collision check: a joined line equal to the delimiter is the terminator, so
+    /// it never reaches the body.
     fn finish_body(&self, pending: &Pending, body: String) -> Result<Heredoc, Refusal> {
         let body = if pending.quoted {
             body
@@ -1917,10 +1896,6 @@ impl<'t> Parser<'t> {
                 // `pgrep -f "x">/dev/null` is one word and one redirect, and the caller retries
                 // `redirect()` the moment this returns.
                 //
-                // This used to refuse, and the refusal was expensive out of proportion to the
-                // construct: a nested script that will not parse loses *every* file its commands
-                // named.
-                //
                 // Only with something already read, though. An operator at the head of a word is
                 // the caller's business — it tried `redirect()` first and declined — so refusing
                 // there still says something true rather than looping on an empty word.
@@ -2975,7 +2950,7 @@ impl<'t> Parser<'t> {
             // ANSI-C quoting does not. `$(( 1 + $(( 2 * 3 )) ))` is 7 and
             // `$(( ` + "`echo 2`" + ` + 1 ))` is 3, but `$(( $'\x02' ))` is an
             // operand error — bash reads the quote as text and text is not a
-            // number. Measured, all three (memview#1370).
+            // number. Measured, all three.
             Some(b'$') | Some(b'`') => match classify_expansion(self.bytes, self.at, false) {
                 Some(Reason::Parameter) => Ok(Arith::Expansion(Box::new(self.parameter(false)?))),
                 Some(Reason::CommandSubstitution) => {
