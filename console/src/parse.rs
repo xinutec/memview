@@ -1,12 +1,7 @@
 //! One `Bash` command, shown as the reader saw it.
 //!
-//! This module renders a walk and never performs one: every figure comes out of
-//! [`reader::shell_files::trace`], the same path the index is built from, so the
-//! view and the index cannot disagree. Nothing here runs anything.
-//!
-//! The working directory comes from the session, not the client: a caller who
-//! could choose it could make this view say anything. Unknown, only absolute
-//! paths survive, as in the miner.
+//! Renders [`reader::shell_files::trace`], the path the index is built from, so
+//! the two cannot disagree. Runs nothing.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,33 +16,28 @@ use reader::shell_ops::{GitOp, Op};
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Asked {
     pub command: String,
-    /// The tool result's own verdict, when the call has returned. `None` while it is
-    /// still running — a real state, not a synonym for success.
+    /// The tool result's verdict; `None` while still running.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub ok: Option<bool>,
 }
 
-/// The parse, flat, in running order, with a `depth` per line: the one client is
-/// a phone, and a tree costs indentation there is no width for.
+/// The parse, flat, in running order, with a `depth` per line — a phone has no
+/// width for a tree.
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Parsed {
-    /// Why the grammar could not read it, when it could not. Shown rather than
-    /// smoothed over: an empty command and an unread one are different reports.
+    /// Why the grammar could not read it, if it could not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub error: Option<String>,
     pub steps: Vec<Line>,
-    /// Commands whose operation is not in the table, by name and count — on one
-    /// command, usually the answer to "why did nothing come out".
+    /// Commands whose operation is not in the table, by name and count.
     pub unread: Vec<Unread>,
-    /// Commands that exist because a determinate loop was run out. Shown because
-    /// a reader counting lines will otherwise find more steps than they wrote.
+    /// Commands that exist because a determinate loop was run out.
     pub unrolled: usize,
-    /// Scripts inside a wrapper that the grammar could not read — a hole in the
-    /// middle of a parse that otherwise succeeded.
+    /// Scripts inside a wrapper that the grammar could not read.
     pub nested_unparsed: usize,
 }
 
@@ -59,8 +49,7 @@ pub struct Unread {
     pub count: usize,
 }
 
-/// Whether a step runs, as the wire says it: the reader's [`Reached`] under the
-/// words the sheet prints, not the one-letter form its index files use.
+/// Whether a step runs: the reader's [`Reached`], in the sheet's words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -92,32 +81,23 @@ pub struct Line {
     pub host: Option<String>,
     /// The words as the shell would have run them — see [`Step::argv`].
     pub argv: Vec<String>,
-    /// Whether the words shown differ from the words written, so the view can
-    /// say so rather than letting a reader wonder why `$f` became `a.ts`.
+    /// Whether the words shown differ from the words written.
     pub reached: Reach,
-    /// The subshells enclosing it, so two sibling `( … )` groups can be told
-    /// apart — which is the difference between one working directory and two.
+    /// The subshells enclosing it, telling sibling `( … )` groups apart.
     pub scope: Vec<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub cwd: Option<String>,
-    /// What the command was for, as a sentence — the L4 concept, when a lens can say
-    /// ([`reader::concept::describe`], `docs/concept-model.md`).
-    ///
-    /// Absent is the honest miss: a command no lens covers stays a counted leaf with
-    /// the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
-    /// unit is the row a person approves, not the step.
+    /// What the command was for, as a sentence, when a lens can say —
+    /// [`reader::concept::describe`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub concept: Option<String>,
     /// The operation, in one or two words, for the chip.
     pub kind: &'static str,
-    /// The stable key behind that chip, for styling. Separate from `kind` so the
-    /// wording is free to change without dropping the colour.
+    /// The stable key behind that chip, for styling.
     pub key: &'static str,
-    /// What that operation says that its paths do not — the pattern a search
-    /// looked for, the program a transform applied, the name of a command
-    /// nobody has taught this yet. Empty when the paths are the whole story.
+    /// What the operation says beyond its paths, such as a search's pattern.
     pub says: String,
     pub uses: Vec<Used>,
 }
@@ -131,10 +111,8 @@ pub struct Used {
     pub write: bool,
     /// What the *text* said had to hold.
     pub reached: Reach,
-    /// Whether the text's condition and the call's outcome together make this
-    /// certain — [`Verdict::admits`]. One-sided: `false` means "cannot say", never
-    /// "did not happen". It is the reason the view exists — a command can parse, name
-    /// the right path, and still attribute nothing.
+    /// Whether the condition and the outcome make this certain — [`Verdict::admits`].
+    /// `false` means cannot say, never did not happen.
     pub certain: bool,
     /// The machine it is on, for a use that is not local.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,8 +129,7 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
     };
     let commands = match reader::project::read(&asked.command) {
         Ok(commands) => commands,
-        // The construct, in the words the label was written in: `{:?}` would spell a
-        // Rust identifier, and `Reason::label` is the phrase a person reads.
+        // The phrase a person reads, not a Rust identifier.
         Err(refusal) => {
             let at = refusal.reason.label().to_string();
             return Parsed {
@@ -192,8 +169,7 @@ fn line(step: &Step, verdict: Verdict) -> Line {
         reached: step.reached.into(),
         scope: step.scope.clone(),
         cwd: step.cwd.clone(),
-        // `.ok()` and no more: the refusal (`concept::Why`) is census material, and on a
-        // card it would explain the reader rather than the command.
+        // The refusal is census material, not for a card.
         concept: reader::concept::lift(step)
             .ok()
             .map(|concept| reader::concept::describe(&concept)),
@@ -214,8 +190,7 @@ fn local_use(used: &FileUse, verdict: Verdict) -> Used {
     }
 }
 
-/// A remote use is never `certain`: `ssh host 'a && b'` reports one status for
-/// the whole payload. The same rule keeps them out of the local index.
+/// A remote use is never `certain`: one status covers the whole payload.
 fn away_use(used: &RemoteUse) -> Used {
     Used {
         path: used.path.clone(),
@@ -226,9 +201,7 @@ fn away_use(used: &RemoteUse) -> Used {
     }
 }
 
-/// The operation as a label and a phrase. The phrase carries what the paths
-/// cannot: `grep x f` and `cat f` project to the same read, and that one was
-/// looking for something is why [`reader::shell_ops`] is a typed operation.
+/// The operation as a label and a phrase saying what the paths cannot.
 fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
     let Some(op) = op else {
         return (
@@ -240,8 +213,7 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             String::new(),
         );
     };
-    // The words come from `reader::reading::naming`: one table shared with the
-    // viewer, because two exhaustive matches over one enum can still disagree.
+    // The words come from `reader::reading::naming`, shared with the viewer.
     let naming = reader::reading::naming(op);
     let says = match op {
         Op::Remove { recursive, .. } => if *recursive { "recursive" } else { "" }.to_string(),
@@ -255,16 +227,13 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
                 program.clone()
             }
         }
-        // The script is not repeated as a phrase: it is already the one file a `Run`
-        // projects to, and a 412px screen has no room to say it twice.
+        // The script is already its one file.
         Op::Run { .. } => String::new(),
         // What it runs, which is the whole of what is known.
         Op::Opaque { name } => name.clone(),
-        // The script itself is not repeated: its commands are the steps below
-        // this one, which is a better answer than the text they came from.
+        // Its commands are the steps below.
         Op::Nested { .. } | Op::Python { .. } | Op::JavaScript { .. } => String::new(),
-        // Names the tables: for every other verb the subject is a path, and "sql" alone
-        // would leave the one interesting fact off the screen.
+        // Names the tables.
         Op::Sql { source, .. } => {
             let queried = reader::sql::read(source);
             let mut named: Vec<&str> = queried
@@ -276,8 +245,7 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             named.dedup();
             named.join(", ")
         }
-        // The same line for both payload shapes: whether the far side had a shell is a
-        // fact about how the payload was read, not about what happened.
+        // One line for both payload shapes.
         Op::Remote { host, .. } | Op::RemoteRun { host, .. } => host.clone(),
         Op::ChangeDir { to } => to
             .clone()
@@ -288,8 +256,7 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             GitOp::Inspect { .. } => "inspect".to_string(),
             GitOp::Other { subcommand } => subcommand.clone(),
         },
-        // The command's own name is the whole of what is known about it, and it
-        // is what somebody would teach the table next.
+        // Its name is all that is known.
         Op::Unknown { name } => name.clone(),
         Op::Read { .. } | Op::Write { .. } | Op::Copy { .. } | Op::Move { .. } | Op::Nothing => {
             String::new()

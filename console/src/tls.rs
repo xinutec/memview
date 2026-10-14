@@ -1,15 +1,8 @@
 //! The gate: who may talk to this console at all.
 //!
-//! The pinned thing is a public key — SHA-256 of `SubjectPublicKeyInfo` — not a
-//! certificate and not a name. No CA: one client and one server known to each
-//! other, and the phone's key lives in its secure element and can never be
-//! replaced, while its certificate may be reissued.
-//!
-//! Not a firewall rule, because the WireGuard hub can forge a source address; it
-//! cannot produce a `CertificateVerify` over a key it does not hold.
-//!
-//! Deliberately unchecked: expiry, subject, chain, issuer. Nobody vouches for
-//! anything here, and expiry would lock the phone out on a date nobody chose.
+//! Pins a public key — SHA-256 of `SubjectPublicKeyInfo` — held in the phone's
+//! secure element: a forged source address cannot sign for it. No CA, so no
+//! expiry, subject or chain is checked.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -23,8 +16,7 @@ use sha2::{Digest, Sha256};
 /// A key's fingerprint, as it is written in configuration: 64 hex characters.
 pub type Pin = String;
 
-/// The fingerprint of the public key inside a DER certificate — the whole
-/// enrolment mechanism.
+/// The fingerprint of the public key inside a DER certificate.
 pub fn pin_of(der: &[u8]) -> Result<Pin> {
     let (_, parsed) =
         x509_parser::parse_x509_certificate(der).context("that is not a DER certificate")?;
@@ -40,15 +32,13 @@ fn hex(bytes: &[u8]) -> String {
 #[derive(Debug)]
 struct Pinned {
     allowed: BTreeSet<Pin>,
-    /// Handshake signature verification is rustls's; the pin decides whose key, not
-    /// whether the maths is right.
+    /// rustls verifies the signature; the pin decides whose key.
     supported: rustls::crypto::WebPkiSupportedAlgorithms,
 }
 
 impl ClientCertVerifier for Pinned {
     fn root_hint_subjects(&self) -> &[DistinguishedName] {
-        // No CA, so no hints. A client that needs to be told which authority to
-        // present for is not a client this console knows.
+        // No CA, so no hints.
         &[]
     }
 
@@ -64,8 +54,7 @@ impl ClientCertVerifier for Pinned {
         if self.allowed.contains(&pin) {
             return Ok(ClientCertVerified::assertion());
         }
-        // Logged as well as returned: the client sees only "handshake failure", and the
-        // rejected fingerprint is what enrolment pastes into the config.
+        // Logged: enrolment pastes the rejected fingerprint into the config.
         tracing::warn!(key = %pin, "refused a client key that is not pinned");
         Err(rustls::Error::General(format!(
             "client key {pin} is not pinned"
@@ -113,8 +102,7 @@ impl Gate {
         }
         let key = rustls_pemfile::private_key(&mut key_pem.as_bytes())?
             .context("no private key in the PEM")?;
-        // Checked here for a legible failure: rustls says only `UnsupportedCertVersion`,
-        // and macOS's LibreSSL makes a version-1 certificate from a plain `req -x509`.
+        // A legible failure for a version-1 certificate, which LibreSSL makes by default.
         for one in &cert {
             let (_, parsed) = x509_parser::parse_x509_certificate(one)
                 .context("the server certificate is not readable DER")?;
@@ -133,8 +121,7 @@ impl Gate {
             .filter(|pin| !pin.is_empty())
             .collect();
         if allowed.is_empty() {
-            // Serving TLS while accepting every client would be worse than
-            // serving none: it looks locked from the outside.
+            // TLS that accepts everyone would only look locked.
             bail!("TLS is configured but no client key is pinned — nobody could connect");
         }
         Ok(Self { cert, key, allowed })

@@ -5,7 +5,6 @@
  */
 export type Asked = { command: string, 
 /**
- * The tool result's own verdict, when the call has returned. `None` while it is
- * still running — a real state, not a synonym for success.
+ * The tool result's verdict; `None` while still running.
  */
 ok?: boolean, };

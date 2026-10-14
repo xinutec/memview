@@ -3,27 +3,23 @@ import type { Line } from "./Line";
 import type { Unread } from "./Unread";
 
 /**
- * The parse, flat, in running order, with a `depth` per line: the one client is
- * a phone, and a tree costs indentation there is no width for.
+ * The parse, flat, in running order, with a `depth` per line — a phone has no
+ * width for a tree.
  */
 export type Parsed = { 
 /**
- * Why the grammar could not read it, when it could not. Shown rather than
- * smoothed over: an empty command and an unread one are different reports.
+ * Why the grammar could not read it, if it could not.
  */
 error?: string, steps: Array<Line>, 
 /**
- * Commands whose operation is not in the table, by name and count — on one
- * command, usually the answer to "why did nothing come out".
+ * Commands whose operation is not in the table, by name and count.
  */
 unread: Array<Unread>, 
 /**
- * Commands that exist because a determinate loop was run out. Shown because
- * a reader counting lines will otherwise find more steps than they wrote.
+ * Commands that exist because a determinate loop was run out.
  */
 unrolled: number, 
 /**
- * Scripts inside a wrapper that the grammar could not read — a hole in the
- * middle of a parse that otherwise succeeded.
+ * Scripts inside a wrapper that the grammar could not read.
  */
 nested_unparsed: number, };

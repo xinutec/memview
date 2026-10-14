@@ -10,7 +10,6 @@ export type Question = { question: string,
  */
 header: string, 
 /**
- * Only an explicit `true`: taking anything else as several would let one tap
- * answer a question that wanted more, and send before the person had finished.
+ * Only an explicit `true`.
  */
 multiSelect: boolean, options: Array<Choice>, };

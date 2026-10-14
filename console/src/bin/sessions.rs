@@ -9,13 +9,8 @@
 //! On PATH from home-manager; `cargo run -p console --bin sessions -- <args>` in
 //! a checkout.
 //!
-//! This speaks to `CONSOLE_DESK_ADDR` (8096), the ungated loopback port, taken
-//! from [`Config::from_env`] so the two cannot drift. `BIND_ADDR` (8097) is the
-//! phone's gated door and answers a caller with no pinned key with
-//! `certificate_required`.
-//!
-//! `send` arrives as the user, with nothing marking it as drafted, so it must be
-//! in their words.
+//! Speaks to the ungated loopback port, `CONSOLE_DESK_ADDR`. `send` arrives as the
+//! user, unmarked, so it must be in their words.
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -25,13 +20,10 @@ use serde::Deserialize;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// How much of a transcript's tail to read. A live transcript can be gigabytes;
-/// eight megabytes covers hundreds of exchanges, and [`console::conversation::Line`]
-/// counting says when it did not.
+/// How much of a transcript's tail to read.
 const TAIL: u64 = 8 << 20;
 
-/// How much of a message `log` shows before saying how much it kept back. Never
-/// truncate silently.
+/// How much of a message `log` shows before saying how much it kept back.
 const WIDTH: usize = 700;
 
 #[derive(Deserialize)]
@@ -39,8 +31,7 @@ struct Overview {
     sessions: Vec<Row>,
 }
 
-/// The fields of the console's session summary this tool shows — a subset, with
-/// `#[serde(default)]` so a summary that grows a field does not break the CLI.
+/// The fields of the console's session summary this tool shows.
 #[derive(Deserialize)]
 struct Row {
     id: String,
@@ -53,16 +44,14 @@ struct Row {
     /// What the CLI last said it was doing. Only meaningful while `working`.
     #[serde(default)]
     busy: Option<String>,
-    /// When the conversation last moved, in milliseconds — not when the console
-    /// picked the process up.
+    /// When the conversation last moved, in milliseconds.
     #[serde(default)]
     touched: Option<u64>,
     #[serde(default)]
     unread: usize,
     #[serde(default)]
     waiting: usize,
-    /// Commands still running after the turn that started them returned — why
-    /// `working` alone misreads the board. Absent from the JSON when empty.
+    /// Commands still running after their turn returned.
     #[serde(default)]
     background: usize,
     #[serde(default)]
@@ -73,9 +62,7 @@ struct Row {
     window: Option<u64>,
 }
 
-/// One command still in flight. `label` is the sentence a person wrote for it;
-/// reading a `name` field here compiles and prints nothing, since serde fills
-/// an absent Option with None.
+/// One command still in flight, by the `label` a person wrote.
 #[derive(Deserialize)]
 struct Running {
     #[serde(default)]
@@ -173,9 +160,7 @@ struct Conversation {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // `reqwest` here is a rustls build with no default provider, so nothing in this
-    // tree needs a C toolchain — and skipping this panics with "No provider set"
-    // on the first request. `main.rs` does the same.
+    // rustls has no default provider; without this the first request panics.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     match Cli::parse().command.unwrap_or(Command::Who) {
@@ -240,8 +225,7 @@ async fn who() -> Result<()> {
             (Some(used), None) => format!("{}k", used / 1000),
             _ => String::new(),
         };
-        // Only narrate `busy` while it is working: the CLI leaves the last thing it said
-        // in place. Background work IS still true after the turn ends.
+        // `busy` only while working; background work outlives the turn.
         let doing = row.doing();
         println!(
             "{:<10} {:<8} {:<8} {:>4} {:>6} {:>10}  {}",
@@ -291,8 +275,7 @@ fn resolve<'a>(sessions: &'a [Row], needle: &str) -> Result<&'a Row> {
     }
 }
 
-/// Where a session's conversation is on disk — found by looking, since the
-/// project-directory encoding is undocumented.
+/// Where a session's conversation is on disk, found by looking.
 fn transcript(id: &str) -> Result<PathBuf> {
     let root = reader::home::projects_dir();
     let entries =
@@ -315,7 +298,7 @@ fn tail_of(path: &Path) -> Result<Vec<u8>> {
     file.seek(SeekFrom::Start(from))?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
-    // A seek lands mid-line, and half a JSON object parses as nothing at all.
+    // A seek lands mid-line.
     if from > 0
         && let Some(newline) = buf.iter().position(|byte| *byte == b'\n')
     {
@@ -324,8 +307,7 @@ fn tail_of(path: &Path) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// `--since 22:00` means today at 22:00, in whatever the transcript's stamps
-/// are; a longer value is compared as the prefix it is.
+/// `--since 22:00` means today at 22:00; a longer value is compared as a prefix.
 fn since(value: &str) -> String {
     if value.len() == 5 && value.as_bytes()[2] == b':' {
         let today = &time::OffsetDateTime::now_utc();
@@ -379,7 +361,7 @@ async fn read(args: Conversation, mode: Mode) -> Result<()> {
             matches!(mode, Mode::Log) && !full,
             line.text.char_indices().nth(WIDTH),
         ) {
-            // The count of what was kept back is the point — see `WIDTH`.
+            // Say how much was kept back.
             (true, Some((cut, _))) => format!(
                 "{}\n    … +{} more chars",
                 &line.text[..cut],
@@ -389,7 +371,7 @@ async fn read(args: Conversation, mode: Mode) -> Result<()> {
         };
         println!("=== {stamp} {who}\n{body}\n");
     }
-    // Saying what was left out, so a short answer is never a short conversation.
+    // Say what was left out.
     if lines.len() > shown {
         println!("({} earlier, ask for more)", lines.len() - shown);
     }
@@ -405,8 +387,7 @@ async fn send(needle: &str, words: &[String]) -> Result<()> {
         words.join(" ")
     };
     let text = text.trim();
-    // An empty message is accepted by the API and reads to the session as though
-    // the user sent whitespace.
+    // The API would accept an empty message.
     if text.is_empty() {
         bail!("nothing to send");
     }
@@ -430,9 +411,8 @@ async fn send(needle: &str, words: &[String]) -> Result<()> {
     if !status.is_success() {
         bail!("the console refused it ({status}): {body}");
     }
-    // The receipt is the point: a message arriving twice leaves no other trace.
-    // The name comes from the row we resolved, not the receipt — the summary
-    // carries no `name`; the roster attaches that in `/api/state` only.
+    // The receipt — a doubled message leaves no other trace. The name comes from
+    // the resolved row; the summary has none.
     let after: Row = serde_json::from_str(&body).context("reading the receipt")?;
     println!(
         "sent to {} ({}), {} unread, {} chars",

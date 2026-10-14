@@ -6,11 +6,10 @@ import type { Question } from "./Question";
  */
 export type Call = { "kind": "bash", command: string, description?: string, } | { "kind": "edit", path: string, before: string, after: string, everywhere: boolean, } | { "kind": "question", questions: Array<Question>, } | { "kind": "workflow", name?: string, } | { "kind": "other", 
 /**
- * The one argument worth showing: the first of the fields that name what
- * the call works on, else the argument names.
+ * The one argument worth showing.
  */
 shown: string, 
 /**
- * The caller's own sentence about the call, else what it runs or asks.
+ * The caller's sentence about the call, else what it runs.
  */
 described?: string, };

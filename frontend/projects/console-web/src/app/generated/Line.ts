@@ -15,22 +15,16 @@ host?: string,
  */
 argv: Array<string>, 
 /**
- * Whether the words shown differ from the words written, so the view can
- * say so rather than letting a reader wonder why `$f` became `a.ts`.
+ * Whether the words shown differ from the words written.
  */
 reached: Reach, 
 /**
- * The subshells enclosing it, so two sibling `( … )` groups can be told
- * apart — which is the difference between one working directory and two.
+ * The subshells enclosing it, telling sibling `( … )` groups apart.
  */
 scope: Array<number>, cwd?: string, 
 /**
- * What the command was for, as a sentence — the L4 concept, when a lens can say
- * ([`reader::concept::describe`], `docs/concept-model.md`).
- *
- * Absent is the honest miss: a command no lens covers stays a counted leaf with
- * the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
- * unit is the row a person approves, not the step.
+ * What the command was for, as a sentence, when a lens can say —
+ * [`reader::concept::describe`].
  */
 concept?: string, 
 /**
@@ -38,13 +32,10 @@ concept?: string,
  */
 kind: string, 
 /**
- * The stable key behind that chip, for styling. Separate from `kind` so the
- * wording is free to change without dropping the colour.
+ * The stable key behind that chip, for styling.
  */
 key: string, 
 /**
- * What that operation says that its paths do not — the pattern a search
- * looked for, the program a transform applied, the name of a command
- * nobody has taught this yet. Empty when the paths are the whole story.
+ * What the operation says beyond its paths, such as a search's pattern.
  */
 says: string, uses: Array<Used>, };

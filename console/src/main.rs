@@ -2,13 +2,8 @@
 //!
 //!     cargo run -p console
 //!
-//! It starts sessions in allowed directories, reads them live, sends them
-//! instructions and carries their permission questions.
-//!
-//! Where it listens is the security model: without client authentication it
-//! refuses anything but loopback, since whatever reaches the socket runs code as
-//! this user. With the TLS gate it serves the world on a pinned client key and
-//! keeps a plaintext loopback socket for this machine. See `docs/agent-console.md`.
+//! Loopback only without the TLS gate, since whatever reaches the socket runs code
+//! as this user; with it, pinned client keys plus a loopback socket.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -63,8 +58,7 @@ async fn main() -> Result<()> {
     if let Some(Verb::Hook) = verb {
         let _ = rustls::crypto::ring::default_provider().install_default();
         if let Err(why) = hook().await {
-            // Exit 2 blocks the call and hands the session this sentence: a console
-            // that cannot be reached is a fault to see, not a diff to go without.
+            // Exit 2 blocks the call and tells the session why.
             eprintln!("the agent console could not be reached: {why:#}");
             std::process::exit(2);
         }
@@ -78,8 +72,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // The outbound side is built with no crypto provider baked in, so one must be
-    // the process default before any TLS client is built. Already installed is fine.
+    // A crypto provider before any TLS client is built.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let config = Config::from_env();
@@ -88,8 +81,7 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("BIND_ADDR {:?} is not an address", config.bind))?;
     if !address.ip().is_loopback() && config.tls.is_none() {
-        // Without the client-certificate gate, off-loopback means anything on the LAN
-        // can run code as this user. Not a warning.
+        // Off-loopback without the gate: anything on the LAN could run code here.
         bail!(
             "refusing to listen on {address}: no client authentication is configured, \
              so the console may only listen on loopback. Set CONSOLE_TLS_CERT, \
@@ -116,8 +108,7 @@ async fn main() -> Result<()> {
     let roster = Arc::new(Roster::new(config));
     // The dashboard is fetched in the background, so no request ever waits on it.
     roster.usage().clone().watch();
-    // The sessions are asked a minute apart: the number moves only when a request
-    // is answered, and asking puts a line down a live conversation's stdin.
+    // A minute apart: each ask writes to a live session's stdin.
     {
         let asking = roster.clone();
         tokio::spawn(async move {
@@ -157,24 +148,20 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // A `<defunct>` under this console, recorded as it appears. It reaps nothing,
-    // so it cannot take an exit status `Session::reap` is waiting for.
+    // Records any `<defunct>` child; reaps nothing.
     tokio::spawn(console::zombies::watch());
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");
     }
-    // Their kill could not be delivered by the old image: `execve` took the timer.
+    // Kills the old image could not deliver.
     let finishing = roster.finish_stopping();
     if finishing > 0 {
         tracing::info!("{finishing} stopped session(s) still to be finished off");
     }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
-        // The SPA owns its routes, so a navigation the API did not answer gets the
-        // index. `fallback`, not `not_found_service`, which never sees a deep link.
-        // Only for a navigation: index.html served for a missing font breaks the icons
-        // with nothing logged.
+        // A navigation the API did not answer gets the app; a missing file a 404.
         let index = format!("{dir}/index.html");
         app = app.fallback_service(ServeDir::new(dir).fallback(axum::routing::any(
             move |uri: axum::http::Uri| {
@@ -184,8 +171,7 @@ async fn main() -> Result<()> {
         )));
     }
 
-    // Take the sessions with us; orphaned ones keep their ids, and `past::in_use`
-    // then refuses to resume the very conversations nobody is using.
+    // Take the sessions with us, or orphans block their own resume.
     {
         let roster = roster.clone();
         tokio::spawn(async move {
@@ -202,8 +188,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    // SIGUSR2 upgrades in place, keeping the sessions. A different signal from the
-    // one that stops, so `kill` always means stop. See [`Roster::handover`].
+    // SIGUSR2 upgrades in place — [`Roster::handover`]; `kill` always means stop.
     {
         let roster = roster.clone();
         tokio::spawn(async move {
@@ -227,8 +212,7 @@ async fn main() -> Result<()> {
 
     match gate {
         Some(tls_config) => {
-            // The desk keeps a way in: the gated socket demands a certificate, and an SSH
-            // forward has none to present.
+            // For an SSH forward, which has no certificate.
             let desk: SocketAddr = desk
                 .parse()
                 .with_context(|| format!("CONSOLE_DESK_ADDR {desk:?} is not an address"))?;
@@ -249,8 +233,7 @@ async fn main() -> Result<()> {
                 axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
             )
             .serve(app.into_make_service());
-            // Either socket failing takes the process down rather than leaving a console
-            // that is half there.
+            // Either socket failing takes the process down.
             tokio::select! {
                 served = plain => served.context("serving on loopback")?,
                 served = gated => served.context("serving with TLS")?,
@@ -271,8 +254,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// How long the hook keeps trying: an upgrade re-executes the console and its port
-/// is closed for a moment.
+/// How long the hook keeps trying, across an upgrade's moment of closed port.
 const HOOK_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Hand the hook's input to the console and wait for it to answer.

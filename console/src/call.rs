@@ -1,7 +1,5 @@
-//! A tool call's input, read once on the Mac into what a client draws and what
-//! the console labels running work by. The client never reads a tool's raw
-//! arguments: a tool whose input changes shape falls to [`Call::Other`] here,
-//! in one place, rather than to a blank field on the phone.
+//! A tool call's input, read once on the Mac; a changed shape falls to
+//! [`Call::Other`] here rather than a blank on the phone.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,9 +25,7 @@ pub enum Call {
         after: String,
         everywhere: bool,
     },
-    /// Questions the person answers by picking. Only when every question and every
-    /// choice could be read: a half-read question would show fewer options than
-    /// were offered, and a person cannot see what is missing.
+    /// Questions the person answers by picking, only when all of them could be read.
     Question { questions: Vec<Question> },
     /// A workflow script, by the name it goes by.
     Workflow {
@@ -39,10 +35,9 @@ pub enum Call {
     },
     /// Any other call.
     Other {
-        /// The one argument worth showing: the first of the fields that name what
-        /// the call works on, else the argument names.
+        /// The one argument worth showing.
         shown: String,
-        /// The caller's own sentence about the call, else what it runs or asks.
+        /// The caller's sentence about the call, else what it runs.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         described: Option<String>,
@@ -58,8 +53,7 @@ pub struct Question {
     pub question: String,
     /// A word or two naming the decision, for the chip above it. May be empty.
     pub header: String,
-    /// Only an explicit `true`: taking anything else as several would let one tap
-    /// answer a question that wanted more, and send before the person had finished.
+    /// Only an explicit `true`.
     pub multi_select: bool,
     pub options: Vec<Choice>,
 }
@@ -168,8 +162,7 @@ impl Call {
         }
     }
 
-    /// A short sentence for what this call is doing: the caller's own description
-    /// where it wrote one, else what it runs. `None` rather than a guess.
+    /// What this call is doing: the caller's description, else what it runs.
     pub fn label(&self) -> Option<&str> {
         match self {
             Call::Bash {
@@ -183,9 +176,7 @@ impl Call {
     }
 }
 
-/// The name a workflow goes by: a saved one's `name`, else the `name` its script's
-/// `meta` literal declares, else the script file's, which the harness writes as
-/// `<name>-<run id>.js`.
+/// The name a workflow goes by: its `name`, its script's `meta`, or its file's.
 fn workflow_name(input: &Value) -> Option<String> {
     let field = |key: &str| input.get(key).and_then(Value::as_str);
     if let Some(name) = field("name") {

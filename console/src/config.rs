@@ -1,9 +1,7 @@
 //! What the console is allowed to do, and where it listens.
 //!
-//! The default bind is loopback: the console can start agents holding this
-//! machine's credentials, and a process already running as this user gains nothing
-//! by asking. Anywhere else waits for the client-certificate gate — see
-//! `docs/agent-console.md`.
+//! Loopback by default: anything that reaches the socket runs code as this user.
+//! Anywhere else needs the client-certificate gate.
 
 use std::path::{Path, PathBuf};
 
@@ -22,10 +20,8 @@ pub struct Tls {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind: String,
-    /// A plaintext listener for this machine only, used only when the gate is on: the
-    /// gated socket demands a certificate, and the desk reaches a headless Mac through
-    /// an SSH forward that has none. A second port because a wildcard bind already
-    /// covers loopback.
+    /// A plaintext loopback listener beside the gated one, for an SSH forward that
+    /// has no certificate.
     pub desk: String,
     /// Set only when a certificate, a key and at least one pin are all present.
     pub tls: Option<Tls>,
@@ -35,14 +31,11 @@ pub struct Config {
     pub static_dir: Option<String>,
     /// Where to read the account's rate-limit figure from. See [`crate::usage`].
     pub usage_url: Option<String>,
-    /// Where the one-sentence summaries are kept between runs. See
-    /// [`crate::gist`].
+    /// Where the one-sentence summaries are kept — [`crate::gist`].
     pub gists: PathBuf,
-    /// Where each conversation's permission mode is kept between runs. See
-    /// [`crate::modes`] — nothing else on disk records it.
+    /// Where each conversation's permission mode is kept — [`crate::modes`].
     pub modes: PathBuf,
-    /// Where unsent words are kept, so both devices hold the same draft. See
-    /// [`crate::drafts`].
+    /// Where unsent words are kept — [`crate::drafts`].
     pub drafts: PathBuf,
 }
 
@@ -61,8 +54,7 @@ impl Config {
             .filter(|entry| !entry.is_empty())
             .map(PathBuf::from)
             .collect();
-        // All three or none: a certificate without pins would serve anybody, and pins
-        // without a certificate would look configured while the socket stayed plaintext.
+        // All three or none: either half alone looks secure and is not.
         let tls = match (
             std::env::var("CONSOLE_TLS_CERT"),
             std::env::var("CONSOLE_TLS_KEY"),
@@ -71,9 +63,7 @@ impl Config {
             (Ok(cert_file), Ok(key_file), Ok(pins)) if !pins.trim().is_empty() => Some(Tls {
                 cert_file,
                 key_file,
-                // The file wins over the variable: an upgrade is an `execve`, which inherits the
-                // pin list `console.sh` exported at the original launch, so a key enrolled since
-                // would be refused until a full restart.
+                // The file wins: an upgrade inherits the variable from the first launch.
                 pins: pinned_clients(&home)
                     .unwrap_or_else(|| pins.split(',').map(|p| p.trim().to_string()).collect()),
             }),
@@ -90,9 +80,7 @@ impl Config {
                 model: std::env::var("CONSOLE_MODEL")
                     .ok()
                     .filter(|m| !m.is_empty()),
-                // Unset means the CLI's default, under which a headless session is refused every
-                // tool call that needs permission — see `Spawn::permission_mode`. The console picks
-                // neither `acceptEdits` nor `bypassPermissions` on anybody's behalf.
+                // Unset is the CLI's default; the console grants nothing on anyone's behalf.
                 permission_mode: std::env::var("CONSOLE_PERMISSION_MODE")
                     .ok()
                     .filter(|mode| !mode.is_empty())
@@ -101,15 +89,13 @@ impl Config {
                 name: None,
             },
             static_dir: std::env::var("STATIC_DIR").ok(),
-            // Defaulted rather than required: it is the same dashboard for every machine.
-            // Empty means a front page with no usage on it.
+            // The same dashboard for every machine; empty means no usage shown.
             usage_url: Some(
                 std::env::var("CONSOLE_USAGE_URL")
                     .unwrap_or_else(|_| DEFAULT_USAGE_URL.to_string()),
             )
             .filter(|url| !url.is_empty()),
-            // A file, so an upgrade does not pay a model again for sentences it already had.
-            // See [`crate::gist`].
+            // A file, so an upgrade does not pay for the sentences again.
             gists: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
                 format!(
                     "{}/.config/agent-console",
@@ -117,8 +103,7 @@ impl Config {
                 )
             }))
             .join("gists.json"),
-            // The only record anywhere of what a session was allowed to do; lose it and a
-            // conversation resumes Manual. See [`crate::modes`].
+            // The only record of each session's mode.
             modes: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
                 format!(
                     "{}/.config/agent-console",
@@ -137,9 +122,7 @@ impl Config {
         }
     }
 
-    /// The repositories a session could sensibly be started in: one level down from
-    /// each allowed directory, keeping what has a `.git`. A convenience for the picker,
-    /// not a restriction — `resolve` admits any subdirectory of an allowed one.
+    /// The repositories one level under each allowed directory, for the picker.
     pub fn repos(&self) -> Vec<String> {
         let mut found: Vec<String> = self
             .dirs
@@ -154,11 +137,8 @@ impl Config {
         found
     }
 
-    /// Resolve a requested directory, or say why it is refused.
-    ///
-    /// Symlinks are resolved on both sides first, or one inside an allowed directory
-    /// pointing out of it walks past a prefix check. A guard rail against mistakes,
-    /// not a boundary: a session that starts can reach the whole disk.
+    /// Resolve a requested directory, symlinks included, or say why it is refused. A
+    /// rail against mistakes, not a boundary.
     pub fn resolve(&self, requested: &str) -> Result<PathBuf, String> {
         let asked = Path::new(requested);
         let real = asked
@@ -177,11 +157,8 @@ impl Config {
     }
 }
 
-/// The pinned client keys, read from the file a person edits: one pin per line,
-/// `#` comments and blank lines ignored — what `scripts/console.sh` parses and
-/// `scripts/enrol.sh` appends to. `None` when there is no such file, leaving the
-/// variable in charge; and `None` for an empty file too, since trusting nobody looks
-/// exactly like a wrong certificate and is far more likely to be a mistake.
+/// The pinned client keys from the pin file, one per line. `None` when the file is
+/// absent or empty — an empty one is likelier a mistake than intent.
 fn pinned_clients(home: &str) -> Option<Vec<String>> {
     let dir =
         std::env::var("CONSOLE_HOME").unwrap_or_else(|_| format!("{home}/.config/agent-console"));

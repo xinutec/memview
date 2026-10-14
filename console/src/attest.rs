@@ -190,8 +190,7 @@ pub fn record_of(cert: &X509Certificate) -> Result<Record> {
     parse_record(extension.value)
 }
 
-/// Parse a `KeyDescription`. Against the schema rather than a crate: eight fields,
-/// and no dependency worth a supply-chain entry on the machine this protects.
+/// Parse a `KeyDescription` by hand: eight fields, not worth a dependency here.
 pub fn parse_record(der: &[u8]) -> Result<Record> {
     let (_, outer) = Any::from_der(der).map_err(|err| anyhow!("not a DER record: {err}"))?;
     let fields = items(outer.data)?;
@@ -436,9 +435,8 @@ fn tagged_integer(entry: &Any) -> Result<u64> {
     integer(&inner, Tag::Integer)
 }
 
-/// The forms a serial number can take in Google's status list. It publishes
-/// lowercase hex with no leading zero; a DER serial carries one whenever its high
-/// bit is set, so the obvious rendering misses half the entries silently.
+/// The forms a serial can take in Google's status list: with and without the
+/// leading zero DER adds when the high bit is set.
 fn serial_forms(raw: &[u8]) -> Vec<String> {
     let full = hex(raw);
     let trimmed = full.trim_start_matches('0').to_string();
