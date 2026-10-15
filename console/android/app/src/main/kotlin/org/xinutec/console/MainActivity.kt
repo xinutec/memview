@@ -241,10 +241,21 @@ class MainActivity : WebShellActivity() {
             // calls back leaves the input permanently busy: Chromium allows one
             // outstanding request per WebView, so the NEXT tap is dropped too and
             // the button stops working for the life of the page.
-            waiting.onReceiveValue(
-                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data),
-            )
+            waiting.onReceiveValue(picked(result.resultCode, result.data))
         }
+
+    /**
+     * What the picker handed back. Several pictures come as `ClipData`, which
+     * `FileChooserParams.parseResult` does not read: it takes `data` alone, so a
+     * choice of three would reach the page as one, or as none.
+     */
+    private fun picked(resultCode: Int, data: Intent?): Array<Uri>? {
+        val clip = data?.clipData
+        if (resultCode != RESULT_OK || clip == null) {
+            return WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+        }
+        return Array(clip.itemCount) { clip.getItemAt(it).uri }
+    }
 
     override fun createWebChromeClient() = ConsoleChrome()
 
@@ -262,7 +273,13 @@ class MainActivity : WebShellActivity() {
                 // The page's own `accept` decides what is offered; the console
                 // asks for `image/*`, which is what puts the screenshots in front
                 // rather than a file tree.
-                choosing.launch(params.createIntent())
+                val intent = params.createIntent()
+                // `createIntent` leaves this out, so the gallery would let one
+                // picture be chosen however the page's input asks for several.
+                if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+                choosing.launch(intent)
                 true
             } catch (absent: ActivityNotFoundException) {
                 Log.e(TAG, "nothing on this phone can pick a file", absent)
