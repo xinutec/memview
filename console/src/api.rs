@@ -26,15 +26,13 @@ use crate::roster::Roster;
 use crate::session::{Stamped, Summary};
 use crate::trace;
 
+// dev-lint: allow-open-write served only behind a client certificate or on loopback (main.rs)
 pub fn router(roster: Arc<Roster>) -> Router {
     Router::new()
         .route("/api/state", get(state))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/input", post(input))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
         // Its own body limit, so [`crate::images::keep`] can say why an image is refused.
         .route(
@@ -43,16 +41,11 @@ pub fn router(roster: Arc<Roster>) -> Router {
         )
         .route("/api/sessions/{id}/images/{name}", get(picture))
         .route("/api/picture", get(elsewhere))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/unhold", post(unhold))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/decide", post(decide))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/rename", post(rename))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/stop", post(stop))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/revive", post(revive))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
@@ -68,14 +61,11 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/hook", post(hook))
         .route("/api/sudo", post(sudo))
         .route("/api/login", post(login))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/login/code", post(login_code))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/sudo", post(sudo_answer))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
-        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/telemetry", post(trace::record))
         // The stream too: tower-http flushes when the body pauses, so live events are
         // not held back. Here, not in `main`, so the tests run this stack.
