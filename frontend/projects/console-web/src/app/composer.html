@@ -1,8 +1,6 @@
 <!-- What is about to be sent, above the box rather than inside it: a thumbnail in
      a row that changes height moves the send button under a thumb. Held rather
-     than sent on choosing — the words about a screenshot are usually the point.
-     Once something is held the slot beside the box is send, so another picture
-     is added from here. -->
+     than sent on choosing — the words about a screenshot are usually the point. -->
 @if (held().length) {
   <div class="chosen">
     @for (picture of held(); track $index) {
@@ -19,16 +17,6 @@
         </button>
       </div>
     }
-    @if (held().length < most) {
-      <button
-        class="tile more"
-        type="button"
-        aria-label="add another image"
-        (click)="picker.click()"
-      >
-        <mat-icon>add_photo_alternate</mat-icon>
-      </button>
-    }
     <span class="about">{{ about() }}</span>
   </div>
 }
@@ -36,10 +24,7 @@
   <p class="trouble">{{ why }}</p>
 }
 <form class="composer" (submit)="$event.preventDefault(); send.emit()">
-  <!-- `subscriptSizing="dynamic"` is load-bearing: a form field otherwise reserves an
-       invisible hint row, and the send button, aligned to `flex-end`, sits a line
-       below the visible box. -->
-  <!-- The input is the control; the button only presses it — a bare file input
+  <!-- The input is the control; the buttons only press it — a bare file input
        cannot be made 48px. `accept="image/*"` is what makes Android offer the
        camera. In the wrapper app this needs `onShowFileChooser`, implemented in
        `ui-harness/android`, so it needs a build of the APK and not only the bundle. -->
@@ -53,24 +38,33 @@
     tabindex="-1"
     (change)="took(picker)"
   />
-  <mat-form-field appearance="outline" class="box" subscriptSizing="dynamic">
-    <mat-label>say something</mat-label>
-    <!-- Grows with what is typed, capped at a third of the screen. `Ctrl+Enter` stays for the desk and is not the way in: a soft
-         keyboard has no Ctrl, and Enter is a newline. -->
+  <!-- A pill as messengers draw it, not a Material field: its floating label and
+       outline are chrome a one-line box does not need. -->
+  <div class="box">
+    <!-- Grows with what is typed, capped at six rows. `Ctrl+Enter` stays for the
+         desk and is not the way in: a soft keyboard has no Ctrl, and Enter is a
+         newline. -->
     <textarea
-      matInput
       cdkTextareaAutosize
       cdkAutosizeMinRows="1"
       cdkAutosizeMaxRows="6"
       [(ngModel)]="text"
       name="text"
+      placeholder="say something"
+      aria-label="message"
       (keydown.control.enter)="send.emit()"
     ></textarea>
-  </mat-form-field>
-  <!-- One slot under the thumb, as messengers do: the picture until there is
-       something to send, then send. Two buttons rather than one that swaps, so
-       each keeps its own `type` and label. Not `matIconSuffix` for the picture:
-       Material centres a suffix in a box that grows to six rows. -->
+    <!-- Once the slot is send, the picture moves in here, so one can be added
+         after typing, or beside another. -->
+    @if (ready() && held().length < most) {
+      <button matIconButton type="button" aria-label="add an image" (click)="picker.click()">
+        <mat-icon>add_photo_alternate</mat-icon>
+      </button>
+    }
+  </div>
+  <!-- One slot under the thumb: the picture until there is something to send,
+       then send. Two buttons rather than one that swaps, so each keeps its own
+       `type` and label. -->
   @if (ready()) {
     <button class="slot send" matIconButton type="submit" aria-label="send" [disabled]="sending()">
       <mat-icon>send</mat-icon>

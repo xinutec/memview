@@ -153,12 +153,11 @@ test('several pictures go in one message, and one can be put down @ phone width'
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.composer').waitFor();
 
-  // Two at once from the picker, then one more from the strip, since the slot
-  // beside the box is send by then.
+  // Two at once from the picker, then one more from inside the box, since the
+  // slot beside it is send by then.
   await page.locator('.picker').setInputFiles([tinyPng(), tinyPng()]);
   await expect(page.locator('.chosen .thumb')).toHaveCount(2);
-  await expect(page.getByRole('button', { name: 'add an image' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'add another image' }).click();
+  await page.locator('.composer .box').getByRole('button', { name: 'add an image' }).click();
   await page.locator('.picker').setInputFiles(tinyPng());
   await expect(page.locator('.chosen .thumb')).toHaveCount(3);
   await expect(page.locator('.chosen .about')).toContainText('3 pictures');
@@ -183,7 +182,7 @@ test('a full strip of five fits the phone, and a sixth is refused with a reason 
   await page.locator('.picker').setInputFiles(Array.from({ length: 6 }, () => tinyPng()));
   await expect(page.locator('.chosen .thumb')).toHaveCount(5);
   await expect(page.locator('.trouble')).toContainText('5 pictures');
-  await expect(page.getByRole('button', { name: 'add another image' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'add an image' })).toHaveCount(0);
   await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 });
@@ -237,7 +236,11 @@ test('the picture button becomes send once there are words @ phone width', async
   const slot = await page.locator('.composer .slot').boundingBox();
 
   await box.fill('look at this');
-  await expect(page.getByRole('button', { name: 'add an image' })).toHaveCount(0);
+  // The picture moves into the box, so one can still be added after typing.
+  await expect(page.locator('.composer .slot')).toHaveAccessibleName('send');
+  await expect(
+    page.locator('.composer .box').getByRole('button', { name: 'add an image' }),
+  ).toBeVisible();
   await expect(page.locator('.composer .send')).toBeEnabled();
   // The same place, so the thumb that reached for one finds the other.
   expect(await page.locator('.composer .slot').boundingBox()).toEqual(slot);

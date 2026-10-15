@@ -778,9 +778,7 @@ export async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
   const rows = await page.evaluate(() => {
     // The OUTLINE's box, not the textarea's: the field pads its own text, so a
     // textarea bottom is inset from the visible edge the eye lines up against.
-    const input = document
-      .querySelector('.composer .mat-mdc-text-field-wrapper')
-      ?.getBoundingClientRect();
+    const input = document.querySelector('.composer .box')?.getBoundingClientRect();
     const send = document.querySelector('.composer .slot')?.getBoundingClientRect();
     return input && send
       ? { inputBottom: input.bottom, sendBottom: send.bottom, sendHeight: send.height }

@@ -18,8 +18,46 @@
   // second cap here only makes the box narrower than the screen.
 }
 
+// The pill messengers draw: filled, fully round, a picture button at its foot.
 .box {
   flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-height: 3rem;
+  padding-left: 1rem;
+  border-radius: 1.5rem;
+  background: var(--mat-sys-surface-container-highest);
+
+  &:focus-within {
+    outline: 2px solid var(--mat-sys-primary);
+  }
+
+  // Spaced by margin, not padding: the autosize measures the text alone.
+  textarea {
+    flex: 1;
+    min-width: 0;
+    margin: 0.75rem 0;
+    padding: 0;
+    border: 0;
+    outline: none;
+    resize: none;
+    background: none;
+    color: var(--mat-sys-on-surface);
+    font: var(--mat-sys-body-large);
+    line-height: 1.5rem;
+  }
+}
+
+// Filled, beside the pill, as messengers draw it.
+.slot {
+  --mat-icon-button-icon-color: var(--mat-sys-on-primary);
+  --mat-icon-button-disabled-icon-color: var(--mat-sys-on-surface-variant);
+
+  background: var(--mat-sys-primary);
+
+  &:disabled {
+    background: var(--mat-sys-surface-container-highest);
+  }
 }
 
 // The file input itself, never seen. Not `display: none`: an input hidden that
@@ -78,15 +116,6 @@
       color: var(--mat-sys-on-surface);
       background: color-mix(in srgb, var(--mat-sys-surface) 85%, transparent);
     }
-  }
-
-  .more {
-    display: grid;
-    place-items: center;
-    border: 1px dashed var(--mat-sys-outline);
-    background: none;
-    color: var(--mat-sys-on-surface-variant);
-    cursor: pointer;
   }
 
   .about {
