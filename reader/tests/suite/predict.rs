@@ -1711,6 +1711,38 @@ fn gnus_in_place_spelling_fails_on_bsd_sed_and_stops_the_chain() {
     assert_eq!(fallback.written, vec![written("/repo/g.txt", "failed\n")]);
 }
 
+/// `git rm` refuses a file with local changes, or a path that matches nothing,
+/// so what follows `&&` is only sometimes run. Live, `git rm … && sed -i … lib.rs`
+/// was predicted to edit `lib.rs` after the `git rm` had refused.
+#[test]
+fn what_follows_a_git_rm_is_only_sometimes_run() {
+    for git in [
+        "git rm -q a.rs",
+        "git mv a.rs b.rs",
+        "git -C sub restore a.rs",
+    ] {
+        let found = run(
+            &format!("{git} && echo x > c.txt"),
+            &known(&[("/repo/c.txt", None)]),
+        );
+        assert!(found.written.is_empty(), "{git}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|it| it.path.as_deref() == Some("/repo/c.txt") && it.why == Why::Sometimes),
+            "{git}: {:?}",
+            found.unfollowed
+        );
+    }
+    // What only reads is assumed to succeed, as before.
+    let found = run(
+        "git status && echo x > c.txt",
+        &known(&[("/repo/c.txt", None)]),
+    );
+    assert_eq!(found.written, vec![written("/repo/c.txt", "x\n")]);
+}
+
 /// A word with a variable and a brace expansion is no path the tables can name,
 /// so they drop it — and `prettier --write` still rewrote the files it stood
 /// for. Live, a reformat behind `$P/{a,b}.ts` was predicted untouched.

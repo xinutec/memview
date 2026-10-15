@@ -853,6 +853,17 @@ impl<'a> Run<'a> {
                     "sed" if sed::invocation(&argv).is_ok_and(|it| it.fails().is_some()) => {
                         Status::Known(false)
                     }
+                    // `git rm`, `mv`, `restore`: each refuses a path it cannot
+                    // take — local changes, nothing matching — which the text
+                    // does not show.
+                    "git"
+                        if matches!(
+                            classify(&argv, &[], self.cwd.as_deref(), self.home),
+                            Op::Git(GitOp::Alter { .. })
+                        ) =>
+                    {
+                        Status::Unknown
+                    }
                     _ => Status::Assumed,
                 }
             }
