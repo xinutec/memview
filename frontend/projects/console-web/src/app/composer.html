@@ -51,23 +51,23 @@
       (keydown.control.enter)="send.emit()"
     ></textarea>
   </mat-form-field>
-  <!-- Beside the send, not inside the field as `matIconSuffix`: Material centres a
-       suffix vertically and this field autosizes to six rows, so the glyph would
-       float mid-box and cost a column on every line of a 412px screen. -->
-  <button matIconButton type="button" aria-label="show an image" (click)="picker.click()">
-    <mat-icon>image</mat-icon>
-  </button>
-  <!-- Both plain. A `matMiniFab` is a rounded square in M3 beside an icon button
-       at `corner-full`, and Angular Material has no filled icon button
-       (angular/components#33091). Not a filled text button either: `min-width:
-       64px` strands a single glyph in a pill — DL-ANGULAR-ICON-ONLY-TEXT-BUTTON. -->
-  <button
-    class="send"
-    matIconButton
-    type="submit"
-    aria-label="send"
-    [disabled]="sending() || (!text() && !held())"
-  >
-    <mat-icon>send</mat-icon>
-  </button>
+  <!-- One slot under the thumb, as messengers do: the picture until there is
+       something to send, then send. Two buttons rather than one that swaps, so
+       each keeps its own `type` and label. Not `matIconSuffix` for the picture:
+       Material centres a suffix in a box that grows to six rows. -->
+  @if (ready()) {
+    <button class="slot send" matIconButton type="submit" aria-label="send" [disabled]="sending()">
+      <mat-icon>send</mat-icon>
+    </button>
+  } @else {
+    <button
+      class="slot"
+      matIconButton
+      type="button"
+      aria-label="add an image"
+      (click)="picker.click()"
+    >
+      <mat-icon>add_photo_alternate</mat-icon>
+    </button>
+  }
 </form>

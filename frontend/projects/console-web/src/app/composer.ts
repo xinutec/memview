@@ -1,4 +1,4 @@
-import { Component, input, model, output } from '@angular/core';
+import { Component, computed, input, model, output } from '@angular/core';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,7 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { Picture, weight } from './picture';
 
 /**
- * The box a message is written in, and the two buttons beside it. It owns no
+ * The box a message is written in, and the one button beside it. It owns no
  * state: the text is two-way so the view can seed it from a draft and empty it
  * on a send, and the picture stays in the parent, which scales and sends it.
  */
@@ -55,6 +55,9 @@ export class Composer {
   readonly chose = output<File>();
 
   protected readonly weight = weight;
+
+  /** Something to send: words, or a picture on its own. */
+  protected readonly ready = computed(() => !!this.text().trim() || !!this.held());
 
   /** Cleared afterwards: a file input keeps its selection, so picking the same file twice fires no second `change`. */
   protected took(input: HTMLInputElement): void {

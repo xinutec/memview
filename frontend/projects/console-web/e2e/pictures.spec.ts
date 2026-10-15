@@ -130,9 +130,27 @@ test('a picture can be put down again without being sent @ phone width', async (
   await page.getByRole('button', { name: 'do not send this image' }).click();
 
   await expect(page.locator('.chosen')).toHaveCount(0);
-  // Send goes back to needing words, which is what it needed before there was a
-  // picture to send on its own.
-  await expect(page.locator('.composer .send')).toBeDisabled();
+  // With nothing left to send, the slot offers a picture again.
+  await expect(page.locator('.composer .send')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'add an image' })).toBeVisible();
+});
+
+test('the picture button becomes send once there are words @ phone width', async ({ page }) => {
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('.composer textarea');
+  await box.waitFor();
+  const slot = await page.locator('.composer .slot').boundingBox();
+
+  await box.fill('look at this');
+  await expect(page.getByRole('button', { name: 'add an image' })).toHaveCount(0);
+  await expect(page.locator('.composer .send')).toBeEnabled();
+  // The same place, so the thumb that reached for one finds the other.
+  expect(await page.locator('.composer .slot').boundingBox()).toEqual(slot);
+
+  // Spaces are not something to send.
+  await box.fill('   ');
+  await expect(page.getByRole('button', { name: 'add an image' })).toBeVisible();
 });
 
 test('a link to a render opens over the conversation, and back puts it away @ phone width', async ({

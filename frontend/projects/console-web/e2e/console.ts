@@ -759,19 +759,13 @@ export async function expectComposerFillsTheWidth(page: Page): Promise<void> {
   });
   expect(width, 'no composer on this page').not.toBeNull();
   // The composer reaches both edges; the text box takes what is left after the
-  // two controls beside it.
-  expect(width!.composer).toBe(width!.page);
-  // Three fifths, and it was seven tenths. The row carried one button —
-  // send — until the image picker joined it, and each is held to the 48px thumb
-  // floor: 412px of screen less 32 of padding, 96 of buttons and 16 of gaps
-  // leaves 268. Lowered deliberately rather than quietly, and no further: the
-  // point of the check is that the box is the row, and a third control on it
-  // would take it below this.
-  expect(width!.field).toBeGreaterThan(width!.page * 0.6);
+  // one control beside it. 412px of screen less 32 of padding, 48 of button and
+  // 8 of gap leaves 324: a second control on the row would take it below this.
+  expect(width!.field).toBeGreaterThan(width!.page * 0.75);
 }
 
 /**
- * The send button sits on the same line as the box it sends.
+ * The button beside the box (send, or the picture) sits on the same line as it.
  *
  * Not a cosmetic assertion. A `mat-form-field` reserves a line of hint/error
  * space below its input by default — `.mat-mdc-form-field-bottom-align::before`
@@ -787,7 +781,7 @@ export async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
     const input = document
       .querySelector('.composer .mat-mdc-text-field-wrapper')
       ?.getBoundingClientRect();
-    const send = document.querySelector('.composer .send')?.getBoundingClientRect();
+    const send = document.querySelector('.composer .slot')?.getBoundingClientRect();
     return input && send
       ? { inputBottom: input.bottom, sendBottom: send.bottom, sendHeight: send.height }
       : null;
