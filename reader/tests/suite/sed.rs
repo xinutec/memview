@@ -11,13 +11,26 @@ fn one(script: &str, text: &str) -> Result<String, String> {
 }
 
 #[test]
-fn the_three_spellings_of_in_place_are_read() {
-    let gnu = invocation(&argv(&["sed", "-i", "s/a/b/", "f"])).unwrap();
+fn in_place_is_read_as_the_hosts_bsd_sed_reads_it() {
     let bsd = invocation(&argv(&["sed", "-i", "", "s/a/b/", "f"])).unwrap();
-    assert_eq!(gnu, bsd);
-    assert_eq!(gnu.scripts, vec!["s/a/b/"]);
-    assert_eq!(gnu.suffix, None);
-    assert_eq!(gnu.operands, vec!["f"]);
+    assert_eq!(bsd.scripts, vec!["s/a/b/"]);
+    assert_eq!(bsd.suffix, None);
+    assert_eq!(bsd.operands, vec!["f"]);
+    assert_eq!(bsd.fails(), None);
+
+    // GNU's spelling. BSD takes the script as the suffix and the file as the
+    // script, then has no file: macOS's sed says "-i may not be used with stdin".
+    let gnu = invocation(&argv(&["sed", "-i", "s/a/b/", "f"])).unwrap();
+    assert_eq!(gnu.suffix.as_deref(), Some("s/a/b/"));
+    assert_eq!(gnu.scripts, vec!["f"]);
+    assert!(gnu.operands.is_empty());
+    assert!(gnu.fails().is_some());
+
+    // And `-i -e`: the `-e` is the suffix, so the file is kept as `f-e`.
+    let dashed = invocation(&argv(&["sed", "-i", "-e", "s/a/b/", "f"])).unwrap();
+    assert_eq!(dashed.suffix.as_deref(), Some("-e"));
+    assert_eq!(dashed.scripts, vec!["s/a/b/"]);
+    assert_eq!(dashed.operands, vec!["f"]);
 
     let backup = invocation(&argv(&["sed", "-i.bak", "s/a/b/", "f"])).unwrap();
     assert_eq!(backup.suffix.as_deref(), Some(".bak"));
@@ -31,6 +44,7 @@ fn the_three_spellings_of_in_place_are_read() {
         Invocation {
             scripts: vec!["s/a/b/".to_string(), "s/c/d/".to_string()],
             extended: true,
+            in_place: true,
             suffix: None,
             operands: vec!["f".to_string()],
         }

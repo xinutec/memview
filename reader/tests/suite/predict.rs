@@ -717,7 +717,7 @@ mod checking {
 /// nor a refusal.
 #[test]
 fn a_program_that_writes_a_file_is_refused_with_its_path() {
-    let found = run("sed -i 's/a/b/' notes.txt", &nothing_known());
+    let found = run("sed -i '' 's/a/b/' notes.txt", &nothing_known());
     assert!(found.written.is_empty());
     assert_eq!(
         found.unfollowed,
@@ -1690,12 +1690,52 @@ fn a_nested_shell_is_followed() {
     );
 }
 
+/// GNU's `sed -i 's/…/' f` on the host's BSD sed: the script becomes the backup
+/// suffix, nothing is left to rewrite, and it fails — so the file keeps its text
+/// and nothing after `&&` runs. Four live calls were predicted the GNU way and
+/// diverged.
+#[test]
+fn gnus_in_place_spelling_fails_on_bsd_sed_and_stops_the_chain() {
+    let found = run(
+        "sed -i 's/a/b/' f.txt && echo done > g.txt",
+        &known(&[("/repo/f.txt", Some("a\n")), ("/repo/g.txt", None)]),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+
+    // `||` is where it goes instead.
+    let fallback = run(
+        "sed -i 's/a/b/' f.txt || echo failed > g.txt",
+        &known(&[("/repo/f.txt", Some("a\n")), ("/repo/g.txt", None)]),
+    );
+    assert_eq!(fallback.written, vec![written("/repo/g.txt", "failed\n")]);
+}
+
+/// A word with a variable and a brace expansion is no path the tables can name,
+/// so they drop it — and `prettier --write` still rewrote the files it stood
+/// for. Live, a reformat behind `$P/{a,b}.ts` was predicted untouched.
+#[test]
+fn a_writer_whose_operand_has_no_text_could_have_written_anything() {
+    let found = run(
+        "echo x > a.ts && P=.; prettier --write $P/{a,b}.ts",
+        &known(&[("/repo/a.ts", None), ("/repo/b.ts", None)]),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert_eq!(
+        found.unfollowed.last(),
+        Some(&Unfollowed {
+            path: None,
+            why: Why::Expansion,
+        })
+    );
+}
+
 /// A program inside the nested shell rewrites a file the outer one wrote, and
 /// the rewrite is followed against that text.
 #[test]
 fn a_rewrite_inside_a_nested_shell_is_followed_against_the_outer_write() {
     let found = run(
-        "echo x > a.txt && bash -c 'sed -i s/x/y/ a.txt'",
+        "echo x > a.txt && bash -c \"sed -i '' s/x/y/ a.txt\"",
         &nothing_known(),
     );
     assert_eq!(found.written, vec![written("/repo/a.txt", "y\n")]);
@@ -1947,7 +1987,7 @@ fn a_command_python_runs_through_a_shell_is_followed() {
 #[test]
 fn a_command_python_runs_as_an_argv_is_followed() {
     let found = run(
-        "python3 - <<'PY'\nimport subprocess\nopen('a.txt', 'w').write('x')\nsubprocess.run(['sed', '-i', 's/x/y/', 'a.txt'], check=True)\nPY",
+        "python3 - <<'PY'\nimport subprocess\nopen('a.txt', 'w').write('x')\nsubprocess.run(['sed', '-i', '', 's/x/y/', 'a.txt'], check=True)\nPY",
         &nothing_known(),
     );
     assert_eq!(found.written, vec![written("/repo/a.txt", "y")]);

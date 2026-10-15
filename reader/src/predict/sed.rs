@@ -26,6 +26,11 @@
 //! Lines are kept as sed keeps them: a final line without a newline stays
 //! without one, which is GNU's behaviour; BSD's sed adds it, and the live check
 //! is what says which ran.
+//!
+//! **Flags are read as the host's BSD sed reads them.** `-i` takes the next word
+//! as its backup suffix, so the GNU spelling `sed -i 's/a/b/' f` makes the script
+//! a suffix and `f` the script, and with no file left BSD refuses ("-i may not be
+//! used with stdin") and writes nothing — [`Invocation::fails`].
 
 use regex::{Regex, RegexBuilder};
 
@@ -36,19 +41,20 @@ pub type Refused = String;
 /// the longest match costs a pattern test per possible end.
 const LONGEST_LINE: usize = 4096;
 
-/// How `sed` was invoked: the scripts in order, whether `-E`, and the backup
-/// suffix `-i` was given, if any.
+/// How `sed` was invoked: the scripts in order, whether `-E`, whether `-i` and
+/// the backup suffix it was given, if any.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Invocation {
     pub scripts: Vec<String>,
     pub extended: bool,
+    pub in_place: bool,
     pub suffix: Option<String>,
     /// Operands after the flags: the script when no `-e` gave one, then files.
     pub operands: Vec<String>,
 }
 
-/// Read `sed`'s flags. `-i` alone is GNU's (no backup); `-i ''` is BSD's, the
-/// same; `-i.bak` keeps the old text under that suffix. `-n` changes what is
+/// Read `sed`'s flags as BSD's sed does: `-i ''` keeps no backup, and `-i.bak`
+/// or `-i .bak` keeps the old text under that suffix. `-n` changes what is
 /// written and is refused, as is anything else this does not read.
 pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
     let mut out = Invocation::default();
@@ -61,17 +67,17 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
             }
             "-E" | "-r" | "--regexp-extended" => out.extended = true,
             "-n" | "--quiet" | "--silent" => return Err("-n".to_string()),
-            "-i" | "--in-place" => {
-                // BSD's mandatory suffix argument, given empty.
-                if words.peek().is_some_and(|next| next.is_empty()) {
-                    words.next();
-                }
+            "--in-place" => out.in_place = true,
+            "-i" => {
+                out.in_place = true;
+                out.suffix = suffix(words.next())?;
             }
             "-e" | "--expression" => match words.next() {
                 Some(script) => out.scripts.push(script.clone()),
                 None => return Err("-e".to_string()),
             },
             flag if flag.starts_with("--in-place=") => {
+                out.in_place = true;
                 out.suffix = Some(flag["--in-place=".len()..].to_string());
             }
             flag if flag.starts_with("--expression=") => {
@@ -84,14 +90,13 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
                     match c {
                         'E' | 'r' => out.extended = true,
                         'i' => {
-                            let suffix: String = rest.by_ref().collect();
-                            if suffix.is_empty() {
-                                if words.peek().is_some_and(|next| next.is_empty()) {
-                                    words.next();
-                                }
+                            out.in_place = true;
+                            let joined: String = rest.by_ref().collect();
+                            out.suffix = if joined.is_empty() {
+                                suffix(words.next())?
                             } else {
-                                out.suffix = Some(suffix);
-                            }
+                                Some(joined)
+                            };
                         }
                         'e' => {
                             let script: String = rest.by_ref().collect();
@@ -118,6 +123,23 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
         out.scripts.push(out.operands.remove(0));
     }
     Ok(out)
+}
+
+/// The word `-i` took as its suffix: none when it was empty.
+fn suffix(word: Option<&String>) -> Result<Option<String>, Refused> {
+    match word {
+        None => Err("-i".to_string()),
+        Some(word) if word.is_empty() => Ok(None),
+        Some(word) => Ok(Some(word.clone())),
+    }
+}
+
+impl Invocation {
+    /// Why BSD sed exits non-zero before writing anything, when it does: in
+    /// place with no file to rewrite, which is what `sed -i 's/a/b/' f` leaves.
+    pub fn fails(&self) -> Option<&'static str> {
+        (self.in_place && self.operands.is_empty()).then_some("-i may not be used with stdin")
+    }
 }
 
 /// A sed pattern, matched the way sed matches it.

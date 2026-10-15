@@ -850,6 +850,9 @@ impl<'a> Run<'a> {
                         _ => Status::Unknown,
                     },
                     "[" => Status::Unknown,
+                    "sed" if sed::invocation(&argv).is_ok_and(|it| it.fails().is_some()) => {
+                        Status::Known(false)
+                    }
                     _ => Status::Assumed,
                 }
             }
@@ -1859,6 +1862,10 @@ impl<'a> Run<'a> {
     /// that [`sed`] does not follow is refused by name, once per file.
     fn sed(&mut self, argv: &[String], paths: &[String]) {
         let invocation = sed::invocation(argv);
+        // It exits before reading a file, so every one keeps what it held.
+        if invocation.as_ref().is_ok_and(|it| it.fails().is_some()) {
+            return;
+        }
         let files = match &invocation {
             Ok(invocation) => self.operand_files(&invocation.operands),
             Err(_) => self.every_operand(argv, paths),
@@ -2155,6 +2162,23 @@ impl<'a> Run<'a> {
             }
             let words: Vec<String> = literal.iter().flatten().cloned().collect();
             self.unknown_program(program, &told, &words);
+            return;
+        }
+        // A writer's operand holding an expansion this could not follow is
+        // dropped by the tables, and still names files: any, as far as this knows.
+        let writer = matches!(
+            &op,
+            Op::Write { .. } | Op::Remove { .. } | Op::Transform { in_place: true, .. }
+        );
+        let unnamed = literal.iter().zip(&argv).skip(1).any(|(literal, word)| {
+            literal.is_none() && !word.starts_with('-') && word.contains(['$', '`'])
+        });
+        if writer && unnamed {
+            self.forget_everything(Why::Expansion);
+            self.unfollowed.push(Unfollowed {
+                path: None,
+                why: Why::Expansion,
+            });
             return;
         }
         let written: Vec<String> = files_of(&op, Reached::Always)
