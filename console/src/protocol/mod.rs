@@ -13,8 +13,8 @@ use background::{finished, is_notification};
 
 pub use background::{Called, Ended, Named, Running, called, running};
 pub use control::{
-    Annotation, Annotations, Answer, Answers, ModeReply, QUESTION_TOOL, Reply, SET_MODE,
-    UsageReply, decision, get_usage, mode_reply, prompt, prompt_with_image, rename, set_mode,
+    Annotation, Annotations, Answer, Answers, ModeReply, Picture, QUESTION_TOOL, Reply, SET_MODE,
+    UsageReply, decision, get_usage, mode_reply, prompt, prompt_with_images, rename, set_mode,
     shown, usage_reply,
 };
 
@@ -612,7 +612,7 @@ pub fn read(line: &str) -> Vec<Event> {
 }
 
 /// Everything one user message says, live or on disk, read across its blocks: a
-/// picture is an image block and a text block.
+/// message with pictures is their image blocks and one text block.
 fn from_user(content: Content) -> Vec<Event> {
     let blocks = content.blocks();
     let carries = blocks.iter().any(|block| matches!(block, Block::Image));
@@ -634,10 +634,11 @@ fn from_user(content: Content) -> Vec<Event> {
                 }]
             }
             Block::Text { text } if carries => {
-                let (name, words) = shown(&text);
-                // The picture first and the words after, in the order they were sent.
-                name.map(|name| Event::Shown { name })
+                let (names, words) = shown(&text);
+                // The pictures first and the words after, in the order they were sent.
+                names
                     .into_iter()
+                    .map(|name| Event::Shown { name })
                     .chain((!words.is_empty()).then_some(Event::Prompt { text: words }))
                     .collect()
             }

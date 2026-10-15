@@ -158,9 +158,9 @@
 <app-composer
   [(text)]="text"
   [sending]="sending()"
-  [held]="picture()"
+  [held]="chosen()"
   [trouble]="pictureTrouble()"
   (send)="send()"
   (chose)="chose($event)"
-  (discard)="drop()"
+  (discard)="drop($event)"
 />

@@ -79,16 +79,10 @@ impl Session {
         true
     }
 
-    /// Show the session a picture with what was said about it —
-    /// [`protocol::prompt_with_image`].
-    pub async fn show(
-        &self,
-        text: &str,
-        media_type: &str,
-        base64: &str,
-        kept: &std::path::Path,
-    ) -> Result<()> {
-        let line = protocol::prompt_with_image(text, media_type, base64, kept);
+    /// Show the session pictures with what was said about them —
+    /// [`protocol::prompt_with_images`].
+    pub async fn show(&self, text: &str, pictures: &[protocol::Picture<'_>]) -> Result<()> {
+        let line = protocol::prompt_with_images(text, pictures);
         let mut held = self.stdin.lock().await;
         let stdin = held
             .as_mut()
@@ -102,9 +96,10 @@ impl Session {
         let mut state = self.state.lock();
         if state.asked.is_none() && !state.origin_read {
             // Named by the words, not the base64.
-            state.asked = Some(match text.trim() {
-                "" => "an image".to_string(),
-                words => words.to_string(),
+            state.asked = Some(match (text.trim(), pictures.len()) {
+                ("", 1) => "an image".to_string(),
+                ("", many) => format!("{many} images"),
+                (words, _) => words.to_string(),
             });
         }
         Ok(())

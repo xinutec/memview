@@ -37,7 +37,7 @@ import { Notice, NoticeBar, notice } from './notice';
 import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
-import { looking, pointedAt, shrink } from './picture';
+import { MOST, type Picture, looking, pointedAt, shrink } from './picture';
 import { Roster } from './roster';
 import { SignInSheet } from './signin-sheet';
 import { Held, SessionStore } from './session-store';
@@ -148,9 +148,9 @@ export class SessionView implements OnDestroy {
     toObservable(this.id).pipe(switchMap((id) => this.drafts.text$(id))),
     { initialValue: undefined },
   );
-  readonly picture = toSignal(
-    toObservable(this.id).pipe(switchMap((id) => this.drafts.picture$(id))),
-    { initialValue: undefined },
+  readonly chosen = toSignal(
+    toObservable(this.id).pipe(switchMap((id) => this.drafts.pictures$(id))),
+    { initialValue: [] },
   );
   readonly reviving = signal(false);
   readonly unholding = signal<string | undefined>(undefined);
@@ -361,19 +361,19 @@ export class SessionView implements OnDestroy {
 
   send(): void {
     const text = this.text().trim();
-    const picture = this.picture();
-    if ((!text && !picture) || this.sending()) return;
+    const pictures = this.chosen();
+    if ((!text && !pictures.length) || this.sending()) return;
     this.following.spoke();
     this.sending.set(true);
-    const sent = picture
-      ? this.api.show(this.id(), picture.data, picture.mediaType, text)
+    const sent = pictures.length
+      ? this.api.show(this.id(), pictures, text)
       : this.api.send(this.id(), text);
     sent.subscribe({
       next: (summary) => {
         this.sending.set(false);
         this.trouble.set('');
         this.text.set('');
-        this.drop();
+        this.dropAll();
         this.session.set(summary);
       },
       error: (err: unknown) => {
@@ -419,22 +419,44 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  chose(file: File): void {
-    this.pictureTrouble.set('');
-    shrink(file)
-      .then((picture) => {
-        URL.revokeObjectURL(picture.preview);
-        void this.drafts.hold(this.id(), picture);
-        this.telemetry.measured('picture', `${picture.width}x${picture.height} ${picture.bytes}B`);
-      })
-      .catch((err: unknown) => {
-        this.pictureTrouble.set(`that image could not be read: ${reason(err)}`);
-        this.telemetry.note('picture-refused', reason(err));
-      });
+  chose(files: readonly File[]): void {
+    void this.add(files);
   }
 
-  drop(): void {
-    void this.drafts.hold(this.id(), undefined);
+  /** Scaled one by one and added in the order chosen, up to [MOST]. */
+  private async add(files: readonly File[]): Promise<void> {
+    this.pictureTrouble.set('');
+    const room = MOST - this.chosen().length;
+    if (files.length > room) {
+      this.pictureTrouble.set(`a message carries ${MOST} pictures; the rest were left out`);
+    }
+    const added: Picture[] = [];
+    for (const file of files.slice(0, Math.max(room, 0))) {
+      try {
+        const picture = await shrink(file);
+        URL.revokeObjectURL(picture.preview);
+        added.push(picture);
+        this.telemetry.measured('picture', `${picture.width}x${picture.height} ${picture.bytes}B`);
+      } catch (err: unknown) {
+        this.pictureTrouble.set(`that image could not be read: ${reason(err)}`);
+        this.telemetry.note('picture-refused', reason(err));
+      }
+    }
+    // Read again: what was held may have changed while these were scaled.
+    if (added.length)
+      await this.drafts.hold(this.id(), [...this.chosen(), ...added].slice(0, MOST));
+  }
+
+  drop(index: number): void {
+    void this.drafts.hold(
+      this.id(),
+      this.chosen().filter((_, at) => at !== index),
+    );
+    this.pictureTrouble.set('');
+  }
+
+  private dropAll(): void {
+    void this.drafts.hold(this.id(), []);
     this.pictureTrouble.set('');
   }
 

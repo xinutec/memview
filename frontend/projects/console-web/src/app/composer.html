@@ -1,20 +1,35 @@
 <!-- What is about to be sent, above the box rather than inside it: a thumbnail in
      a row that changes height moves the send button under a thumb. Held rather
-     than sent on choosing — the words about a screenshot are usually the point. -->
-@if (held(); as picture) {
+     than sent on choosing — the words about a screenshot are usually the point.
+     Once something is held the slot beside the box is send, so another picture
+     is added from here. -->
+@if (held().length) {
   <div class="chosen">
-    <img class="thumb" [src]="picture.preview" alt="the image about to be sent" />
-    <span class="about"
-      >{{ picture.width }}×{{ picture.height }} · {{ weight(picture.bytes) }}</span
-    >
-    <button
-      matIconButton
-      type="button"
-      aria-label="do not send this image"
-      (click)="discard.emit()"
-    >
-      <mat-icon>close</mat-icon>
-    </button>
+    @for (picture of held(); track $index) {
+      <div class="tile">
+        <img class="thumb" [src]="picture.preview" alt="an image about to be sent" />
+        <button
+          class="put-down"
+          matIconButton
+          type="button"
+          aria-label="do not send this image"
+          (click)="discard.emit($index)"
+        >
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+    }
+    @if (held().length < most) {
+      <button
+        class="tile more"
+        type="button"
+        aria-label="add another image"
+        (click)="picker.click()"
+      >
+        <mat-icon>add_photo_alternate</mat-icon>
+      </button>
+    }
+    <span class="about">{{ about() }}</span>
   </div>
 }
 @if (trouble(); as why) {
@@ -33,6 +48,7 @@
     class="picker"
     type="file"
     accept="image/*"
+    multiple
     aria-hidden="true"
     tabindex="-1"
     (change)="took(picker)"

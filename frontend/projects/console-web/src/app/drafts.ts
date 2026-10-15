@@ -62,6 +62,12 @@ function revived(value: unknown): Picture | undefined {
   };
 }
 
+/** The stored pictures; a single one is what the build before several wrote. */
+function revivedAll(value: unknown): Picture[] {
+  const all: unknown[] = Array.isArray(value) ? value : [value];
+  return all.map(revived).filter((it) => it !== undefined);
+}
+
 /** One conversation's document and the machinery keeping it. */
 interface Kept {
   readonly doc: Y.Doc;
@@ -145,34 +151,34 @@ export class Drafts {
     }, 'here');
   }
 
-  /** Hold a picture for the next message, or put it down. */
-  async hold(id: string, picture: Picture | undefined): Promise<void> {
-    if (!picture) {
+  /** Hold pictures for the next message; none puts them down. */
+  async hold(id: string, pictures: readonly Picture[]): Promise<void> {
+    if (!pictures.length) {
       await this.store.delete(`picture-${id}`);
       this.pictures.next(id);
       return;
     }
-    const kept: HeldPicture = {
+    const kept: HeldPicture[] = pictures.map((picture) => ({
       data: picture.data,
       mediaType: picture.mediaType,
       width: picture.width,
       height: picture.height,
       bytes: picture.bytes,
-    };
+    }));
     await this.store.set(`picture-${id}`, kept);
     this.pictures.next(id);
   }
 
   /**
-   * The picture waiting to go with the next message. Local only: a picture is
+   * The pictures waiting to go with the next message. Local only: a picture is
    * hundreds of kilobytes and two cannot be combined.
    */
-  picture$(id: string): Observable<Picture | undefined> {
+  pictures$(id: string): Observable<Picture[]> {
     return this.pictures.pipe(
       filter((changed) => changed === id || changed === null),
       startWith(id),
       switchMap(() => this.store.get(`picture-${id}`)),
-      map(revived),
+      map(revivedAll),
     );
   }
 

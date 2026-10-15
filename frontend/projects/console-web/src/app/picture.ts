@@ -22,6 +22,9 @@ import { told } from './errors';
  */
 export const LONGEST = 1568;
 
+/** The most pictures one message carries; the runner's `PICTURES` refuses more. */
+export const MOST = 5;
+
 /** A picture, as the runner's `/image` route takes it. */
 export interface Picture {
   /** Bare base64 — no `data:` prefix; the CLI wants it as the API defines it. */

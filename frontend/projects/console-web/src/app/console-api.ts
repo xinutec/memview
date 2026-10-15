@@ -30,7 +30,7 @@ import {
   type Timed,
 } from './models';
 import { type Known } from './modes';
-import { fetchedAt } from './picture';
+import { type Picture, fetchedAt } from './picture';
 import { type Answers, type Notes } from './questions';
 
 /** What the event stream yields: a message, or a change in the connection. */
@@ -111,8 +111,11 @@ export class ConsoleApi {
     return this.http.post<Summary>(`${session(id)}/input`, { text } satisfies Message);
   }
 
-  show(id: string, data: string, mediaType: string, text: string): Observable<Summary> {
-    const body: Shown = { data, media_type: mediaType, text };
+  show(id: string, pictures: readonly Picture[], text: string): Observable<Summary> {
+    const body: Shown = {
+      pictures: pictures.map(({ data, mediaType }) => ({ data, media_type: mediaType })),
+      text,
+    };
     return this.http.post<Summary>(`${session(id)}/image`, body);
   }
 

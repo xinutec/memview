@@ -178,25 +178,36 @@ describe('Drafts', () => {
     expect(await words(drafts, 'a')).toBe('a private sentence');
   });
 
-  describe('the held picture', () => {
-    it('comes back with a preview a reloaded page can show', async () => {
+  describe('the held pictures', () => {
+    it('come back with a preview a reloaded page can show, in order', async () => {
       const { drafts } = harness();
-      await drafts.hold('a', PICTURE);
-      const held = await firstValueFrom(drafts.picture$('a'));
-      expect(held?.preview).toBe('data:image/png;base64,aGVsbG8=');
+      await drafts.hold('a', [PICTURE, { ...PICTURE, data: 'Ynll' }]);
+      const held = await firstValueFrom(drafts.pictures$('a'));
+      expect(held.map((it) => it.preview)).toEqual([
+        'data:image/png;base64,aGVsbG8=',
+        'data:image/png;base64,Ynll',
+      ]);
     });
 
-    it('is put down when the composer lets go of it', async () => {
+    it('are put down when the composer lets go of them', async () => {
       const { drafts } = harness();
-      await drafts.hold('a', PICTURE);
-      await drafts.hold('a', undefined);
-      expect(await firstValueFrom(drafts.picture$('a'))).toBeUndefined();
+      await drafts.hold('a', [PICTURE]);
+      await drafts.hold('a', []);
+      expect(await firstValueFrom(drafts.pictures$('a'))).toEqual([]);
+    });
+
+    it('include the one picture a draft from the earlier build held', async () => {
+      const { drafts } = harness();
+      const { data, mediaType, width, height, bytes } = PICTURE;
+      await TestBed.inject(Local).set('picture-a', { data, mediaType, width, height, bytes });
+      const held = await firstValueFrom(drafts.pictures$('a'));
+      expect(held.map((it) => it.data)).toEqual(['aGVsbG8=']);
     });
 
     it('never crosses to the other device', async () => {
       // Hundreds of kilobytes, and no way to combine two.
       const { drafts, sent } = harness();
-      await drafts.hold('a', PICTURE);
+      await drafts.hold('a', [PICTURE]);
       drafts.sync();
       await settled();
       expect(

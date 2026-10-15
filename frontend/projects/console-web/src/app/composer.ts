@@ -6,7 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
-import { Picture, weight } from './picture';
+import { MOST, Picture, weight } from './picture';
 
 /**
  * The box a message is written in, and the one button beside it. It owns no
@@ -34,11 +34,11 @@ export class Composer {
   readonly sending = input(false);
 
   /**
-   * A picture held for the next message, scaled and ready. In the parent because
-   * a send carries it — and a picture with nothing said about it is a whole
-   * message, so it is half of what decides whether there is anything to send.
+   * Pictures held for the next message, scaled and ready. In the parent because a
+   * send carries them — and a picture with nothing said about it is a whole
+   * message, so they are half of what decides whether there is anything to send.
    */
-  readonly held = input<Picture | undefined>(undefined);
+  readonly held = input<readonly Picture[]>([]);
 
   /** Why a chosen image was refused, when one was. */
   readonly trouble = input('');
@@ -46,23 +46,34 @@ export class Composer {
   readonly send = output<void>();
 
   /**
-   * Put the held picture down without sending it. Not `drop`, a DOM event name
-   * `@angular-eslint/no-output-native` refuses: a listener would fire on a drag.
+   * Put a held picture down without sending it, by its place in [held]. Not
+   * `drop`, a DOM event name `@angular-eslint/no-output-native` refuses: a
+   * listener would fire on a drag.
    */
-  readonly discard = output<void>();
+  readonly discard = output<number>();
 
-  /** An image chosen from the picker, already the one file that matters. */
-  readonly chose = output<File>();
+  /** Images chosen from the picker, in the order chosen. */
+  readonly chose = output<File[]>();
 
-  protected readonly weight = weight;
+  protected readonly most = MOST;
+
+  /** One picture's shape and weight, or how many and their weight together. */
+  protected readonly about = computed(() => {
+    const held = this.held();
+    const bytes = held.reduce((sum, it) => sum + it.bytes, 0);
+    const [one] = held;
+    return held.length === 1 && one
+      ? `${one.width}×${one.height} · ${weight(bytes)}`
+      : `${held.length} pictures · ${weight(bytes)}`;
+  });
 
   /** Something to send: words, or a picture on its own. */
-  protected readonly ready = computed(() => !!this.text().trim() || !!this.held());
+  protected readonly ready = computed(() => !!this.text().trim() || this.held().length > 0);
 
   /** Cleared afterwards: a file input keeps its selection, so picking the same file twice fires no second `change`. */
   protected took(input: HTMLInputElement): void {
-    const file = input.files?.[0];
+    const files = [...(input.files ?? [])];
     input.value = '';
-    if (file) this.chose.emit(file);
+    if (files.length) this.chose.emit(files);
   }
 }

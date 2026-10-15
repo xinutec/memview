@@ -29,9 +29,12 @@ use crate::trace;
 pub fn router(roster: Arc<Roster>) -> Router {
     Router::new()
         .route("/api/state", get(state))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/input", post(input))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
         // Its own body limit, so [`crate::images::keep`] can say why an image is refused.
         .route(
@@ -40,11 +43,16 @@ pub fn router(roster: Arc<Roster>) -> Router {
         )
         .route("/api/sessions/{id}/images/{name}", get(picture))
         .route("/api/picture", get(elsewhere))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/unhold", post(unhold))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/decide", post(decide))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/rename", post(rename))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/stop", post(stop))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/revive", post(revive))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
@@ -60,11 +68,14 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/hook", post(hook))
         .route("/api/sudo", post(sudo))
         .route("/api/login", post(login))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/login/code", post(login_code))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/sessions/{id}/sudo", post(sudo_answer))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
+        // dev-lint: allow-open-write the network listener requires a client certificate (main.rs)
         .route("/api/telemetry", post(trace::record))
         // The stream too: tower-http flushes when the body pauses, so live events are
         // not held back. Here, not in `main`, so the tests run this stack.
@@ -89,9 +100,12 @@ async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
 /// Below this many bytes a response goes uncompressed.
 const SMALL: u64 = 1024;
 
-/// How large a request carrying an image may be: [`crate::images::LIMIT`] as base64,
-/// with room to spare.
-const BODY_LIMIT: usize = crate::images::LIMIT * 2;
+/// The most pictures one message carries: a few screenshots, on one row of a phone.
+pub const PICTURES: usize = 5;
+
+/// How large a request carrying pictures may be: [`PICTURES`] of
+/// [`crate::images::LIMIT`] as base64, with room to spare.
+const BODY_LIMIT: usize = crate::images::LIMIT * 2 * PICTURES;
 
 /// Everything a client needs to draw the front page in one request.
 #[derive(Debug, Serialize)]
@@ -258,19 +272,28 @@ async fn push_drafts(
     Json(roster.drafts().push(entries))
 }
 
-/// A picture from the phone, with whatever is being said about it.
+/// Pictures from the phone, with whatever is being said about them.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Shown {
+    /// In the order they are shown; at least one, at most [`PICTURES`].
+    pub pictures: Vec<ShownPicture>,
+    /// What was said about them. Optional: a screenshot alone is a complete message.
+    #[serde(default)]
+    pub text: String,
+}
+
+/// One picture in a [`Shown`].
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct ShownPicture {
     /// The bytes, base64.
     pub data: String,
     /// What the client believes it is sending, checked against the bytes.
     #[serde(default)]
     pub media_type: String,
-    /// What was said about it. Optional: a screenshot alone is a complete message.
-    #[serde(default)]
-    pub text: String,
 }
 
 /// Hand back a picture sent to a session, cached hard: a kept picture never
@@ -333,7 +356,8 @@ struct Elsewhere {
     small: bool,
 }
 
-/// Show a session a picture — its own route: a megabyte, a file, its own failures.
+/// Show a session pictures — its own route: megabytes, files, their own failures.
+/// Every picture is kept before any is sent, so a refusal sends nothing.
 async fn show(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -344,36 +368,59 @@ async fn show(
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(body.data.trim())
-        .map_err(|why| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("that image is not base64: {why}"),
-            )
-        })?;
+    if body.pictures.is_empty() || body.pictures.len() > PICTURES {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "{} pictures, and a message carries 1 to {PICTURES}",
+                body.pictures.len()
+            ),
+        ));
+    }
     // UTC: `now_local` is refused in a threaded program here.
     let stamp = time::OffsetDateTime::now_utc()
         .format(&time::macros::format_description!(
             "[year]-[month]-[day]-[hour][minute][second]Z"
         ))
         .unwrap_or_else(|_| "image".to_string());
-    let kept = crate::images::keep(
-        &crate::images::images_root(),
-        &id,
-        &body.media_type,
-        &bytes,
-        &stamp,
-    )
-    .map_err(|why| (StatusCode::BAD_REQUEST, why))?;
-    tracing::info!(
-        "showing {id} a {} of {} bytes, kept at {}",
-        kept.media_type,
-        bytes.len(),
-        kept.path.display()
-    );
+    let mut kept = Vec::with_capacity(body.pictures.len());
+    for picture in &body.pictures {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(picture.data.trim())
+            .map_err(|why| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("that image is not base64: {why}"),
+                )
+            })?;
+        let held = crate::images::keep(
+            &crate::images::images_root(),
+            &id,
+            &picture.media_type,
+            &bytes,
+            &stamp,
+        )
+        .map_err(|why| (StatusCode::BAD_REQUEST, why))?;
+        tracing::info!(
+            "showing {id} a {} of {} bytes, kept at {}",
+            held.media_type,
+            bytes.len(),
+            held.path.display()
+        );
+        kept.push(held);
+    }
+    let pictures = body
+        .pictures
+        .iter()
+        .zip(&kept)
+        .map(|(picture, held)| crate::protocol::Picture {
+            media_type: &held.media_type,
+            base64: picture.data.trim(),
+            kept: &held.path,
+        })
+        .collect::<Vec<_>>();
     session
-        .show(&body.text, &kept.media_type, body.data.trim(), &kept.path)
+        .show(&body.text, &pictures)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(roster.summary_of(&session)))

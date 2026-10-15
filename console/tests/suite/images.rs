@@ -140,11 +140,13 @@ fn the_message_puts_the_picture_before_the_question() {
     // the thing it is about is answered from the question alone. The path rides
     // in the text so the session can open the picture again at full size after
     // the context has moved on.
-    let line = console::protocol::prompt_with_image(
+    let line = console::protocol::prompt_with_images(
         "what is wrong with this?",
-        "image/png",
-        "AAAA",
-        std::path::Path::new("/tmp/shot.png"),
+        &[console::protocol::Picture {
+            media_type: "image/png",
+            base64: "AAAA",
+            kept: std::path::Path::new("/tmp/shot.png"),
+        }],
     );
 
     let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -164,11 +166,13 @@ fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
     // An empty text block would be a message that says the picture is not worth
     // looking at — and the note is what names the file, so it is never the part
     // that goes missing.
-    let line = console::protocol::prompt_with_image(
+    let line = console::protocol::prompt_with_images(
         "   ",
-        "image/jpeg",
-        "AAAA",
-        std::path::Path::new("/tmp/shot.jpg"),
+        &[console::protocol::Picture {
+            media_type: "image/jpeg",
+            base64: "AAAA",
+            kept: std::path::Path::new("/tmp/shot.jpg"),
+        }],
     );
 
     let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -184,11 +188,13 @@ fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
     // is what a reader meets again in the transcript, and until this the reader
     // met a sentence about a file path — so the one person who could not see the
     // screenshot was the one who took it.
-    let line = console::protocol::prompt_with_image(
+    let line = console::protocol::prompt_with_images(
         "what is wrong with this?",
-        "image/png",
-        "AAAA",
-        std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+        &[console::protocol::Picture {
+            media_type: "image/png",
+            base64: "AAAA",
+            kept: std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+        }],
     );
 
     let read = console::protocol::read_recorded(&line);
@@ -212,11 +218,13 @@ fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
     // Its note is addressed to the session, not to the reader, who is looking
     // straight at the thing it describes. A bubble saying where the file is kept
     // beside the file itself is furniture.
-    let line = console::protocol::prompt_with_image(
+    let line = console::protocol::prompt_with_images(
         "",
-        "image/png",
-        "AAAA",
-        std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+        &[console::protocol::Picture {
+            media_type: "image/png",
+            base64: "AAAA",
+            kept: std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+        }],
     );
 
     assert_eq!(
@@ -224,6 +232,53 @@ fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
         vec![console::protocol::Event::Shown {
             name: "2026-08-05-184700Z.png".to_string()
         }]
+    );
+}
+
+#[test]
+fn several_pictures_go_first_in_order_and_read_back_in_order() {
+    // Before and after is the reason to send two: the order is part of what is said.
+    let root = std::path::Path::new("/home/example/.console/images/s1");
+    let (first, second) = (
+        root.join("2026-10-15-0900Z.png"),
+        root.join("2026-10-15-0900Z-1.jpg"),
+    );
+    let line = console::protocol::prompt_with_images(
+        "which is better?",
+        &[
+            console::protocol::Picture {
+                media_type: "image/png",
+                base64: "AAAA",
+                kept: &first,
+            },
+            console::protocol::Picture {
+                media_type: "image/jpeg",
+                base64: "BBBB",
+                kept: &second,
+            },
+        ],
+    );
+
+    let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
+    let content = sent["message"]["content"].as_array().expect("blocks");
+    assert_eq!(content.len(), 3);
+    assert_eq!(content[0]["source"]["data"], "AAAA");
+    assert_eq!(content[1]["source"]["data"], "BBBB");
+    assert_eq!(content[2]["type"], "text");
+
+    assert_eq!(
+        console::protocol::read_recorded(&line),
+        vec![
+            console::protocol::Event::Shown {
+                name: "2026-10-15-0900Z.png".to_string()
+            },
+            console::protocol::Event::Shown {
+                name: "2026-10-15-0900Z-1.jpg".to_string()
+            },
+            console::protocol::Event::Prompt {
+                text: "which is better?".to_string()
+            },
+        ]
     );
 }
 

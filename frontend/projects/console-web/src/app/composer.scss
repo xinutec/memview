@@ -32,26 +32,64 @@
   pointer-events: none;
 }
 
-// What is about to be sent, in the strip above the box.
+// What is about to be sent, in the strip above the box. Five tiles and their
+// gaps fit 412px; the size line wraps under them when they leave it no room.
 .chosen {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem 0;
   background: var(--mat-sys-surface-container);
 
+  .tile {
+    position: relative;
+    flex: 0 0 auto;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
   .thumb {
-    // Small enough to leave the transcript readable behind it, large enough to
-    // tell two screenshots apart — which is the only question it answers.
-    height: 3rem;
-    width: auto;
-    max-width: 40%;
-    object-fit: contain;
-    border-radius: 0.25rem;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  // A 48px target in the corner, drawn as a small disc in its own corner so the
+  // picture shows.
+  .put-down {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 0.25rem;
+
+    mat-icon {
+      width: 1.125rem;
+      height: 1.125rem;
+      font-size: 1rem;
+      line-height: 1.125rem;
+      text-align: center;
+      border-radius: 50%;
+      color: var(--mat-sys-on-surface);
+      background: color-mix(in srgb, var(--mat-sys-surface) 85%, transparent);
+    }
+  }
+
+  .more {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--mat-sys-outline);
+    background: none;
+    color: var(--mat-sys-on-surface-variant);
+    cursor: pointer;
   }
 
   .about {
-    flex: 1;
     font: var(--mat-sys-label-small);
     color: var(--mat-sys-on-surface-variant);
     font-variant-numeric: tabular-nums;
@@ -61,5 +99,8 @@
 // Why a chosen image was refused. A second copy of the session view's rule,
 // since styles do not cross a component boundary.
 .trouble {
+  margin: 0;
+  padding: 0.5rem 1rem 0;
   color: var(--mat-sys-error);
+  background: var(--mat-sys-surface-container);
 }

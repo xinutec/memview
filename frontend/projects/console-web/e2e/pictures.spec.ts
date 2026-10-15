@@ -55,9 +55,11 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
 
   await page.locator('.composer textarea').fill('what is wrong with this?');
   await page.locator('.composer .send').click();
-  await expect.poll(() => sent?.['media_type']).toBe('image/png');
+  await expect.poll(() => sent?.['pictures']).toHaveLength(1);
+  const [picture] = sent?.['pictures'] as { data: string; media_type: string }[];
+  expect(picture?.media_type).toBe('image/png');
   expect(sent?.['text'], 'the words travel with the picture').toBe('what is wrong with this?');
-  expect(String(sent?.['data']), 'bare base64, as the API defines it').not.toContain('data:');
+  expect(picture?.data, 'bare base64, as the API defines it').not.toContain('data:');
 
   // And the strip goes with the message, so the next one does not carry it again.
   await expect(page.locator('.chosen')).toHaveCount(0);
@@ -133,6 +135,53 @@ test('a picture can be put down again without being sent @ phone width', async (
   // With nothing left to send, the slot offers a picture again.
   await expect(page.locator('.composer .send')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'add an image' })).toBeVisible();
+});
+
+test('several pictures go in one message, and one can be put down @ phone width', async ({
+  page,
+}, testInfo) => {
+  let sent: { pictures: unknown[] } | undefined;
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/image', (r) => {
+    sent = r.request().postDataJSON() as { pictures: unknown[] };
+    return r.fulfill({ json: RUNNING });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  await page.locator('.composer').waitFor();
+
+  // Two at once from the picker, then one more from the strip, since the slot
+  // beside the box is send by then.
+  await page.locator('.picker').setInputFiles([tinyPng(), tinyPng()]);
+  await expect(page.locator('.chosen .thumb')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'add an image' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'add another image' }).click();
+  await page.locator('.picker').setInputFiles(tinyPng());
+  await expect(page.locator('.chosen .thumb')).toHaveCount(3);
+  await expect(page.locator('.chosen .about')).toContainText('3 pictures');
+
+  await page.getByRole('button', { name: 'do not send this image' }).nth(1).click();
+  await expect(page.locator('.chosen .thumb')).toHaveCount(2);
+
+  await page.locator('.composer .send').click();
+  await expect.poll(() => sent?.pictures.length).toBe(2);
+  await expect(page.locator('.chosen')).toHaveCount(0);
+  await expectThumbTargets(page);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+});
+
+test('a full strip of five fits the phone, and a sixth is refused with a reason @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  await page.locator('.composer').waitFor();
+
+  await page.locator('.picker').setInputFiles(Array.from({ length: 6 }, () => tinyPng()));
+  await expect(page.locator('.chosen .thumb')).toHaveCount(5);
+  await expect(page.locator('.trouble')).toContainText('5 pictures');
+  await expect(page.getByRole('button', { name: 'add another image' })).toHaveCount(0);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+  await expectThumbTargets(page);
 });
 
 test('the picture button becomes send once there are words @ phone width', async ({ page }) => {

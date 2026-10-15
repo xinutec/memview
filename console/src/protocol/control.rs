@@ -268,49 +268,68 @@ pub fn prompt(text: &str) -> String {
 }
 
 /// The phrase that ties a sent picture to the copy on disk. Written by
-/// [`prompt_with_image`], read by [`shown`].
+/// [`prompt_with_images`], read by [`shown`].
 const ALSO_AT: &str = "the image is also at ";
 
-/// The picture a user message carries, by file name, and the words without the
-/// note that is addressed to the session.
-pub fn shown(text: &str) -> (Option<String>, String) {
-    let Some(open) = text.rfind(&format!("({ALSO_AT}")) else {
-        return (None, text.to_string());
-    };
-    let from = open + ALSO_AT.len() + 1;
-    let Some(shut) = text[from..].find(')') else {
-        return (None, text.to_string());
-    };
-    let name = std::path::Path::new(&text[from..from + shut])
-        .file_name()
-        .and_then(|it| it.to_str())
-        .map(String::from);
-    let words = format!("{}{}", &text[..open], &text[from + shut + 1..]);
-    (name, words.trim().to_string())
+/// The pictures a user message carries, by file name in the order sent, and the
+/// words without the notes that are addressed to the session.
+pub fn shown(text: &str) -> (Vec<String>, String) {
+    let mut names = Vec::new();
+    let mut words = text.to_string();
+    while let Some(open) = words.rfind(&format!("({ALSO_AT}")) {
+        let from = open + ALSO_AT.len() + 1;
+        let Some(shut) = words[from..].find(')') else {
+            break;
+        };
+        if let Some(name) = std::path::Path::new(&words[from..from + shut])
+            .file_name()
+            .and_then(|it| it.to_str())
+        {
+            names.push(name.to_string());
+        }
+        words = format!("{}{}", &words[..open], &words[from + shut + 1..]);
+    }
+    names.reverse();
+    (names, words.trim().to_string())
 }
 
-/// One user message carrying a picture, then what was said about it: a question
-/// read first is answered from the question alone. The text names the console's
-/// copy, which a session can open after compaction and [`shown`] finds on replay.
-pub fn prompt_with_image(
-    text: &str,
-    media_type: &str,
-    base64: &str,
-    kept: &std::path::Path,
-) -> String {
+/// One picture on its way to a session: what it is, its bytes as base64, and the
+/// console's copy.
+pub struct Picture<'a> {
+    pub media_type: &'a str,
+    pub base64: &'a str,
+    pub kept: &'a std::path::Path,
+}
+
+/// One user message carrying pictures, then what was said about them: a question
+/// read first is answered from the question alone. The text names each of the
+/// console's copies, which a session can open after compaction and [`shown`] finds
+/// on replay.
+pub fn prompt_with_images(text: &str, pictures: &[Picture<'_>]) -> String {
+    let notes = pictures
+        .iter()
+        .map(|it| format!("({ALSO_AT}{})", it.kept.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
     let said = match text.trim() {
-        "" => format!("({ALSO_AT}{})", kept.display()),
-        words => format!("{words}\n\n({ALSO_AT}{})", kept.display()),
+        "" => notes,
+        words => format!("{words}\n\n{notes}"),
     };
+    let content = pictures
+        .iter()
+        .map(|it| {
+            serde_json::json!({
+                "type": "image",
+                "source": {"type": "base64", "media_type": it.media_type, "data": it.base64},
+            })
+        })
+        .chain(std::iter::once(
+            serde_json::json!({"type": "text", "text": said}),
+        ))
+        .collect::<Vec<_>>();
     serde_json::json!({
         "type": "user",
-        "message": {
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": base64}},
-                {"type": "text", "text": said},
-            ],
-        },
+        "message": {"role": "user", "content": content},
     })
     .to_string()
 }
