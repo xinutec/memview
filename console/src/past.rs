@@ -318,7 +318,7 @@ pub enum Mark {
     Prompt,
     /// A slash command they ran.
     Command,
-    /// A picture they sent, by the name of the copy kept for it.
+    /// Pictures they sent, by what was said with them.
     Shown,
     /// Where the conversation was cut and started again.
     Compacted,
@@ -370,7 +370,9 @@ pub fn landmarks_from(path: &Path, from: u64) -> Walk {
             let (kind, text) = match stamped.event {
                 crate::protocol::Event::Prompt { text } => (Mark::Prompt, text),
                 crate::protocol::Event::Command { text } => (Mark::Command, text),
-                crate::protocol::Event::Shown { name } => (Mark::Shown, name),
+                crate::protocol::Event::Shown { names, text } => {
+                    (Mark::Shown, shown_sign(&names, text))
+                }
                 crate::protocol::Event::Compacted => (Mark::Compacted, String::new()),
                 _ => continue,
             };
@@ -384,6 +386,16 @@ pub fn landmarks_from(path: &Path, from: u64) -> Walk {
         at = past_it;
     }
     Walk { found, through: at }
+}
+
+/// What a picture message is found by: its words, or how many pictures when it
+/// has none and there are several. One wordless picture is left for the client
+/// to name.
+fn shown_sign(names: &[String], text: String) -> String {
+    match (text.is_empty(), names.len()) {
+        (false, _) | (true, 0 | 1) => text,
+        (true, many) => format!("{many} pictures"),
+    }
 }
 
 /// One line of a landmark, cut to [`SIGN`].

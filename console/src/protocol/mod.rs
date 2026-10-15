@@ -74,10 +74,14 @@ pub enum Event {
     Command {
         text: String,
     },
-    /// A picture sent to this session, by the name its copy is served under at
-    /// `/api/sessions/{id}/images/{name}`.
+    /// One message with pictures: each by the name its copy is served under at
+    /// `/api/sessions/{id}/images/{name}`, in the order sent, and what was said
+    /// with them.
     Shown {
-        name: String,
+        names: Vec<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<String>", optional))]
+        text: String,
     },
     Text {
         text: String,
@@ -634,13 +638,9 @@ fn from_user(content: Content) -> Vec<Event> {
                 }]
             }
             Block::Text { text } if carries => {
-                let (names, words) = shown(&text);
-                // The pictures first and the words after, in the order they were sent.
-                names
-                    .into_iter()
-                    .map(|name| Event::Shown { name })
-                    .chain((!words.is_empty()).then_some(Event::Prompt { text: words }))
-                    .collect()
+                // One message, so one event: the pictures and the words together.
+                let (names, text) = shown(&text);
+                vec![Event::Shown { names, text }]
             }
             Block::Text { text } => match finished(&text) {
                 Some(event) => vec![event],

@@ -80,7 +80,10 @@ const text = (value: object): boolean => 'text' in value && typeof value.text ==
  * of the new kind — silently, and only on a phone that had been offline.
  */
 const DRAWABLE = {
-  shown: (value) => 'picture' in value && typeof value.picture === 'string',
+  shown: (value) =>
+    'pictures' in value &&
+    Array.isArray(value.pictures) &&
+    value.pictures.every((name) => typeof name === 'string'),
   said: text,
   asked: text,
   turn: text,

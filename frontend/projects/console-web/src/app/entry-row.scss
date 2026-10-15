@@ -6,13 +6,15 @@
 }
 
 :host(.asked),
+:host(.shown),
 :host(.turn),
 :host(.note),
 :host(.ask) {
   padding-right: 3.2rem;
 }
 
-:host(.asked) {
+:host(.asked),
+:host(.shown) {
   border-left: 3px solid var(--mat-sys-primary);
   padding-left: 0.6rem;
   color: var(--mat-sys-on-surface-variant);
@@ -102,6 +104,27 @@
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-outline);
   white-space: nowrap;
+}
+
+// One picture as large as it is useful; several two to a row, so a before and
+// an after sit side by side. One opened takes the whole row.
+.pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  &.several .picture:not(.full) {
+    flex: 0 1 calc(50% - 0.25rem);
+    min-width: 0;
+  }
+
+  &.several .picture.full {
+    flex: 1 0 100%;
+  }
+}
+
+.pictures + .body {
+  margin-top: 0.5rem;
 }
 
 .picture {

@@ -201,15 +201,11 @@ fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
 
     assert_eq!(
         read,
-        vec![
-            console::protocol::Event::Shown {
-                name: "2026-08-05-184700Z.png".to_string()
-            },
-            console::protocol::Event::Prompt {
-                text: "what is wrong with this?".to_string()
-            },
-        ],
-        "the picture first, then the words, and the path is not among them"
+        vec![console::protocol::Event::Shown {
+            names: vec!["2026-08-05-184700Z.png".to_string()],
+            text: "what is wrong with this?".to_string(),
+        }],
+        "one message, the picture and the words, and the path is not among them"
     );
 }
 
@@ -230,7 +226,8 @@ fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
     assert_eq!(
         console::protocol::read_recorded(&line),
         vec![console::protocol::Event::Shown {
-            name: "2026-08-05-184700Z.png".to_string()
+            names: vec!["2026-08-05-184700Z.png".to_string()],
+            text: String::new(),
         }]
     );
 }
@@ -268,17 +265,14 @@ fn several_pictures_go_first_in_order_and_read_back_in_order() {
 
     assert_eq!(
         console::protocol::read_recorded(&line),
-        vec![
-            console::protocol::Event::Shown {
-                name: "2026-10-15-0900Z.png".to_string()
-            },
-            console::protocol::Event::Shown {
-                name: "2026-10-15-0900Z-1.jpg".to_string()
-            },
-            console::protocol::Event::Prompt {
-                text: "which is better?".to_string()
-            },
-        ]
+        vec![console::protocol::Event::Shown {
+            names: vec![
+                "2026-10-15-0900Z.png".to_string(),
+                "2026-10-15-0900Z-1.jpg".to_string()
+            ],
+            text: "which is better?".to_string(),
+        }],
+        "one message, so one event"
     );
 }
 

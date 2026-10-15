@@ -61,7 +61,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       break;
     }
     case 'shown':
-      add(out, { kind: 'shown', picture: event.name, at: at(event) });
+      add(out, { kind: 'shown', pictures: event.names, text: event.text, at: at(event) });
       break;
     case 'tool':
       if (out.some((entry) => entry.kind === 'tool' && entry.call === event.id)) break;

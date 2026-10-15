@@ -635,6 +635,14 @@ describe('a call whose result was never written', () => {
   });
 });
 
+describe('pictures sent together', () => {
+  it('are one entry, with what was said', () => {
+    expect(
+      transcript({ kind: 'shown', names: ['a.png', 'b.png'], text: 'which is better?' }),
+    ).toEqual([{ kind: 'shown', pictures: ['a.png', 'b.png'], text: 'which is better?' }]);
+  });
+});
+
 describe('a picture a call returned', () => {
   const read = tool('r1', 'Read', other('/tmp/shot.png'));
   const picture: Timed = {

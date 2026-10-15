@@ -81,8 +81,12 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
       body: (
         [
           { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
-          { kind: 'shown', name: '2026-08-05-184700Z.png', at: NEXT },
-          { kind: 'prompt', text: 'what is wrong with this?', at: NEXT },
+          {
+            kind: 'shown',
+            names: ['2026-08-05-184700Z.png'],
+            text: 'what is wrong with this?',
+            at: NEXT,
+          },
         ] satisfies Timed[]
       )
         .map((event) => `data: ${JSON.stringify(event)}\n\n`)
@@ -106,8 +110,8 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
   // The words came with it, and the note about where the file was kept did not:
   // that sentence is addressed to the session, and the reader is looking at the
   // thing it describes.
-  await expect(page.locator('.entry.asked')).toContainText('what is wrong with this?');
-  await expect(page.locator('.entry.asked')).not.toContainText('.console/images');
+  await expect(page.locator('.entry.shown')).toContainText('what is wrong with this?');
+  await expect(page.locator('.entry.shown')).not.toContainText('.console/images');
 
   // Bounded until it is asked to be otherwise, or a screenshot is a screenful of
   // scrolling between two sentences.
@@ -182,6 +186,47 @@ test('a full strip of five fits the phone, and a sixth is refused with a reason 
   await expect(page.getByRole('button', { name: 'add another image' })).toHaveCount(0);
   await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
+});
+
+test('pictures sent together are one message with their words @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await routeStream(page, (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'shown', names: ['before.png', 'after.png'], text: 'which is better?', at: NEXT },
+        ] satisfies Timed[]
+      )
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/images/*', (r) =>
+    r.fulfill({
+      path: `${test.info().project.testDir}/fixtures/render.png`,
+      contentType: 'image/png',
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const message = page.locator('.entry.shown');
+  await expect(message).toHaveCount(1);
+  await expect(message.locator('.picture img')).toHaveCount(2);
+  await expect(message).toContainText('which is better?');
+  // Side by side, two to a row.
+  const [left, right] = await message
+    .locator('.picture')
+    .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().top));
+  expect(left).toBe(right);
+
+  // One opened takes the row; the other stays where it was.
+  await message.locator('.picture').first().click();
+  await expect(message.locator('img.full')).toHaveCount(1);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
 });
 
 test('the picture button becomes send once there are words @ phone width', async ({ page }) => {

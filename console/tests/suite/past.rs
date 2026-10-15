@@ -768,18 +768,16 @@ fn only_the_places_worth_returning_to_are_landmarks() {
             console::past::Mark::Compacted,
             console::past::Mark::Shown,
             console::past::Mark::Prompt,
-            console::past::Mark::Prompt,
         ],
         "a reply, a tool call and a tool result are not places anybody goes back to"
     );
     assert_eq!(found[0].text, "the first thing asked");
     assert_eq!(found[1].text, "compact");
     assert_eq!(
-        found[3].text, "shot-9.png",
-        "the picture by the name kept for it"
+        found[3].text, "look at this",
+        "a picture is found by what was said with it"
     );
-    assert_eq!(found[4].text, "look at this", "and what was said with it");
-    assert_eq!(found[5].text, "the last thing asked");
+    assert_eq!(found[4].text, "the last thing asked");
     assert!(
         found
             .iter()
@@ -928,6 +926,25 @@ fn extending_a_walk_gives_the_same_list_as_walking_it_whole() {
 }
 
 #[test]
+fn wordless_pictures_are_found_by_how_many() {
+    // Nothing was said, so the count is the only thing to tell them apart by.
+    let root = scratch("wordless");
+    let folder = root.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let image = r#"{"type":"image","source":{"type":"base64"}}"#;
+    let line = format!(
+        r#"{{"type":"user","message":{{"role":"user","content":[{image},{image},{{"type":"text","text":"(the image is also at /tmp/a.png)\n(the image is also at /tmp/b.png)"}}]}}}}"#
+    );
+    let path = folder.join("pair.jsonl");
+    std::fs::write(&path, format!("{line}\n")).expect("transcript");
+
+    let found = console::past::landmarks(&path);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].kind, console::past::Mark::Shown);
+    assert_eq!(found[0].text, "2 pictures");
+}
+
+#[test]
 fn a_landmark_lands_on_the_page_that_holds_it() {
     // The whole point of the cursor, and it is off by one line if it is
     // wrong. `page` reads BACKWARDS from the offset it is given, so a cursor
@@ -948,10 +965,8 @@ fn a_landmark_lands_on_the_page_that_holds_it() {
             (console::past::Mark::Command, console::protocol::Event::Command { text }) => {
                 text == &mark.text
             }
-            (console::past::Mark::Shown, console::protocol::Event::Prompt { .. }) => {
-                // A picture and the words sent with it are one message and two
-                // events, in that order — so the words are what the page ends on.
-                true
+            (console::past::Mark::Shown, console::protocol::Event::Shown { text, .. }) => {
+                text == &mark.text
             }
             (console::past::Mark::Compacted, console::protocol::Event::Compacted) => true,
             _ => false,

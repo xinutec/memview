@@ -93,21 +93,29 @@
     <div class="body" [innerHTML]="entry.text | rendered"></div>
   }
   @case ('shown') {
-    <span class="who">you</span>
-    <button
-      class="picture"
-      type="button"
-      [attr.aria-label]="
-        full() === entry.picture ? 'show this image smaller' : 'show this image full size'
-      "
-      (click)="enlarge.emit(entry.picture)"
-    >
-      <img
-        [class.full]="full() === entry.picture"
-        [src]="pictureAt()(entry.picture)"
-        alt="an image sent to this session"
-      />
-    </button>
+    <span class="who">{{ asker() }}</span>
+    <div class="pictures" [class.several]="entry.pictures.length > 1">
+      @for (picture of entry.pictures; track $index) {
+        <button
+          class="picture"
+          [class.full]="full() === picture"
+          type="button"
+          [attr.aria-label]="
+            full() === picture ? 'show this image smaller' : 'show this image full size'
+          "
+          (click)="enlarge.emit(picture)"
+        >
+          <img
+            [class.full]="full() === picture"
+            [src]="pictureAt()(picture)"
+            alt="an image sent to this session"
+          />
+        </button>
+      }
+    </div>
+    @if (entry.text) {
+      <div class="body" [innerHTML]="entry.text | rendered"></div>
+    }
   }
   @case ('said') {
     <div class="body" [innerHTML]="entry.text | rendered"></div>

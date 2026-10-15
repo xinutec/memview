@@ -1148,7 +1148,7 @@ export const LANDMARKS = [
   },
   { at: 4096, when: daysBack(1, 11, 2), kind: 'command', text: 'compact' },
   { at: 8192, when: daysBack(1, 11, 2), kind: 'compacted', text: '' },
-  { at: 16384, when: daysBack(0, 8, 30), kind: 'shown', text: 'screenshot-3.png' },
+  { at: 16384, when: daysBack(0, 8, 30), kind: 'shown', text: 'what is wrong with this?' },
   { at: 32768, when: daysBack(0, 9, 5), kind: 'prompt', text: 'that is the one, thanks' },
 ] satisfies Landmark[];
 

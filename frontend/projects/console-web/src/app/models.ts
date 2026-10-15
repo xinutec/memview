@@ -129,10 +129,11 @@ export interface Asked extends Stamped {
   queued?: boolean;
 }
 
-/** A picture they sent, by the name the runner kept it under. */
+/** One message with pictures, each by the name the runner kept it under, and its words. */
 export interface Sent extends Stamped {
   kind: 'shown';
-  picture: string;
+  pictures: string[];
+  text?: string;
 }
 
 /** A question put to the person: a permission, or an AskUserQuestion. */
