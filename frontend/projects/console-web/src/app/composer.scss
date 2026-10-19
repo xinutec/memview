@@ -48,6 +48,10 @@
     // Six lines, then it scrolls.
     field-sizing: content;
     max-height: 9rem;
+
+    &::placeholder {
+      color: var(--mat-sys-on-surface-variant);
+    }
   }
 }
 
