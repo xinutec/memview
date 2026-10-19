@@ -848,6 +848,40 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   await expectCleanLayout(page, testInfo, { root: '.adrift' });
 });
 
+test('a session read before shows its kept copy at once while the Mac is slow @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The common case, not the failed one: a phone that has just woken reaches the
+  // Mac seconds late. Until this, nothing was drawn until the stream answered.
+  const id = RUNNING.id;
+  await mockRunner(page);
+  await page.goto(`/s/${id}`);
+  const line = page.getByText('home-manager switch').first();
+  await expect(line, 'the conversation was never read in the first place').toBeVisible();
+  // The copy is written asynchronously; see the test above.
+  await page.waitForTimeout(2000);
+
+  // Slow, not dead: the stream answers after four seconds.
+  let release: () => void = () => undefined;
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/sessions/*/events*', async (r) => {
+    await answered;
+    await r.fallback();
+  });
+  await page.goto(`/s/${id}`);
+
+  await expect(line, 'the kept copy was not drawn while the Mac was slow').toBeVisible({
+    timeout: 1500,
+  });
+  await expect(page.locator('.catching-up'), 'nothing said it is still arriving').toBeVisible();
+  await expect(page.locator('.adrift'), 'slow was drawn as failed').toHaveCount(0);
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+
+  release();
+  await expect(page.locator('.catching-up'), 'the copy outlived the answer').toHaveCount(0);
+  await expect(line).toBeVisible();
+});
+
 test('session strip — a background call is named, not counted @ phone width', async ({
   page,
 }, testInfo) => {

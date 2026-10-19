@@ -130,6 +130,8 @@ export class SessionsView {
   readonly notice = computed<Notice | undefined>(() =>
     notice({ acting: this.trouble(), runner: this.roster.notice() }),
   );
+  /** The list is this phone's copy and the runner's answer is on its way. */
+  readonly catchingUp = computed(() => this.roster.kept() && !this.roster.notice());
   readonly starting = signal(false);
   /**
    * Conversations on disk, newest first. In a root store so coming back does not

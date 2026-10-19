@@ -383,4 +383,61 @@ describe('SessionStore', () => {
       expect(held.link.worth()).toBeUndefined();
     });
   });
+
+  describe('a session read before', () => {
+    /** What this phone kept of `s` last time, as [[Kept]] writes it. */
+    async function keptBefore(...texts: string[]): Promise<void> {
+      const entries: Entry[] = texts.map((text) => ({ kind: 'said', text }));
+      await TestBed.inject(Local).set('kept-s', { entries });
+    }
+
+    /** Long enough for storage to answer, and no longer. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+    it('shows what this phone kept at once, before the Mac says anything', async () => {
+      await keptBefore('from last time');
+      const held = store.open('s');
+      await settle();
+      expect(said(held.entries())).toEqual(['from last time']);
+      expect(held.source()).toBe('kept');
+      expect(held.unanswered(), 'slow is not failed').toBe(false);
+    });
+
+    it('keeps the copy on screen through the reset and the replay, and swaps once at the end', async () => {
+      await keptBefore('from last time');
+      const held = store.open('s');
+      await settle();
+      runner.latest.reset();
+      runner.latest.send({ kind: 'joined', earlier: 0, from: 0, restarted: false }, 1);
+      say('the conversation itself', 2);
+      expect(said(held.entries()), 'a half-arrived page replaced the copy').toEqual([
+        'from last time',
+      ]);
+
+      runner.latest.caughtUp();
+      expect(said(held.entries())).toEqual(['the conversation itself']);
+      expect(held.source()).toBe('stream');
+    });
+
+    it('says it is a copy only once the Mac has failed to answer', async () => {
+      await keptBefore('from last time');
+      const held = store.open('s');
+      await settle();
+      runner.latest.offline();
+      expect(held.unanswered()).toBe(true);
+      // Answering again is answering, whatever is still on screen.
+      runner.latest.send({ kind: 'joined', earlier: 0, from: 0, restarted: false }, 1);
+      expect(held.unanswered()).toBe(false);
+    });
+
+    it('does not cover a conversation that has already started arriving', async () => {
+      await keptBefore('from last time');
+      const held = store.open('s');
+      runner.latest.send({ kind: 'joined', earlier: 0, from: 0, restarted: false }, 1);
+      say('the conversation itself', 2);
+      runner.latest.caughtUp();
+      await settle();
+      expect(said(held.entries())).toEqual(['the conversation itself']);
+    });
+  });
 });

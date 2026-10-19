@@ -44,10 +44,14 @@ export interface Held {
   readonly live: WritableSignal<boolean>;
   /**
    * Where what is on screen came from. `kept` is the copy this phone last saw,
-   * shown only between opening a session the Mac cannot be reached for and the
-   * conversation itself arriving — and never written back. See [[Kept]].
+   * shown from opening until the conversation has wholly arrived — and never
+   * written back. See [[Kept]].
    */
   readonly source: WritableSignal<'stream' | 'kept'>;
+  /** The stream has failed since the copy went up, so it is a copy and not a wait. */
+  readonly unanswered: WritableSignal<boolean>;
+  /** The conversation arriving behind a kept copy, swapped in when the replay ends. */
+  building?: Entry[];
   /**
    * Whether the stream has been down long enough to say so — see [[Patience]]. A
    * dead stream otherwise looks like a session thinking.
@@ -94,6 +98,8 @@ export class SessionStore {
     held.close?.();
     held.used = ++this.clock;
     this.held.set(id, held);
+    // What was seen last time, at once: the Mac's answer replaces it.
+    void this.hydrate(id, held);
     // Kept on the Mac, so it covers calls older than the stream's scrollback.
     // Merged, never set: the record and the stream race, and an edit the stream
     // announced before the record landed must survive it.
@@ -114,6 +120,7 @@ export class SessionStore {
       switch (from.kind) {
         case 'event':
           held.link.right();
+          held.unanswered.set(false);
           this.take(id, held, from.event, from.seq);
           break;
         // Only when the runner says the stream starts again — see [[ConsoleApi]].
@@ -125,14 +132,18 @@ export class SessionStore {
         case 'caught-up':
           held.link.right();
           held.live.set(true);
+          if (held.source() === 'kept') {
+            held.entries.set(held.building ?? []);
+            held.building = undefined;
+            held.source.set('stream');
+            held.unanswered.set(false);
+          }
           break;
-        // The one moment a kept copy is wanted. Asked for here it races nothing: the
-        // conversation is known not to be arriving.
         case 'offline':
           // Timed from here and cancelled by the next event, so a stream that keeps
           // reconnecting never reaches the banner.
           held.link.wrong({ kind: 'stream' });
-          void this.hydrate(id, held);
+          held.unanswered.set(true);
           break;
         default:
           unhandled(from);
@@ -143,13 +154,10 @@ export class SessionStore {
     return held;
   }
 
-  /**
-   * Show what was last kept, while a conversation's stream is not connected and
-   * nothing has arrived. See [[Kept]].
-   */
+  /** Show what was last kept, while nothing of the conversation has arrived. See [[Kept]]. */
   private async hydrate(id: string, held: Held): Promise<void> {
     const copy = await this.kept.entries(id);
-    if (!copy.length || held.entries().length || held.seen > 0 || !held.link.troubled) return;
+    if (!copy.length || held.entries().length || held.seen > 0) return;
     held.entries.set(copy);
     held.source.set('kept');
   }
@@ -201,6 +209,10 @@ export class SessionStore {
         let page: Entry[] = [];
         for (const event of there.events) page = fold(page, event);
         held.entries.set(page);
+        // From the Mac, so whatever copy was up has been answered.
+        held.source.set('stream');
+        held.building = undefined;
+        held.unanswered.set(false);
         held.cursor.set(there.from);
         held.adrift.set(true);
         // Nothing is known about the present any more — the stream that would have
@@ -233,6 +245,7 @@ export class SessionStore {
       spoken: signal(false),
       live: signal(false),
       source: signal<'stream' | 'kept'>('stream'),
+      unanswered: signal(false),
       link: new Patience(),
       adrift: signal(false),
       edited: signal<ReadonlyMap<string, readonly Change[]>>(new Map()),
@@ -247,15 +260,7 @@ export class SessionStore {
   private take(id: string, held: Held, event: Timed, seq: number): void {
     // The seed arrives with the cursor it started from — the only place that learns
     // where the page on screen begins.
-    if (event.kind === 'joined') {
-      held.cursor.set(event.from);
-      // The conversation itself has started arriving, so the copy has done its job.
-      // Emptied, not appended to: the seed is the same entries over again.
-      if (held.source() === 'kept') {
-        held.entries.set([]);
-        held.source.set('stream');
-      }
-    }
+    if (event.kind === 'joined') held.cursor.set(event.from);
     // Only ever forward: unnumbered events arrive as 0.
     if (seq > held.seen) held.seen = seq;
     // Activity is state beside the transcript, from live events only: a seed's
@@ -280,7 +285,10 @@ export class SessionStore {
     if (event.kind === 'diverged') {
       held.diverged.update((diverged) => new Set(diverged).add(event.call));
     }
-    held.entries.update((entries) => fold(entries, event));
+    // Behind a kept copy the conversation is built out of sight: a page half
+    // arrived over a slow link would replace the copy with less than it had.
+    if (held.source() === 'kept') held.building = fold(held.building ?? [], event);
+    else held.entries.update((entries) => fold(entries, event));
     // Throttled inside, and not done on leaving instead: a phone stops reading when
     // the tunnel drops or the app is killed, and neither runs code here.
     if (held.source() === 'stream') this.kept.keep(id, held.entries());
@@ -292,14 +300,15 @@ export class SessionStore {
    */
   private forget(held: Held): void {
     held.link.right();
-    held.entries.set([]);
+    // A kept copy stays up; what was being built behind it starts again.
+    if (held.source() === 'kept') held.building = undefined;
+    else held.entries.set([]);
     held.cursor.set(0);
     held.seen = 0;
     held.doing.set(undefined);
     held.since.set(undefined);
     held.spoken.set(false);
     held.live.set(false);
-    held.source.set('stream');
   }
 
   /**

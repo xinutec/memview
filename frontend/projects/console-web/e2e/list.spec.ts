@@ -865,3 +865,31 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   await expectIconFontLoaded(page);
   await expectCleanLayout(page, testInfo);
 });
+
+test('the list shows what this phone last saw at once while the Mac is slow @ phone width', async ({
+  page,
+}, testInfo) => {
+  // A phone that has just woken: the list as last seen, under a bar, until the
+  // runner answers — not an empty page.
+  await mockRunner(page);
+  await page.goto('/');
+  const card = page.locator('.session').first();
+  await expect(card, 'the list was never read in the first place').toBeVisible();
+  await page.waitForTimeout(1000);
+
+  let release: () => void = () => undefined;
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/state', async (r) => {
+    await answered;
+    await r.fallback();
+  });
+  await page.goto('/');
+  await expect(card, 'the kept list was not drawn while the Mac was slow').toBeVisible({
+    timeout: 1500,
+  });
+  await expect(page.locator('.catching-up')).toBeVisible();
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+
+  release();
+  await expect(page.locator('.catching-up'), 'the copy outlived the answer').toHaveCount(0);
+});

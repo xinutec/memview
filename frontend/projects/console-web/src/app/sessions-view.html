@@ -21,6 +21,9 @@
 @if (notice(); as what) {
   <app-notice [notice]="what" />
 }
+@if (catchingUp()) {
+  <mat-progress-bar class="catching-up" mode="indeterminate" />
+}
 
 @if (anyInUse()) {
   <!-- The only guard there is: the console cannot see a claude in a terminal. Shown

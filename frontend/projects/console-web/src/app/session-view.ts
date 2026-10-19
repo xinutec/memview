@@ -96,10 +96,19 @@ export class SessionView implements OnDestroy {
     });
   });
   readonly blocks = computed<Block[]>(() => blocks(this.entries()));
-  readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
+  // Not under a kept copy: the cursor is the arriving page's, not the copy's.
+  readonly more = computed(
+    () => (this.held()?.cursor() ?? 0) > 0 && this.held()?.source() !== 'kept',
+  );
   readonly adrift = computed(() => this.held()?.adrift() ?? false);
-  /** What is below came off this phone, not the conversation. See [[Kept]]. */
-  readonly kept = computed(() => this.held()?.source() === 'kept');
+  /** What is below came off this phone, and the Mac has failed to answer. See [[Kept]]. */
+  readonly kept = computed(
+    () => this.held()?.source() === 'kept' && (this.held()?.unanswered() ?? false),
+  );
+  /** What is below came off this phone, and the conversation is on its way. */
+  readonly catchingUp = computed(
+    () => this.held()?.source() === 'kept' && !(this.held()?.unanswered() ?? false),
+  );
   /** The one thing worth saying about the link, of the three that might be. */
   readonly notice = computed<Notice | undefined>(() =>
     notice({

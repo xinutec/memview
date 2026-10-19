@@ -65,6 +65,9 @@
 @if (notice(); as what) {
   <app-notice [notice]="what" />
 }
+@if (catchingUp()) {
+  <mat-progress-bar class="catching-up" mode="indeterminate" />
+}
 @if (kept()) {
   <div class="deaf adrift" role="status">
     <mat-icon>cloud_off</mat-icon>
