@@ -293,9 +293,15 @@ enum Ran {
 /// How many elements a comprehension is run for at most.
 const MAX_ELEMENTS: usize = 10_000;
 
-/// How many values a loop over a written-out list is run for, the backstop
-/// [`crate::project`] uses for the shell's.
+/// How many values a `range` is listed for, the backstop [`crate::project`]
+/// uses for the shell's loops.
 const MAX_UNROLL: usize = 256;
+
+/// How many times, in all, the loops of one program are run: a loop over a long
+/// source file's lines, and one budget so nested loops cannot multiply it. Small
+/// enough that a body copying a list each time (`out = out + [l]`) stays near a
+/// second; an append or an index assignment changes the list in place.
+const LOOP_BUDGET: usize = 5_000;
 
 pub(super) fn run(shell: &mut Run<'_>, module: &Module) {
     let _ = Eval::new(shell).block(&module.body);
@@ -328,6 +334,8 @@ struct Eval<'r, 'a, 'm> {
     /// `continue`: what follows runs only sometimes, until the function or
     /// the loop it jumps out of ends.
     maybe_jumped: bool,
+    /// Loop runs left of [`LOOP_BUDGET`].
+    loops_left: usize,
 }
 
 /// One call's names, and the ones it declared `global`.
@@ -365,6 +373,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             lambdas: Vec::new(),
             maybe_exited: false,
             maybe_jumped: false,
+            loops_left: LOOP_BUDGET,
         }
     }
 
@@ -520,7 +529,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             } => {
                 let over = self.expr(iter)?;
                 match self.iterable(over) {
-                    Value::Tuple(values) if values.len() <= MAX_UNROLL => {
+                    Value::Tuple(values) if values.len() <= self.loops_left => {
+                        self.loops_left -= values.len();
                         // A possible `break` or `continue` in it ends with it.
                         let outer = std::mem::replace(&mut self.maybe_jumped, false);
                         let broke = self.unrolled(target, values, body);
@@ -692,6 +702,31 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// `container[index] = value`, followed on a list this knows at an index or
     /// a step-less slice it can compute; otherwise the list is forgotten.
     fn store(&mut self, container: &'m Expr, index: &'m Expr, value: Value) -> Result<(), Stop> {
+        // A name's list at one index: changed in place, as an append is — the
+        // index read first, with the list still there to be read.
+        if let Expr::Name(name) = container
+            && !matches!(index, Expr::Slice { .. })
+            && matches!(self.reads(name), Some(Value::Tuple(_)))
+        {
+            let why = construct("item assignment");
+            let at = self.expr(index)?;
+            let Value::Int(at) = at else {
+                self.escape(&value, &why);
+                let old = self.name(name);
+                self.changed(container, &old, None, &why);
+                return Ok(());
+            };
+            if let Some(items) = self.take_list(name) {
+                let old = Value::Tuple(items);
+                self.shared(&old, &why);
+                let Value::Tuple(mut items) = old else {
+                    unreachable!("built as a tuple above")
+                };
+                let placed = position(items.len(), at).map(|at| items[at] = value);
+                self.hold(name, Value::Tuple(items));
+                return placed;
+            }
+        }
         let old = self.expr(container)?;
         let why = construct("item assignment");
         if let Value::Dict(pairs) = &old {
@@ -835,6 +870,24 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     }
                 }
             }
+        }
+    }
+
+    /// The list `name` holds, taken out of the binding [`Self::hold`] writes to,
+    /// which keeps a placeholder until the list is held again.
+    fn take_list(&mut self, name: &str) -> Option<Vec<Value>> {
+        let slot = match self.frames.last_mut() {
+            Some(frame) if !frame.globals.contains(name) && frame.locals.contains_key(name) => {
+                frame.locals.get_mut(name)
+            }
+            _ => self.names.get_mut(name),
+        }?;
+        if !matches!(slot, Value::Tuple(_)) {
+            return None;
+        }
+        match std::mem::replace(slot, Value::None) {
+            Value::Tuple(items) => Some(items),
+            _ => None,
         }
     }
 
@@ -1246,15 +1299,20 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     }
 
     fn name(&self, name: &str) -> Value {
+        match self.reads(name) {
+            Some(value) => value.clone(),
+            None => Value::Name(name.to_string()),
+        }
+    }
+
+    /// What `name` reads as, borrowed: [`Self::name`] without the copy.
+    fn reads(&self, name: &str) -> Option<&Value> {
         let local = self
             .frames
             .last()
             .filter(|frame| !frame.globals.contains(name))
             .and_then(|frame| frame.locals.get(name));
-        match local.or_else(|| self.names.get(name)) {
-            Some(value) => value.clone(),
-            None => Value::Name(name.to_string()),
-        }
+        local.or_else(|| self.names.get(name))
     }
 
     fn define(&mut self, name: &str, params: &'m Params, body: &'m [Stmt], decorators: &[Expr]) {
@@ -1546,6 +1604,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     }
 
     fn call(&mut self, func: &'m Expr, args: &'m [Arg]) -> Result<Value, Stop> {
+        // A list a name holds, changed in place: taken out of its binding rather
+        // than copied out and back, which made a loop of appends quadratic. The
+        // arguments are read first, with the list still there to be read.
+        if let Expr::Attribute { value, attr } = func
+            && let Expr::Name(name) = &**value
+            && matches!(attr.as_str(), "append" | "extend" | "insert")
+            && matches!(self.reads(name), Some(Value::Tuple(_)))
+        {
+            let (positional, keyword) = self.args(args, attr == "extend")?;
+            if let Some(items) = self.take_list(name) {
+                return Ok(self.list_method(value, items, attr, positional, &keyword));
+            }
+        }
         if let Expr::Attribute { value, attr } = func {
             let receiver = self.expr(value)?;
             if !matches!(receiver, Value::Name(_)) {
@@ -2247,12 +2318,21 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         args: Vec<Value>,
         keyword: &BTreeMap<&str, Value>,
     ) -> Value {
-        let old = Value::Tuple(items.clone());
         let why = Why::Python(format!("list.{method}"));
-        let mut items = items;
-        let now = match (method, args.as_slice()) {
-            ("copy", []) if keyword.is_empty() => return old,
+        match (method, args.as_slice()) {
+            ("copy", []) if keyword.is_empty() => return Value::Tuple(items),
             ("index" | "count", _) => return Value::Unknown(why),
+            _ => {}
+        }
+        // Every other holder of this list is forgotten before it changes, as
+        // [`Self::changed`] does — moved, not copied, so an append costs nothing
+        // per element.
+        let old = Value::Tuple(items);
+        self.shared(&old, &why);
+        let Value::Tuple(mut items) = old else {
+            unreachable!("built as a tuple above")
+        };
+        let now = match (method, args.as_slice()) {
             _ if !keyword.is_empty() => None,
             ("append", [value]) => {
                 items.push(value.clone());
@@ -2289,7 +2369,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 self.escape(value, &why);
             }
         }
-        self.changed(target, &old, now.map(Value::Tuple), &why);
+        match (target, now) {
+            (Expr::Name(name), Some(now)) => self.hold(name, Value::Tuple(now)),
+            (Expr::Name(name), None) => self.hold(name, Value::Unknown(why.clone())),
+            _ => {
+                if let Some(name) = root(target) {
+                    let held = self.name(name);
+                    if container(&held) {
+                        self.shared(&held, &why);
+                        self.hold(name, Value::Unknown(why.clone()));
+                    }
+                }
+            }
+        }
         if followed {
             Value::None
         } else {
@@ -3332,9 +3424,23 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
                 None => Value::Unknown(construct("join")),
             }
         }
-        ("strip", []) => Value::Str(text.trim_matches(python_space).to_string()),
-        ("rstrip", []) => Value::Str(text.trim_end_matches(python_space).to_string()),
-        ("lstrip", []) => Value::Str(text.trim_start_matches(python_space).to_string()),
+        // With characters: any of them, from that end; `None` is whitespace.
+        ("strip", [Value::Str(set)]) => {
+            Value::Str(text.trim_matches(|c| set.contains(c)).to_string())
+        }
+        ("rstrip", [Value::Str(set)]) => {
+            Value::Str(text.trim_end_matches(|c| set.contains(c)).to_string())
+        }
+        ("lstrip", [Value::Str(set)]) => {
+            Value::Str(text.trim_start_matches(|c| set.contains(c)).to_string())
+        }
+        ("strip", [] | [Value::None]) => Value::Str(text.trim_matches(python_space).to_string()),
+        ("rstrip", [] | [Value::None]) => {
+            Value::Str(text.trim_end_matches(python_space).to_string())
+        }
+        ("lstrip", [] | [Value::None]) => {
+            Value::Str(text.trim_start_matches(python_space).to_string())
+        }
         ("startswith", [Value::Str(prefix)]) => Value::Bool(text.starts_with(prefix.as_str())),
         ("endswith", [Value::Str(suffix)]) => Value::Bool(text.ends_with(suffix.as_str())),
         ("count", [Value::Str(needle)]) if !needle.is_empty() => {

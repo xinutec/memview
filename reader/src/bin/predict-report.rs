@@ -265,6 +265,8 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
 
     let (mut refused_calls, mut unreplayable, mut unparsed) = (0usize, 0usize, 0usize);
     let (mut conditional, mut sets) = (0usize, 0usize);
+    // What today's evaluator predicts of those calls, which the console showed none of.
+    let (mut writes_now, mut whole_now) = (0usize, 0usize);
     // Reason → (calls it stopped, writes it refused), ranked by calls: one looping
     // program can name hundreds of files.
     let mut why: BTreeMap<String, (usize, usize)> = BTreeMap::new();
@@ -281,6 +283,8 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         let found = predict(&script, &kept.cwd, &home, &kept.shown);
         conditional += found.conditional.len();
         sets += found.alternatives.len();
+        writes_now += found.written.len();
+        whole_now += usize::from(found.unfollowed.is_empty());
         let mut here: BTreeSet<String> = BTreeSet::new();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
@@ -369,6 +373,8 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     if unparsed > 0 {
         println!("  not parsed by the tree     {unparsed}  (not ranked)");
     }
+    println!("  files predicted now                                  {writes_now}");
+    println!("  calls predicted whole now                            {whole_now}");
     println!("  files predicted if left alone by an unknown program  {conditional}");
     println!("  files one of several texts  {sets}");
     println!("findings                     {findings}");

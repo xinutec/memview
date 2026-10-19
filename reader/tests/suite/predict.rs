@@ -1743,6 +1743,96 @@ fn what_follows_a_git_rm_is_only_sometimes_run() {
     assert_eq!(found.written, vec![written("/repo/c.txt", "x\n")]);
 }
 
+/// `strip`, `rstrip` and `lstrip` with characters to remove: any of them, from
+/// that end, however many. `s.rstrip('\\n') + tail` is the common shape — normalise
+/// the end of a file before appending to it.
+#[test]
+fn strip_with_characters_removes_any_of_them_from_the_end() {
+    let script = "python3 - <<'EOF'\ns = open('a.txt').read()\nopen('b.txt', 'w').write(s.rstrip('\\n') + '|' + s.strip('x\\n') + '|' + s.lstrip('x') + '|' + s.rstrip(None))\nEOF";
+    let found = run(
+        script,
+        &known(&[("/repo/a.txt", Some("xxab\n\n")), ("/repo/b.txt", None)]),
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/b.txt", "xxab|ab|ab\n\n|xxab")]
+    );
+}
+
+/// A loop over a file's lines is followed for a real file's length — the 256 a
+/// written-out list got refused a 1,111-line edit live. What bounds the work is
+/// one budget for the whole program, so nested loops cannot multiply it.
+#[test]
+fn a_loop_over_a_files_lines_is_followed_and_the_whole_program_is_bounded() {
+    let text: String = (1..=1111).map(|n| format!("line {n}\n")).collect();
+    let script = "python3 - <<'EOF'\nlines = open('a.txt').read().split('\\n')\nout = []\nfor i, l in enumerate(lines, 1):\n    if i == 2:\n        out.append('new')\n    out.append(l)\nopen('a.txt', 'w').write('\\n'.join(out))\nEOF";
+    let found = run(script, &known(&[("/repo/a.txt", Some(&text))]));
+    let expected = text.replacen("line 2\n", "new\nline 2\n", 1);
+    assert_eq!(found.written, vec![written("/repo/a.txt", &expected)]);
+
+    let nested = "python3 - <<'EOF'\nout = []\nfor a in range(200):\n    for b in range(200):\n        out.append('x')\nopen('b.txt', 'w').write(''.join(out))\nEOF";
+    let found = run(nested, &known(&[("/repo/b.txt", None)]));
+    assert!(
+        found.written.is_empty(),
+        "40,000 steps were run: {:?}",
+        found.written.len()
+    );
+}
+
+/// An append changes the list in place: the arguments still read the list as it
+/// was, and another name holding the same list is still forgotten.
+#[test]
+fn an_append_reads_its_arguments_first_and_forgets_an_alias() {
+    let script = "python3 - <<'EOF'\nout = ['a']\nout.append(str(len(out)))\nout.extend(out)\nalias = out\nout.append('z')\nopen('b.txt', 'w').write(','.join(out))\nEOF";
+    let found = run(script, &known(&[("/repo/b.txt", None)]));
+    assert_eq!(found.written, vec![written("/repo/b.txt", "a,1,a,1,z")]);
+
+    let aliased = "python3 - <<'EOF'\nout = ['a']\nalias = out\nout.append('z')\nopen('b.txt', 'w').write(','.join(alias))\nEOF";
+    let found = run(aliased, &known(&[("/repo/b.txt", None)]));
+    assert!(
+        found.written.is_empty(),
+        "the alias was not forgotten: {:?}",
+        found.written
+    );
+}
+
+/// A Python program run from a file is followed as the same text in a heredoc
+/// is, when sight shows the file. Live: `python3 /tmp/patch.py && python3 - <<EOF`
+/// was read as an unknown program that may write anything, so the heredoc's edits
+/// after it were refused as unread.
+#[test]
+fn a_python_program_run_from_a_file_is_followed() {
+    let prog = "import sys\ndef edit(p, old, new):\n    s = open(p).read()\n    open(p, 'w').write(s.replace(old, new, 1))\nedit(sys.argv[1], 'x', 'y')\n";
+    let found = run(
+        "python3 /tmp/patch.py a.txt && python3 - <<'EOF'\ns = open('b.txt').read()\nopen('b.txt', 'w').write(s + 'more\\n')\nEOF",
+        &known(&[
+            ("/tmp/patch.py", Some(prog)),
+            ("/repo/a.txt", Some("x\n")),
+            ("/repo/b.txt", Some("b\n")),
+        ]),
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/a.txt", "y\n"),
+            written("/repo/b.txt", "b\nmore\n")
+        ]
+    );
+    assert!(found.unfollowed.is_empty(), "{:?}", found.unfollowed);
+    assert!(
+        found.conditional.is_empty(),
+        "no program was assumed: {:?}",
+        found.conditional
+    );
+
+    // Unseen, it is the unknown program it always was.
+    let blind = run(
+        "python3 /tmp/patch.py a.txt",
+        &known(&[("/repo/a.txt", Some("x\n"))]),
+    );
+    assert!(blind.written.is_empty(), "{:?}", blind.written);
+}
+
 /// A word with a variable and a brace expansion is no path the tables can name,
 /// so they drop it — and `prettier --write` still rewrote the files it stood
 /// for. Live, a reformat behind `$P/{a,b}.ts` was predicted untouched.

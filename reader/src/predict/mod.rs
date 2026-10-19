@@ -1395,6 +1395,18 @@ impl<'a> Run<'a> {
             let program = self.program(embedded);
             self.python(program, None);
             self.python_argv = None;
+        } else if let Some((source, script_argv)) = self.python_file(&argv) {
+            // A program in a file is the same language as one in a heredoc: run
+            // as it is, where sight shows its text.
+            self.python_argv = Some(script_argv);
+            self.python(
+                Program::Text {
+                    tree: crate::syntax::python::parse(&source),
+                    source,
+                },
+                None,
+            );
+            self.python_argv = None;
         } else {
             self.forget_program_writes(simple, redirects, None);
         }
@@ -2518,6 +2530,25 @@ impl<'a> Run<'a> {
             Some(heredoc.body.clone())
         } else {
             expand_body(&heredoc.body, |name| self.value(name))
+        }
+    }
+
+    /// `python3 script.py args…` with the script's text in sight: the text, and
+    /// `sys.argv` as Python gives it — the script as written, then its arguments.
+    /// A flag before the script, or a word the text does not give, leaves it
+    /// the unknown program it was.
+    fn python_file(&mut self, argv: &[Option<String>]) -> Option<(String, Vec<String>)> {
+        let words: Vec<String> = argv.iter().cloned().collect::<Option<_>>()?;
+        let (head, rest) = words.split_first()?;
+        let interpreter = basename(head);
+        if interpreter != "python" && !interpreter.starts_with("python3") {
+            return None;
+        }
+        let script = rest.first().filter(|word| !word.starts_with('-'))?;
+        let path = self.resolve(script)?;
+        match self.read(&path) {
+            Held::Text(source) => Some((source, rest.to_vec())),
+            _ => None,
         }
     }
 
