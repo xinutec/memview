@@ -1,5 +1,4 @@
 import { Component, computed, input, model, output } from '@angular/core';
-import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -15,7 +14,7 @@ import { MOST, Picture, weight } from './picture';
   selector: 'app-composer',
   templateUrl: './composer.html',
   styleUrl: './composer.scss',
-  imports: [FormsModule, MatButtonModule, MatIconModule, TextFieldModule],
+  imports: [FormsModule, MatButtonModule, MatIconModule],
 })
 export class Composer {
   /** What is written and not sent. */
