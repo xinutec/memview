@@ -288,6 +288,31 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
         .collect()
 }
 
+/// The index lines `after` adds to `before` whose memory has no role, by name —
+/// `unjudged-role` for one change, so the pre-commit hook can refuse the session
+/// adding the line rather than the nightly. A line that is only moved is not new.
+pub fn newly_unjudged(
+    before: &str,
+    after: &str,
+    corpus: &Corpus,
+    roles: &serde_json::Value,
+) -> Vec<String> {
+    let had: BTreeSet<String> = crate::store::index_entries(before)
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    crate::store::index_entries(after)
+        .into_iter()
+        .filter(|entry| !had.contains(&entry.name))
+        .filter(|entry| {
+            corpus.docs.get(&entry.name).is_some_and(|doc| {
+                crate::study::role_for(doc.meta.role.as_deref(), roles, &entry.name).is_none()
+            })
+        })
+        .map(|entry| entry.name)
+        .collect()
+}
+
 /// Run every rule over the corpus, findings by severity then memory. Without
 /// `roles`, `unjudged-role` is skipped.
 pub fn check(

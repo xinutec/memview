@@ -714,6 +714,41 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
     assert!(none.is_empty(), "skipped without the record, got {none:?}");
 }
 
+/// The hook's half of the rule: only a line THIS change adds is judged, so the
+/// session that adds it is the one told — not the nightly, not the memory's last
+/// writer. A line already there, or moved, is not this change's doing.
+#[test]
+fn only_an_index_line_this_change_adds_must_bring_a_role() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    for (name, role) in [
+        ("old_unjudged", None),
+        ("declares", Some("pointer")),
+        ("in_record", None),
+        ("neither", None),
+    ] {
+        let front = role.map_or(String::new(), |r| format!("role: {r}\n"));
+        std::fs::write(
+            d.join(format!("{name}.md")),
+            format!(
+                "---\nname: {name}\ndescription: d\n{front}metadata:\n  type: project\n---\n\nbody\n"
+            ),
+        )
+        .expect("write");
+    }
+    let before = "## A\n- [o](old_unjudged.md)\n";
+    let after = "## B\n- [o](old_unjudged.md)\n- [d](declares.md)\n- [r](in_record.md)\n- [n](neither.md)\n";
+    std::fs::write(d.join("MEMORY.md"), after).expect("write index");
+    let corpus = Corpus::load(d).expect("loads");
+    let roles = serde_json::json!({ "roles": { "in_record": "tripwire" } });
+
+    assert_eq!(
+        memview::lint::newly_unjudged(before, after, &corpus, &roles),
+        vec!["neither".to_string()],
+        "an old line, moved to another section, is not this change's"
+    );
+}
+
 /// A lone topic word is CORRECT for a pointer and mute for a tripwire
 ///: it names a subject and warns nobody. The pointer half
 /// is the control that makes the tripwire half mean anything.
