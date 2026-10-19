@@ -50,10 +50,15 @@
       cdkAutosizeMaxRows="6"
       [(ngModel)]="text"
       name="text"
-      placeholder="say something"
       aria-label="message"
       (keydown.control.enter)="send.emit()"
     ></textarea>
+    <!-- The hint, drawn over the empty box rather than as its `placeholder`: with one,
+         the autosize re-measures on every window resize by writing the hint into
+         the box and the words back, which puts the cursor at the end. -->
+    @if (!text()) {
+      <span class="hint" aria-hidden="true">say something</span>
+    }
     <!-- Once the slot is send, the picture moves in here, so one can be added
          after typing, or beside another. -->
     @if (ready() && held().length < most) {

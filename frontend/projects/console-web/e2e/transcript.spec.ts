@@ -823,6 +823,25 @@ test('the transcript keeps its end while the composer grows @ phone width', asyn
   ).toBeLessThan(4);
 });
 
+test('closing the keyboard leaves the cursor where it was @ phone width', async ({ page }) => {
+  // The keyboard closing resizes the window, and the box's autosize re-measures.
+  // With a native placeholder it measures that by writing it into the box and
+  // writing the words back, which puts the cursor at the end. Seen on the phone.
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('.composer textarea');
+  await box.fill('alpha bravo charlie delta echo');
+  await box.evaluate((t: HTMLTextAreaElement) => t.setSelectionRange(5, 5));
+
+  const size = page.viewportSize() ?? { width: 412, height: 915 };
+  await page.setViewportSize({ width: size.width, height: size.height - 300 });
+  await page.waitForTimeout(100);
+  await page.setViewportSize(size);
+  await page.waitForTimeout(100);
+
+  expect(await box.evaluate((t: HTMLTextAreaElement) => t.selectionStart)).toBe(5);
+});
+
 test('the composer grows with what is being typed @ phone width', async ({ page }, testInfo) => {
   // The reason this exists: `rows="1"` meant a long instruction was written
   // through a one-line slit, on the device the console is driven from. jsdom has
