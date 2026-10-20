@@ -77,9 +77,8 @@ export class App {
   private said?: string;
 
   constructor() {
-    // Say why a mode change did not take, in the CLI's own words. The refusal
-    // arrives on the poll, not on the request — the CLI answers on its own stream
-    // later. A snack-bar because the menu is shut by then.
+    // Why a mode change did not take, in the CLI's words. It arrives on the poll,
+    // after the menu has shut, hence a snack-bar.
     effect(() => {
       const why = this.here.open()?.mode_refused;
       if (!why) {
@@ -90,8 +89,7 @@ export class App {
       if (why === this.said) return;
       this.said = why;
       this.telemetry.note('mode-refused', why);
-      // At the top: the bottom of a session is the composer, and the default position
-      // covers the text field and the send button.
+      // At the top: at the bottom it would cover the composer.
       this.snack.open(why, 'ok', { duration: 10_000, verticalPosition: 'top' });
     });
     this.telemetry.init();
@@ -103,11 +101,10 @@ export class App {
   }
 
   /**
-   * Ask the session to change what it may do without asking. Shown as chosen
-   * before anything has confirmed it — a menu waiting on a phone round trip reads
-   * as one that ignored the tap. Two things can still refuse it: the runner, in
-   * the branch below, which puts the summary back; and the CLI, later, on its own
-   * stream, which arrives on the poll as `mode_refused`.
+   * Change what the session may do without asking. Shown as chosen at once, since
+   * waiting on a round trip reads as an ignored tap. The runner can refuse it
+   * (the branch below puts the summary back), and so can the CLI, later, as
+   * `mode_refused` on the poll.
    */
   protected setMode(mode: Known): void {
     const open = this.here.open();
@@ -122,9 +119,8 @@ export class App {
   }
 
   /**
-   * Everything about this session that the screen has no room for. Handed the
-   * summary as it is now: the sheet is a still, and text that moves while it is
-   * read is worse than text a second old.
+   * Everything about this session the screen has no room for, as it is now: text
+   * that moves while read is worse than text a second old.
    */
   protected details(session: Summary): void {
     this.sheets.open(SessionSheet, {
@@ -134,17 +130,12 @@ export class App {
     });
   }
 
-  /**
-   * How many of this session's tasks are still open, read off the poll rather
-   * than fetching the list, which is large and answers only for the conversation
-   * on screen. See `console/src/tasks.rs`.
-   */
+  /** How many of this session's tasks are open, off the poll, not the large list. */
   protected readonly taskCount = this.here.tasks;
 
   /**
-   * Offer everywhere in this conversation worth going back to, and go there. The
-   * store does the jumping, since the transcript is the store's; the view lands at
-   * the bottom of the page that arrives, off [[Held.adrift]].
+   * Offer the places in this conversation worth going back to, and go there. The
+   * store jumps; the view lands at the bottom of the page, off [[Held.adrift]].
    */
   protected goTo(session: Summary): void {
     const sheet = this.sheets.open<JumpSheet, Where, number>(JumpSheet, {
@@ -174,8 +165,7 @@ export class App {
       data: { id: session.id, mode: session.mode },
       panelClass: 'start-sheet',
     });
-    // The sheet chooses; this still records and rolls back, so one place knows what
-    // the header is claiming.
+    // The sheet chooses; this records and rolls back, so one place owns the header's claim.
     sheet.afterDismissed().subscribe((mode) => {
       if (mode) this.setMode(mode);
     });
@@ -185,9 +175,8 @@ export class App {
    *  itself instead of leaving it to `/rename`. */
   protected rename(session: Summary): void {
     this.sheets.open(RenameSheet, {
-      // The name it has, not what the list shows — prefilling `Code · 3f8a1c2b` is
-      // prefilling something to delete. The suggestion goes beside the field, never
-      // into it: it is a guess, and in the box the first Enter would make it a name.
+      // The name it has, not the list's `Code · 3f8a1c2b`. The suggestion goes beside
+      // the field, not in it, or the first Enter would make a guess a name.
       data: {
         id: session.id,
         title: session.name ?? '',

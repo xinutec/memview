@@ -4,9 +4,8 @@
   overflow: hidden;
 }
 
-// Grey, the card border's own colour: green on a card means working. Towards
-// amber by `--warm`, then red by `--hot`, as compaction comes close — the
-// cache clock's mix.
+// Grey, as green on a card means working; towards amber (`--warm`) and red
+// (`--hot`) as compaction comes close.
 .fill {
   --warm: 0;
   --hot: 0;
@@ -35,15 +34,13 @@
   cursor: pointer;
 }
 
-// Not running: greyed rather than hidden, and kept legible — it is the state
-// most of the list is in, and still what you read to find a conversation.
+// Not running: greyed, not hidden, and still legible — most of the list is this.
 .session.off {
   opacity: 0.6;
 }
 
-// A conversation the runner says something else already has open. Resuming it
-// would put two processes on one transcript, so the row stays on screen and
-// stops being a control.
+// Open elsewhere: resuming would put two processes on one transcript, so the row
+// stays and stops being a control.
 .session.disabled {
   pointer-events: none;
   opacity: 0.35;
@@ -84,17 +81,14 @@
   font-weight: 700;
 }
 
-// The same badge, in the colour that means somebody has to act. A session
-// waiting for an answer is working as designed; one that has stopped reading is
-// not, and the two must not read as the same kind of news.
+// The colour that means somebody has to act: a session that stopped reading is
+// not the same news as one waiting for an answer.
 .deaf {
   background: var(--mat-sys-error-container);
   color: var(--mat-sys-on-error-container);
 }
 
-// Not a badge at all: a message in the queue is the ordinary way of things, and
-// the point is only that the row stops looking untouched. Loud enough to notice
-// beside the status word, quiet enough not to compete with the two above.
+// Not a badge: a queued message is ordinary; the row only stops looking untouched.
 .unread {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-tertiary);
@@ -115,11 +109,8 @@
   color: var(--mat-sys-on-primary-container);
 }
 
-// Work still going on, beside the word it qualifies. Not a pill: the pill is
-// the session's state and this is something happening *inside* that state — a
-// second pill beside the first would read as a competing answer to the same
-// question. Coloured, because everything else on the card is history and this
-// is not.
+// Work going on inside the session's state, so not a second pill competing with
+// the first. Coloured: the rest of the card is history.
 .tasks {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-primary);
@@ -135,9 +126,8 @@
   }
 }
 
-// The task count, quiet by default and coloured only when something is left.
-// Laid out inline, not as a flex box: an inline-flex box takes its baseline from
-// its first item — the icon — and the digits ride above the line.
+// The task count, coloured only when something is left. Inline, not flex: an
+// inline-flex box takes its baseline from the icon, and the digits ride high.
 .list {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface-variant);
@@ -182,9 +172,8 @@
   overflow: hidden;
 }
 
-// What the conversation is about. Two lines like `.asked` above it and for the
-// same reason, and the icon sits on the first of them rather than beside the
-// block, so a sentence that wraps stays a paragraph with a mark on it.
+// What the conversation is about, two lines like `.asked`; the icon sits on the
+// first line so a wrapped sentence stays a paragraph.
 .gist {
   margin: 0.35rem 0;
   color: var(--mat-sys-on-surface-variant);
@@ -194,8 +183,7 @@
   overflow: hidden;
 }
 
-// Deliberately quiet. It marks the sentence as written rather than read, and
-// a mark that competes with the words it qualifies is a decoration.
+// Quiet: it marks the sentence as written rather than read.
 .wrote {
   // Matching the text it sits in, since it is punctuation more than an icon.
   font-size: 1rem;
@@ -215,10 +203,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-// The age and its clock travel together. `--warm` and `--hot` (0..1 from
-// [[cacheStops]]) drive two nested mixes `in oklch`, whose hue interpolation
-// supplies the orange between yellow and red; both on the span so the time
-// colours with the clock.
+// The age and its clock colour together: `--warm` and `--hot` (0..1, from
+// [[cacheStops]]) drive two nested `oklch` mixes, whose hue supplies the orange.
 .since {
   --warm: 0;
   --hot: 0;
@@ -232,9 +218,8 @@
   );
 }
 
-// Past 50 minutes the hue has nearly finished travelling, so the weight carries
-// the rest. A class rather than a computed `font-weight`: CSS `round()` is recent,
-// and 550 is not a weight this font reliably has.
+// Past 50 minutes the weight carries what the hue no longer can. A class, not a
+// computed weight: CSS `round()` is recent, and 550 is not a weight Roboto has.
 .since.urgent {
   font-weight: 700;
 }
@@ -317,9 +302,8 @@
 $add-size: 3.5rem;
 $add-bottom: 2.5rem;
 
-// The list pads its own reading column, since `.page` supplies only vertical
-// room — and a custom element is `display: inline` until something says
-// otherwise, so the block it looks like does not exist without this.
+// The list pads its own column, `.page` giving only vertical room; a custom
+// element is `display: inline` until told otherwise.
 :host {
   display: block;
   // Room for the last card to clear the button below. `.add` is `fixed`, so
@@ -328,9 +312,8 @@ $add-bottom: 2.5rem;
   padding: 0 1rem calc(#{$add-bottom} + #{$add-size} + 0.75rem);
 }
 
-// The control that starts a session, pinned where a thumb already is. `fixed`,
-// and clear of the stamp, which is a real row at the bottom: the offset is its
-// measured height plus a gap, held true by `expectTheStampIsClear`.
+// Starting a session, pinned under the thumb and clear of the build stamp: the
+// offset is the stamp's measured height plus a gap (`expectTheStampIsClear`).
 .add {
   position: fixed;
   right: 1rem;
@@ -340,17 +323,10 @@ $add-bottom: 2.5rem;
   z-index: 2;
 }
 
-// Something written and not sent. Neutral, which puts it with the task tally
-// rather than the state words: `.tasks` is primary and `.unread` tertiary, both
-// green here, and a third green is lost in the run.
-// Outlined, where the row's other markers are filled or bare: a filled pill is
-// the session's state, bare text is its history, and this is neither.
-//
-// Shape rather than colour, because M3's neutral ramp is compressed at the top in
-// dark — `on-surface` and `on-surface-variant` differ by five in one channel
-// there and by forty in light, so a light-only render certifies a marker that is
-// invisible on a dark phone. Not the accent either: it reads as the session
-// working, and tertiary is no escape, resolving to the same value as primary.
+// A draft: outlined, where a filled pill is the session's state and bare text its
+// history. Shape, not colour: in dark, M3's `on-surface` and `on-surface-variant`
+// differ by five in one channel (forty in light), so a colour marker that a light
+// render passes is invisible on a dark phone; and the accent would read as working.
 .draft {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface);

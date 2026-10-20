@@ -208,13 +208,9 @@ export interface Noted extends Stamped {
 export type Questioned = (ToolCall & Ask) | Asking;
 
 /**
- * Anything that names an ask: what everything keyed by one takes.
- *
- * Not the id itself. A `ToolCall` carries two ids — `call`, the tool_use,
- * and `ask`, the control request — and both are strings, so a function taking
- * `ask: string` accepts the wrong one happily and files an answer under an id no
- * runner will ever quote back. Taking the carrier makes that unsayable without a
- * branded type and the assertion minting one would need.
+ * Anything that names an ask. Not the id: a `ToolCall` carries two string ids,
+ * `call` and `ask`, and a function taking `ask: string` accepts the wrong one and
+ * files an answer under an id no runner quotes back.
  */
 export type Identified = Pick<Ask, 'ask'>;
 
@@ -223,12 +219,9 @@ export function asking(entry: Entry): entry is Questioned {
 }
 
 /**
- * A question still open — the only thing that can be answered.
- *
- * A separate type so "already decided" is held by the compiler, not by a
- * runtime guard in every method that sends a verdict — an invariant kept by
- * remembering, where one forgotten path answers a question twice. Taking this
- * type moves the check to the one place a `Questioned` becomes answerable.
+ * A question still open, the only thing that can be answered. Its own type, so
+ * the compiler holds "not yet decided" rather than a guard in every sender, where
+ * one forgotten path answers twice.
  */
 export type Unanswered = Questioned & { allowed?: undefined };
 
