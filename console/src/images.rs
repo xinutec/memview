@@ -321,6 +321,7 @@ pub fn tidy(root: &Path, keep: &std::collections::BTreeSet<String>) -> usize {
 }
 
 /// Whether a string is safe as one path segment — a whitelist.
+// dev-lint: sanitises path — the whitelist above, `..` refused
 fn plain(name: &str) -> bool {
     !name.is_empty()
         && name

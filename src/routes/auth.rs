@@ -31,6 +31,7 @@ fn session_cookie(value: String) -> Cookie<'static> {
 /// on the character AFTER the leading slash: `/\host` is protocol-relative too,
 /// since the URL Standard treats a backslash as a slash for http(s). A backslash
 /// anywhere LATER is an ordinary path character.
+// dev-lint: sanitises redirect — resolved where the browser lands, and only the same origin passes
 pub fn validate_return_to(return_to: Option<&str>) -> String {
     match return_to {
         Some(p) if p.starts_with('/') && !matches!(p.as_bytes().get(1), Some(b'/' | b'\\')) => {
