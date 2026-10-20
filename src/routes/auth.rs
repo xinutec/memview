@@ -102,10 +102,16 @@ pub enum Answer<'a> {
 pub fn state_to_consume<'a>(from_url: &'a str, from_cookie: &'a str) -> Answer<'a> {
     match (from_url, from_cookie) {
         ("", "") => Answer::Refuse("This sign-in did not start here, or it took too long."),
-        (url, cookie) if !url.is_empty() && !cookie.is_empty() && url != cookie => {
+        ("", cookie) => Answer::Retry(cookie),
+        // ⚠ A state the URL names but this browser does not carry is someone
+        // else's: `/login` mints one for anyone, so the store finding it proves
+        // nothing about who is asking (login CSRF).
+        (_, "") => {
+            Answer::Refuse("This sign-in did not start in this browser, or it took too long.")
+        }
+        (url, cookie) if url != cookie => {
             Answer::Refuse("This link answers a different sign-in attempt.")
         }
-        ("", cookie) => Answer::Retry(cookie),
         (url, _) => Answer::Exchange(url),
     }
 }
@@ -198,9 +204,9 @@ async fn finish_sign_in(
             Redirect::to(&identity::authorize_url(auth, &state)),
         ));
     }
-    // The lookup found the entry by this key; the proof is the comparison
-    // itself, which the exchange cannot be called without.
-    let proof = identity::StateMatched::check(&from_url, &pending.state)
+    // The proof compares the URL's state with the one this browser carries:
+    // the store's own copy would only repeat the key it was found by.
+    let proof = identity::StateMatched::check(&from_url, &from_cookie)
         .ok_or("This sign-in did not start here, or it took too long.")?;
     let code = q
         .code

@@ -74,10 +74,9 @@ mod which_signin {
         // An identity provider that behaves: cookie and URL agree, and either
         // would do. This is the path every other deployment takes.
         assert_eq!(state_to_consume("abc", "abc"), Answer::Exchange("abc"));
-        // No cookie — expired, or cleared between the two requests. The URL
-        // still names a pending sign-in, and the in-memory store decides
-        // whether it is a real one.
-        assert_eq!(state_to_consume("abc", ""), Answer::Exchange("abc"));
+        // No cookie: a state this browser never carried. `/login` mints one
+        // for anyone, so finding it in the store proves nothing (login CSRF).
+        assert!(matches!(state_to_consume("abc", ""), Answer::Refuse(_)));
     }
 
     /// ⚠ **The live case, and never trusted (RFC 6749 §10.12).** Nextcloud is
@@ -131,7 +130,7 @@ mod retry {
     use memview::state::AppState;
     use tower::ServiceExt;
 
-    fn app() -> axum::Router {
+    pub(super) fn app() -> axum::Router {
         let cfg = Config {
             doing_file: None,
             effects_file: None,
@@ -156,7 +155,7 @@ mod retry {
 
     /// One GET, with the sign-in cookie if given: the status, where it points,
     /// and the sign-in cookie it sets.
-    async fn get(
+    pub(super) async fn get(
         app: &axum::Router,
         uri: &str,
         signin: Option<&str>,
@@ -187,7 +186,7 @@ mod retry {
         (res.status(), location, cookie)
     }
 
-    fn state_in(location: &str) -> String {
+    pub(super) fn state_in(location: &str) -> String {
         url::Url::parse(location)
             .expect("an absolute authorize URL")
             .query_pairs()
@@ -253,4 +252,37 @@ fn the_proof_is_made_only_by_a_present_matching_state() {
     assert!(StateMatched::check("", "n0nce").is_none());
     assert!(StateMatched::check("nonce", "n0nce").is_none());
     assert!(StateMatched::check("n0nc", "n0nce").is_none());
+}
+
+/// Login CSRF: someone signs in up to Nextcloud on their own machine, keeps
+/// the state and code, and sends a victim's browser to the callback. That
+/// browser carries no sign-in cookie, so the state is refused before any code
+/// is exchanged.
+mod another_browser {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn a_state_this_browser_never_carried_is_refused() {
+        let app = super::retry::app();
+        let (_, to, _) = super::retry::get(&app, "/login", None).await;
+        let state = super::retry::state_in(&to);
+        // No sign-in cookie: the victim's browser never started this sign-in.
+        let res = app
+            .oneshot(
+                Request::get(format!("/auth/callback?state={state}&code=theirs"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("the router answered");
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&body);
+        // Refused for the state, before the code went anywhere: an exchange
+        // attempt would answer that Nextcloud failed instead.
+        assert!(body.contains("did not start in this browser"), "{body}");
+    }
 }
