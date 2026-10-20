@@ -67,24 +67,26 @@ fn an_absent_or_empty_target_is_the_root() {
 /// which no test has, and a decision nobody can exercise is a decision nobody
 /// checks.
 mod which_signin {
-    use memview::routes::auth::state_to_consume;
+    use memview::routes::auth::{Answer, state_to_consume};
 
     #[test]
     fn the_url_is_used_when_the_provider_hands_it_back() {
         // An identity provider that behaves: cookie and URL agree, and either
         // would do. This is the path every other deployment takes.
-        assert_eq!(state_to_consume("abc", "abc"), Ok("abc"));
+        assert_eq!(state_to_consume("abc", "abc"), Answer::Exchange("abc"));
         // No cookie — expired, or cleared between the two requests. The URL
         // still names a pending sign-in, and the in-memory store decides
         // whether it is a real one.
-        assert_eq!(state_to_consume("abc", ""), Ok("abc"));
+        assert_eq!(state_to_consume("abc", ""), Answer::Exchange("abc"));
     }
 
-    /// The live case. Nextcloud is handed 48 hex characters and returns
-    /// `state=`, so without this the flow cannot complete at all.
+    /// ⚠ **The live case, and never trusted (RFC 6749 §10.12).** Nextcloud is
+    /// handed 48 hex characters and can return `state=`. Then nothing ties the
+    /// URL's code to this browser: anyone's code would do. The cookie names
+    /// the sign-in to retry, never one to finish.
     #[test]
-    fn the_cookie_carries_the_signin_when_the_provider_drops_it() {
-        assert_eq!(state_to_consume("", "abc"), Ok("abc"));
+    fn a_dropped_state_is_retried_never_exchanged() {
+        assert_eq!(state_to_consume("", "abc"), Answer::Retry("abc"));
     }
 
     /// Refused, not resolved. A cookie proves this browser began SOME
@@ -92,13 +94,17 @@ mod which_signin {
     /// meant, and picking either would be a guess about an authentication.
     #[test]
     fn two_that_disagree_are_refused_rather_than_guessed() {
-        let said = state_to_consume("abc", "xyz").expect_err("must not resolve");
+        let Answer::Refuse(said) = state_to_consume("abc", "xyz") else {
+            panic!("must not resolve");
+        };
         assert!(said.contains("different sign-in"), "{said:?}");
     }
 
     #[test]
     fn neither_present_is_refused() {
-        let said = state_to_consume("", "").expect_err("must not resolve");
+        let Answer::Refuse(said) = state_to_consume("", "") else {
+            panic!("must not resolve");
+        };
         assert!(said.contains("did not start here"), "{said:?}");
     }
 
@@ -107,9 +113,132 @@ mod which_signin {
     #[test]
     fn every_refusal_is_a_sentence_not_a_code() {
         for (url, cookie) in [("", ""), ("abc", "xyz")] {
-            let said = state_to_consume(url, cookie).expect_err("refusal");
+            let Answer::Refuse(said) = state_to_consume(url, cookie) else {
+                panic!("a refusal");
+            };
             assert!(said.ends_with('.'), "{said:?} should be a sentence");
             assert!(said.len() > 20, "{said:?} is too terse to act on");
         }
+    }
+}
+
+/// The callback itself, through the router: what a browser is sent when
+/// Nextcloud drops `state`.
+mod retry {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use memview::config::{AuthConfig, Config};
+    use memview::state::AppState;
+    use tower::ServiceExt;
+
+    fn app() -> axum::Router {
+        let cfg = Config {
+            doing_file: None,
+            effects_file: None,
+            reading_file: None,
+            memory_dir: String::new(),
+            bind_addr: "127.0.0.1:0".into(),
+            auth: Some(AuthConfig {
+                session_secret: "test-secret-not-a-real-key".into(),
+                nc_base_url: "https://nextcloud.example".into(),
+                nc_internal_url: None,
+                nc_client_id: "id".into(),
+                nc_client_secret: "secret".into(),
+                nc_redirect_uri: "https://memview.example/auth/callback".into(),
+                allowed_users: vec!["user".into()],
+            }),
+            static_dir: None,
+            couse_file: None,
+            agents_file: None,
+        };
+        memview::routes::router(AppState::new(cfg, reqwest::Client::new()))
+    }
+
+    /// One GET, with the sign-in cookie if given: the status, where it points,
+    /// and the sign-in cookie it sets.
+    async fn get(
+        app: &axum::Router,
+        uri: &str,
+        signin: Option<&str>,
+    ) -> (StatusCode, String, String) {
+        let mut req = Request::builder().uri(uri);
+        if let Some(value) = signin {
+            req = req.header(header::COOKIE, format!("signin={value}"));
+        }
+        let res = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .expect("the router answered");
+        let location = res
+            .headers()
+            .get(header::LOCATION)
+            .map(|v| v.to_str().unwrap().to_string())
+            .unwrap_or_default();
+        let cookie = res
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(|v| v.strip_prefix("signin="))
+            .map(|v| v.split(';').next().unwrap_or("").to_string())
+            .find(|v| !v.is_empty())
+            .unwrap_or_default();
+        (res.status(), location, cookie)
+    }
+
+    fn state_in(location: &str) -> String {
+        url::Url::parse(location)
+            .expect("an absolute authorize URL")
+            .query_pairs()
+            .find(|(k, _)| k == "state")
+            .map(|(_, v)| v.into_owned())
+            .unwrap_or_default()
+    }
+
+    /// ⚠ **The code is dropped, not exchanged.** An exchange would reach
+    /// `nextcloud.example` and fail; a redirect to authorize means it never
+    /// left. The fresh `state` rides in both the URL and the cookie.
+    #[tokio::test]
+    async fn a_swallowed_state_is_retried_never_trusted() {
+        let app = app();
+        let (_, to, first) = get(&app, "/login?return_to=/search", None).await;
+        assert_eq!(state_in(&to), first, "login sets what it sends");
+
+        let (status, to, again) =
+            get(&app, "/auth/callback?state=&code=attackers", Some(&first)).await;
+        assert!(status.is_redirection(), "{status}");
+        assert!(to.starts_with("https://nextcloud.example/"), "{to}");
+        let fresh = state_in(&to);
+        assert_eq!(fresh, again, "the retry's state is the cookie's");
+        assert_ne!(fresh, first, "a retry is a new attempt");
+    }
+
+    #[tokio::test]
+    async fn a_second_miss_is_refused() {
+        let app = app();
+        let (_, _, first) = get(&app, "/login", None).await;
+        let (_, _, again) = get(&app, "/auth/callback?state=&code=a", Some(&first)).await;
+        assert!(!again.is_empty(), "the first miss was not retried");
+        let (status, to, _) = get(&app, "/auth/callback?state=&code=b", Some(&again)).await;
+        assert!(
+            !status.is_redirection() && !status.is_success(),
+            "{status} {to}"
+        );
+    }
+
+    /// The retried attempt is spent like any other: its first `state` is no
+    /// longer one a callback can name.
+    #[tokio::test]
+    async fn the_first_attempt_is_spent_by_its_retry() {
+        let app = app();
+        let (_, _, first) = get(&app, "/login", None).await;
+        let (retried, _, _) = get(&app, "/auth/callback?state=&code=a", Some(&first)).await;
+        assert!(
+            retried.is_redirection(),
+            "the miss was not retried: {retried}"
+        );
+        let (status, _, _) = get(&app, &format!("/auth/callback?state={first}&code=a"), None).await;
+        assert!(!status.is_redirection() && !status.is_success(), "{status}");
     }
 }

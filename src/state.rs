@@ -21,6 +21,8 @@ pub const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 pub struct PendingOauth {
     created: Instant,
     pub return_to: Option<String>,
+    /// Already sent back once for a missing `state`; a second miss is refused.
+    pub retried: bool,
 }
 
 /// A mined artefact held in memory, reloaded when the file beneath it changes —
@@ -151,7 +153,7 @@ impl AppState {
         reading
     }
 
-    pub fn create_oauth_state(&self, return_to: Option<String>) -> String {
+    pub fn create_oauth_state(&self, return_to: Option<String>, retried: bool) -> String {
         let mut bytes = [0u8; 24];
         rand::rng().fill_bytes(&mut bytes);
         let state = hex::encode(bytes);
@@ -162,6 +164,7 @@ impl AppState {
             PendingOauth {
                 created: Instant::now(),
                 return_to,
+                retried,
             },
         );
         state

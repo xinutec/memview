@@ -69,9 +69,9 @@ pub async fn login(
     let Some(auth) = app.cfg.auth.as_ref() else {
         return sign_in_problem(StatusCode::NOT_FOUND, "Sign-in is not set up here.");
     };
-    let state = app.create_oauth_state(q.return_to);
+    let state = app.create_oauth_state(q.return_to, false);
     // The same value goes two ways — the URL, and a cookie only this browser can
-    // hold. See `state_to_consume`.
+    // hold. See `state_to_consume` for what the cookie may and may not do.
     (
         jar.add(pending_cookie(state.clone())),
         Redirect::to(&identity::authorize_url(auth, &state)),
@@ -79,19 +79,33 @@ pub async fn login(
         .into_response()
 }
 
-/// Which pending sign-in this callback is for: the URL's, or — since Nextcloud can
-/// drop `state` — the one this browser's cookie carries. Two that disagree are refused.
-pub fn state_to_consume<'a>(
-    from_url: &'a str,
-    from_cookie: &'a str,
-) -> Result<&'a str, &'static str> {
+/// What a callback may do, judged from the `state` in its URL and the one this
+/// browser's cookie carries.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Answer<'a> {
+    /// The URL names the sign-in: exchange its code.
+    Exchange(&'a str),
+    /// The URL's `state` is empty: drop its code and authorize this sign-in
+    /// again.
+    Retry(&'a str),
+    Refuse(&'static str),
+}
+
+/// What this callback may do.
+///
+/// ⚠ **An empty `state` is retried, never trusted (RFC 6749 §10.12).** Nextcloud
+/// can drop the `state` it was given, and then nothing ties the URL's code to
+/// this browser: a page that makes the browser follow a callback while a
+/// sign-in is pending could sign it in as someone else. The retry finds
+/// Nextcloud signed in, so `state` survives it. Two that disagree are refused.
+pub fn state_to_consume<'a>(from_url: &'a str, from_cookie: &'a str) -> Answer<'a> {
     match (from_url, from_cookie) {
-        ("", "") => Err("This sign-in did not start here, or it took too long."),
+        ("", "") => Answer::Refuse("This sign-in did not start here, or it took too long."),
         (url, cookie) if !url.is_empty() && !cookie.is_empty() && url != cookie => {
-            Err("This link answers a different sign-in attempt.")
+            Answer::Refuse("This link answers a different sign-in attempt.")
         }
-        ("", cookie) => Ok(cookie),
-        (url, _) => Ok(url),
+        ("", cookie) => Answer::Retry(cookie),
+        (url, _) => Answer::Exchange(url),
     }
 }
 
@@ -162,10 +176,27 @@ async fn finish_sign_in(
     let jar = jar.remove(Cookie::from(PENDING_COOKIE));
 
     let from_url = q.state.unwrap_or_default();
-    let state = state_to_consume(&from_url, &from_cookie)?;
+    let (state, retry) = match state_to_consume(&from_url, &from_cookie) {
+        Answer::Exchange(state) => (state, false),
+        Answer::Retry(state) => (state, true),
+        Answer::Refuse(said) => return Err(said),
+    };
     let pending = app
         .consume_oauth_state(state)
         .ok_or("This sign-in did not start here, or it took too long.")?;
+    if retry {
+        if pending.retried {
+            return Err("Nextcloud lost this sign-in twice.");
+        }
+        // The code is not exchanged: without `state` nothing ties it to this
+        // browser.
+        tracing::info!("sign-in callback without state — authorizing again");
+        let state = app.create_oauth_state(pending.return_to, true);
+        return Ok((
+            jar.add(pending_cookie(state.clone())),
+            Redirect::to(&identity::authorize_url(auth, &state)),
+        ));
+    }
     let code = q
         .code
         .ok_or("The identity provider sent no authorization code.")?;
