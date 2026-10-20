@@ -9,13 +9,9 @@ import type { Picture } from './picture';
 
 /**
  * What has been written and not sent, per conversation, shared between devices.
- *
- * A draft is a document, not a string. Two devices typing produce one text
- * holding both edits, because edits merge, here and in the runner
- * (`console/src/drafts.rs`), so nobody is asked which version they meant.
- *
- * A draft is a record, not an instruction: nothing leaves until a person presses
- * send.
+ * A document, not a string: two devices typing produce one text holding both
+ * edits, merged here and in the runner (`console/src/drafts.rs`). Nothing is sent
+ * until a person presses send.
  */
 
 /** The name of the shared text inside a draft. The runner uses the same one. */
@@ -25,12 +21,9 @@ const TEXT = 'text';
 const PULL_EVERY_MS = 5000;
 
 /**
- * How long an edit waits before it is sent.
- *
- * Not the poll interval. Leaving a keystroke to the next tick means a draft
- * can sit on one device for five seconds while the other shows nothing — and, in
- * the two-device test, it reads as the merge having failed. Short enough to feel
- * immediate, long enough that a sentence typed straight through is one push.
+ * How long an edit waits before it is sent. Not the poll interval: five seconds
+ * on one device with nothing on the other reads as a failed merge. Long enough
+ * that a sentence typed straight through is one push.
  */
 const SEND_AFTER_MS = 300;
 
@@ -108,10 +101,7 @@ export class Drafts {
   private readonly pictures = new Subject<string | null>();
   private get: typeof fetch = (...args) => fetch(...args);
 
-  /**
-   * Point this at a different runner. Called before anything else, or not at all
-   * — production needs no setting up.
-   */
+  /** Point this at a different runner, before anything else. Production never does. */
   // dev-lint: allow-ts-test-only the specs point it at a fake runner; production uses fetch
   configure(get: typeof fetch): void {
     this.get = get;
@@ -131,15 +121,7 @@ export class Drafts {
     });
   }
 
-  /**
-   * Put `text` in the box.
-   *
-   * Written as a diff against what is there, not as a replacement. A
-   * wholesale replace deletes every character and inserts the string again, which
-   * merges with a concurrent edit as two people retyping the sentence at once —
-   * the very mess this design exists to avoid. The common edit, a keystroke at
-   * the end, becomes one insert of one character.
-   */
+  /** Put `text` in the box, as a diff against what is there — see [[difference]]. */
   async write(id: string, text: string): Promise<void> {
     const kept = await this.open(id);
     const had = kept.text.toJSON();
@@ -209,17 +191,11 @@ export class Drafts {
   }
 
   /**
-   * One round: push what has changed here, then take everything the runner has
-   * past our cursor.
-   *
-   * Both directions apply the same operation — merge these bytes into that
-   * document — so there is no order in which this goes wrong, and no answer the
-   * runner can give that has to be refused.
+   * One round: push what changed here, then take what the runner has past our
+   * cursor. Both directions merge bytes into a document, so no order goes wrong.
    */
   private async exchange(): Promise<void> {
-    // One round at a time. Pushing the same edit twice would be harmless, since
-    // applying an update twice is applying it once, but it is wasted bytes on a
-    // phone's connection.
+    // One round at a time: a repeated push is harmless but costs a phone's bytes.
     this.sending ??= this.round().finally(() => {
       this.sending = undefined;
     });
@@ -251,9 +227,8 @@ export class Drafts {
       const body: unknown = await res.json();
       if (typeof body !== 'object' || body === null) return;
       if ('documents' in body) await this.take(body.documents);
-      // A missing or malformed cursor is left alone rather than reset. Taking it
-      // as zero would rewind the pull for ever and re-deliver the whole store every
-      // five seconds.
+      // A malformed cursor is left alone: as zero it would re-deliver the whole
+      // store every five seconds.
       if ('checkpoint' in body) {
         const { checkpoint } = body;
         if (typeof checkpoint === 'object' && checkpoint !== null && 'rev' in checkpoint) {
@@ -262,14 +237,12 @@ export class Drafts {
         }
       }
     } catch (err: unknown) {
-      // Said out loud: a dead tunnel is the ordinary case, and a silent failure
-      // looks exactly like a quiet one from the composer. Through [[reason]], not
-      // `String(err)`, which gives `[object Object]`.
+      // Said out loud: a silent failure looks like a quiet draft. Through
+      // [[reason]], since `String(err)` gives `[object Object]`.
       const said = reason(err);
       console.warn('draft sync:', said);
       this.telemetry.note('draft-sync', said);
-      // Unsent work goes back on the pile, or an edit made during an outage would
-      // never be offered again.
+      // Unsent work goes back on the pile, or an edit made offline is never sent.
       for (const id of mine) this.dirty.add(id);
     }
   }
@@ -277,8 +250,7 @@ export class Drafts {
   /** Merge whatever the runner sent into the documents here. */
   private async take(documents: unknown): Promise<void> {
     if (!Array.isArray(documents)) return;
-    // `unknown[]`, not the `any[]` that `isArray` narrows to: every field below
-    // comes off the wire and is checked rather than trusted.
+    // `unknown[]`, not `isArray`'s `any[]`: every field is checked, not trusted.
     const rows: readonly unknown[] = documents;
     for (const row of rows) {
       if (typeof row !== 'object' || row === null) continue;
@@ -308,8 +280,7 @@ export class Drafts {
         this.dirty.add(id);
         this.push();
       }
-      // Kept whole rather than appended to: a draft is a sentence, and a log of
-      // updates would grow for as long as somebody kept typing without sending.
+      // Kept whole: a log of updates would grow as long as somebody typed.
       void this.store.set(`draft-${id}`, Y.encodeStateAsUpdate(doc));
     });
     this.kept.set(id, kept);
@@ -325,15 +296,11 @@ export class Drafts {
 }
 
 /**
- * The one span that changed between two strings: where it starts, how much to
- * remove, and what to put there.
- *
- * The point is the common case, which is typing. Adding a character at the
- * end must be one insert of one character, not a delete of the whole sentence
- * and an insert of a longer one — the second merges with a concurrent edit as
- * two people retyping at once, which is how a merging design can still lose
- * words. Anything cleverer than a shared prefix and suffix is not worth it: a
- * draft is edited by a person at a keyboard, not rewritten by a program.
+ * The one span that changed between two strings: where, how much to remove, and
+ * what to put there. A keystroke must be one insert of one character: replacing
+ * the whole sentence merges with a concurrent edit as two people retyping at
+ * once, which loses words. A shared prefix and suffix is enough for a person
+ * typing.
  */
 export function difference(
   had: string,

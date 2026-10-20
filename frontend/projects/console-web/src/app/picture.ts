@@ -134,15 +134,11 @@ export function weight(bytes: number): string {
 const SHOWN = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
 
 /**
- * Whether the console could open this at all — an address, when the session
- * was also running a server, or a path, which is the commoner shape: a browser
- * resolves `/Users/…/x.jpg` against the console's own origin, where it falls
- * through to this app. `/api/…` is not a path on a disk.
+ * Whether the console could open this: an address, or a path on the Mac (which a
+ * browser would resolve against the console's origin and land on this app).
  */
 export function fetchable(href: string): boolean {
   if (href.startsWith('/api/')) return false;
-  // A path, which `new URL` cannot parse without a base: what makes it openable
-  // is that it names a file on the machine the console is on.
   if (href.startsWith('/')) return true;
   let asked: URL;
   try {
@@ -150,10 +146,8 @@ export function fetchable(href: string): boolean {
   } catch {
     return false;
   }
-  // `file:` is the path shape with a scheme on it; `coach` writes
-  // `[caption](file:///Volumes/…/x.png)`, which the console serves. Not re-checked
-  // here: `images::fetch` refuses a
-  // `file:` URL with a host, and the bound that counts is where bytes are read.
+  // `file:` is a path with a scheme (`coach` writes them). A host on it is refused
+  // where bytes are read, in `images::fetch`.
   return asked.protocol === 'http:' || asked.protocol === 'https:' || asked.protocol === 'file:';
 }
 
@@ -183,10 +177,8 @@ export function thumbnailAt(href: string): string {
 const WHERE = '/api/picture';
 
 /**
- * The address a picture link was rewritten from, or nothing if it is not one —
- * the inverse of [[fetchedAt]]; a tap has the DOM and nothing else. Parsed
- * rather than sliced: the `url` parameter is percent-encoded and may carry a
- * query. The base is a placeholder, so this is testable outside a page.
+ * The address a picture link was rewritten from, or nothing: the inverse of
+ * [[fetchedAt]]. Parsed, not sliced: `url` is percent-encoded and may carry a query.
  */
 export function pointedAt(href: string): string | undefined {
   let asked: URL;
@@ -200,9 +192,8 @@ export function pointedAt(href: string): string | undefined {
 }
 
 /**
- * A picture a session pointed at, as the shared viewer opens it: the address as
- * the session wrote it, which is how a person tells renders apart, and the bytes
- * through [[ConsoleApi.elsewhere]], because an `<img>` that fails says nothing
+ * A picture a session pointed at, for the shared viewer: labelled by its address,
+ * fetched through [[ConsoleApi.elsewhere]] because a failing `<img>` says nothing
  * about why.
  */
 export function looking(api: ConsoleApi, url: string): Shown {

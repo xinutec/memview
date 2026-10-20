@@ -26,19 +26,16 @@ export interface Standing {
 }
 
 /**
- * How the statuses sort, and how they read. Underway above merely open — the
- * answer to "what is this session actually on"; the closed ones last and
- * hidden by default. `open` is a field rather than `status !== 'done'`:
- * `dropped` is closed without being done, and "not done" would list it among
- * the open work. `Status::is_open` is a method there for the same reason.
+ * How the statuses sort and read: underway first, closed last and hidden by
+ * default. `open` is a field, not `status !== 'done'`: `dropped` is closed
+ * without being done.
  */
 const STATUS: Record<Exclude<Status, { unknown: string }>, Standing> = {
   doing: { rank: 0, title: 'underway', icon: 'pending', open: true },
   open: { rank: 1, title: 'open', icon: 'radio_button_unchecked', open: true },
   done: { rank: 2, title: 'done', icon: 'check_circle', open: false },
-  // Not the done mark's colour and not a tick: dropped is "decided against". The
-  // outline cross — the filled `cancel` renders as a solid disc, the loudest mark
-  // on the screen for the least important row.
+  // "Decided against": an outline cross, since the filled `cancel` is the loudest
+  // mark on the screen for the least important row.
   dropped: { rank: 3, title: 'dropped', icon: 'highlight_off', open: false },
 };
 
@@ -70,13 +67,12 @@ export function above(priority: string | undefined): boolean {
 }
 
 /**
- * What a deadline says, spelled out for the label rather than the row: the row
- * gets an icon, since at phone width the date wraps a long subject further. Empty when there is no deadline, which is almost every task.
+ * A deadline, spelled out for the label; the row gets an icon, since at phone
+ * width a date wraps a long subject further. Empty without one.
  */
 export function dueLabel(task: Task): string {
   if (!task.due) return '';
-  // `overdue` from the service, never `due < today` worked out here — see
-  // [[Task.overdue]].
+  // `overdue` comes from the service, never `due < today` here — see [[Task.overdue]].
   return task.overdue ? `overdue — was due ${task.due}` : `due ${task.due}`;
 }
 
@@ -90,11 +86,7 @@ export function waitingOn(task: Task): string {
   return `waiting on ${task.blocked_on.map((id) => `#${id}`).join(', ')}`;
 }
 
-/**
- * What the "All" toggle would reveal, in the service's own words — empty when
- * nothing. "13 done" and "5 dropped" are named separately while only one is
- * present; together they collapse to a count.
- */
+/** What the "All" toggle would reveal: "13 done", "5 dropped", or both as "18 closed". */
 export function closedLabel(all: readonly Task[]): string {
   const closed = all.filter((task) => !standingOf(task.status).open);
   const dropped = closed.filter((task) => task.status === 'dropped').length;
@@ -120,9 +112,7 @@ export class TasksSheet {
   protected readonly which = inject<Which>(MAT_BOTTOM_SHEET_DATA);
 
   protected readonly all = signal<Task[] | undefined>(undefined);
-  /**
-   * Why the list could not be read, when it could not be.
-   */
+  /** Why the list could not be read. */
   protected readonly trouble = signal('');
   /** Whether finished tasks are shown. Off by default — see [STATUS]. */
   protected readonly everything = signal(false);
