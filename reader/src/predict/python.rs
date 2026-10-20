@@ -3406,22 +3406,80 @@ fn string_method(text: &str, method: &str, args: &[Value]) -> Result<Value, Stop
                 .map(|word| Value::Str(word.to_string()))
                 .collect(),
         ),
+        // At most `count` splits, from the left or, for `rsplit`, the right; a
+        // negative count is no limit, as Python has it.
+        (which @ ("split" | "rsplit"), [Value::Str(sep), Value::Int(count)]) if !sep.is_empty() => {
+            let parts: Vec<&str> = match (which, usize::try_from(*count)) {
+                (_, Err(_)) => text.split(sep.as_str()).collect(),
+                ("split", Ok(count)) => text.splitn(count + 1, sep.as_str()).collect(),
+                (_, Ok(count)) => {
+                    let mut parts: Vec<&str> = text.rsplitn(count + 1, sep.as_str()).collect();
+                    parts.reverse();
+                    parts
+                }
+            };
+            Value::Tuple(
+                parts
+                    .into_iter()
+                    .map(|part| Value::Str(part.to_string()))
+                    .collect(),
+            )
+        }
+        ("rsplit", [Value::Str(sep)]) if !sep.is_empty() => Value::Tuple(
+            text.split(sep.as_str())
+                .map(|part| Value::Str(part.to_string()))
+                .collect(),
+        ),
+        // Padded to `width` characters with `fill`, a space when not given.
+        (which @ ("ljust" | "rjust"), [Value::Int(width), fill @ ..]) => {
+            let fill = match fill {
+                [] => Some(' '),
+                [Value::Str(one)] if one.chars().count() == 1 => one.chars().next(),
+                _ => None,
+            };
+            match fill {
+                Some(fill) => {
+                    let short = usize::try_from(*width)
+                        .unwrap_or(0)
+                        .saturating_sub(text.chars().count());
+                    let pad: String = std::iter::repeat_n(fill, short).collect();
+                    Value::Str(if which == "ljust" {
+                        format!("{text}{pad}")
+                    } else {
+                        format!("{pad}{text}")
+                    })
+                }
+                None => Value::Unknown(Why::Python(format!("str.{which}"))),
+            }
+        }
+        // ASCII only: Python's and Rust's Unicode case tables are not checked
+        // to agree.
+        ("upper", []) if text.is_ascii() => Value::Str(text.to_ascii_uppercase()),
+        ("lower", []) if text.is_ascii() => Value::Str(text.to_ascii_lowercase()),
         ("split", [Value::Str(sep)]) if !sep.is_empty() => Value::Tuple(
             text.split(sep.as_str())
                 .map(|part| Value::Str(part.to_string()))
                 .collect(),
         ),
         ("join", [Value::Tuple(parts)]) => {
-            let parts: Option<Vec<&str>> = parts
+            let texts: Option<Vec<&str>> = parts
                 .iter()
                 .map(|part| match part {
                     Value::Str(part) => Some(part.as_str()),
                     _ => None,
                 })
                 .collect();
-            match parts {
-                Some(parts) => Value::Str(parts.join(text)),
-                None => Value::Unknown(construct("join")),
+            match texts {
+                Some(texts) => Value::Str(texts.join(text)),
+                // Why a part is unknown is why the whole is: `join` itself is
+                // followed, and naming it hid the cause.
+                None => parts
+                    .iter()
+                    .find_map(|part| match part {
+                        Value::Unknown(why) => Some(Value::Unknown(why.clone())),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| Value::Unknown(construct("join"))),
             }
         }
         // With characters: any of them, from that end; `None` is whitespace.

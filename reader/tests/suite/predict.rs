@@ -1796,6 +1796,28 @@ fn an_append_reads_its_arguments_first_and_forgets_an_alias() {
     );
 }
 
+/// `split` and `rsplit` with a separator and a count, `ljust` and `rjust`, and
+/// ASCII `upper` and `lower` — the expected texts are what python3 printed.
+#[test]
+fn split_with_a_count_justify_and_ascii_case_are_followed() {
+    let script = "python3 - <<'EOF'\ns = 'a,b,,c'\nparts = ['|'.join(s.split(',', 1)), '|'.join(s.split(',', 2)), '|'.join(s.rsplit(',', 1)), '|'.join(s.split(',', 0)), '|'.join(s.split(',', -1))]\nmore = 'ab'.ljust(5) + '|' + 'ab'.rjust(5, '.') + '|' + 'abcdef'.ljust(3) + '|' + 'Ab-1'.upper() + '|' + 'Ab-1'.lower()\nopen('b.txt', 'w').write(' '.join(parts) + ' ' + more)\nEOF";
+    let found = run(script, &known(&[("/repo/b.txt", None)]));
+    assert_eq!(
+        found.written,
+        vec![written(
+            "/repo/b.txt",
+            "a|b,,c a|b|,c a,b,|c a,b,,c a|b||c ab   |...ab|abcdef|AB-1|ab-1"
+        )]
+    );
+
+    // Not ASCII: Python's and Rust's case tables are not checked to agree.
+    let found = run(
+        "python3 - <<'EOF'\nopen('b.txt', 'w').write('straße'.upper())\nEOF",
+        &known(&[("/repo/b.txt", None)]),
+    );
+    assert!(found.written.is_empty());
+}
+
 /// A Python program run from a file is followed as the same text in a heredoc
 /// is, when sight shows the file. Live: `python3 /tmp/patch.py && python3 - <<EOF`
 /// was read as an unknown program that may write anything, so the heredoc's edits
