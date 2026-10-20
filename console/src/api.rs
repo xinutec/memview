@@ -26,7 +26,7 @@ use crate::roster::Roster;
 use crate::session::{Stamped, Summary};
 use crate::trace;
 
-// dev-lint: allow-open-write served only behind a client certificate or on loopback (main.rs)
+// dev-lint: allow-unauthenticated-route served only behind a client certificate or on loopback (main.rs)
 pub fn router(roster: Arc<Roster>) -> Router {
     Router::new()
         .route("/api/state", get(state))
