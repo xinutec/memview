@@ -2,16 +2,11 @@ import { Pipe, PipeTransform, SecurityContext, inject } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 
 /**
- * Tool output as the terminal would have drawn it. Much of what the fleet runs
- * prints in colour, and with nothing reading the codes a test summary arrives
- * as `[2m Test Files [22m [1m[32m22 passed[39m` — unreadable on a phone.
+ * Tool output as the terminal drew it, not `[1m[32m22 passed[39m`. Classes, not
+ * inline styles: the sanitiser strips `style`, and `entry-row.scss` themes them.
  *
- * Classes, not inline styles: Angular's sanitiser strips `style`, and the
- * classes in `entry-row.scss` follow the theme in light and dark.
- *
- * Escaped first, by us: the text is HTML-escaped before any span is added and
- * still goes through `SecurityContext.HTML` on the way out.
- * `bypassSecurityTrustHtml` is exactly the thing this must not do.
+ * Escaped by us before any span is added, and still sanitised on the way out:
+ * `bypassSecurityTrustHtml` is exactly what this must not do.
  */
 @Pipe({ name: 'coloured' })
 export class Coloured implements PipeTransform {

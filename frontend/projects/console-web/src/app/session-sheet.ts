@@ -25,10 +25,9 @@ export interface Details {
 }
 
 /**
- * Everything about a session that has nowhere else to be said. The header is
- * chosen for a glance, and a `title=` tooltip is no home for a fact — a phone
- * has no hover. Absent facts are left out rather
- * than shown blank: "not known yet" is not "missing".
+ * Everything about a session with nowhere else to be said (a phone has no hover
+ * for a tooltip). An absent fact is left out, not blank: "not known yet" is not
+ * "missing".
  */
 export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   const facts: Fact[] = [];
@@ -113,8 +112,7 @@ function megabytes(bytes: number): string {
 })
 export class SessionSheet {
   private readonly details = inject<Details>(MAT_BOTTOM_SHEET_DATA);
-  /** The same name the button that opened this shows, and the same one the list
-   *  card showed before that. See `naming.ts`. */
+  /** The name the opening button and the list card show — see `naming.ts`. */
   protected readonly title = titleOf(this.details.session);
   protected readonly facts = factsOf(this.details.session, this.details.gist);
 }

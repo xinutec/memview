@@ -4,15 +4,14 @@ import { Local } from './local';
 import type { Entry } from './models';
 
 /**
- * The last transcript this phone saw, so a session can be read when the Mac
- * cannot be reached — read, and nothing else. No message is queued to go when
- * the connection returns: a message is an instruction, and one delivered minutes
- * later is not what was meant.
+ * The last transcript this phone saw: shown the moment a session opens, until
+ * the conversation itself has arrived, and the only one there is when the Mac
+ * cannot be reached. Read only — nothing is queued to send later: a message is an
+ * instruction, and one delivered minutes late is not what was meant.
  *
- * A local document, so replication cannot carry it. No service worker: the
- * console sits behind a client-certificate gate, and ngsw's `navigationUrls`
- * and auth are a known source of trouble there. The app itself still loads
- * from the network.
+ * Local, so replication cannot carry it. No service worker: the console sits
+ * behind a client certificate, where ngsw's `navigationUrls` and auth are known
+ * trouble.
  */
 @Injectable({ providedIn: 'root' })
 export class Kept {
@@ -72,12 +71,9 @@ export class Kept {
 const text = (value: object): boolean => 'text' in value && typeof value.text === 'string';
 
 /**
- * What each kind of entry must carry to be drawable, one rule per kind.
- *
- * A table rather than a `switch`, so the compiler counts the kinds. The
- * `satisfies` below fails when an `Entry` variant is added without a rule here,
- * where a switch would simply fall to its default and drop every revived entry
- * of the new kind — silently, and only on a phone that had been offline.
+ * What each kind of entry must carry to be drawable. A table, not a `switch`, so
+ * `satisfies` fails when an `Entry` kind is added without a rule; a switch's
+ * default would drop that kind silently, and only on a phone that had been offline.
  */
 const DRAWABLE = {
   shown: (value) =>
@@ -93,11 +89,7 @@ const DRAWABLE = {
   ask: (value) => text(value) && 'tool' in value && typeof value.tool === 'string',
 } satisfies Record<Entry['kind'], (value: object) => boolean>;
 
-/**
- * The same table under the type a wire key needs: any string, and a miss.
- * An alias rather than an assertion — the assignment is checked, so the table
- * stays the thing that decides which kinds exist.
- */
+/** The same table, keyed by any string: an alias, not an assertion, so it stays checked. */
 const DRAWABLE_BY_KIND: Readonly<Record<string, ((value: object) => boolean) | undefined>> =
   DRAWABLE;
 
