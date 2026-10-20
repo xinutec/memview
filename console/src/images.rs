@@ -231,6 +231,7 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
 /// to the pinned phone, whose holder could open the file anyway. Size is checked
 /// before reading.
 fn from_disk(path: &std::path::Path) -> Result<Fetched, Reason> {
+    // dev-lint: allow-tainted-sink any picture on this disk, by design (the doc above): only pictures return, only to the pinned phone
     let about = std::fs::metadata(path)
         .map_err(|why| Reason::Answered(format!("{}: {why}", path.display())))?;
     if !about.is_file() {
@@ -246,6 +247,7 @@ fn from_disk(path: &std::path::Path) -> Result<Fetched, Reason> {
             REACH / (1024 * 1024)
         )));
     }
+    // dev-lint: allow-tainted-sink any picture on this disk, by design (the doc above): only pictures return, only to the pinned phone
     let bytes = std::fs::read(path)
         .map_err(|why| Reason::Answered(format!("{}: {why}", path.display())))?;
     let (media_type, _) = sniff(&bytes).ok_or_else(|| {

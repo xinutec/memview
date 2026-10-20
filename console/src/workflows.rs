@@ -119,6 +119,7 @@ pub fn read(journal: &str, meta: impl Fn(&str) -> anyhow::Result<Meta>) -> anyho
 }
 
 /// Whether `run` looks like a run id — checked before it joins a path.
+// dev-lint: sanitises path — `wf_` then letters, digits and `-`
 pub fn is_run(run: &str) -> bool {
     run.strip_prefix("wf_").is_some_and(|rest| {
         !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
@@ -126,6 +127,7 @@ pub fn is_run(run: &str) -> bool {
 }
 
 /// Whether `agent` looks like an agent id — checked before it joins a path.
+// dev-lint: sanitises path — letters and digits only
 pub fn is_agent(agent: &str) -> bool {
     !agent.is_empty() && agent.chars().all(|c| c.is_ascii_alphanumeric())
 }
