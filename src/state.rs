@@ -21,6 +21,8 @@ pub const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 pub struct PendingOauth {
     created: Instant,
     pub return_to: Option<String>,
+    /// The state this sign-in was issued under, compared with the callback's.
+    pub state: String,
     /// Already sent back once for a missing `state`; a second miss is refused.
     pub retried: bool,
 }
@@ -163,6 +165,7 @@ impl AppState {
             state.clone(),
             PendingOauth {
                 created: Instant::now(),
+                state: state.clone(),
                 return_to,
                 retried,
             },

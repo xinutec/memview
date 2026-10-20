@@ -242,3 +242,15 @@ mod retry {
         assert!(!status.is_redirection() && !status.is_success(), "{status}");
     }
 }
+
+/// The proof `exchange_code` demands is made only by a present `state` equal to
+/// the stored one.
+#[test]
+fn the_proof_is_made_only_by_a_present_matching_state() {
+    use memview::nextcloud::identity::StateMatched;
+    assert!(StateMatched::check("n0nce", "n0nce").is_some());
+    assert!(StateMatched::check("", "").is_none());
+    assert!(StateMatched::check("", "n0nce").is_none());
+    assert!(StateMatched::check("nonce", "n0nce").is_none());
+    assert!(StateMatched::check("n0nc", "n0nce").is_none());
+}

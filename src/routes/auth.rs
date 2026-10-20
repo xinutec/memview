@@ -197,11 +197,15 @@ async fn finish_sign_in(
             Redirect::to(&identity::authorize_url(auth, &state)),
         ));
     }
+    // The lookup found the entry by this key; the proof is the comparison
+    // itself, which the exchange cannot be called without.
+    let proof = identity::StateMatched::check(&from_url, &pending.state)
+        .ok_or("This sign-in did not start here, or it took too long.")?;
     let code = q
         .code
         .ok_or("The identity provider sent no authorization code.")?;
 
-    let token = identity::exchange_code(&app.http, auth, &code)
+    let token = identity::exchange_code(&app.http, auth, &code, proof)
         .await
         .map_err(|e| {
             tracing::error!("code exchange failed: {e:#}");

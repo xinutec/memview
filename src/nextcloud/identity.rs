@@ -48,6 +48,23 @@ fn with_host(req: reqwest::RequestBuilder, host: &Option<String>) -> reqwest::Re
     }
 }
 
+/// Proof that a callback's `state` equalled the nonce this server stored for
+/// the sign-in. [`exchange_code`] takes one by value and only
+/// [`StateMatched::check`] makes one, so no code is redeemed on a path that
+/// skipped the comparison (RFC 6749 §10.12; dev-lint
+/// DL-RUST-OAUTH-EXCHANGE-UNPROVEN checks the shape).
+#[derive(Debug, PartialEq, Eq)]
+pub struct StateMatched(());
+
+impl StateMatched {
+    /// The proof, when `url_state` is present and equals `stored`.
+    pub fn check(url_state: &str, stored: &str) -> Option<Self> {
+        use subtle::ConstantTimeEq;
+        let equal: bool = url_state.as_bytes().ct_eq(stored.as_bytes()).into();
+        (!url_state.is_empty() && equal).then_some(Self(()))
+    }
+}
+
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -58,6 +75,7 @@ pub async fn exchange_code(
     http: &reqwest::Client,
     auth: &AuthConfig,
     code: &str,
+    _proof: StateMatched,
 ) -> Result<String> {
     let (base, host) = server_base(auth);
     let req = http
