@@ -4,14 +4,11 @@
 #
 #   nix develop ~/Code/recall#android --command ./scripts/enrol.sh [<ip[:port]>]
 #
-# Runs over a cable or a local adb connection, and that is part of the check
-# rather than a convenience: nothing in a certificate can say that the phone which
-# produced a chain is the phone in your hand, so that half is answered by being in
-# the same room as it.
+# Over a cable or local adb, as part of the check: no certificate can prove the
+# phone that made a chain is the one in your hand.
 #
-# What the phone hands back is a claim, and `attest` is what refuses to take it on
-# trust — see console/src/attest.rs. If any check fails, nothing is pinned and this
-# exits non-zero.
+# `attest` (console/src/attest.rs) checks what the phone claims; on any failure
+# nothing is pinned.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,13 +21,10 @@ ADB="${ADB:-adb}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# The challenge, generated here and now. This is the whole reason the record is
-# evidence: a phone that could choose its own challenge could have had the answer
-# ready since the day it was compromised.
+# Fresh, so a compromised phone cannot have its answer ready.
 CHALLENGE="$(openssl rand -hex 32)"
 
-# Same model guard as every deploy.sh in the fleet — a Pixel 5 is often also
-# connected, and enrolling the wrong phone would be discovered much later.
+# A Pixel 5 is often connected too; enrol only the Pixel 9.
 for EP in "${1:-}" "10.100.0.12:5555"; do
   [ -z "$EP" ] && continue
   [[ "$EP" == *:* ]] || EP="$EP:5555"
@@ -47,12 +41,10 @@ fi
 echo "=== asking $DEVICE for a key ==="
 "$ADB" -s "$DEVICE" shell am start -S -n "$PACKAGE/.MainActivity" \
   --es enrol_challenge "$CHALLENGE" >/dev/null
-# Generating in StrongBox and writing the chain takes a moment, and the activity
-# returns before it has.
+# The activity returns before StrongBox has written the chain.
 sleep 5
 
-# exec-out, not shell: `adb shell` runs through a pty and turns every LF into CRLF,
-# which leaves a PEM that still looks fine and no longer parses.
+# exec-out: `adb shell`'s pty turns LF into CRLF and breaks the PEM.
 "$ADB" -s "$DEVICE" exec-out run-as "$PACKAGE" cat "files/enrolment.pem" > "$WORK/chain.pem"
 if [ ! -s "$WORK/chain.pem" ]; then
   echo "The phone wrote no chain. Is the app installed (console/android/deploy.sh)," >&2

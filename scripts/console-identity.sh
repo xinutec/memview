@@ -3,13 +3,11 @@
 #
 #   ./scripts/console-identity.sh [<address>...]
 #
-# Self-signed, and deliberately so. Nothing that connects to this console consults
-# a trust store — the phone pins the public key printed at the end — so a
-# publicly-issued certificate would buy nothing and cost an ACME client on the Mac,
-# a Cloudflare token in the path, a renewal that can expire at 3am, and the
-# console's name in a certificate transparency log. See docs/agent-console.md.
+# Self-signed on purpose: the phone pins the public key printed at the end and
+# consults no trust store, so a public certificate would add an ACME client, a
+# renewal and a transparency-log entry for nothing.
 #
-# The material lives outside the repository. This repository is public.
+# The key lives outside this public repository.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,11 +20,8 @@ if [ -s "$DIR/server.key" ]; then
   exit 1
 fi
 
-# Every address the console might be reached on. Chromium ignores the common name
-# entirely, so a certificate with no subjectAltName matches nothing — and this is
-# also what makes it a version-3 certificate at all: macOS ships LibreSSL, whose
-# `req -x509` emits a v1 certificate when no extension asks otherwise, and rustls
-# refuses those with `UnsupportedCertVersion` and no hint about why.
+# Every address the console may be reached on. Chromium ignores the common name,
+# and the extension also makes LibreSSL emit a v3 certificate; rustls refuses v1.
 ADDRESSES=("$@")
 if [ ${#ADDRESSES[@]} -eq 0 ]; then
   ADDRESSES=(127.0.0.1)
@@ -37,14 +32,9 @@ if [ ${#ADDRESSES[@]} -eq 0 ]; then
   # The VPN address is on a utun interface, which ipconfig does not answer for.
   VPN="$(ifconfig 2>/dev/null | awk '/inet 10\.100\./ {print $2}' | head -1)"
   [ -n "$VPN" ] && ADDRESSES+=("$VPN")
-  # The phone does not dial this Mac. It reaches the console through the
-  # reverse tunnel, so the address in its URL is the one the tunnel listens on
-  # over on isis — which is on no interface here and therefore in nothing above.
-  # Leaving it out produced a certificate that was correct about every address
-  # except the only one a phone ever uses: measured as `net_error -200`,
-  # ERR_CERT_COMMON_NAME_INVALID, on every connection, silently overridden by the
-  # pin and costing a failed handshake each time. Read from the tunnel's own
-  # script so the two cannot disagree.
+  # The address the phone actually uses: the tunnel's listener on isis, on no
+  # interface here. Without it every handshake failed the name check before the
+  # pin overrode it. Read from the tunnel script so the two agree.
   TUNNEL="$(sed -n 's/^LISTEN="\${CONSOLE_TUNNEL_LISTEN:-\([0-9.]*\):.*/\1/p' \
     "$(dirname "$0")/console-tunnel.sh" 2>/dev/null | head -1)"
   [ -n "$TUNNEL" ] && ADDRESSES+=("$TUNNEL")
@@ -59,8 +49,7 @@ mkdir -p "$DIR"
 chmod 700 "$DIR"
 
 echo "generating a P-256 key for: ${ADDRESSES[*]}"
-# Two steps rather than `req -newkey ec`: LibreSSL's -pkeyopt is not the same
-# animal as OpenSSL's, and this pair of commands means the same thing to both.
+# Two steps, not `req -newkey ec`: LibreSSL's -pkeyopt differs from OpenSSL's.
 openssl ecparam -name prime256v1 -genkey -noout -out "$DIR/server.key"
 chmod 600 "$DIR/server.key"
 openssl req -new -x509 -key "$DIR/server.key" -out "$DIR/server.crt" \
@@ -70,9 +59,7 @@ openssl req -new -x509 -key "$DIR/server.key" -out "$DIR/server.crt" \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=serverAuth"
 
-# Ten years, and no renewal reminder, because nothing checks the dates: the phone
-# compares public keys and the console's own gate ignores expiry on purpose. The
-# date is there because X.509 demands one.
+# Ten years, never renewed: the phone compares keys and the gate ignores expiry.
 
 PIN="$(nix develop -c cargo run -q -p console --bin pin -- "$DIR/server.crt")"
 

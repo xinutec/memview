@@ -2,13 +2,9 @@
 # Claude Code PostToolUse hook: after a session touches the memory directory, tell
 # it about any index line not yet committed whose memory has no `role:`.
 #
-# The commit-msg hook in ~/.claude refuses this only for a session that commits
-# its own memory; most leave their edits to the nightly, which only warns
-# (memview#1537). The write is the one moment the writing session is always
-# present. Bash is watched as well as Write/Edit: sessions edit with `sed` and
-# heredocs, which a Write|Edit matcher never sees.
-#
-# Never blocks: it adds context, and says nothing when there is nothing to say.
+# commit-msg refuses this only for a session committing its own memory; most
+# leave theirs to the nightly, which only warns. Bash is watched too: sessions
+# edit memories with `sed` and heredocs. Never blocks; silent when all is judged.
 set -euo pipefail
 
 # The project directory Claude Code keeps for ~/Code: its path with `/` as `-`.

@@ -1,41 +1,24 @@
 #!/usr/bin/env bash
-# Run the gate checks that this working tree's changes could break, with the
-# GATE'S OWN argv rather than a retyped approximation.
+# Run the gate checks this working tree's changes could break, with the gate's
+# own argv.
 #
 #   ./scripts/gate-changed.sh          # against HEAD
 #   ./scripts/gate-changed.sh --all    # every check, i.e. the full gate
+#   ./scripts/gate-changed.sh <name>   # the checks whose name contains it
 #
-# THIS IS NOT THE GATE AND MUST NEVER READ AS IT. A subset that passes is
-# not the gate passing, so it prints what it SKIPPED and says so at the end. The
-# pre-commit hook is the only thing that judges a commit, and a skipped check is
-# not a passed one — dev-lint's DL-NO-SILENT-CAPS.
+# NOT THE GATE: a passing subset is not a passing gate, so it names what it
+# skipped. The argv is read from `gate.json`, never retyped: `cargo clippy
+# --all-targets` without `--workspace` lints one crate and still passes.
 #
-# Not fast by default. It costs whatever the selected checks cost, and a
-# corpus or transcript change selects the slow ones. Read the SKIPPED list, not a
-# remembered duration.
-#
-# The argv comes out of `gate.json` and is never written here. A retyped
-# command drifts from the one that will judge the commit, and the drift is
-# invisible because the weaker command still exits 0: `cargo clippy
-# --all-targets` without `--workspace` lints the root package alone and passes.
-#
-# `-e` is safe even though this must survive a failing check to collect the
-# rest: every check runs inside `if out=$(...)`, a tested command, where `set
-# -e` does not fire. Dropping it is refused by DL-SHELL-STRICT-MODE.
+# `-e` holds although a failing check must not stop the rest: each runs inside
+# `if out=$(...)`, where `set -e` does not fire.
 set -euo pipefail
-# An unchecked `cd` would run every line below in the wrong directory and say
-# nothing — DL-SHELL-CD-UNCHECKED.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 want_all=false
 only=""
 case "${1:-}" in
   --all) want_all=true ;;
-  # A NAME runs that check with the gate's argv. This exists so there is
-  # never a reason to type `cargo clippy` by hand during a loop: the whole defect
-  # this script was written for is that a retyped command drifts — `--workspace`
-  # missing lints one crate of four, and still exits 0. If the right thing is not
-  # addressable, the wrong thing gets typed.
   "") ;;
   *) only="$1" ;;
 esac
@@ -43,9 +26,7 @@ esac
 changed=$(git status --porcelain | awk '{print $NF}')
 [[ -n $changed ]] || { echo "nothing changed — the gate has nothing to narrow to"; exit 0; }
 
-# What each check's verdict can depend on. A check absent from this table runs
-# ALWAYS: an unmapped check must be conservative, because guessing it is
-# irrelevant is how a subset silently stops covering something.
+# What each check's verdict can depend on. An unmapped check always runs.
 matches() {
   case "$1" in
     formatting|clippy|tests|"workspace members are in every build that loads them")
@@ -82,7 +63,6 @@ done <<<"$names"
 
 echo
 echo "ran $ran, skipped ${#skipped[@]}, failed ${#failed[@]}"
-# Named, not counted. "skipped 11" invites reading it as covered.
 for s in "${skipped[@]}"; do echo "  skipped: $s"; done
 if ((${#failed[@]})); then exit 1; fi
 echo "⚠ a subset passed. THIS IS NOT THE GATE — the pre-commit hook is."

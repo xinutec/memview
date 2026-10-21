@@ -4,41 +4,22 @@
 #   ./scripts/console-upgrade.sh          # build, install, upgrade in place
 #   ./scripts/console-upgrade.sh --install-only
 #
-# **Why this exists rather than `launchctl kickstart -k`.** kickstart sends
-# SIGTERM. The console answers SIGTERM by shutting every session down on purpose
-# — an orphaned `claude` keeps its id and its process-table row, where
-# `past::in_use` then refuses to resume the very conversation nobody is using. So
-# the obvious restart is the one that costs every open conversation, and this
-# script exists so the right way is also the easy way.
+# Not `launchctl kickstart -k`: its SIGTERM is the console's stop path, which
+# ends every session (an orphaned `claude` would block resuming its own
+# conversation). SIGUSR2, as in nginx, makes `Roster::handover` `execve` the new
+# binary in the same pid: the children and their pipes survive and launchd sees
+# no restart. A failed handover leaves the old build running, holding everything.
 #
-# SIGUSR2 is the upgrade signal, spelled the way nginx spells it and for the same
-# reason: `kill` means stop, and an upgrade answering to it would be a stop that
-# sometimes did not stop. `Roster::handover` catches it and `execve`s the binary
-# — **same pid**, so the children stay children, their stdin/stdout/stderr are
-# carried across in a HANDOVER env var, and launchd never sees a restart at all.
-#
-# Install by atomic rename. macOS refuses to write to a running executable,
-# but replacing the directory entry is fine: the running process keeps its inode
-# and the path gains the new build, which is exactly what the re-exec then picks
-# up. Writing in place would fail; deleting first would leave a window where the
-# service cannot start.
-#
-# If the handover fails the console keeps running the OLD build, holding
-# everything it held. That is deliberate in the runner — exiting on a failed exec
-# would leave live `claude` processes with nobody holding their stdin — so a
-# failure here is a no-op, not an outage.
+# Installed by atomic rename: macOS refuses writes to a running executable, and
+# the running process keeps its inode.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONSOLE_BIN="${CONSOLE_BIN:-$HOME/.local/libexec/agent-console}"
 DESK="${CONSOLE_DESK_ADDR:-127.0.0.1:8096}"
 
-# A flake build cannot see an untracked file. `nix build` takes the git
-# working tree, modifications and all, but a file nobody has `git add`ed is not
-# in it — so a new module would go missing from the build with nothing said. The
-# common case is loud (a missing module fails to compile), which is exactly why
-# the quiet one is worth a guard: a new file that nothing references yet, added
-# to in the same session it is referenced from.
+# The flake build cannot see an untracked file; a new module nothing references
+# yet would be left out silently.
 untracked="$(git ls-files --others --exclude-standard -- console reader src)"
 if [ -n "$untracked" ]; then
   echo "untracked source — nix will not see these, git add them first:" >&2
@@ -46,31 +27,20 @@ if [ -n "$untracked" ]; then
   exit 1
 fi
 
-# Built by nix rather than by `cargo build --release` in the dev shell: the
-# toolchain, the dependency tree and the flags are then the flake's rather than
-# whatever the shell happens to hold, which is what makes the installed copy
-# reproducible from the commit. It costs about 80 seconds against cargo's 15 —
-# measured — because a source change recompiles the whole vendored
-# tree. That is the wrong trade for iterating and the right one for installing,
-# and this script is the installing one; `cargo run -p console` is still there
-# for the other.
+# Built by nix, not the dev shell's cargo, so the install is reproducible from the
+# commit. It is slower (the whole vendored tree recompiles); iterate with
+# `cargo run -p console`.
 LIBEXEC="$(dirname "$CONSOLE_BIN")"
 mkdir -p "$LIBEXEC"
 
-# The installed copy is not free of the store. It is a plain file this user
-# owns, but `otool -L` says it loads libiconv from an absolute
-# `/nix/store/…` path, so a garbage collection that took that path would leave a
-# binary dyld cannot start — at the next restart, not at collection, since a
-# running process keeps its mapping. The out-link is an indirect GC root, which
-# is the whole reason it exists here rather than `--no-link`; it doubles as
-# provenance, naming the store path this copy was made from.
+# The out-link is a GC root: the copy loads libiconv from the store, and a
+# collected path would stop it at its next start. It also names the build's source.
 echo "building..."
 out="$(nix build .#console --out-link "$LIBEXEC/.agent-console-build" --print-out-paths)"
 built="$out/bin/console"
 [ -x "$built" ] || { echo "no binary at $built" >&2; exit 1; }
 
-# Staged in the DESTINATION directory, so the rename cannot cross a filesystem
-# and stays atomic — see the note above on why writing in place would fail.
+# Staged in the destination directory so the rename stays on one filesystem.
 install_as() {
   local staged="$2.incoming.$$"
   cp "$1" "$staged"
@@ -81,26 +51,16 @@ install_as() {
 
 install_as "$built" "$CONSOLE_BIN"
 
-# The service's two scripts are installed as well, and the launchd job names
-# THESE copies rather than the ones in the checkout. Measured once ~/Code became
-# symlinks to an external volume: under launchd an Apple binary is
-# refused that volume, so `/bin/bash <checkout>/scripts/console-service.sh` exits
-# 126 — and with an empty log, because the log path was on the volume too. A
-# program under ~/.local/libexec spawns normally. console-service.sh carries the
-# full measurement; xinutec-infra's hm-agents.nix is where the plist names them.
+# The launchd job runs these installed copies: under launchd, Apple's binaries are
+# refused the external volume the checkout lives on (see console-service.sh).
 install_as scripts/console-service.sh "$LIBEXEC/agent-console-service"
 install_as scripts/console-tunnel.sh "$LIBEXEC/console-tunnel.sh"
 
-# An `if`, not `[ … ] && exit 0`: under `set -e` an AND-list whose test fails is
-# itself a failed statement, so the common path — no argument at all — would have
-# exited 0 here without ever upgrading anything.
 if [ "${1:-}" = "--install-only" ]; then
   exit 0
 fi
 
-# By pid, and the pid comes from whoever is LISTENING on the desk port — never by
-# name. `pgrep console` would also match this script, an editor, and anything else
-# with the word in its command line; the port has exactly one owner.
+# The pid listening on the desk port; `pgrep console` matches this script too.
 listening() {
   lsof -nP -iTCP:"${DESK##*:}" -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -1
 }
@@ -113,9 +73,7 @@ fi
 echo "upgrading pid $before in place (SIGUSR2)"
 kill -USR2 "$before"
 
-# The re-exec keeps the pid, so "did it work" is not "is it alive" — it is
-# "is the SAME pid serving again". A dead pid means the handover exited, which is
-# the one outcome the runner is written to avoid.
+# Success is the SAME pid serving again; a new pid means the sessions were lost.
 for _ in $(seq 1 30); do
   if curl -sf -o /dev/null "http://$DESK/api/state"; then
     after="$(listening)"

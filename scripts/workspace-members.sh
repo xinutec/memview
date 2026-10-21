@@ -3,24 +3,15 @@
 #
 #   ./scripts/workspace-members.sh
 #
-# Cargo loads EVERY member's manifest before it compiles anything, so a member
-# missing from a build's source tree fails that build in a tenth of a second
-# with an error naming the workspace rather than the file. Three places have to
-# list them, and none of them is generated:
+# Cargo loads every member's manifest first, so a member missing from a build's
+# source fails that build. None of these lists is generated:
 #
 #   Cargo.toml   `members` — the truth
 #   Dockerfile   a `COPY <m>/Cargo.toml` and a stub in the dep-caching layer
 #   flake.nix    the `fileset` the console package is built from
 #
-# This has now failed twice, and the second time a comment was already there
-# asking for it. `reader` arrived and the image job stayed red for dozens of
-# runs while the gate stayed green. `bash-oracle` arrived and broke the flake's
-# console build locally and the image job on push — the Dockerfile's
-# own comment said "this list has to gain a line every time `members` does", and
-# it did not help, because nothing read it at the moment it mattered.
-#
-# The gate does not build the image (it is slow and needs a registry), so this
-# is the only thing standing between a new member and a red push.
+# The gate does not build the image, so without this a new member turns the image
+# job red only on push.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,43 +1,19 @@
 #!/usr/bin/env bash
-# The runner is the hook. What to show on success, what exit 2 means, what a
-# signal death left unjudged, and the ledger of what a failing run refused —
-# the gate keeps each itself now (~/.cache/dev-lint-gate/failures.jsonl, with
-# the staged set and the logs), so this only starts it, after the one check
-# that is this repository's own.
+# Starts the gate, which keeps its own results and failure ledger
+# (~/.cache/dev-lint-gate/failures.jsonl), after this repository's one own check.
 set -euo pipefail
 
-# ⚠ **Whose work is in the index — FIRST, before the nine-minute gate.** `git
-# commit` takes the whole INDEX, so `git add <paths>` does not protect you: a
-# session staging between your add and your commit ships their work under your
-# message (memview#1258). Running it first means you can stop and unstage
-# instead of finding out after the gate.
-#
-# ⚠ **A HOOK, not a gate row.** The gate prints a check's output only when it
-# FAILS, and this one must never fail — two sessions legitimately edit one file
-# and a refusal would wedge a shared repo. A warning inside a passing gate row
-# is a warning nobody ever sees.
-# ⚠ `$HOME`, never a literal home directory: this repo is public, and a hook
-# welded to one machine's layout is a hook nobody else can run.
-#
-# ⚠ **Tier 1 was an absolute cache path until 2026-09-13, and that directory had
-# been deleted since 2026-09-05** (the fleet went back to a per-repo `target/`).
-# It never matched, so the fallback always won and this hook ran whatever copy
-# the 00:30 nightly last installed — a `staged-check` rebuilt in this very
-# checkout could not reach a commit here for up to a day, which is the opposite
-# of what tier 1 is for. Nothing failed, and that is why it went a week
-# unnoticed (#1578).
-#
-# Repo-relative now: this binary is THIS repo's, the hook has already `cd`ed to
-# the toplevel, and a relative path cannot rot independently of the checkout the
-# way an absolute cache path did.
+# Whose work is staged, before the long gate: `git commit` takes the whole index,
+# so another session's staging ships under your message. A hook, not a gate row:
+# it only warns (two sessions may edit one file), and the gate shows a passing
+# row's output to nobody. This repo's own build first, by a relative path (hooks
+# run at the toplevel), so a rebuilt check applies at once.
 STAGED_CHECK="target/release/staged-check"
 [[ -x $STAGED_CHECK ]] || STAGED_CHECK="$HOME/.local/bin/staged-check"
 if [[ -x $STAGED_CHECK ]]; then
-  # ⚠ It resolves the record's own spelling of this directory itself — see
-  # `staged-check`'s `wrong_shape` handling. The hook only names where it is.
+  # staged-check resolves the record's spelling of this directory itself.
   git diff --cached --name-only | "$STAGED_CHECK" "$(pwd)" || true
 else
-  # ⚠ A silent skip is a check that reports nothing and looks clean.
   echo "⚠ staged-check not built — whose-work-is-staged check SKIPPED, not passed." >&2
   echo "  build it: nix develop -c cargo build --release --bin staged-check" >&2
 fi

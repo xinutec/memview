@@ -4,33 +4,14 @@
 #   ./scripts/awake-watch.sh [hours]        # default 12
 #   tail -f ~/Library/Logs/awake-watch.log
 #
-# WHY A WATCHER AND NOT A TEST. memview#892 was found twice by hand, hours apart,
-# and never reproduced deliberately.
+# A watcher, not a test: the fault was seen twice by hand and cannot be induced.
+# Android's cached-app freezer stops the process about 40 s after screen-off, and
+# a stopped page runs no JavaScript, so it cannot notice a lost lock. (Freezing
+# alone does not drop KEEP_SCREEN_ON: the flag lives in WindowManager.)
 #
-# What was measured about freezing is NARROWER than "the freeze theory is
-# dead", which is how it first got written down. `am freeze --sticky` with the
-# app in FRONT leaves KEEP_SCREEN_ON standing — so
-# freezing does not strip the window flag, because the flag lives in
-# WindowManager and outlives the process being stopped. It says nothing about the
-# real sequence: Android's cached-app freezer SIGSTOPs a process ~40s after
-# SCREEN-OFF (memory `reference_android_cached_app_freezer`), and a stopped
-# process runs no JavaScript — so the page cannot notice a lock it lost, and
-# cannot re-take one, for as long as it is frozen. That is precisely why the fix
-# is a heartbeat that measures its own LATENESS rather than a timer that trusts
-# it fired. Do not restate the narrow measurement as the broad claim.
-#
-# There is still no way to induce the fault on demand, and a green run of
-# anything proves only that the fault did not happen while it ran.
-#
-# What is left is the symptom, which is unambiguous and cheap to sample: the app
-# says it is holding the screen and no window on the device is. This records that
-# over hours, so #892 closes on evidence instead of on nobody having noticed.
-#
-# `dumpsys` alone cannot tell a fault from you turning the button off. A
-# missing lock is only wrong if the button is still lit, and that lives in the
-# page. So the cheap check runs every minute and the expensive one — CDP into the
-# WebView, read `aria-pressed` — runs ONLY when the cheap one looks wrong. A
-# confirmed fault is `pressed=true` with no lock.
+# `dumpsys` alone cannot tell a fault from the button turned off, so the
+# one-minute check is cheap and the page is read over CDP only when it looks
+# wrong. A fault is `aria-pressed=true` with no lock.
 set -euo pipefail
 
 HOURS="${1:-12}"
@@ -47,16 +28,9 @@ fi
 
 say() { printf '%s %s\n' "$(date '+%F %T')" "$1" | tee -a "$LOG"; }
 
-# Whether the console is the resumed activity AND the display is on. A lock means
-# nothing while the screen is off, and nothing while another app is in front.
-#
-# `mWakefulness` is NOT the display, and reading it here made the gate lie.
-# It is the power state machine: it says `Awake` for a device that is up with its
-# screen off, which has been seen directly — the phone dark and locked while this
-# reported `Awake`. That is fatal rather than merely noisy,
-# because `KEEP_SCREEN_ON` is 0 on EVERY window whenever the screen is off, so a
-# dark phone with the button still lit is scored as a fault every single minute.
-# `dumpsys display`'s `mScreenState` answers the question actually being asked.
+# The console is in front and the display is on; otherwise a lock means nothing.
+# `mScreenState`, not `mWakefulness`: that says `Awake` with the screen off, when
+# KEEP_SCREEN_ON is 0 on every window, so every dark minute scored as a fault.
 watching() {
   local top on
   top=$(adb -s "$DEVICE" shell dumpsys activity activities 2>/dev/null | grep -c "topResumedActivity.*$PKG" || true)
@@ -64,14 +38,9 @@ watching() {
   [ "$top" -gt 0 ] && [ "$on" -gt 0 ]
 }
 
-# Only THIS app's window counts. A plain `grep -c KEEP_SCREEN_ON` counts the
-# whole device, and the fleet is a dozen WebView wrappers with the same button:
-# `org.xinutec.heatcam` has been seen holding one at the same moment as the
-# console. Any other app holding one would read as the console holding one, so
-# the watcher would go quiet on exactly the fault it exists to catch.
-#
-# `fl=` and `package=` live in the same window block, so the package last seen is
-# the one a flag line belongs to.
+# This app's windows only: other WebView wrappers hold the flag too, and counting
+# theirs would hide the console's fault. A `fl=` line belongs to the last
+# `package=` seen.
 held() {
   adb -s "$DEVICE" shell dumpsys window windows 2>/dev/null | awk -v pkg="$PKG" '
     /package=/ { owner = $0; sub(/.*package=/, "", owner); sub(/ .*/, "", owner) }
@@ -79,26 +48,18 @@ held() {
     END { print n + 0 }'
 }
 
-# The SECOND instrument, and the reason there are two. `dumpsys power` lists the
-# live wake locks with the package attributed directly:
+# A second instrument: `dumpsys power` attributes each wake lock to a package
 #
 #   SCREEN_BRIGHT_WAKE_LOCK 'WindowManager/displayId:0' … ws=WorkSource{10562 org.xinutec.console}
 #
-# It is the ground truth that proved `navigator.wakeLock` works in this WebView
-# at all (memory `reference_android_webview_cdp`), and it needs no block-pairing,
-# so it cannot be defeated by another app the way a device-wide `grep -c` is. It
-# agrees with `held` in the healthy state — which per this repo's own hard-won
-# rule is NOT evidence that they agree in the fault state. So both are read, and a disagreement is reported as its own event
-# rather than silently resolved: two instruments that part company are a finding
-# about the instruments, and believing either one alone is how the last three
-# measurement bugs here survived.
+# It agrees with `held` when healthy, which says nothing about a fault, so a
+# disagreement is logged as its own event rather than resolved.
 attributed() {
   adb -s "$DEVICE" shell dumpsys power 2>/dev/null |
     grep -c "WAKE_LOCK.*ws=WorkSource{[0-9]* $PKG" || true
 }
 
-# The button's own answer. Only asked when the lock is missing, because it costs a
-# port forward and a websocket every time.
+# The button's state, read over CDP; costs a port forward, so only on a missing lock.
 pressed() {
   local pid
   pid=$(adb -s "$DEVICE" shell pidof "$PKG" 2>/dev/null | tr -d '\r')
@@ -120,12 +81,7 @@ SPLITS=0
 SAMPLES=0
 DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
 
-# Silence has to be distinguishable from death. A watcher that only speaks
-# on a fault reads exactly the same whether it is healthy, wedged, or was killed
-# an hour ago — and a run that sampled nothing looks like a run that found
-# nothing. Both mistakes were made in one night getting here. So it says how much
-# it has actually seen, periodically, and the count is the evidence rather than
-# the quiet.
+# A periodic count, so a healthy run is told apart from a wedged or dead one.
 PROGRESS_EVERY=30
 
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do

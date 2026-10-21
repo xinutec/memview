@@ -9,8 +9,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-# Named separately from a parse failure below: without this, an absent cargo is
-# reported as "the manifests do not parse", which is a different bug entirely.
+# Otherwise a missing cargo reads as "the manifests do not parse".
 if ! command -v cargo >/dev/null; then
   echo "cargo is not on PATH; run this inside the dev shell." >&2
   exit 2
