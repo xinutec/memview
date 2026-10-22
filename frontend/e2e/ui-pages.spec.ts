@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { screens } from '@xinutec/ui-harness/routes';
+
+import ROUTES from './routes.json';
 import type {
   AgentsResult,
   CorpusRead,
@@ -517,6 +520,24 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/doing**', (r) => r.fulfill({ json: DOING }));
   await page.route('**/api/effects**', (r) => r.fulfill({ json: EFFECTS }));
   await page.route('**/api/reading', (r) => r.fulfill({ json: READING }));
+}
+
+/** Intended horizontal scrollers, by route, for the every-route check below. */
+const SCROLLERS: Readonly<Record<string, string[]>> = {
+  '/m/:name': ['.md-content pre', '.md-content table'],
+};
+
+/** Every screen in the route table (`routes.json`), not only those a test above opens. */
+for (const { route, url } of screens(ROUTES.routes, {
+  name: 'project_health_verified_core_lean',
+})) {
+  test(`${route} lays out cleanly @ phone width`, async ({ page }, testInfo) => {
+    await mockApi(page);
+    await page.goto(url);
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('ui-scaffold h1')).not.toBeEmpty();
+    await expectCleanLayout(page, testInfo, { allow: SCROLLERS[route] ?? [] });
+  });
 }
 
 // The checker-checker: fail loudly here if the device preset is ever lost and
