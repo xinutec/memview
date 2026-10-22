@@ -708,10 +708,8 @@ fn a_value_that_must_be_run_binds_nothing() {
     // for a tool called `$(which adb)`. 13 of 1,023 `$ADB` uses, so the cost of
     // refusing is 13 commands and the cost of guessing is a corrupt index.
     //
-    // That refusal stands; where the refused call is COUNTED has moved.
-    // `$ADB` is not a name the table could ever hold, so it is filed with the
-    // other unnameable calls rather than on the worklist — memview#1158, and
-    // the same argument #1124 made for a script's own functions.
+    // `$ADB` is no name the table could hold, so the refused call is filed with
+    // the other unnameable calls, not on the worklist.
     for script in [
         "ADB=$(which adb)\n$ADB shell ls",
         "ADB=`which adb`\n$ADB shell ls",

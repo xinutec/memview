@@ -1,7 +1,7 @@
 //! What has been written and not sent, per conversation, shared between devices.
 //!
 //! A draft is a [`yrs`] document and a push an update, which merges: there is no
-//! conflict to resolve. One way in, `/api/sync/drafts`, in life's shape. Text only;
+//! conflict to resolve. One way in, `/api/sync/drafts`, shaped as the life app's sync is. Text only;
 //! a picture stays in the client.
 
 use base64::Engine;

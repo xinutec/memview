@@ -245,7 +245,7 @@ pub struct Since {
     pub since: Option<u64>,
 }
 
-/// Every draft past the caller's checkpoint, by life's sync protocol.
+/// Every draft past the caller's checkpoint, by the life app's sync protocol.
 async fn pull_drafts(
     State(roster): State<Arc<Roster>>,
     Query(from): Query<Since>,

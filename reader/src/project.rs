@@ -141,17 +141,12 @@ pub struct Ran {
 }
 
 /// Every simple command the script *ran*: as [`project`], with the loops the
-/// text already determines run out into their iterations.
+/// text already determines run out into their iterations. [`project`] is what
+/// the text says; this is what it did.
 ///
-/// This is where the reader stops looking commands up and starts evaluating
-/// them, and it is the same step [`crate::shell_files`] takes on the flat list
-/// — moved here because the tree has the loop, where that one had to find the
-/// `done` by counting keywords. A `for` over a literal word list says exactly
-/// what happened, and reading it as a header plus a body full of `$f` throws
-/// away the largest single class of unnamed subject there is.
-///
-/// The two entry points are the same distinction the flat chain draws between
-/// `shell::parse` and its `unrolled`: what the text says, and what it did.
+/// A `for` over a literal word list says exactly what happened; read as a header
+/// and a body full of `$f`, it would be the largest single class of unnamed
+/// subject.
 pub fn run_out(script: &Script) -> Ran {
     walk(script, true)
 }

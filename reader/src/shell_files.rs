@@ -1272,9 +1272,9 @@ fn extract_nested(
 
 /// `for NAME in <pattern>`, where the list is a glob the filesystem answered.
 ///
-/// The complement of [`literal_loop`]: that one runs a loop out because the text
-/// determines it, this one recognises the loop it *cannot* run out but can still say
-/// something true about.
+/// The complement of [`crate::project::run_out`]: that runs a loop out because the
+/// text determines it; this recognises a loop it *cannot* run out but can still
+/// say something true about.
 ///
 /// A list mixing a glob with a `$(…)` is refused whole. The glob part is still a
 /// bound, but which word the variable took on any iteration is then unknowable, and
@@ -1289,10 +1289,9 @@ fn glob_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
     }
-    // Not [`determinate`], which refuses `*` — that is precisely what makes these
-    // loops unrunnable, and testing for it rejects the whole population. What must be
-    // absent is an *expansion*: a `$` or a backtick leaves the pattern itself unknown,
-    // and a brace expands one word into several.
+    // A `*` is allowed: it is what makes these loops unrunnable. What must be absent
+    // is an *expansion*: a `$` or a backtick leaves the pattern itself unknown, and a
+    // brace expands one word into several.
     if values
         .iter()
         .any(|value| value.contains(['$', '`', '{']) || value.is_empty())
