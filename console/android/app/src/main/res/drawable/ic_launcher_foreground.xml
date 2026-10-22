@@ -11,15 +11,15 @@
          Solid white, no second tone: this same drawable is the <monochrome> layer
          for themed icons, where a tint would wash a second colour out anyway. The
          adaptive-icon safe zone is the middle 72 of 108, so nothing strays outside
-         18..90. -->
+         18..90, and the ink (31..77 with the strokes) is centred on 54. -->
     <path
-        android:pathData="M38,40 L54,54 L38,68"
+        android:pathData="M35,40 L51,54 L35,68"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
     <path
-        android:pathData="M62,68 L76,68"
+        android:pathData="M59,68 L73,68"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="8"
         android:strokeLineCap="round" />

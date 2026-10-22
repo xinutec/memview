@@ -13,13 +13,15 @@
          for themed icons, where a tinted second colour would wash out.
 
          The source viewBox is 0 0 64 64 and the adaptive-icon safe zone is the
-         middle 72 of 108, so the group scales by 72/64 = 1.125 and is offset by
-         (108 - 64 * 1.125) / 2 = 18. -->
+         middle 72 of 108, so the group scales by 72/64 = 1.125. The offset
+         centres the INK, not the viewBox: the nodes span x 16..50, y 18..52,
+         so their centre (33, 35) lands on 54,54 at 54 - 1.125 * 33 = 16.875
+         and 54 - 1.125 * 35 = 14.625. Centred on the viewBox it sat 3.4dp low. -->
     <group
         android:scaleX="1.125"
         android:scaleY="1.125"
-        android:translateX="18"
-        android:translateY="18">
+        android:translateX="16.875"
+        android:translateY="14.625">
         <!-- Edges first, so the nodes sit on top of the joins. -->
         <path
             android:strokeColor="#FFFFFF"
