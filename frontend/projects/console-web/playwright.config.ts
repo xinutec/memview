@@ -15,6 +15,6 @@ import harness from './e2e/harness.mjs';
 export default defineConfig(
   phoneConfig(harness, devices, {
     // Not two-devices.spec.ts, which has its own config.
-    testMatch: '**/{list,transcript,asks,pictures,edits,chrome}.spec.ts',
+    testMatch: '**/{list,transcript,asks,pictures,edits,chrome,every-route}.spec.ts',
   }),
 );
