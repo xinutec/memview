@@ -32,7 +32,7 @@
     outline: 2px solid var(--mat-sys-primary);
   }
 
-  // Spaced by margin, not padding: the autosize measures the text alone.
+  // Spaced by margin, not padding, so the box's height is its text's.
   textarea {
     flex: 1;
     min-width: 0;

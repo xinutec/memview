@@ -9,7 +9,6 @@ import { ConsoleApi } from './console-api';
 import { Landmark, Mark } from './models';
 import { reason } from './errors';
 
-/** What the sheet is opened with. */
 export interface Where {
   readonly session: string;
 }
@@ -106,9 +105,7 @@ export class JumpSheet {
   protected readonly where = inject<Where>(MAT_BOTTOM_SHEET_DATA);
 
   protected readonly all = signal<Landmark[] | undefined>(undefined);
-  /**
-   * Why the list could not be read.
-   */
+  /** Why the list could not be read. */
   protected readonly trouble = signal('');
   /** Which kinds are shown. All of them until somebody narrows it. */
   protected readonly kinds = signal<Mark[]>([...FILTERS]);

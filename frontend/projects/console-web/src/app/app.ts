@@ -45,6 +45,7 @@ import { SessionStore } from './session-store';
   ],
 })
 export class App {
+  // Instrumented once, from the shell, so no new control can be missed.
   private telemetry = inject(Telemetry);
   private store = inject(SessionStore);
   private restyle = inject(Restyle);
@@ -62,7 +63,6 @@ export class App {
   protected readonly modeIcon = computed(() => modeIcon(this.here.open()?.mode));
   protected readonly loud = computed(() => modeIsLoud(this.here.open()?.mode));
 
-  // Instrumented once, from the shell, so no new control can be missed.
   /**
    * Which build this page is, stamped into the bundle: a page cached in the
    * WebView must show its own age. `+` means an uncommitted tree.

@@ -220,8 +220,6 @@ export class SessionsView {
         // Named, where a running session's is not: a transcript records how full each
         // request was and never the window, so a bare `340k` beside `12 MB` needs a unit.
         context: conversation.context ? `${tokens(conversation.context)} tokens` : undefined,
-        // Where it earns its keep: a name you have not opened in a week is a
-        // word, and this says what the week's work was.
         gist: gists[conversation.id],
         tasks: tasks[conversation.id],
         draft: !!drafts[conversation.id]?.text,
@@ -229,7 +227,6 @@ export class SessionsView {
         at: conversation.modified,
       });
     }
-    // Newest last-activity first inside a rank.
     return rows.sort((a, b) => a.rank - b.rank || b.at - a.at);
   });
 
@@ -240,7 +237,6 @@ export class SessionsView {
     // The roster does the asking; this says the list is being read, and stops when
     // the page goes.
     this.until.onDestroy(this.roster.follow());
-    // This page's own timer for the conversations on disk, stopped when it goes.
     const poll = setInterval(() => this.pastStore.load(), 5000);
     this.until.onDestroy(() => clearInterval(poll));
     this.pastStore.load();
@@ -251,7 +247,7 @@ export class SessionsView {
     }, this.until);
   }
 
-  /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
+  /** Offer the form that starts one. */
   add(): void {
     // Wired into history: the list is the root, so a back press with this open
     // leaves the app altogether. See [[Sheets]].
@@ -279,13 +275,11 @@ export class SessionsView {
   }
 
   /**
-   * Pick up a conversation where it left off. Only safe for one that has ended;
-   * the console cannot see a `claude` in a terminal, so the template's warning
-   * is the whole of the guard.
+   * Pick up a conversation where it left off. A busy one is ignored here, as the
+   * whole row is the control; a `claude` in a terminal is invisible to the
+   * console, so there the template's warning is the only guard.
    */
   resume(conversation: Conversation | undefined): void {
-    // The row is the whole control, so the guard belongs here: a busy conversation
-    // tapped anyway would be refused with an error for doing what the row offered.
     if (!conversation || conversation.busy) return;
     this.open(conversation.dir, conversation.id);
   }
@@ -310,12 +304,10 @@ export class SessionsView {
     });
   }
 
-  /** How long ago, from a millisecond timestamp. See [[since]]. */
   ago(at: number): string {
     return since(at);
   }
 
-  /** Whether the prompt cache's hour is still running, and so whether to show it. */
   withinHour(at: number): boolean {
     return withinCacheHour(at);
   }
@@ -337,7 +329,6 @@ export class SessionsView {
   /** What the reddening clock means, for a title and a screen reader. */
   cacheSays(at: number): string {
     const left = Math.max(0, Math.round(60 - (Date.now() - at) / 60000));
-    // What is left, which is the number the reader acts on.
     return `${left}m left of the hour the prompt cache lasts`;
   }
 

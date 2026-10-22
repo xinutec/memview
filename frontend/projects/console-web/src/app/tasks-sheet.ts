@@ -10,7 +10,6 @@ import { Status, Task } from './models';
 import { Rendered } from './rendered';
 import { reason } from './errors';
 
-/** What the sheet is opened with. */
 export interface Which {
   readonly session: string;
   readonly name?: string;

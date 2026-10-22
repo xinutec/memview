@@ -39,7 +39,6 @@ export class Awake {
     this.core.start();
   }
 
-  /** The button. */
   toggle(): void {
     this.core.toggle();
   }

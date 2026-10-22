@@ -19,9 +19,9 @@ export interface StartWhere {
 }
 
 /**
- * Start a session, from behind the one control that offers it. A sheet: the
- * list is what the console is opened for and starting is rare. It carries its own trouble, since a refusal
- * — a directory outside the allow list — is answered by editing the field.
+ * Start a session. A sheet: the list is what the console is opened for, and
+ * starting is rare. It shows its own errors, since a refusal (a directory outside
+ * the allow list) is answered by editing the field.
  */
 @Component({
   selector: 'app-start-sheet',

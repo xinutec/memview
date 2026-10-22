@@ -11,11 +11,9 @@
   <input matInput [(ngModel)]="title" (keydown.enter)="save()" />
 </mat-form-field>
 
-<!-- What a model would call it, from the second line of the same Haiku call that
-     writes the card's sentence. A button, not a `mat-chip`: Angular's interactive
-     chips carry selection semantics, and this fills a field once (see
-     `reference_angular_material_m3_gaps`). Marked as a guess — a name is stickier
-     than a summary. -->
+<!-- What a model would call it (the second line of the Haiku call that writes the
+     card's sentence), marked as a guess. A button, not a `mat-chip`: interactive
+     chips carry selection semantics, and this fills the field once. -->
 @if (suggestion(); as name) {
   <button
     matButton

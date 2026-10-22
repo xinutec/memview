@@ -116,16 +116,15 @@
         } @else {
           <span class="ended">off</span>
         }
-        <!-- What this conversation is holding — outside the branches, since the work
-             outlives the process. Absent rather than `0/0`: most conversations are never
-             handed anything, and `0/9` is a different fact. The denominator is what is
-             assigned now. Same numbers as the ⋮ menu — `console/src/tasks.rs`. -->
         <!-- Something written here and not sent — the marker only, never the words: the
              draft is on the screen you go back to. Not a pill: pills are states that want
              acting on. -->
         @if (row.draft) {
           <span class="draft">draft</span>
         }
+        <!-- What this conversation is holding, outside the branches: the work outlives
+             the process. Absent rather than `0/0`, as most are never handed anything.
+             The same numbers as the ⋮ menu (`console/src/tasks.rs`). -->
         @if (row.tasks; as tasks) {
           <span
             class="list"
@@ -168,10 +167,9 @@
           <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
         }
         <div class="facts">
-          <!-- When it last did anything, from the transcript: the age of the process can
-               read hours while it is answering. -->
-          <!-- Neutral to yellow to red across the hour the prompt cache lasts, then gone.
-               Only where there is a cache. -->
+          <!-- When it last did anything, from the transcript (a process's age can read
+               hours while it answers). Neutral to yellow to red across the hour the
+               prompt cache lasts, then plain; only where there is a cache. -->
           @if (row.cached && withinHour(row.at)) {
             <span class="since" [class.urgent]="cacheIsUrgent(row.at)" [style]="cacheStyle(row.at)">
               <mat-icon

@@ -5,10 +5,10 @@ import { Injectable, signal } from '@angular/core';
  * fingerprint the runner reports in `/api/state` is the only signal: the first
  * one seen is what this page booted from.
  *
- * The timing is life's, adapted, so a half-typed instruction is never thrown
- * away: at startup or hidden, reload at once; visible mid-session, hold it and
- * reload when the app is next put away; restored by going back, a boot. No
- * reload loop: after reloading, the fingerprint served is the one booted from.
+ * The timing follows the life app's, so a half-typed instruction is never lost:
+ * at startup or hidden, reload at once; visible mid-session, wait until the app
+ * is next put away; restored by going back, treat it as a boot. No reload loop:
+ * after reloading, the fingerprint served is the one booted from.
  */
 @Injectable({ providedIn: 'root' })
 export class Updates {

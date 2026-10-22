@@ -125,16 +125,13 @@ export class ParseSheet {
   }
 
   /**
-   * The concept's sentence with each path cut to its leaf.
+   * The concept's sentence with each path cut to its leaf; here, not in
+   * `describe`, as the use row and the footer already show the path. A token at a
+   * time, so a greedy match cannot eat the words between paths.
    *
-   * Shortened here, never in `describe`: that returns the concept's
-   * phrase, and the path is already carried by the use row and the footer. A
-   * token at a time, so a greedy match cannot eat the words between subjects.
-   *
-   * This would be wrong for a locus — `under /var/log` cut to `under log` loses
-   * the claim — and is safe only because `Subject::Located` and `Subject::Bounded`
-   * cannot reach `describe` today (`subjects_or_refuse` refuses both). Lift that
-   * refusal and this must learn the difference first.
+   * Wrong for a locus (`under /var/log` would become `under log`), and safe only
+   * while `subjects_or_refuse` keeps `Subject::Located` and `Subject::Bounded`
+   * from reaching `describe`.
    */
   protected concise(concept: string): string {
     return concept

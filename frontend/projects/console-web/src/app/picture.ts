@@ -84,7 +84,6 @@ export async function shrink(file: File): Promise<Picture> {
   };
 }
 
-/** One encoding of what is on the canvas. */
 function encoded(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -173,7 +172,6 @@ export function thumbnailAt(href: string): string {
   return `${fetchedAt(href)}&small=true`;
 }
 
-/** The console's route for a picture that lives somewhere else. */
 const WHERE = '/api/picture';
 
 /**

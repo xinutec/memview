@@ -1,15 +1,15 @@
 /**
- * Whether the newest message should be kept in view, and when to stop: if the
- * view was at the end when content arrives, keep it there; scroll up by a line
- * and following stops, and nothing scrolls you back.
+ * Whether to keep the newest message in view: if the view was at the end when
+ * content arrives, keep it there; once the reader scrolls up, stop, and never
+ * scroll them back.
  *
- * Never re-decide after a change whether the reader is at the end — the change
- * itself moves the end. The one exception is [`wrote`].
+ * Whether the reader is at the end is decided before a change, never after it:
+ * the change itself moves the end. The one exception is [`wrote`].
  *
  * A state machine fed positions, apart from the view, because jsdom has no layout.
  */
 
-/** What a scrolling box says about itself, in the three numbers that matter. */
+/** The three numbers of a scrolling box that matter here. */
 export interface Box {
   /** `scrollTop`. */
   top: number;
@@ -30,9 +30,9 @@ export function measure(box: HTMLElement): Box {
 const SLACK = 16;
 
 /**
- * How far a finger travels before it is scrolling, not resting. Low in the safe
- * range: an ignored drag is dragged again, while a page that silently stops
- * following reads as dead.
+ * How far a finger travels before it is scrolling, not resting. Low: a drag
+ * that is ignored is simply repeated, while a page that wrongly stops following
+ * looks broken.
  */
 const SLOP = 40;
 
@@ -62,10 +62,10 @@ export class Following {
   private heldAt: Box | undefined = undefined;
 
   /**
-   * The last position this engine asked for, or -1. More renders before the queued
-   * scroll event arrives, so the handler sees the new height and the old position;
-   * the event carrying exactly this position is the engine's own. Kept, not
-   * cleared: the race can follow any write.
+   * The last position this engine scrolled to, or -1. Content can render again
+   * before that scroll's event arrives, so an event at exactly this position is
+   * the engine's own, not the reader's. Never cleared: the race can follow any
+   * write.
    */
   private wrote = -1;
 
@@ -145,10 +145,10 @@ export class Following {
     this.at = atEnd({ ...box, height: from.height });
   }
 
-  /** The view moved. Asked of where the reader is, not how far they travelled. */
+  /** The view moved. Judged by where the reader now is, not how far they went. */
   moved(box: Box): void {
-    // Learned before every guard: it is bookkeeping, and after them a reshape
-    // reads as a first event.
+    // Recorded before any early return, or the next reshape would look like the
+    // first event.
     const reshaped = this.view >= 0 && box.view !== this.view;
     const lost = reshaped ? Math.max(0, this.view - box.view) : 0;
     this.view = box.view;

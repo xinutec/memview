@@ -207,6 +207,12 @@ function session(id: string): string {
   return `/api/sessions/${encodeURIComponent(id)}`;
 }
 
+/** Whether a `does` names a kind of call this client draws. */
+function isCall(does: unknown): boolean {
+  if (typeof does !== 'object' || does === null || !('kind' in does)) return false;
+  return CALLS.some((known) => known === does.kind);
+}
+
 /**
  * Narrow a message from the wire, or drop it.
  *
@@ -214,12 +220,6 @@ function session(id: string): string {
  * runner sends, so a variant added there without a generated type here is
  * refused at the boundary rather than drawn wrongly.
  */
-/** Whether a `does` names a kind of call this client draws. */
-function isCall(does: unknown): boolean {
-  if (typeof does !== 'object' || does === null || !('kind' in does)) return false;
-  return CALLS.some((known) => known === does.kind);
-}
-
 function parse(data: unknown): Timed | undefined {
   if (typeof data !== 'string') return undefined;
   let value: unknown;
@@ -232,7 +232,6 @@ function parse(data: unknown): Timed | undefined {
   const kind = KINDS.find((known) => known === value.kind);
   if (!kind) return undefined;
   if ('does' in value && !isCall(value.does)) return undefined;
-  // The trust boundary: the kind is checked above, the fields are the runner's word.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the kind is checked above; the fields are the runner's word
   return { ...value, kind } as Timed;
 }

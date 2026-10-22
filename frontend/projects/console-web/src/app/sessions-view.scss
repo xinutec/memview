@@ -261,9 +261,8 @@
     margin-inline-end: 0.15rem;
   }
 
-  // Its own class rather than the cards' `.list`. That one carries
-  // `flex: 0 0 auto` for the row it sits in, and this line is not a flex
-  // container — dead declarations that happen to look right today.
+  // Its own class, not the cards' `.list`: that carries `flex: 0 0 auto`, and
+  // this line is not a flex container.
   .held {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;

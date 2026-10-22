@@ -25,10 +25,9 @@ export class AskCard {
 
   protected readonly asks = inject(Asks);
   /**
-   * This question while it is still answerable, else null. The one place a card's
-   * entry becomes something [[Asks]] will take — see `Unanswered`. The template
-   * already hides the controls once a verdict is in; this is what makes that a
-   * fact the compiler holds rather than a rule the markup remembers.
+   * This question while it is still answerable, else null: the one place a card's
+   * entry becomes an `Unanswered`, so the compiler, not the markup, keeps a
+   * decided question from being answered again.
    */
   private readonly open = computed(() => {
     const entry = this.entry();
