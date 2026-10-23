@@ -9,6 +9,11 @@ use tower::ServiceExt;
 /// A server with auth ON — without it every request is the local owner and the
 /// distinction under test does not exist.
 fn app(dir: &std::path::Path) -> AppState {
+    app_at(dir, "https://nextcloud.example")
+}
+
+/// The same, signing in against the Nextcloud at `nc`.
+fn app_at(dir: &std::path::Path, nc: &str) -> AppState {
     let cfg = Config {
         doing_file: None,
         effects_file: None,
@@ -17,7 +22,7 @@ fn app(dir: &std::path::Path) -> AppState {
         bind_addr: "127.0.0.1:0".into(),
         auth: Some(AuthConfig {
             session_secret: "test-secret-not-a-real-key".into(),
-            nc_base_url: "https://nextcloud.example".into(),
+            nc_base_url: nc.into(),
             nc_internal_url: None,
             nc_client_id: "id".into(),
             nc_client_secret: "secret".into(),
@@ -349,6 +354,85 @@ async fn a_failed_sign_in_answers_the_browser_in_html_not_json() {
         "a dead end is not a recovery: {page}"
     );
     assert!(!page.contains("\"error\""), "still JSON-shaped: {page}");
+}
+
+/// A whole sign-in, against a stand-in Nextcloud that grants any code. A cookie
+/// set at `Path=/` is removed only by a removal at `Path=/`. Without one, the
+/// browser scopes the removal to the request's directory — `/auth` for the
+/// callback — and the cookie it meant to drop stays.
+#[tokio::test]
+async fn signing_in_and_out_removes_each_cookie_where_it_was_set() {
+    use axum::Json;
+    use axum::http::header;
+    use axum::response::Response;
+    use axum::routing::{get, post};
+
+    let nc = axum::Router::new()
+        .route(
+            "/index.php/apps/oauth2/api/v1/token",
+            post(|| async { Json(serde_json::json!({ "access_token": "token" })) }),
+        )
+        .route(
+            "/ocs/v2.php/cloud/user",
+            get(|| async {
+                Json(serde_json::json!({ "ocs": { "data": { "id": "user", "displayname": "User" } } }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, nc).await.unwrap() });
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = memview::routes::router(app_at(dir.path(), &format!("http://{addr}")));
+    let send = async |req: Request<Body>| app.clone().oneshot(req).await.unwrap();
+    let cookie_line = |res: &Response, name: &str| {
+        res.headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_owned())
+            .find(|l| l.starts_with(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no Set-Cookie for {name}: {:?}", res.headers()))
+    };
+    let pair =
+        |res: &Response, name: &str| cookie_line(res, name).split(';').next().unwrap().to_owned();
+    let assert_removed_at_root = |res: &Response, name: &str| {
+        let dropped = cookie_line(res, name);
+        assert!(dropped.contains("Max-Age=0"), "{dropped}");
+        assert!(
+            dropped.contains("Path=/"),
+            "removed where it was set: {dropped}"
+        );
+    };
+
+    let login = send(Request::get("/login").body(Body::empty()).unwrap()).await;
+    let signin = pair(&login, "signin");
+    let to_nc = login.headers()[header::LOCATION].to_str().unwrap();
+    let state = url::Url::parse(to_nc)
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "state")
+        .map(|(_, v)| v.into_owned())
+        .expect("the authorize URL carries a state");
+
+    let back = send(
+        Request::get(format!("/auth/callback?code=granted&state={state}"))
+            .header(header::COOKIE, &signin)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(back.status().is_redirection(), "{}", back.status());
+    assert_removed_at_root(&back, "signin");
+    let session = pair(&back, memview::session::COOKIE_NAME);
+
+    let out = send(
+        Request::post("/logout")
+            .header(header::COOKIE, &session)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(out.status(), StatusCode::NO_CONTENT);
+    assert_removed_at_root(&out, memview::session::COOKIE_NAME);
 }
 
 /// The index as the client reads it: the rendered page and the corpus size.
