@@ -13,7 +13,6 @@ use clap::{Parser, Subcommand};
 use console::api;
 use console::config::Config;
 use console::roster::Roster;
-use tower_http::services::ServeDir;
 
 /// The agent console: the service, or with `hook`, Claude Code's hook for
 /// `Bash`.
@@ -161,14 +160,7 @@ async fn main() -> Result<()> {
     }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
-        // A navigation the API did not answer gets the app; a missing file a 404.
-        let index = format!("{dir}/index.html");
-        app = app.fallback_service(ServeDir::new(dir).fallback(axum::routing::any(
-            move |uri: axum::http::Uri| {
-                let index = index.clone();
-                async move { api::spa(&index, uri.path()) }
-            },
-        )));
+        app = app.fallback_service(api::app_files(dir));
     }
 
     // Take the sessions with us, or orphans block their own resume.

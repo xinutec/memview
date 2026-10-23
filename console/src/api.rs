@@ -862,6 +862,39 @@ struct Described {
     description: String,
 }
 
+/// The app's files from `dir`: the app for a navigation the API did not answer, a
+/// 404 for a missing file. See [`spa`] and [`revalidate_pages`].
+pub fn app_files(dir: &str) -> Router {
+    let index = format!("{dir}/index.html");
+    Router::new()
+        .fallback_service(
+            tower_http::services::ServeDir::new(dir).fallback(axum::routing::any(
+                move |uri: axum::http::Uri| {
+                    let index = index.clone();
+                    async move { spa(&index, uri.path()) }
+                },
+            )),
+        )
+        .layer(axum::middleware::map_response(revalidate_pages))
+}
+
+/// `no-cache` on the page: it names the bundle, so a stale page is a stale app.
+/// With only `Last-Modified`, a WebView may keep it as fresh for days.
+async fn revalidate_pages(mut response: Response) -> Response {
+    let page = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|kind| kind.to_str().ok())
+        .is_some_and(|kind| kind.starts_with("text/html"));
+    if page {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+    }
+    response
+}
+
 /// The app for its own routes; a 404 for a missing file — a path whose last
 /// segment has a dot — rather than the index served as a font.
 pub fn spa(index: &str, path: &str) -> axum::response::Response {

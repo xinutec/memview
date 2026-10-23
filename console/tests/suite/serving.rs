@@ -77,3 +77,50 @@ fn a_missing_index_says_so_rather_than_serving_nothing() {
     let answer = spa("/nowhere/at/all/index.html", "/");
     assert_eq!(answer.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
+
+/// The app's files served by the console's own router, on a free port.
+async fn served() -> String {
+    let dir = index().parent().expect("its directory").to_path_buf();
+    std::fs::write(dir.join("main-JLBKO2QH.js"), "console.log(1)").expect("a chunk");
+    let app = console::api::app_files(&dir.display().to_string());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a port");
+    let at = listener.local_addr().expect("an address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{at}")
+}
+
+async fn cache_control(url: &str) -> Option<String> {
+    // The client is built with no TLS provider of its own; plain HTTP still asks.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let answer = reqwest::get(url).await.expect("an answer");
+    assert_eq!(answer.status(), StatusCode::OK, "{url}");
+    answer
+        .headers()
+        .get("cache-control")
+        .map(|value| value.to_str().expect("text").to_string())
+}
+
+#[tokio::test]
+async fn the_app_page_is_asked_for_again_every_time() {
+    // The page names the bundle, so a stale copy is a stale app. Served with
+    // only `Last-Modified`, the phone's WebView kept a days-old page as fresh and
+    // booted the build before last on a cold start — and the self-update took
+    // that build for the one it booted from, so it never reloaded.
+    let at = served().await;
+    assert_eq!(
+        cache_control(&format!("{at}/")).await.as_deref(),
+        Some("no-cache")
+    );
+    assert_eq!(
+        cache_control(&format!("{at}/s/7c0202eb-080b-40a5-a654-8758b4ca723e"))
+            .await
+            .as_deref(),
+        Some("no-cache")
+    );
+    // A hashed chunk never changes under its name: no reason to ask again.
+    assert_eq!(cache_control(&format!("{at}/main-JLBKO2QH.js")).await, None);
+}
