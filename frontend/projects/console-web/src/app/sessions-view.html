@@ -183,7 +183,12 @@
           } @else {
             <span>{{ ago(row.at) }}</span>
           }
-          <span>{{ session.interactions }} interactions</span>
+          <!-- An icon, not the word: the row holds one line at phone width. -->
+          <span class="interactions" [title]="session.interactions + ' interactions'"
+            ><mat-icon class="exchanges" [attr.aria-label]="session.interactions + ' interactions'"
+              >forum</mat-icon
+            >{{ session.interactions }}</span
+          >
           <!-- How full it is — whether a compaction is coming. -->
           @if (row.context; as context) {
             <span>{{ context }}</span>

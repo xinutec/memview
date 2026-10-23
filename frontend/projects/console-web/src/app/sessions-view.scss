@@ -234,6 +234,18 @@
   font-family: ui-monospace, monospace;
 }
 
+.interactions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.exchanges.mat-icon {
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
 .mode.loud {
   // Colour alone, as it is an icon: a filled pill around a 1.1rem glyph reads
   // as a badge with something in it rather than as the glyph itself.
