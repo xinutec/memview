@@ -1417,3 +1417,19 @@ fn only_an_answer_to_our_own_ask_is_read_as_the_commands() {
     assert!(console::protocol::commands_reply(r#"{"type":"assistant","message":{}}"#).is_none());
     assert!(console::protocol::usage_reply(INITIALIZE).is_none());
 }
+
+#[test]
+fn each_line_is_parsed_once_into_an_answer_or_its_events() {
+    use console::protocol::{Output, output};
+    assert!(matches!(output(INITIALIZE), Output::Commands(_)));
+    assert!(matches!(output(USAGE_REPLY), Output::Usage(_)));
+    let mode = r#"{"type":"control_response","response":{"subtype":"success","request_id":"set-mode-x","response":{"mode":"plan"}}}"#;
+    assert!(matches!(output(mode), Output::Mode(_)));
+    // What the session says is what `read` makes of it, line for line.
+    for line in include_str!("../fixtures/turn.jsonl").lines() {
+        match output(line) {
+            Output::Events(events) => assert_eq!(events, read(line), "{line}"),
+            other => panic!("a turn line read as an answer: {other:?}"),
+        }
+    }
+}

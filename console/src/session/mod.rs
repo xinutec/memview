@@ -379,21 +379,24 @@ impl Session {
                     let Ok(Some(line)) = line else { break };
                     // Every line: who to ask for usage — [`Session::heard`].
                     session.heard();
-                    // Answers to the console, not part of the conversation.
-                    if let Some(commands) = protocol::commands_reply(&line) {
-                        session.record_commands(commands);
-                        continue;
-                    }
-                    if let Some(reply) = protocol::usage_reply(&line) {
-                        session.record_usage(reply);
-                        continue;
-                    }
-                    // The other answer this console asks for — see [`Session::settle_mode`].
-                    if let Some(reply) = protocol::mode_reply(&line) {
-                        session.settle_mode(reply);
-                        continue;
-                    }
-                    for event in protocol::read(&line) {
+                    // Answers to the console are not part of the conversation; the
+                    // mode's is settled against what was asked — [`Session::settle_mode`].
+                    let events = match protocol::output(&line) {
+                        protocol::Output::Commands(commands) => {
+                            session.record_commands(commands);
+                            continue;
+                        }
+                        protocol::Output::Usage(reply) => {
+                            session.record_usage(reply);
+                            continue;
+                        }
+                        protocol::Output::Mode(reply) => {
+                            session.settle_mode(reply);
+                            continue;
+                        }
+                        protocol::Output::Events(events) => events,
+                    };
+                    for event in events {
                         // A turn's end is when the exchange count changes; counted here,
                         // outside the lock `push_at` holds.
                         let counted = matches!(event, Event::Turn { .. });

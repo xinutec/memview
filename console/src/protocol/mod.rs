@@ -506,11 +506,51 @@ struct Limit {
     utilization: Option<f64>,
 }
 
+/// One output line, parsed once: an answer to something the console asked, or
+/// what the session says.
+#[derive(Debug)]
+pub enum Output {
+    Commands(Commands),
+    Usage(UsageReply),
+    Mode(ModeReply),
+    Events(Vec<Event>),
+}
+
+/// What one output line is. Parsed once, where trying each reader in turn parsed
+/// a long transcript line up to four times; only a `control_response` is offered
+/// to the answer readers.
+pub fn output(line: &str) -> Output {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return Output::Events(Vec::new());
+    };
+    if value.get("type").and_then(|it| it.as_str()) == Some("control_response") {
+        if let Some(commands) = control::commands_answer(&value) {
+            return Output::Commands(commands);
+        }
+        if let Some(usage) = control::usage_answer(&value) {
+            return Output::Usage(usage);
+        }
+        if let Some(mode) = control::mode_answer(&value) {
+            return Output::Mode(mode);
+        }
+    }
+    // A line of no shape the console reads is nothing to say, as in `read`.
+    let Ok(parsed) = serde_json::from_value::<Line>(value) else {
+        return Output::Events(Vec::new());
+    };
+    Output::Events(events(parsed))
+}
+
 /// Read one output line into its events. Anything unknown yields nothing.
 pub fn read(line: &str) -> Vec<Event> {
     let Ok(parsed) = serde_json::from_str::<Line>(line) else {
         return Vec::new();
     };
+    events(parsed)
+}
+
+/// The events of one parsed output line.
+fn events(parsed: Line) -> Vec<Event> {
     match parsed {
         Line::System(System::Init(init)) => vec![Event::Started {
             model: init.model,

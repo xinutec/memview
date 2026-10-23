@@ -153,7 +153,11 @@ pub enum ModeReply {
 /// {"subtype":"error","request_id":"…","error":"Cannot set permission mode to …"}
 /// ```
 pub fn mode_reply(line: &str) -> Option<ModeReply> {
-    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    mode_answer(&serde_json::from_str(line).ok()?)
+}
+
+/// [`mode_reply`], of a line already parsed.
+pub fn mode_answer(parsed: &serde_json::Value) -> Option<ModeReply> {
     if parsed.get("type")?.as_str()? != "control_response" {
         return None;
     }
@@ -236,7 +240,11 @@ pub struct ModelChoice {
 /// The answer to our [`initialize`], if this line is one. Read field by field, so
 /// a moved shape yields less rather than something wrong.
 pub fn commands_reply(line: &str) -> Option<Commands> {
-    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    commands_answer(&serde_json::from_str(line).ok()?)
+}
+
+/// [`commands_reply`], of a line already parsed.
+pub fn commands_answer(parsed: &serde_json::Value) -> Option<Commands> {
     if parsed.get("type")?.as_str()? != "control_response" {
         return None;
     }
@@ -306,7 +314,11 @@ pub fn get_usage(request_id: &str) -> String {
 /// The rate limits out of any `control_response` carrying them. Read field by
 /// field, so a moved shape yields nothing rather than something wrong.
 pub fn usage_reply(line: &str) -> Option<UsageReply> {
-    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    usage_answer(&serde_json::from_str(line).ok()?)
+}
+
+/// [`usage_reply`], of a line already parsed.
+pub fn usage_answer(parsed: &serde_json::Value) -> Option<UsageReply> {
     if parsed.get("type")?.as_str()? != "control_response" {
         return None;
     }
