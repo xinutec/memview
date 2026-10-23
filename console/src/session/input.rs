@@ -9,6 +9,24 @@ use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
 impl Session {
+    /// Write one line to the session and flush it; `doing` names the write in the
+    /// error. The lock is held for the line alone.
+    async fn write_line(&self, line: &str, doing: &str) -> Result<()> {
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .with_context(|| doing.to_string())?;
+        stdin
+            .flush()
+            .await
+            .with_context(|| format!("flushing: {doing}"))?;
+        Ok(())
+    }
+
     /// Send a message. A slash command sent mid-turn is held, under the lock that
     /// clears `working`, so a turn ending meanwhile cannot strand it.
     pub async fn send(&self, text: &str) -> Result<()> {
@@ -23,16 +41,8 @@ impl Session {
         if parked {
             return Ok(());
         }
-        let mut held = self.stdin.lock().await;
-        let stdin = held
-            .as_mut()
-            .context("session is no longer accepting input")?;
-        stdin
-            .write_all(format!("{}\n", protocol::prompt(text)).as_bytes())
-            .await
-            .context("writing to the session")?;
-        stdin.flush().await.context("flushing to the session")?;
-        drop(held);
+        self.write_line(&protocol::prompt(text), "writing to the session")
+            .await?;
         // Announced on the way in: the CLI may not read it for minutes.
         if protocol::is_command(text) {
             self.push(Event::Command {
@@ -83,16 +93,7 @@ impl Session {
     /// [`protocol::prompt_with_images`].
     pub async fn show(&self, text: &str, pictures: &[protocol::Picture<'_>]) -> Result<()> {
         let line = protocol::prompt_with_images(text, pictures);
-        let mut held = self.stdin.lock().await;
-        let stdin = held
-            .as_mut()
-            .context("session is no longer accepting input")?;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .context("writing to the session")?;
-        stdin.flush().await.context("flushing to the session")?;
-        drop(held);
+        self.write_line(&line, "writing to the session").await?;
         let mut state = self.state.lock();
         if state.asked.is_none() && !state.origin_read {
             // Named by the words, not the base64.
@@ -130,16 +131,7 @@ impl Session {
             );
         }
         let line = protocol::decision(id, allowed, &pending.input, why, reply);
-        let mut held = self.stdin.lock().await;
-        let stdin = held
-            .as_mut()
-            .context("session is no longer accepting input")?;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .context("answering the session")?;
-        stdin.flush().await.context("flushing the answer")?;
-        drop(held);
+        self.write_line(&line, "answering the session").await?;
         self.push(Event::Answered {
             id: id.to_string(),
             allowed,
@@ -153,15 +145,7 @@ impl Session {
     /// ([`super::Spawn::name`]).
     pub async fn rename(&self, title: &str) -> Result<()> {
         let line = protocol::rename(&format!("rename-{}", self.id), title);
-        let mut held = self.stdin.lock().await;
-        let stdin = held
-            .as_mut()
-            .context("session is no longer accepting input")?;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .context("renaming the session")?;
-        stdin.flush().await.context("flushing the rename")?;
+        self.write_line(&line, "renaming the session").await?;
         Ok(())
     }
 
@@ -169,16 +153,8 @@ impl Session {
     /// before the CLI answers.
     pub async fn set_mode(&self, mode: &crate::modes::Mode) -> Result<()> {
         let line = protocol::set_mode(&format!("set-mode-{}", self.id), mode);
-        let mut held = self.stdin.lock().await;
-        let stdin = held
-            .as_mut()
-            .context("session is no longer accepting input")?;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .context("asking the session to change mode")?;
-        stdin.flush().await.context("flushing the mode change")?;
-        drop(held);
+        self.write_line(&line, "asking the session to change mode")
+            .await?;
         let mut state = self.state.lock();
         // For a refusal to put back — the real mode, not an outstanding guess.
         if state.restore.is_none() {
@@ -251,14 +227,10 @@ impl Session {
     /// arrives through [`Self::record_commands`].
     pub async fn ask_commands(&self) {
         let line = protocol::initialize(&format!("{}{}", protocol::COMMANDS, self.id));
-        let mut held = self.stdin.lock().await;
-        let Some(stdin) = held.as_mut() else { return };
-        if stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .is_ok()
-        {
-            let _ = stdin.flush().await;
+        // A question, not an instruction: a session that has gone simply goes
+        // unasked, and the next ask tries again.
+        if let Err(why) = self.write_line(&line, "asking the session").await {
+            tracing::debug!("{}: {why:#}", self.id);
         }
     }
 
@@ -275,14 +247,10 @@ impl Session {
     /// through [`Self::record_usage`].
     pub async fn ask_usage(&self) {
         let line = protocol::get_usage(&format!("usage-{}", self.id));
-        let mut held = self.stdin.lock().await;
-        let Some(stdin) = held.as_mut() else { return };
-        if stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .is_ok()
-        {
-            let _ = stdin.flush().await;
+        // A question, not an instruction: a session that has gone simply goes
+        // unasked, and the next ask tries again.
+        if let Err(why) = self.write_line(&line, "asking the session").await {
+            tracing::debug!("{}: {why:#}", self.id);
         }
     }
 }
