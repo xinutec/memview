@@ -1594,9 +1594,10 @@ which of a dozen has work left.
 The console has **no service worker** — deliberately: it would cache an app
 behind a client-certificate gate, and ngsw's `navigationUrls` and auth are a
 known source of trouble here. Instead the runner reports a `bundle` fingerprint
-(the SHA-256 of `index.html`, which Angular rewrites on every build) on
-`/api/state`, which the client already polls. The first fingerprint seen is what
-the page booted from; any other means it is stale.
+on `/api/state`, which the client already polls: the build time stamped into the
+entry chunk `index.html` names (`build-info.ts`). The page compares it with its
+own stamp, not with the first one it hears — a page the WebView restores from its
+cache on Back is an old build that would take the new fingerprint for its own.
 
 **When** it reloads is the design, and it is life's policy: at once during
 startup or while hidden, and otherwise **held until the app is next put away**,

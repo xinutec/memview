@@ -26,6 +26,8 @@ describe('Updates', () => {
     updates = TestBed.inject(Updates);
     reload = vi.fn<() => void>();
     updates.reload = reload;
+    updates.own = 'aaaa';
+    sessionStorage.clear();
   });
 
   it('does nothing while the bundle it booted from is the one being served', () => {
@@ -99,6 +101,37 @@ describe('Updates', () => {
     updates.saw('bbbb');
     expect(reload).not.toHaveBeenCalled();
     expect(updates.waiting()).toBe(true);
+  });
+
+  it('knows a page out of the cache is old, though the first fingerprint is new', () => {
+    // A swipe back to a page from before the last reload: the WebView hands back
+    // its stored copy, which boots the old build. Taking the first fingerprint
+    // heard as its own, it never reloaded. Reported from the phone.
+    updates.saw('bbbb');
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('does not reload for the same build twice in a row', () => {
+    // A reload that lands on the old build again — a server naming a build it
+    // does not serve — must not become a loop; it is shown as held instead.
+    updates.saw('bbbb');
+    const again = TestBed.runInInjectionContext(() => new Updates());
+    again.reload = reload;
+    again.own = 'aaaa';
+    again.saw('bbbb');
+    expect(reload).toHaveBeenCalledOnce();
+    expect(again.waiting()).toBe(true);
+  });
+
+  it('reloads for the same build again once the loop window has passed', () => {
+    // Going back to the old page a minute later is a new reason, not a loop.
+    updates.saw('bbbb');
+    vi.setSystemTime(Date.now() + 60_000);
+    const later = TestBed.runInInjectionContext(() => new Updates());
+    later.reload = reload;
+    later.own = 'aaaa';
+    later.saw('bbbb');
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it('reloads straight away when the update lands while hidden', () => {

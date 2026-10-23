@@ -145,16 +145,21 @@ fn index_size() -> Option<IndexSize> {
     })
 }
 
-/// The bundle's identity: a hash of index.html, which names the hashed chunks.
-fn bundle(dir: Option<&str>) -> Option<String> {
-    use sha2::{Digest, Sha256};
-    let page = std::fs::read(format!("{}/index.html", dir?)).ok()?;
-    Some(hex::encode(Sha256::digest(&page))[..16].to_string())
+/// The bundle's identity: the build time stamped into the entry chunk the index
+/// names, which the page compares with its own (`build-info.ts`). A page restored
+/// from the WebView's cache knows its own stamp; it could not know a hash.
+pub fn bundle_of(dir: &str) -> Option<String> {
+    let page = std::fs::read_to_string(format!("{dir}/index.html")).ok()?;
+    let start = page.find("\"main-")? + 1;
+    let entry = &page[start..start + page[start..].find('"')?];
+    let chunk = std::fs::read_to_string(format!("{dir}/{entry}")).ok()?;
+    let stamp = chunk.find("builtAt:\"")? + "builtAt:\"".len();
+    Some(chunk[stamp..stamp + chunk[stamp..].find('"')?].to_string())
 }
 
 async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
     Json(Overview {
-        bundle: bundle(roster.config().static_dir.as_deref()),
+        bundle: roster.config().static_dir.as_deref().and_then(bundle_of),
         // From memory, never the network.
         usage: roster.usage().reading(&roster.spent()).await,
         dirs: roster

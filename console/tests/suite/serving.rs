@@ -124,3 +124,40 @@ async fn the_app_page_is_asked_for_again_every_time() {
     // A hashed chunk never changes under its name: no reason to ask again.
     assert_eq!(cache_control(&format!("{at}/main-JLBKO2QH.js")).await, None);
 }
+
+/// A bundle as `ng build` leaves it: an index naming its entry chunk, and the
+/// chunk carrying the stamp `build-info.ts` compiles to.
+fn bundle_dir(name: &str, chunk: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("console-bundle-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("scratch");
+    std::fs::write(
+        dir.join("index.html"),
+        r#"<!doctype html><script src="main-XFMIDOIB.js" type="module"></script>"#,
+    )
+    .expect("index");
+    std::fs::write(dir.join("main-XFMIDOIB.js"), chunk).expect("chunk");
+    dir
+}
+
+#[test]
+fn the_bundle_is_named_by_the_build_stamp_the_page_also_carries() {
+    // What the page compares with its own `BUILD_INFO.builtAt`. A hash of the
+    // index was something no page could know about itself, so a page restored
+    // from the WebView's cache took the new hash for its own and never reloaded.
+    let dir = bundle_dir(
+        "stamped",
+        r#"var r gS={sha:"7805403",builtAt:"2026-10-23T09:34:13.521Z"};var x"#,
+    );
+    assert_eq!(
+        console::api::bundle_of(&dir.display().to_string()).as_deref(),
+        Some("2026-10-23T09:34:13.521Z")
+    );
+}
+
+#[test]
+fn a_bundle_with_no_stamp_is_no_bundle() {
+    // Never a fallback fingerprint: no page carries one to match, so every page
+    // would reload, forever.
+    let dir = bundle_dir("unstamped", "console.log(1)");
+    assert_eq!(console::api::bundle_of(&dir.display().to_string()), None);
+}

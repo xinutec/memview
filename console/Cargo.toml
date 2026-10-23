@@ -64,8 +64,6 @@ rustls-pemfile = "2"
 # of that in the tree rather than two.
 x509-parser = { version = "0.17", features = ["verify"] }
 sha2 = "0.11"
-# `sha2` 0.11's digest is an array with no `LowerHex`; `hex` spells it out.
-hex = "0.4"
 # One outbound GET, for a number this console cannot measure (see src/usage.rs).
 # `rustls-no-provider` and not the default: the default provider is aws-lc-rs,
 # which wants cmake and a C toolchain in every environment that ever builds

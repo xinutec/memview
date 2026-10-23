@@ -629,7 +629,6 @@ dependencies = [
  "clap",
  "filetime",
  "flate2",
- "hex",
  "image",
  "libc",
  "parking_lot",
