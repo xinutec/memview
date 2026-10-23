@@ -1,0 +1,46 @@
+.lapse {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--mat-sys-corner-medium);
+  // Attention, not an error: a neutral surface outlined in the app's warning
+  // colour, which the cache clock and the usage strip already use.
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  outline: 1px solid var(--warn);
+  outline-offset: -1px;
+
+  mat-icon {
+    color: var(--warn);
+  }
+
+  .what {
+    flex: 1;
+    min-width: 0;
+  }
+
+  strong {
+    margin-inline-end: 0.3rem;
+  }
+
+  button {
+    flex: none;
+  }
+}
+
+.lapse.lapsed {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  outline: none;
+
+  mat-icon {
+    color: inherit;
+  }
+
+  button {
+    --mat-button-filled-container-color: var(--mat-sys-error);
+    --mat-button-filled-label-text-color: var(--mat-sys-on-error);
+  }
+}

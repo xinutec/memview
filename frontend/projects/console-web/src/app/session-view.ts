@@ -30,6 +30,7 @@ import { Foreground } from './foreground';
 import { Here } from './here';
 import { Lasted } from './lasted';
 import { EffortBars } from './effort-bars';
+import { LapseBanner } from './lapse-banner';
 import { modelName } from './model';
 import { titleOf } from './naming';
 import { type Change, type Entry, type Summary, type ToolCall } from './models';
@@ -57,6 +58,7 @@ import { Updates } from './updates';
   imports: [
     Composer,
     EffortBars,
+    LapseBanner,
     Lasted,
     MatButtonModule,
     MatIconModule,
@@ -136,6 +138,8 @@ export class SessionView implements OnDestroy {
   readonly modeIcon = computed(() => modeIcon(this.session()?.mode));
   readonly loud = computed(() => modeIsLoud(this.session()?.mode));
   readonly model = computed(() => modelName(this.session()?.model));
+  /** When the shared login lapses. See [[LapseBanner]]. */
+  readonly lapses = computed(() => this.roster.state()?.lapses);
   readonly silence = computed(() => {
     const seconds = this.session()?.deaf ?? 0;
     if (seconds < 60) return `${seconds}s`;

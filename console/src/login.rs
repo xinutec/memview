@@ -1,6 +1,7 @@
 //! Signing the shared login in again from the phone: the console runs `claude auth
 //! login`, hands its link to the phone, and writes back the code the link's page
-//! shows. The code is never logged or kept.
+//! shows. The code is never logged or kept. Also when the login lapses, for a
+//! warning before it does: [`Login::lapses_at`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,10 +14,44 @@ use tokio::process::{Child, ChildStdin};
 const LINK_WITHIN: Duration = Duration::from_secs(30);
 /// How long it may take to exchange a code once it has one.
 const EXCHANGED_WITHIN: Duration = Duration::from_secs(120);
+/// How long a read of the lapse is reused: it moves only on a sign-in, which
+/// forgets it at once.
+const LAPSE_KEPT: Duration = Duration::from_secs(600);
+/// The Keychain item the CLI keeps its login in.
+const CREDENTIALS: &str = "Claude Code-credentials";
 
-/// The one sign-in under way, if any; a second start replaces the first.
+/// The one sign-in under way, if any — a second start replaces the first — and
+/// the last read of when the login lapses.
 #[derive(Default)]
-pub struct Login(tokio::sync::Mutex<Option<Attempt>>);
+pub struct Login {
+    attempt: tokio::sync::Mutex<Option<Attempt>>,
+    lapse: parking_lot::Mutex<Option<(std::time::Instant, Option<i64>)>>,
+}
+
+/// When the login lapses, in epoch milliseconds: the renewal token's fixed expiry,
+/// out of the Keychain item's JSON. Seconds are read as seconds. Only that field
+/// is parsed; the tokens beside it are never kept or logged.
+pub fn lapse_of(credentials: &str) -> Option<i64> {
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(rename = "claudeAiOauth")]
+        oauth: Oauth,
+    }
+    #[derive(Deserialize)]
+    struct Oauth {
+        #[serde(rename = "refreshTokenExpiresAt")]
+        lapses: Option<i64>,
+    }
+    let at = serde_json::from_str::<Item>(credentials)
+        .ok()?
+        .oauth
+        .lapses?;
+    Some(if at < 1_000_000_000_000 {
+        at * 1000
+    } else {
+        at
+    })
+}
 
 struct Attempt {
     child: Child,
@@ -52,7 +87,7 @@ pub struct LoginResult {
 impl Login {
     /// Run `<binary> auth login` and wait for the link it prints.
     pub async fn start(&self, binary: &str) -> Result<LoginStarted, String> {
-        let mut attempt = self.0.lock().await;
+        let mut attempt = self.attempt.lock().await;
         // The previous attempt's process goes with it: `kill_on_drop`.
         *attempt = None;
         let mut child = tokio::process::Command::new(binary)
@@ -102,7 +137,7 @@ impl Login {
             mut stdin,
             said,
         } = self
-            .0
+            .attempt
             .lock()
             .await
             .take()
@@ -122,10 +157,39 @@ impl Login {
         // The readers may still be draining what the process wrote last.
         tokio::time::sleep(Duration::from_millis(100)).await;
         let said = said.lock()[before..].trim().to_string();
+        if status.success() {
+            *self.lapse.lock() = None;
+        }
         Ok(LoginResult {
             ok: status.success(),
             said,
         })
+    }
+}
+
+impl Login {
+    /// When the login lapses, read from the Keychain at most every [`LAPSE_KEPT`]
+    /// and again after a sign-in. `None` when it cannot be read.
+    pub async fn lapses_at(&self) -> Option<i64> {
+        if let Some((read, at)) = *self.lapse.lock()
+            && read.elapsed() < LAPSE_KEPT
+        {
+            return at;
+        }
+        let read = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::process::Command::new("security")
+                .args(["find-generic-password", "-s", CREDENTIALS, "-w"])
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await;
+        let at = match read {
+            Ok(Ok(out)) if out.status.success() => lapse_of(&String::from_utf8_lossy(&out.stdout)),
+            _ => None,
+        };
+        *self.lapse.lock() = Some((std::time::Instant::now(), at));
+        at
     }
 }
 

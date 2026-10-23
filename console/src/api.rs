@@ -125,6 +125,11 @@ pub struct Overview {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub index: Option<IndexSize>,
+    /// When the login every session shares lapses, in epoch milliseconds, for a
+    /// warning before it does. See [`crate::login::Login::lapses_at`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub lapses: Option<i64>,
 }
 
 /// `MEMORY.md`'s size and its ceiling, in bytes.
@@ -176,6 +181,7 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         // Off the executor — see [`Roster::tasks`].
         tasks: roster.tasks().await,
         index: index_size(),
+        lapses: roster.login().lapses_at().await,
     })
 }
 

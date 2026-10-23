@@ -37,6 +37,9 @@
       </div>
       <button mat-flat-button (click)="signIn()">Sign in</button>
     </div>
+  } @else {
+    <!-- Before the lapse, or once it has and this session has not asked yet. -->
+    <app-lapse-banner [lapses]="lapses()" />
   }
   @if (!session.alive) {
     <div class="deaf ended" role="status">

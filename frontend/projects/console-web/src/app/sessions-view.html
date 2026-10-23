@@ -21,6 +21,7 @@
 @if (notice(); as what) {
   <app-notice [notice]="what" />
 }
+<app-lapse-banner [lapses]="state()?.lapses" />
 @if (catchingUp()) {
   <mat-progress-bar class="catching-up" mode="indeterminate" />
 }

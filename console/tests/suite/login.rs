@@ -70,3 +70,24 @@ async fn a_binary_that_cannot_start_says_so() {
     let refused = login.start("/nonexistent/claude").await;
     assert!(matches!(refused, Err(why) if why.contains("could not start")));
 }
+
+#[test]
+fn the_lapse_is_the_renewal_token_s_fixed_expiry() {
+    // The Keychain item's shape, tokens and all; only the expiry is taken.
+    let item = r#"{"claudeAiOauth":{"accessToken":"sk-a","refreshToken":"sk-r",
+        "expiresAt":1792763456789,"refreshTokenExpiresAt":1794348600000,"scopes":[]}}"#;
+    assert_eq!(console::login::lapse_of(item), Some(1_794_348_600_000));
+}
+
+#[test]
+fn a_lapse_in_seconds_is_read_as_seconds() {
+    let item = r#"{"claudeAiOauth":{"refreshTokenExpiresAt":1794348600}}"#;
+    assert_eq!(console::login::lapse_of(item), Some(1_794_348_600_000));
+}
+
+#[test]
+fn no_expiry_is_no_lapse_rather_than_a_guess() {
+    assert_eq!(console::login::lapse_of(r#"{"claudeAiOauth":{}}"#), None);
+    assert_eq!(console::login::lapse_of("not json"), None);
+    assert_eq!(console::login::lapse_of(""), None);
+}

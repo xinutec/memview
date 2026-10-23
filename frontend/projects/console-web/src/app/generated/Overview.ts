@@ -41,4 +41,9 @@ drafts: { [key in string]: Draft },
 /**
  * The memory index's size against where Claude Code cuts it.
  */
-index?: IndexSize, };
+index?: IndexSize, 
+/**
+ * When the login every session shares lapses, in epoch milliseconds, for a
+ * warning before it does. See [`crate::login::Login::lapses_at`].
+ */
+lapses?: number, };

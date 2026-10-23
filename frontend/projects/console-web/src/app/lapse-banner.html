@@ -1,0 +1,10 @@
+@if (warning(); as warning) {
+  <div class="lapse" [class.lapsed]="warning.lapsed" role="alert">
+    <mat-icon>{{ warning.lapsed ? 'key_off' : 'key' }}</mat-icon>
+    <div class="what">
+      <strong>{{ warning.lead }}</strong>
+      <span>{{ warning.what }}</span>
+    </div>
+    <button mat-flat-button (click)="signIn()">Sign in</button>
+  </div>
+}
