@@ -34,6 +34,14 @@ fn app(dir: &std::path::Path) -> AppState {
     )
     .expect("index");
     std::fs::write(static_dir.join("main-ABC123.js"), "export {};").expect("bundle");
+    for name in [
+        "main-JLBKO2QH.js",
+        "icon.svg",
+        "manifest.webmanifest",
+        "ngsw-worker.js",
+    ] {
+        std::fs::write(static_dir.join(name), "x").expect("file");
+    }
     let cfg = Config {
         doing_file: None,
         effects_file: None,
@@ -128,4 +136,23 @@ async fn an_unknown_api_route_is_a_404_and_not_the_page() {
     let (status, ct, _) = get("/api/share").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(!ct.starts_with("text/html"), "an API route got HTML: {ct}");
+}
+
+/// Only a name carrying its content hash may be kept for good. An icon, the
+/// manifest and the service worker's files keep their names across builds, so a
+/// year of `immutable` pins the old one on every phone; a 404 marked so is a name
+/// never asked for again.
+#[tokio::test]
+async fn only_a_content_hashed_file_is_cached_for_good() {
+    let (status, _, cache) = get("/main-JLBKO2QH.js").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cache.contains("immutable"), "a hashed chunk: {cache}");
+    for path in ["/icon.svg", "/manifest.webmanifest", "/ngsw-worker.js"] {
+        let (status, _, cache) = get(path).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(cache, "no-cache", "{path}");
+    }
+    let (status, _, cache) = get("/favicon.ico").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!cache.contains("immutable"), "a 404: {cache}");
 }
