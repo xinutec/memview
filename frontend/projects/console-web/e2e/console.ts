@@ -4,6 +4,7 @@ import { expect, test, type Locator, type Page, type Route } from '@playwright/t
 import PARSED_GOLDEN from './parsed.fixture.json';
 import type {
   Call,
+  Commands,
   Conversation,
   CorpusRead,
   Described,
@@ -1597,6 +1598,7 @@ export {
 };
 export type {
   Call,
+  Commands,
   Conversation,
   CorpusRead,
   Described,

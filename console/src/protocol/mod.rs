@@ -13,9 +13,9 @@ use background::{finished, is_notification};
 
 pub use background::{Called, Ended, Named, Running, called, running};
 pub use control::{
-    Annotation, Annotations, Answer, Answers, ModeReply, Picture, QUESTION_TOOL, Reply, SET_MODE,
-    UsageReply, decision, get_usage, mode_reply, prompt, prompt_with_images, rename, set_mode,
-    shown, usage_reply,
+    Annotation, Annotations, Answer, Answers, COMMANDS, Commands, ModeReply, ModelChoice, Picture,
+    QUESTION_TOOL, Reply, SET_MODE, SlashCommand, UsageReply, commands_reply, decision, get_usage,
+    initialize, mode_reply, prompt, prompt_with_images, rename, set_mode, shown, usage_reply,
 };
 
 use serde::{Deserialize, Serialize};

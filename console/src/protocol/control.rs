@@ -177,6 +177,121 @@ pub fn mode_reply(line: &str) -> Option<ModeReply> {
     }
 }
 
+/// The request id prefix of [`initialize`], so its answer is told from others'.
+pub const COMMANDS: &str = "commands-";
+
+/// Ask the session what it can be told: its slash commands, and the values the
+/// two that take a closed set accept. What the Agent SDK asks first; answering it
+/// changes nothing in the session, and asking twice gets the same answer.
+pub fn initialize(request_id: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "initialize"},
+    })
+    .to_string()
+}
+
+/// What a session can be told, for completing what is typed.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Commands {
+    pub commands: Vec<SlashCommand>,
+    /// What `/model` takes.
+    pub models: Vec<ModelChoice>,
+    /// What `/output-style` takes.
+    pub output_styles: Vec<String>,
+}
+
+/// One slash command, as the CLI describes it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    /// What it takes, in the CLI's notation: `<a|b>`, `[on|off]`, `[name]`. Empty
+    /// for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>", optional))]
+    pub argument_hint: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
+    pub aliases: Vec<String>,
+}
+
+/// One value `/model` takes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct ModelChoice {
+    pub value: String,
+    pub display_name: String,
+    pub description: String,
+    /// The `/effort` levels it supports; empty for a model with none.
+    pub effort_levels: Vec<String>,
+}
+
+/// The answer to our [`initialize`], if this line is one. Read field by field, so
+/// a moved shape yields less rather than something wrong.
+pub fn commands_reply(line: &str) -> Option<Commands> {
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    if parsed.get("type")?.as_str()? != "control_response" {
+        return None;
+    }
+    let response = parsed.get("response")?;
+    if !response.get("request_id")?.as_str()?.starts_with(COMMANDS) {
+        return None;
+    }
+    let body = response.get("response")?;
+    let text = |v: &serde_json::Value, key: &str| {
+        v.get(key)
+            .and_then(|it| it.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let texts = |v: Option<&serde_json::Value>| -> Vec<String> {
+        v.and_then(|it| it.as_array())
+            .map(|all| {
+                all.iter()
+                    .filter_map(|it| it.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let commands = body
+        .get("commands")?
+        .as_array()?
+        .iter()
+        .filter(|c| c.get("name").and_then(|it| it.as_str()).is_some())
+        .map(|c| SlashCommand {
+            name: text(c, "name"),
+            description: text(c, "description"),
+            argument_hint: text(c, "argumentHint"),
+            aliases: texts(c.get("aliases")),
+        })
+        .collect();
+    let models = body
+        .get("models")
+        .and_then(|it| it.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|m| m.get("value").and_then(|it| it.as_str()).is_some())
+        .map(|m| ModelChoice {
+            value: text(m, "value"),
+            display_name: text(m, "displayName"),
+            description: text(m, "description"),
+            effort_levels: texts(m.get("supportedEffortLevels")),
+        })
+        .collect();
+    Some(Commands {
+        commands,
+        models,
+        output_styles: texts(body.get("available_output_styles")),
+    })
+}
+
 /// Ask the session what the account has spent — the only routine source, since
 /// `rate_limit_event` speaks only at thresholds. Experimental in the CLI.
 pub fn get_usage(request_id: &str) -> String {

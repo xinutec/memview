@@ -1,8 +1,21 @@
-import { Component, computed, input, model, output } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  input,
+  model,
+  output,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { MatAutocompleteModule, MatAutocompleteTrigger } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { suggest } from './completion';
+import type { Commands } from './models';
 import { MOST, Picture, weight } from './picture';
 
 /**
@@ -14,7 +27,7 @@ import { MOST, Picture, weight } from './picture';
   selector: 'app-composer',
   templateUrl: './composer.html',
   styleUrl: './composer.scss',
-  imports: [FormsModule, MatButtonModule, MatIconModule],
+  imports: [FormsModule, MatAutocompleteModule, MatButtonModule, MatIconModule],
 })
 export class Composer {
   /** What is written and not sent. */
@@ -32,6 +45,33 @@ export class Composer {
 
   /** Why a chosen image was refused, when one was. */
   readonly trouble = input('');
+
+  /** What the session can be told, for completing a slash command. */
+  readonly commands = input<Commands>();
+
+  /** The rows under the box for what is typed. See [[suggest]]. */
+  protected readonly suggestions = computed(() => suggest(this.text(), this.commands()));
+
+  private readonly completing = viewChild(MatAutocompleteTrigger);
+  private readonly field = viewChild<ElementRef<HTMLTextAreaElement>>('field');
+
+  constructor() {
+    // The list opens on a keystroke, but the session's commands can arrive after
+    // the last one: open it when there is something to offer and the box is in use.
+    effect(() => {
+      const any = this.suggestions().length > 0;
+      untracked(() => {
+        const trigger = this.completing();
+        const focused = document.activeElement === this.field()?.nativeElement;
+        if (any && focused && trigger && !trigger.panelOpen) trigger.openPanel();
+      });
+    });
+  }
+
+  /** A command that takes a value goes straight on to its values. */
+  protected picked(fill: string): void {
+    if (fill.endsWith(' ')) setTimeout(() => this.completing()?.openPanel());
+  }
 
   readonly send = output<void>();
 

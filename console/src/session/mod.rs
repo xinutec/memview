@@ -361,6 +361,8 @@ impl Session {
         if let Some(stdout) = stdout {
             let session = self.clone();
             tokio::spawn(async move {
+                // A new process and an adopted one alike: asking twice is harmless.
+                session.ask_commands().await;
                 let mut lines = BufReader::new(stdout).lines();
                 let mut beat = tokio::time::interval(RECOUNT_EVERY);
                 // Delay, not Burst: a session busy for a minute owes one catch-up read.
@@ -377,7 +379,11 @@ impl Session {
                     let Ok(Some(line)) = line else { break };
                     // Every line: who to ask for usage — [`Session::heard`].
                     session.heard();
-                    // An answer to the console, not part of the conversation.
+                    // Answers to the console, not part of the conversation.
+                    if let Some(commands) = protocol::commands_reply(&line) {
+                        session.record_commands(commands);
+                        continue;
+                    }
                     if let Some(reply) = protocol::usage_reply(&line) {
                         session.record_usage(reply);
                         continue;

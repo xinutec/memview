@@ -293,3 +293,29 @@ a.opens {
     border-radius: 0.125rem;
   }
 }
+
+// The composer's slash-command completion (`suggest`), drawn in an overlay
+// outside the component, so styled here, on elements of our own inside each
+// option: the command or value, and what it does in at most two lines, so a
+// long description cannot push the list off a phone's screen. Clamped rather than
+// cut to one line: Material's wrapper sets no width to cut against, but text
+// still wraps inside it.
+.completion-row {
+  display: flex;
+  flex-direction: column;
+  padding-block: 0.25rem;
+}
+
+.completion-label {
+  font-family: ui-monospace, monospace;
+}
+
+.completion-detail {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}

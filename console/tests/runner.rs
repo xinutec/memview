@@ -2034,3 +2034,24 @@ async fn a_kill_the_last_image_could_not_deliver_is_delivered_by_this_one() {
         "the stop was owed a kill and this image did not deliver it either"
     );
 }
+
+#[tokio::test]
+async fn a_session_says_what_it_can_be_told() {
+    // Asked of every session as its reader starts, so the composer can complete
+    // a slash command without the session ever having been spoken to.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    for _ in 0..50 {
+        if session.commands().is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let commands = session.commands().expect("the session answered initialize");
+    assert_eq!(commands.commands[0].name, "effort");
+    assert_eq!(
+        commands.commands[0].argument_hint,
+        "<low|medium|high|xhigh|max|auto>"
+    );
+}

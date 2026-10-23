@@ -52,6 +52,13 @@ printf '{"type":"system","subtype":"init","model":"stub","cwd":"%s","tools":["Ba
 # runner relies on for a session that lives across many turns.
 while IFS= read -r line; do
   case "$line" in
+    # The console's first question, answered as the real CLI does: a control
+    # response, no turn. Read as an instruction it would be acknowledged and
+    # cost money, which no test expects of a session nobody has spoken to.
+    *'"subtype":"initialize"'*)
+      id=$(printf '%s' "$line" | sed -e 's/.*"request_id":"//' -e 's/".*//')
+      printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"effort","description":"Set effort level for model usage","argumentHint":"<low|medium|high|xhigh|max|auto>"}],"models":[],"available_output_styles":["default"]}}}\n' "$id"
+      ;;
     # An ANSWER to the question below. It reports what it was told, which is what
     # lets a test drive a whole approval round trip and see the verdict land.
     *'"control_response"'*)

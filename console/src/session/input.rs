@@ -247,6 +247,30 @@ impl Session {
         crate::usage::remember(&mut state.spent, heard);
     }
 
+    /// Ask what this session can be told — [`protocol::initialize`]; the answer
+    /// arrives through [`Self::record_commands`].
+    pub async fn ask_commands(&self) {
+        let line = protocol::initialize(&format!("{}{}", protocol::COMMANDS, self.id));
+        let mut held = self.stdin.lock().await;
+        let Some(stdin) = held.as_mut() else { return };
+        if stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .is_ok()
+        {
+            let _ = stdin.flush().await;
+        }
+    }
+
+    pub(super) fn record_commands(&self, commands: protocol::Commands) {
+        self.state.lock().commands = Some(std::sync::Arc::new(commands));
+    }
+
+    /// What this session can be told, once it has said.
+    pub fn commands(&self) -> Option<std::sync::Arc<protocol::Commands>> {
+        self.state.lock().commands.clone()
+    }
+
     /// Ask what the account has spent — [`protocol::get_usage`]; the answer arrives
     /// through [`Self::record_usage`].
     pub async fn ask_usage(&self) {

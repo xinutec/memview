@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
+  Commands,
   CALLS,
   type Conversation,
   type CorpusRead,
@@ -55,6 +56,11 @@ export class ConsoleApi {
   /** The page of events ending at `before`, a cursor from a previous page. */
   earlier(id: string, before: number): Observable<Page> {
     return this.http.get<Page>(`${session(id)}/earlier`, { params: { before } });
+  }
+
+  /** What the session can be told; `null` until it has answered. See [[suggest]]. */
+  commands(id: string): Observable<Commands | null> {
+    return this.http.get<Commands | null>(`${session(id)}/commands`);
   }
 
   landmarks(id: string): Observable<Landmark[]> {

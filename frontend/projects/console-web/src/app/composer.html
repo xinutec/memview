@@ -40,18 +40,40 @@
   />
   <!-- A pill as messengers draw it, not a Material field: its floating label and
        outline are chrome a one-line box does not need. -->
-  <div class="box">
+  <div class="box" matAutocompleteOrigin #pill="matAutocompleteOrigin">
     <!-- Grows with what is typed by CSS (`field-sizing`), not the CDK autosize,
          which rewrote the box on every window resize and put the cursor at the
          end. `Ctrl+Enter` stays for the desk and is not the way in: a soft
          keyboard has no Ctrl, and Enter is a newline. -->
+    <!-- A slash command completes from what the session said it can be told: its
+         commands, then the chosen one's values. See `suggest`. -->
     <textarea
+      #field
       rows="1"
       [(ngModel)]="text"
       name="text"
       placeholder="say something"
+      [matAutocomplete]="completion"
+      [matAutocompleteConnectedTo]="pill"
+      [matAutocompleteDisabled]="suggestions().length === 0"
       (keydown.control.enter)="send.emit()"
     ></textarea>
+    <mat-autocomplete
+      #completion="matAutocomplete"
+      class="completion"
+      (optionSelected)="picked($event.option.value)"
+    >
+      @for (row of suggestions(); track row.label) {
+        <mat-option [value]="row.fill" [disabled]="!row.fill">
+          <span class="completion-row">
+            <span class="completion-label">{{ row.label }}</span>
+            @if (row.detail) {
+              <span class="completion-detail">{{ row.detail }}</span>
+            }
+          </span>
+        </mat-option>
+      }
+    </mat-autocomplete>
     <!-- Once the slot is send, the picture moves in here, so one can be added
          after typing, or beside another. -->
     @if (ready() && held().length < most) {

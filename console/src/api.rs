@@ -51,6 +51,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/earlier", get(earlier))
         .route("/api/sessions/{id}/landmarks", get(landmarks))
+        .route("/api/sessions/{id}/commands", get(commands))
         .route("/api/sessions/{id}/parse", post(parse))
         .route("/api/sessions/{id}/edits", get(edits))
         .route("/api/sessions/{id}/workflows/{run}", get(workflow))
@@ -925,6 +926,16 @@ pub fn spa(index: &str, path: &str) -> axum::response::Response {
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no index").into_response()
         }
     }
+}
+
+/// GET /api/sessions/{id}/commands — what the session can be told, for completing
+/// a slash command; `null` until it has answered.
+async fn commands(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Result<Json<Option<Arc<crate::protocol::Commands>>>, StatusCode> {
+    let session = roster.get(&id).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(session.commands()))
 }
 
 /// GET /api/sessions/{id}/edits — predicted changes, and which diverged, from disk.

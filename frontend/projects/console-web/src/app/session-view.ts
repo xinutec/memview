@@ -33,7 +33,7 @@ import { EffortBars } from './effort-bars';
 import { LapseBanner } from './lapse-banner';
 import { modelName } from './model';
 import { titleOf } from './naming';
-import { type Change, type Entry, type Summary, type ToolCall } from './models';
+import { type Change, type Commands, type Entry, type Summary, type ToolCall } from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
 import { DiffSheet } from './diff-sheet';
@@ -156,6 +156,9 @@ export class SessionView implements OnDestroy {
 
   // The composer's state. The text is a draft, kept and synced by `Drafts`.
   readonly text = signal('');
+  /** What this session can be told, asked for on the first `/`. See [[suggest]]. */
+  readonly commands = signal<Commands | undefined>(undefined);
+  private askingCommands = false;
   readonly sending = signal(false);
   readonly trouble = signal('');
   readonly pictureTrouble = signal('');
@@ -206,6 +209,28 @@ export class SessionView implements OnDestroy {
         this.here.open.set(mine);
         this.here.gist.set(state?.gists[id]);
         this.here.tasks.set(state?.tasks.sessions[id]);
+      });
+    });
+
+    // Another conversation can be told other things: its folder's skills.
+    effect(() => {
+      this.id();
+      untracked(() => this.commands.set(undefined));
+    });
+    effect(() => {
+      const id = this.id();
+      if (!this.text().startsWith('/')) return;
+      untracked(() => {
+        if (this.commands() || this.askingCommands) return;
+        this.askingCommands = true;
+        // `null` until the session has answered: the next keystroke asks again.
+        this.api.commands(id).subscribe({
+          next: (commands) => {
+            if (commands && id === this.id()) this.commands.set(commands);
+          },
+          error: () => (this.askingCommands = false),
+          complete: () => (this.askingCommands = false),
+        });
       });
     });
 

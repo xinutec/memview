@@ -1374,3 +1374,46 @@ mod signed_out {
         );
     }
 }
+
+/// A real `initialize` answer, trimmed to a few commands and the account removed.
+const INITIALIZE: &str = include_str!("../fixtures/initialize.json");
+
+#[test]
+fn the_initialize_answer_gives_the_commands_with_their_hints_and_aliases() {
+    let found = console::protocol::commands_reply(INITIALIZE).expect("commands");
+    let effort = found
+        .commands
+        .iter()
+        .find(|c| c.name == "effort")
+        .expect("effort");
+    assert_eq!(effort.argument_hint, "<low|medium|high|xhigh|max|auto>");
+    assert!(!effort.description.is_empty());
+    let usage = found
+        .commands
+        .iter()
+        .find(|c| c.name == "usage")
+        .expect("usage");
+    assert_eq!(usage.aliases, ["cost", "stats"]);
+}
+
+#[test]
+fn the_initialize_answer_gives_the_values_model_and_output_style_take() {
+    let found = console::protocol::commands_reply(INITIALIZE).expect("commands");
+    let opus = found
+        .models
+        .iter()
+        .find(|m| m.value == "opus")
+        .expect("opus");
+    assert_eq!(opus.display_name, "Opus 5.5");
+    assert!(opus.effort_levels.iter().any(|level| level == "max"));
+    assert!(found.output_styles.iter().any(|style| style == "Concise"));
+}
+
+#[test]
+fn only_an_answer_to_our_own_ask_is_read_as_the_commands() {
+    // Another request's answer, or a usage reply, is not this.
+    let other = INITIALIZE.replace("commands-6f7c2f11", "usage-6f7c2f11");
+    assert!(console::protocol::commands_reply(&other).is_none());
+    assert!(console::protocol::commands_reply(r#"{"type":"assistant","message":{}}"#).is_none());
+    assert!(console::protocol::usage_reply(INITIALIZE).is_none());
+}

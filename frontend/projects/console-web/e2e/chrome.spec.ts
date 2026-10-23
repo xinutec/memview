@@ -18,6 +18,7 @@ import {
   openTools,
   test,
   withWakeLock,
+  type Commands,
   type Conversation,
   type Described,
   type Overview,
@@ -1014,4 +1015,40 @@ test('a session that has ended dates its background work @ phone width', async (
   );
   await expect(page.locator('.update.running')).toHaveCount(0);
   await expectCleanLayout(page, testInfo);
+});
+
+test('a slash command completes from what the session can be told @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The commands and their values come from the session (`initialize`), not a
+  // list in the app: this one offers effort's levels because its hint lists them.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/commands', (r) =>
+    r.fulfill({
+      json: {
+        commands: [
+          { name: 'context', description: 'Show current context usage' },
+          {
+            name: 'effort',
+            description: 'Set effort level for model usage',
+            argument_hint: '<low|medium|high|xhigh|max|auto>',
+          },
+        ],
+        models: [],
+        output_styles: [],
+      } satisfies Commands,
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.pressSequentially('/eff');
+  await page.getByRole('option', { name: /\/effort/ }).click();
+  await expect(box).toHaveValue('/effort ');
+  // Straight on to its values, without typing again.
+  const max = page.getByRole('option', { name: 'max' });
+  await expect(max).toBeVisible();
+  // The list itself: it lies over the conversation by design, as a sheet does.
+  await expectCleanLayout(page, testInfo, { root: '.completion' });
+  await max.click();
+  await expect(box).toHaveValue('/effort max');
 });
