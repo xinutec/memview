@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { modelName } from './model';
+import { effortBars, effortName, modelName } from './model';
 
 describe('model names', () => {
   it('drops the bracketed variant, which the window beside it already states', () => {
@@ -35,5 +35,24 @@ describe('model names', () => {
 
   it('says nothing when the session has not said', () => {
     expect(modelName(undefined)).toBeUndefined();
+  });
+});
+
+describe('effort', () => {
+  it('fills one bar per level of the five /effort offers', () => {
+    expect(effortBars('low')).toBe(1);
+    expect(effortBars('medium')).toBe(2);
+    expect(effortBars('max')).toBe(5);
+  });
+
+  it('draws no bars for a level it does not know, and names it by its word', () => {
+    // A level the CLI adds between releases is no place on the scale yet.
+    expect(effortBars({ unknown: 'turbo' })).toBeUndefined();
+    expect(effortName({ unknown: 'turbo' })).toBe('turbo');
+  });
+
+  it('says nothing for a model with no effort setting', () => {
+    expect(effortBars(undefined)).toBeUndefined();
+    expect(effortName(undefined)).toBeUndefined();
   });
 });

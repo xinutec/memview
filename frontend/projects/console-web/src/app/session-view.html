@@ -16,7 +16,9 @@
         }}</mat-icon>
       }
       @if (model(); as model) {
-        <span class="model" [title]="session.model">{{ model }}</span>
+        <span class="model" [title]="session.model"
+          >{{ model }}<app-effort-bars [effort]="session.effort"
+        /></span>
       }
     </div>
   </header>

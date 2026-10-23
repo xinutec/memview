@@ -23,6 +23,7 @@ export type { LoginResult } from './generated/LoginResult';
 export type { LoginStarted } from './generated/LoginStarted';
 export type { Described } from './generated/Described';
 export type { Draft } from './generated/Draft';
+export type { Effort } from './generated/Effort';
 export type { Event } from './generated/Event';
 export type { Gist } from './generated/Gist';
 export type { Holder } from './generated/Holder';

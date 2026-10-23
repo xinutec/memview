@@ -289,6 +289,9 @@ pub struct Appended {
     pub compacted: bool,
     /// The newest fullness recorded after any compaction.
     pub context: Option<u64>,
+    /// The last answer's model and effort: a `/model` or `/effort` switch is recorded
+    /// nowhere else.
+    pub answered: Option<crate::protocol::Answered>,
 }
 
 /// A place in a transcript to come back to: something said or sent, or a compaction.
@@ -474,12 +477,14 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
     let mut finished = Vec::new();
     let mut compacted = false;
     let mut context = None;
+    let mut answered = None;
     let Ok(mut file) = std::fs::File::open(path) else {
         return Appended {
             counted: so_far,
             finished,
             compacted: false,
             context: None,
+            answered,
         };
     };
     let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
@@ -494,6 +499,7 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
             finished,
             compacted: false,
             context: None,
+            answered,
         };
     }
     let mut reader = std::io::BufReader::new(file);
@@ -507,7 +513,11 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
             break;
         }
         found.through += read as u64;
-        for event in crate::protocol::read_recorded(&String::from_utf8_lossy(&line)) {
+        let text = String::from_utf8_lossy(&line);
+        if let Some(answer) = crate::protocol::answered(&text) {
+            answered = Some(answer);
+        }
+        for event in crate::protocol::read_recorded(&text) {
             match event {
                 crate::protocol::Event::Compacted => {
                     found.interactions = 0;
@@ -535,6 +545,7 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
         finished,
         compacted,
         context,
+        answered,
     }
 }
 

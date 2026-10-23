@@ -14,6 +14,9 @@ pub struct Tally {
     /// Seconds since the epoch.
     pub started: u64,
     pub model: Option<String>,
+    /// See [`Summary::effort`].
+    #[serde(default)]
+    pub effort: Option<crate::protocol::Effort>,
     pub cost_usd: f64,
     pub window: Option<u64>,
     pub limit: Option<crate::protocol::Allowance>,
@@ -96,6 +99,10 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
+    /// The effort the last answer was given, from the transcript.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub effort: Option<crate::protocol::Effort>,
     /// What the CLI last said it was doing, when it is doing anything.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]

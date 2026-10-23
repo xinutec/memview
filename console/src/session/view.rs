@@ -20,6 +20,7 @@ impl Session {
                 .unwrap_or_default()
                 .as_secs(),
             model: state.model.clone(),
+            effort: state.effort.clone(),
             cost_usd: state.cost_usd,
             window: state.window,
             limit: state.limit.clone(),
@@ -162,6 +163,7 @@ impl Session {
             bytes: None,
             alive: state.alive,
             model: state.model.clone(),
+            effort: state.effort.clone(),
             busy: state.busy.clone(),
             working: state.working,
             interactions: state.counted.interactions,

@@ -176,6 +176,19 @@ impl Session {
         if found.compacted {
             state.context = found.context;
         }
+        // So is a switch of model or effort; `init` named only the first model.
+        if let Some(answered) = found.answered {
+            // An answer says `claude-opus-5` where `init` said `claude-opus-5[1m]`: the
+            // variant is the init's to say, a million tokens of window.
+            let variant = state
+                .model
+                .as_deref()
+                .is_some_and(|model| model.split('[').next() == Some(answered.model.as_str()));
+            if !variant {
+                state.model = Some(answered.model);
+            }
+            state.effort = answered.effort;
+        }
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
@@ -297,6 +310,7 @@ impl Session {
             state: Mutex::new(State {
                 alive: true,
                 model: tally.model,
+                effort: tally.effort,
                 mode: tally.mode,
                 // Before the seed, which sets `asked` only when it is `None`.
                 asked: tally.asked,

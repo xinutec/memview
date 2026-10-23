@@ -746,6 +746,63 @@ impl crate::named::Named for Allowance {
     }
 }
 
+/// How hard the model works at an answer, as `/effort` sets it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+    Unknown(String),
+}
+
+impl crate::named::Named for Effort {
+    fn unknown(name: String) -> Self {
+        Effort::Unknown(name)
+    }
+}
+
+/// Who answered, from a transcript's assistant line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answered {
+    pub model: String,
+    /// Absent for a model with no effort setting, such as Haiku.
+    pub effort: Option<Effort>,
+}
+
+/// The fields of an assistant line naming who answered. The effort is on the line,
+/// not in the message, and only in the transcript: stdout never carries it.
+#[derive(Debug, Deserialize)]
+struct Answering {
+    #[serde(rename = "type")]
+    kind: String,
+    message: Option<AnsweringMessage>,
+    #[serde(default)]
+    effort: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnsweringMessage {
+    model: Option<String>,
+}
+
+/// [`Answered`], when `line` is a transcript's assistant line a model wrote.
+pub fn answered(line: &str) -> Option<Answered> {
+    let answer: Answering = serde_json::from_str(line).ok()?;
+    let model = answer.message?.model?;
+    if answer.kind != "assistant" || model == SYNTHETIC {
+        return None;
+    }
+    Some(Answered {
+        model,
+        effort: answer.effort.as_deref().map(crate::named::named),
+    })
+}
+
 /// What sits between two markers, when both are there and in that order.
 fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     let start = text.find(open)? + open.len();

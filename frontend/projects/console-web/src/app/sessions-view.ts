@@ -14,6 +14,7 @@ import { reason } from './errors';
 import { Roster } from './roster';
 import { Foreground } from './foreground';
 import { Conversation, Gist, Holder, Summary, TaskCount } from './models';
+import { EffortBars } from './effort-bars';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
@@ -108,6 +109,7 @@ function filled(context?: number, window?: number): Pick<Row, 'fill' | 'warm' | 
     MatProgressBarModule,
     NoticeBar,
     UsageStrip,
+    EffortBars,
   ],
 })
 export class SessionsView {

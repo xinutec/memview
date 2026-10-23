@@ -899,6 +899,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
+        effort: Some(console::protocol::Effort::High),
         mode: Some(console::modes::Mode::Auto),
         asked: Some("the first thing it was ever asked".into()),
         cost_usd: 1.25,
@@ -945,6 +946,8 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         "the session lost its name across the handover"
     );
     assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
+    // Read off the last answer, which the next re-read starts after.
+    assert_eq!(summary.effort, Some(console::protocol::Effort::High));
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
     assert_eq!(
         summary.limit,
@@ -1028,6 +1031,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
+        effort: Some(console::protocol::Effort::High),
         mode: Some(console::modes::Mode::Auto),
         asked: Some("the first thing it was ever asked".into()),
         cost_usd: 0.0,

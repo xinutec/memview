@@ -482,6 +482,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
         console::session::Tally {
             started: 1_754_000_000,
             model: None,
+            effort: None,
             mode: None,
             // Deliberately WRONG, as an earlier image's value would be: the
             // head of the file has to win, or a subtitle once corrupted stays
@@ -565,6 +566,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
         console::session::Tally {
             started: 1_754_000_000,
             model: None,
+            effort: None,
             mode: None,
             // What an earlier image had wrongly taken for the name.
             asked: Some("a much later prompt".into()),

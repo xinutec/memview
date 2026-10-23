@@ -279,6 +279,8 @@ export const RUNNING: Summary = {
   started: 1785600000,
   alive: true,
   model: 'claude-opus-5[1m]',
+  // The chip's effort bars exist only for a session that recorded one.
+  effort: 'xhigh',
   // Without this the header's mode icon does not exist in the harness.
   // Both the card and the session header draw it only for a session whose
   // mode the runner has read (`@if (modeIcon(); as icon)`), so a fixture

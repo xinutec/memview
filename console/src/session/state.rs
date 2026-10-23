@@ -83,6 +83,8 @@ pub(super) struct State {
     /// When the kill armed by [`Session::stop`] falls due, in epoch milliseconds.
     pub(super) stopping: Option<i64>,
     pub(super) model: Option<String>,
+    /// See [`Summary::effort`].
+    pub(super) effort: Option<crate::protocol::Effort>,
     pub(super) busy: Option<String>,
     /// See [`Summary::interactions`] and [`crate::past::counted`].
     pub(super) counted: crate::past::Counted,

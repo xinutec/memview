@@ -29,6 +29,7 @@ import { Following, measure } from './following';
 import { Foreground } from './foreground';
 import { Here } from './here';
 import { Lasted } from './lasted';
+import { EffortBars } from './effort-bars';
 import { modelName } from './model';
 import { titleOf } from './naming';
 import { type Change, type Entry, type Summary, type ToolCall } from './models';
@@ -55,6 +56,7 @@ import { Updates } from './updates';
   host: { '(click)': 'tapped($event)' },
   imports: [
     Composer,
+    EffortBars,
     Lasted,
     MatButtonModule,
     MatIconModule,

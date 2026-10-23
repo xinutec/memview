@@ -199,7 +199,9 @@
           }
 
           @if (modelOf(session); as model) {
-            <span class="model" [title]="session.model">{{ model }}</span>
+            <span class="model" [title]="session.model"
+              >{{ model }}<app-effort-bars [effort]="session.effort"
+            /></span>
           }
         </div>
       } @else if (row.past; as conversation) {

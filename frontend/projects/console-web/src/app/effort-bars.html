@@ -1,0 +1,9 @@
+@if (filled(); as filled) {
+  <span class="bars" role="img" [attr.aria-label]="'effort ' + name()" [title]="'effort ' + name()">
+    @for (place of places; track place) {
+      <i [class.on]="place <= filled"></i>
+    }
+  </span>
+} @else if (name(); as name) {
+  <span>{{ name }}</span>
+}

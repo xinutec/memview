@@ -11,6 +11,7 @@ use console::past::{
     Counted, Running, conversations, counted, in_use, named as named_of, touched as touched_of,
     transcript_ids, transcript_of, words_of_claude_processes,
 };
+use console::protocol::Effort;
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
 /// Claude Code sources a snapshot under `~/.claude/` for every command it runs,
@@ -706,6 +707,69 @@ fn the_count_starts_again_after_a_compaction() {
     let path = transcript_of(&root, "cut").expect("transcript");
 
     assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
+}
+
+/// A transcript of assistant lines, each `(model, effort)` as the CLI records
+/// them: the model inside the message, the effort beside it.
+fn answered_by(dir: &Path, id: &str, answers: &[(&str, Option<&str>)]) -> std::path::PathBuf {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let lines: Vec<String> = answers
+        .iter()
+        .map(|(model, effort)| {
+            let effort = effort.map_or(String::new(), |e| format!(r#","effort":"{e}","perTurnEffort":"{e}""#));
+            format!(
+                r#"{{"type":"assistant","message":{{"model":"{model}","role":"assistant","content":[{{"type":"text","text":"hi"}}]}}{effort}}}"#
+            )
+        })
+        .collect();
+    let path = folder.join(format!("{id}.jsonl"));
+    std::fs::write(&path, format!("{}\n", lines.join("\n"))).expect("transcript");
+    path
+}
+
+#[test]
+fn the_last_answer_names_the_model_and_effort_a_switch_left() {
+    // `/model` and `/effort` are written nowhere but the next answer's line, and
+    // stdout carries the effort not at all. A slash command's answer is
+    // `<synthetic>` and recorded with no effort, so it is no answer.
+    let root = scratch("switched");
+    let path = answered_by(
+        &root,
+        "switched",
+        &[
+            ("claude-opus-5-5", Some("medium")),
+            ("claude-fable-5-1", Some("high")),
+            ("<synthetic>", None),
+        ],
+    );
+
+    let seen = counted(&path, Counted::default())
+        .answered
+        .expect("an answer");
+    assert_eq!(seen.model, "claude-fable-5-1");
+    assert_eq!(seen.effort, Some(Effort::High));
+}
+
+#[test]
+fn a_model_with_no_effort_setting_clears_the_last_one() {
+    // Haiku records no effort: the level the session ran at before does not
+    // carry over to it.
+    let root = scratch("effortless");
+    let path = answered_by(
+        &root,
+        "effortless",
+        &[
+            ("claude-opus-5-5", Some("xhigh")),
+            ("claude-haiku-4-5-20251001", None),
+        ],
+    );
+
+    let seen = counted(&path, Counted::default())
+        .answered
+        .expect("an answer");
+    assert_eq!(seen.model, "claude-haiku-4-5-20251001");
+    assert_eq!(seen.effort, None);
 }
 
 /// A conversation holding one of everything a landmark is, and a good deal of

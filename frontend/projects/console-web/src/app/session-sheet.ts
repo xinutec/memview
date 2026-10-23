@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { MAT_BOTTOM_SHEET_DATA } from '@angular/material/bottom-sheet';
 
+import { effortName } from './model';
 import { Summary } from './models';
 import { modeTitle } from './modes';
 import { titleOf } from './naming';
@@ -46,6 +47,8 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   // from. The id it is shipped under, not the header's name: `claude-opus-5` and
   // `claude-opus-5[1m]` are a million tokens apart.
   if (session.model) facts.push({ label: 'model', value: session.model, mono: true });
+  const effort = effortName(session.effort);
+  if (effort) facts.push({ label: 'effort', value: effort });
   const mode = modeTitle(session.mode);
   // The CLI's own term, matching `--permission-mode` in a terminal.
   if (mode) facts.push({ label: 'permission mode', value: mode });

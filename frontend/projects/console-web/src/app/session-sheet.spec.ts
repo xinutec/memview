@@ -56,6 +56,11 @@ describe('factsOf', () => {
     expect(value(BARE, 'where')).toBe('/home/example/Code/health');
   });
 
+  it('names the effort in words, which the header draws as bars', () => {
+    expect(value({ ...BARE, effort: 'xhigh' }, 'effort')).toBe('xhigh');
+    expect(labels(BARE)).not.toContain('effort');
+  });
+
   it('says the session id, which is written nowhere else in the console', () => {
     expect(value(BARE, 'session id')).toBe(BARE.id);
   });
