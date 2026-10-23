@@ -43,6 +43,7 @@ import {
   stepLayout,
 } from './graph-layout';
 import { MemviewApi } from './memview-api';
+import { type Metric, weight } from './graph-metrics';
 import { GraphData, GraphNode, Usage } from './models';
 import { Slug } from './slug';
 
@@ -83,17 +84,6 @@ const READABLE_CLUSTERS = 20;
  */
 const OVERVIEW_MIN_WEIGHT = 8;
 
-/**
- * What the size of a dot means. One control, where there were four toggles.
- *
- * A link graph can show how *connected* a memory is and nothing else — so a
- * rule cited by six projects and never once consulted looks exactly like the
- * one that governs every session. These are the questions the links cannot
- * answer, and each is a different reading of one picture rather than a
- * different picture.
- */
-export type Metric = 'standing' | 'use' | 'reads' | 'edits' | 'reach' | 'age' | 'links';
-
 export const METRICS: readonly { key: Metric; label: string; hint: string }[] = [
   {
     key: 'standing',
@@ -125,15 +115,6 @@ export const METRICS: readonly { key: Metric; label: string; hint: string }[] = 
  * rewritten, or recently touched.
  */
 const DEFAULT_METRIC: Metric = 'use';
-
-/**
- * Projects at which `reach` is full size.
- *
- * Set from the observed tail rather than a round number: 99.2% of the corpus
- * reaches fourteen projects or fewer, so this spends the whole visible range
- * on the distinction that exists and clamps only the three outliers.
- */
-const REACH_FULL = 14;
 
 /** A cluster as the legend shows it: what it is called, how big, what colour. */
 interface ClusterRow {
@@ -785,133 +766,6 @@ export class GraphView {
   }
 
   /**
-   * A memory's colour is its cluster's, found in the links — not its curated
-   * section. On the live corpus those two disagree for about half the corpus at
-   * map scale, and the picture should show the structure that is actually there.
-   */
-  /**
-   * How big a memory should be drawn, in 0..1, under the current reading.
-   *
-   * May be zero, but a zero still draws: the radius has a floor of 1.6 world
-   * units before this scales it, because a memory that has never been used,
-   * never edited and links to nothing is still there, and shrinking it to
-   * invisibility would answer the question by hiding it. It draws small, which
-   * is the honest depiction.
-   *
-   * Falls back to links whenever nothing has been mined, so the picture on a
-   * machine with no transcripts is the old one rather than a field of identical
-   * dots.
-   */
-  private weight(node: GraphNode): number {
-    const usage = this.usage()[node.name];
-    const metric = this.hasUsage() ? this.metric() : 'links';
-    if (metric === 'links') {
-      const degree = node.in_degree + node.out_degree;
-      return Math.min(1, Math.sqrt(degree) / 5.5);
-    }
-    if (!usage) return 0.05;
-    if (metric === 'use') {
-      // Sessions, not turns. A memory hammered for one week and never touched
-      // again would otherwise outrank one consulted quietly every week.
-      return Math.min(1, Math.sqrt(usage.sessions) / 3.6);
-    }
-    if (metric === 'reads') {
-      // Deliberate opens, which is a different question from "came up" and has
-      // a very different shape: 48% of the live corpus has never been opened at
-      // all, and 31 memories come up in five or more sessions without one. That
-      // half-empty picture IS the answer — a memory the work only ever mentions
-      // in passing is one nobody has checked.
-      return Math.min(1, Math.sqrt(usage.reads) / 5.5);
-    }
-    if (metric === 'edits') {
-      return Math.min(1, Math.log10(1 + usage.edits) / 2.1);
-    }
-    if (metric === 'reach') {
-      return this.reach(usage);
-    }
-    if (metric === 'standing') {
-      return this.standing(node, usage);
-    }
-    return this.freshness(usage);
-  }
-
-  /**
-   * How many separate projects consult this memory, normalised.
-   *
-   * A different question from how *often* it is used, and the two disagree in
-   * the way that matters: a memory hammered all week inside one repository is
-   * local knowledge, while one consulted twice in each of six projects is a
-   * rule the whole body of work leans on. Only the second should read as
-   * load-bearing.
-   *
-   * **Scaled from one project, not from zero, and saturating at fourteen.**
-   * The first version was `sqrt(n) / sqrt(6)` — chosen by analogy with the
-   * other metrics without looking at the distribution, and wrong twice over.
-   * A single-project memory scored 0.41, so the thing the metric exists to
-   * call small was drawn at nearly half size; and everything from 6 projects
-   * to 19 clamped to exactly 1.0, flattening 19% of the corpus — including
-   * every genuinely cross-cutting rule — into one indistinguishable value.
-   *
-   * Measured on the live corpus (367 memories): 65 reach one project, 73 two,
-   * 63 three, 52 four, and the tail runs 5..19 with only three above 14.
-   * Subtracting one puts "used in exactly one place" at zero, where the radius
-   * floor still draws it; saturating at 14 keeps the whole meaningful range
-   * spread instead of spending it all below six.
-   */
-  private reach(usage: Usage): number {
-    const count = Object.keys(usage.projects).length;
-    // Zero and one are the same statement — this memory reaches nowhere else.
-    if (count <= 1) return 0;
-    return Math.min(1, (Math.sqrt(count) - 1) / (Math.sqrt(REACH_FULL) - 1));
-  }
-
-  /**
-   * Freshness against the most recent use anywhere in the corpus rather than
-   * against today — the transcripts have an end date, and scoring against now
-   * would fade the whole picture uniformly as they age.
-   */
-  private freshness(usage: Usage): number {
-    const newest = this.newest();
-    if (!usage.last || newest === 0) return 0.05;
-    const days = (newest - Date.parse(usage.last)) / 86_400_000;
-    return Math.max(0.05, 1 - Math.min(1, days / 30));
-  }
-
-  /**
-   * One number for how load-bearing a memory actually is.
-   *
-   * The other metrics each answer one question and can each be gamed by a
-   * single accident of how the work happened to go — a memory rewritten five
-   * times in one afternoon looks busy under `edits`, and one injected into
-   * every session looks universal under `use` without anyone ever having read
-   * it. This combines the independent signals so that no single accident can
-   * carry a memory to the top: it has to come up across sessions, be opened on
-   * purpose, matter in more than one project, and still be current.
-   *
-   * The weights are a judgement, not a measurement, so they are stated rather
-   * than buried: breadth of use and deliberate opening carry the most, reach
-   * across projects next, freshness least — a rule can be entirely correct and
-   * simply not have come up lately, and that is not a demotion.
-   *
-   * Deliberately NOT the only view. Every input remains selectable on its own,
-   * because a composite that cannot be taken apart is one nobody can argue
-   * with when it is wrong.
-   */
-  private standing(node: GraphNode, usage: Usage): number {
-    const sessions = Math.min(1, Math.sqrt(usage.sessions) / 3.6);
-    const reads = Math.min(1, Math.sqrt(usage.reads) / 5.5);
-    const degree = Math.min(1, Math.sqrt(node.in_degree + node.out_degree) / 5.5);
-    return Math.min(
-      1,
-      0.3 * sessions +
-        0.25 * reads +
-        0.2 * this.reach(usage) +
-        0.15 * degree +
-        0.1 * this.freshness(usage),
-    );
-  }
-
-  /**
    * Rebuild the layout so each cluster gets its own territory.
    *
    * A cluster of one is handed no group at all, so it anchors at the origin and
@@ -956,6 +810,11 @@ export class GraphView {
     this.ensureLoop();
   }
 
+  /**
+   * A memory's colour is its cluster's, found in the links — not its curated
+   * section. On the live corpus those two disagree for about half the corpus at
+   * map scale, and the picture should show the structure that is actually there.
+   */
   private colourFor(node: GraphNode): string {
     const index = this.clusterOf().get(node.name);
     if (index === undefined) return UNSECTIONED_COLOUR;
@@ -998,7 +857,10 @@ export class GraphView {
       // reader's chosen metric. sqrt, because 63 members against 1 is a 63x
       // range and a linear dot would swamp the picture.
       const members = this.regions()?.size.get(node.name);
-      const heft = members === undefined ? this.weight(node) : Math.min(1, Math.sqrt(members) / 8);
+      const heft =
+        members === undefined
+          ? weight(node, this.usage()[node.name], this.metric(), this.hasUsage(), this.newest())
+          : Math.min(1, Math.sqrt(members) / 8);
       const radius = (1.6 + heft * 4.2) * p.scale;
       const entry: Placed = {
         node,
