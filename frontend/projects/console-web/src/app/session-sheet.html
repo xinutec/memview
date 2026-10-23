@@ -7,6 +7,9 @@
     <dt>{{ fact.label }}</dt>
     <dd [class.mono]="fact.mono">
       {{ fact.value }}
+      @if (fact.effort; as effort) {
+        <app-effort-bars [effort]="effort" />
+      }
       <!-- Under the value rather than beside it, for the same reason. -->
       @if (fact.note; as note) {
         <span class="note">{{ note }}</span>

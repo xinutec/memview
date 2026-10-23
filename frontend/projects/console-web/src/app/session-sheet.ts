@@ -1,8 +1,9 @@
 import { Component, inject } from '@angular/core';
 import { MAT_BOTTOM_SHEET_DATA } from '@angular/material/bottom-sheet';
 
-import { effortName } from './model';
-import { Summary } from './models';
+import { EffortBars } from './effort-bars';
+import { effortBars, effortName } from './model';
+import { Effort, Summary } from './models';
 import { modeTitle } from './modes';
 import { titleOf } from './naming';
 import { fullness } from './tokens';
@@ -17,6 +18,8 @@ export interface Fact {
   readonly mono?: boolean;
   /** Where the value came from, or what it disagrees with, when that matters. */
   readonly note?: string;
+  /** Drawn after the value as the bars the header shows, so they read as effort. */
+  readonly effort?: Effort;
 }
 
 /** What the sheet is opened with: the session, and what it is about. */
@@ -48,7 +51,14 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   // `claude-opus-5[1m]` are a million tokens apart.
   if (session.model) facts.push({ label: 'model', value: session.model, mono: true });
   const effort = effortName(session.effort);
-  if (effort) facts.push({ label: 'effort', value: effort });
+  if (effort) {
+    facts.push({
+      label: 'effort',
+      value: effort,
+      // A level off the scale has no bars, only the word already in `value`.
+      effort: effortBars(session.effort) ? session.effort : undefined,
+    });
+  }
   const mode = modeTitle(session.mode);
   // The CLI's own term, matching `--permission-mode` in a terminal.
   if (mode) facts.push({ label: 'permission mode', value: mode });
@@ -112,6 +122,7 @@ function megabytes(bytes: number): string {
   selector: 'app-session-sheet',
   templateUrl: './session-sheet.html',
   styleUrl: './session-sheet.scss',
+  imports: [EffortBars],
 })
 export class SessionSheet {
   private readonly details = inject<Details>(MAT_BOTTOM_SHEET_DATA);

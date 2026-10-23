@@ -61,6 +61,14 @@ describe('factsOf', () => {
     expect(labels(BARE)).not.toContain('effort');
   });
 
+  it('draws the bars beside the word, so the ones in the header read as effort', () => {
+    const bars = (session: Summary) =>
+      factsOf(session).find((fact) => fact.label === 'effort')?.effort;
+    expect(bars({ ...BARE, effort: 'high' })).toBe('high');
+    // Off the scale there are no bars, and the word is already the value.
+    expect(bars({ ...BARE, effort: { unknown: 'turbo' } })).toBeUndefined();
+  });
+
   it('says the session id, which is written nowhere else in the console', () => {
     expect(value(BARE, 'session id')).toBe(BARE.id);
   });
