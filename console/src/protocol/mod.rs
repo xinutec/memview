@@ -574,34 +574,7 @@ fn events(parsed: Line) -> Vec<Event> {
         // Text is taken from the deltas, so the completed message contributes only what
         // they cannot carry whole — unless nothing generated it, in which case there
         // were no deltas and this is the only copy. See [`SYNTHETIC`].
-        Line::Assistant { message, error } => {
-            // The context as it stood for this request, ahead of the blocks.
-            let context = message.usage.as_ref().map(|usage| Event::Context {
-                tokens: usage.prompt(),
-            });
-            let spoken = message.model.as_deref() == Some(SYNTHETIC);
-            context
-                .into_iter()
-                .chain(
-                    message
-                        .content
-                        .blocks()
-                        .into_iter()
-                        .filter_map(|block| match block {
-                            Block::ToolUse { id, name, input } => Some(Event::Tool {
-                                does: crate::call::Call::read(&name, &input),
-                                id,
-                                name,
-                            }),
-                            Block::Text { text } if spoken && !text.trim().is_empty() => {
-                                Some(Event::Text { text })
-                            }
-                            _ => None,
-                        }),
-                )
-                .chain(signed_out(error.as_deref()))
-                .collect()
-        }
+        Line::Assistant { message, error } => assistant(message, error, Words::Unstreamed),
         // A replayed prompt: what this console sent, coming back — read by the same
         // function that reads one out of a transcript, so a picture appears when sent.
         Line::User { message } => from_user(message.content),
@@ -712,6 +685,49 @@ fn said_once(mut said: Vec<Event>, event: Event) -> Vec<Event> {
     said
 }
 
+/// Which of a completed assistant message's words to read.
+enum Words {
+    /// Only words no delta carried: a synthetic message's, and not blank. Live, the
+    /// rest arrived as deltas already — see [`SYNTHETIC`].
+    Unstreamed,
+    /// All of them: a transcript has no deltas.
+    All,
+}
+
+/// What one completed assistant message says, live or on disk alike: the context
+/// as it stood for this request (so a resumed session knows its fullness before it
+/// finishes a turn), its tool calls, the words [`Words`] picks, and a lapsed
+/// sign-in last. One reading for both, so a fix cannot land in only one.
+fn assistant(message: Message, error: Option<String>, words: Words) -> Vec<Event> {
+    let context = message.usage.as_ref().map(|usage| Event::Context {
+        tokens: usage.prompt(),
+    });
+    let unstreamed = message.model.as_deref() == Some(SYNTHETIC);
+    let keep = |text: &str| match words {
+        Words::All => true,
+        Words::Unstreamed => unstreamed && !text.trim().is_empty(),
+    };
+    context
+        .into_iter()
+        .chain(
+            message
+                .content
+                .blocks()
+                .into_iter()
+                .filter_map(|block| match block {
+                    Block::ToolUse { id, name, input } => Some(Event::Tool {
+                        does: crate::call::Call::read(&name, &input),
+                        id,
+                        name,
+                    }),
+                    Block::Text { text } if keep(&text) => Some(Event::Text { text }),
+                    _ => None,
+                }),
+        )
+        .chain(signed_out(error.as_deref()))
+        .collect()
+}
+
 /// One line of a transcript on disk: no deltas, so text comes from the completed
 /// messages.
 pub fn read_recorded(line: &str) -> Vec<Event> {
@@ -719,32 +735,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         return Vec::new();
     };
     match parsed {
-        Line::Assistant { message, error } => {
-            // Same as the live reader: the context as it stood for this request, so a
-            // resumed session knows its fullness before it finishes a turn.
-            let context = message.usage.as_ref().map(|usage| Event::Context {
-                tokens: usage.prompt(),
-            });
-            context
-                .into_iter()
-                .chain(
-                    message
-                        .content
-                        .blocks()
-                        .into_iter()
-                        .filter_map(|block| match block {
-                            Block::Text { text } => Some(Event::Text { text }),
-                            Block::ToolUse { id, name, input } => Some(Event::Tool {
-                                does: crate::call::Call::read(&name, &input),
-                                id,
-                                name,
-                            }),
-                            _ => None,
-                        }),
-                )
-                .chain(signed_out(error.as_deref()))
-                .collect()
-        }
+        Line::Assistant { message, error } => assistant(message, error, Words::All),
         Line::User { message } => from_user(message.content),
         // The replay path needs this more than the live one: a message sent to a busy
         // session exists in the transcript only as this attachment.
