@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
     }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
-        app = app.fallback_service(api::app_files(dir));
+        app = app.fallback_service(console::serving::app_files(dir));
     }
 
     // Take the sessions with us, or orphans block their own resume.

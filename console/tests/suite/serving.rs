@@ -5,7 +5,7 @@
 //! a missing font silent. These pin the line between the two.
 
 use axum::http::StatusCode;
-use console::api::spa;
+use console::serving::spa;
 
 /// An index on disk, so the happy path is the real one rather than a stub.
 fn index() -> std::path::PathBuf {
@@ -82,7 +82,7 @@ fn a_missing_index_says_so_rather_than_serving_nothing() {
 async fn served() -> String {
     let dir = index().parent().expect("its directory").to_path_buf();
     std::fs::write(dir.join("main-JLBKO2QH.js"), "console.log(1)").expect("a chunk");
-    let app = console::api::app_files(&dir.display().to_string());
+    let app = console::serving::app_files(&dir.display().to_string());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a port");
@@ -122,7 +122,23 @@ async fn the_app_page_is_asked_for_again_every_time() {
         Some("no-cache")
     );
     // A hashed chunk never changes under its name: no reason to ask again.
-    assert_eq!(cache_control(&format!("{at}/main-JLBKO2QH.js")).await, None);
+    assert_eq!(
+        cache_control(&format!("{at}/main-JLBKO2QH.js"))
+            .await
+            .as_deref(),
+        Some("public, max-age=31536000, immutable")
+    );
+    // A missing one is not kept, or its name would never be asked for again.
+    let gone = reqwest::get(format!("{at}/main-GONEGONE.js"))
+        .await
+        .expect("an answer");
+    assert_eq!(gone.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        gone.headers()
+            .get("cache-control")
+            .map(|v| v.to_str().expect("text")),
+        Some("no-cache")
+    );
 }
 
 /// A bundle as `ng build` leaves it: an index naming its entry chunk, and the
@@ -149,7 +165,7 @@ fn the_bundle_is_named_by_the_build_stamp_the_page_also_carries() {
         r#"var r gS={sha:"7805403",builtAt:"2026-10-23T09:34:13.521Z"};var x"#,
     );
     assert_eq!(
-        console::api::bundle_of(&dir.display().to_string()).as_deref(),
+        console::serving::bundle_of(&dir.display().to_string()).as_deref(),
         Some("2026-10-23T09:34:13.521Z")
     );
 }
@@ -159,5 +175,8 @@ fn a_bundle_with_no_stamp_is_no_bundle() {
     // Never a fallback fingerprint: no page carries one to match, so every page
     // would reload, forever.
     let dir = bundle_dir("unstamped", "console.log(1)");
-    assert_eq!(console::api::bundle_of(&dir.display().to_string()), None);
+    assert_eq!(
+        console::serving::bundle_of(&dir.display().to_string()),
+        None
+    );
 }

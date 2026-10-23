@@ -151,21 +151,13 @@ fn index_size() -> Option<IndexSize> {
     })
 }
 
-/// The bundle's identity: the build time stamped into the entry chunk the index
-/// names, which the page compares with its own (`build-info.ts`). A page restored
-/// from the WebView's cache knows its own stamp; it could not know a hash.
-pub fn bundle_of(dir: &str) -> Option<String> {
-    let page = std::fs::read_to_string(format!("{dir}/index.html")).ok()?;
-    let start = page.find("\"main-")? + 1;
-    let entry = &page[start..start + page[start..].find('"')?];
-    let chunk = std::fs::read_to_string(format!("{dir}/{entry}")).ok()?;
-    let stamp = chunk.find("builtAt:\"")? + "builtAt:\"".len();
-    Some(chunk[stamp..stamp + chunk[stamp..].find('"')?].to_string())
-}
-
 async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
     Json(Overview {
-        bundle: roster.config().static_dir.as_deref().and_then(bundle_of),
+        bundle: roster
+            .config()
+            .static_dir
+            .as_deref()
+            .and_then(crate::serving::bundle_of),
         // From memory, never the network.
         usage: roster.usage().reading(&roster.spent()).await,
         dirs: roster
@@ -872,60 +864,6 @@ async fn task(
 #[cfg_attr(feature = "ts", ts(export))]
 struct Described {
     description: String,
-}
-
-/// The app's files from `dir`: the app for a navigation the API did not answer, a
-/// 404 for a missing file. See [`spa`] and [`revalidate_pages`].
-pub fn app_files(dir: &str) -> Router {
-    let index = format!("{dir}/index.html");
-    Router::new()
-        .fallback_service(
-            tower_http::services::ServeDir::new(dir).fallback(axum::routing::any(
-                move |uri: axum::http::Uri| {
-                    let index = index.clone();
-                    async move { spa(&index, uri.path()) }
-                },
-            )),
-        )
-        .layer(axum::middleware::map_response(revalidate_pages))
-}
-
-/// `no-cache` on the page: it names the bundle, so a stale page is a stale app.
-/// With only `Last-Modified`, a WebView may keep it as fresh for days.
-async fn revalidate_pages(mut response: Response) -> Response {
-    let page = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|kind| kind.to_str().ok())
-        .is_some_and(|kind| kind.starts_with("text/html"));
-    if page {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("no-cache"),
-        );
-    }
-    response
-}
-
-/// The app for its own routes; a 404 for a missing file — a path whose last
-/// segment has a dot — rather than the index served as a font.
-pub fn spa(index: &str, path: &str) -> axum::response::Response {
-    use axum::response::IntoResponse as _;
-
-    if path
-        .rsplit('/')
-        .next()
-        .is_some_and(|last| last.contains('.'))
-    {
-        return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
-    }
-    match std::fs::read_to_string(index) {
-        Ok(page) => axum::response::Html(page).into_response(),
-        Err(error) => {
-            tracing::error!("the app's index could not be read: {error}");
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no index").into_response()
-        }
-    }
 }
 
 /// GET /api/sessions/{id}/commands — what the session can be told, for completing
