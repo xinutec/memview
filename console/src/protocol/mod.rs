@@ -800,6 +800,8 @@ impl crate::named::Named for Effort {
 /// Who answered, from a transcript's assistant line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Answered {
+    /// When, in epoch milliseconds: a compaction copies older answers in after it.
+    pub at: i64,
     pub model: String,
     /// Absent for a model with no effort setting, such as Haiku.
     pub effort: Option<Effort>,
@@ -829,6 +831,7 @@ pub fn answered(line: &str) -> Option<Answered> {
         return None;
     }
     Some(Answered {
+        at: recorded_at(line)?,
         model,
         effort: answer.effort.as_deref().map(crate::named::named),
     })

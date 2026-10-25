@@ -709,17 +709,17 @@ fn the_count_starts_again_after_a_compaction() {
     assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
 }
 
-/// A transcript of assistant lines, each `(model, effort)` as the CLI records
-/// them: the model inside the message, the effort beside it.
-fn answered_by(dir: &Path, id: &str, answers: &[(&str, Option<&str>)]) -> std::path::PathBuf {
+/// A transcript of assistant lines, each `(minute, model, effort)` as the CLI
+/// records them: the model inside the message, the effort beside it.
+fn answered_by(dir: &Path, id: &str, answers: &[(u32, &str, Option<&str>)]) -> std::path::PathBuf {
     let folder = dir.join("project");
     std::fs::create_dir_all(&folder).expect("project dir");
     let lines: Vec<String> = answers
         .iter()
-        .map(|(model, effort)| {
+        .map(|(minute, model, effort)| {
             let effort = effort.map_or(String::new(), |e| format!(r#","effort":"{e}","perTurnEffort":"{e}""#));
             format!(
-                r#"{{"type":"assistant","message":{{"model":"{model}","role":"assistant","content":[{{"type":"text","text":"hi"}}]}}{effort}}}"#
+                r#"{{"type":"assistant","timestamp":"2026-10-25T16:{minute:02}:00.000Z","message":{{"model":"{model}","role":"assistant","content":[{{"type":"text","text":"hi"}}]}}{effort}}}"#
             )
         })
         .collect();
@@ -738,9 +738,9 @@ fn the_last_answer_names_the_model_and_effort_a_switch_left() {
         &root,
         "switched",
         &[
-            ("claude-opus-5-5", Some("medium")),
-            ("claude-fable-5-1", Some("high")),
-            ("<synthetic>", None),
+            (1, "claude-opus-5-5", Some("medium")),
+            (2, "claude-fable-5-1", Some("high")),
+            (3, "<synthetic>", None),
         ],
     );
 
@@ -760,8 +760,8 @@ fn a_model_with_no_effort_setting_clears_the_last_one() {
         &root,
         "effortless",
         &[
-            ("claude-opus-5-5", Some("xhigh")),
-            ("claude-haiku-4-5-20251001", None),
+            (1, "claude-opus-5-5", Some("xhigh")),
+            (2, "claude-haiku-4-5-20251001", None),
         ],
     );
 
@@ -770,6 +770,40 @@ fn a_model_with_no_effort_setting_clears_the_last_one() {
         .expect("an answer");
     assert_eq!(seen.model, "claude-haiku-4-5-20251001");
     assert_eq!(seen.effort, None);
+}
+
+#[test]
+fn history_a_compaction_copies_in_does_not_name_the_model() {
+    // A compaction appends older history after the newest answer: the health
+    // session showed the Fable it ran days before, not the Opus it switched to.
+    let root = scratch("copied");
+    let path = answered_by(
+        &root,
+        "copied",
+        &[
+            (1, "claude-fable-5-1", Some("high")),
+            (5, "claude-opus-5-5", Some("medium")),
+            (1, "claude-fable-5-1", Some("high")),
+        ],
+    );
+
+    let seen = counted(&path, Counted::default());
+    let answer = seen.answered.expect("an answer");
+    assert_eq!(answer.model, "claude-opus-5-5");
+    assert_eq!(answer.effort, Some(Effort::Medium));
+
+    // Nor on the next read, which starts after the newest answer.
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("transcript");
+    std::io::Write::write_all(
+        &mut file,
+        br#"{"type":"assistant","timestamp":"2026-10-25T16:02:00.000Z","message":{"model":"claude-fable-5-1","role":"assistant","content":[]},"effort":"high"}
+"#,
+    )
+    .expect("append");
+    assert_eq!(counted(&path, seen.counted).answered, None);
 }
 
 /// A conversation holding one of everything a landmark is, and a good deal of
@@ -1086,6 +1120,7 @@ fn a_seed_starts_at_the_last_compaction_and_reaches_the_same_count() {
         Counted {
             interactions: 0,
             through: from,
+            ..Counted::default()
         },
     );
     assert_eq!(whole.counted.interactions, seeded.counted.interactions);
@@ -1132,6 +1167,7 @@ fn the_search_for_the_boundary_widens_past_its_first_window() {
         Counted {
             interactions: 0,
             through: from,
+            ..Counted::default()
         },
     );
     assert_eq!(whole.counted.interactions, 3);
@@ -1322,6 +1358,7 @@ fn a_transcript_that_shrank_is_counted_from_the_start() {
     let stale = Counted {
         interactions: 99,
         through: 10_000_000,
+        ..Counted::default()
     };
     assert_eq!(counted(&path, stale).counted.interactions, 2);
 }

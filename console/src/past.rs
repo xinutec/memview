@@ -277,6 +277,9 @@ pub struct Counted {
     pub interactions: u32,
     /// How far into the file that accounts for — a line boundary.
     pub through: u64,
+    /// When the newest answer read so far was written, in epoch milliseconds.
+    #[serde(default)]
+    pub answered_at: i64,
 }
 
 /// What the bytes appended since last time hold.
@@ -289,7 +292,7 @@ pub struct Appended {
     pub compacted: bool,
     /// The newest fullness recorded after any compaction.
     pub context: Option<u64>,
-    /// The last answer's model and effort: a `/model` or `/effort` switch is recorded
+    /// The newest answer's model and effort: a `/model` or `/effort` switch is recorded
     /// nowhere else.
     pub answered: Option<crate::protocol::Answered>,
 }
@@ -514,7 +517,11 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
         }
         found.through += read as u64;
         let text = String::from_utf8_lossy(&line);
-        if let Some(answer) = crate::protocol::answered(&text) {
+        // Not the last line's: a compaction appends older history after the newest.
+        if let Some(answer) = crate::protocol::answered(&text)
+            && answer.at >= found.answered_at
+        {
+            found.answered_at = answer.at;
             answered = Some(answer);
         }
         for event in crate::protocol::read_recorded(&text) {
