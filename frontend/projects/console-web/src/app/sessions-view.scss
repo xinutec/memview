@@ -198,6 +198,9 @@
 
 .facts {
   display: flex;
+  // As the session page's row: stretched, each text sits at the top of a box
+  // as tall as the tallest icon.
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem;
   font: var(--mat-sys-body-small);

@@ -294,6 +294,49 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   await expectCleanLayout(page, testInfo);
 });
 
+test('session list — the facts sit on one centre line, as on the session page @ phone width', async ({
+  page,
+}) => {
+  // The icons are taller than the text beside them; stretched to the row, each
+  // text sat at the top of its own box. 0.8px here, plain to see at a phone's
+  // font scale.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [{ ...RUNNING, context: 122_000, window: 1_000_000 }],
+      } satisfies Overview,
+    }),
+  );
+  await page.goto('/');
+  const off = await page
+    .locator('.session .facts')
+    .first()
+    .evaluate((row) => {
+      const box = row.getBoundingClientRect();
+      const middle = box.y + box.height / 2;
+      return [...row.children].flatMap((item) => {
+        // The ink, not the box: a stretched box is centred whatever it holds. An
+        // icon is its box; its text is a glyph name in a line box of its own.
+        const icon = item.matches('mat-icon') ? item : item.querySelector('mat-icon');
+        const text = item.matches('mat-icon')
+          ? undefined
+          : [...item.childNodes].find(
+              (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
+            );
+        const words = document.createRange();
+        if (text) words.selectNodeContents(text);
+        return [icon?.getBoundingClientRect(), text && words.getBoundingClientRect()]
+          .filter((rect) => rect !== undefined)
+          .map((rect) => Math.round((rect.y + rect.height / 2 - middle) * 10) / 10)
+          .filter((dy) => Math.abs(dy) > 0.5)
+          .map((dy) => `${item.className || item.tagName}: ${dy}px`);
+      });
+    });
+  expect(off).toEqual([]);
+});
+
 test('session list — work still running says so, silence otherwise @ phone width', async ({
   page,
 }, testInfo) => {
