@@ -21,6 +21,8 @@
 // The pill messengers draw: filled, fully round, a picture button at its foot.
 .box {
   flex: 1;
+  // A flex item stops at its content's width; this one gives way to the screen.
+  min-width: 0;
   display: flex;
   align-items: flex-end;
   min-height: 3rem;

@@ -1052,3 +1052,19 @@ test('a slash command completes from what the session can be told @ phone width'
   await max.click();
   await expect(box).toHaveValue('/effort max');
 });
+
+test('a word longer than the screen wraps inside the box rather than widening it @ phone width', async ({
+  page,
+}, testInfo) => {
+  // A textarea sized by its content is as wide as its longest word: with nothing
+  // to break at, the box and the send button left the screen.
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('a'.repeat(300));
+  const width = page.viewportSize()?.width ?? 0;
+  const pill = await page.locator('app-composer .box').boundingBox();
+  expect(pill && pill.x + pill.width).toBeLessThanOrEqual(width);
+  await expect(page.getByRole('button', { name: 'send' })).toBeInViewport({ ratio: 1 });
+  await expectCleanLayout(page, testInfo, { root: 'app-composer' });
+});
