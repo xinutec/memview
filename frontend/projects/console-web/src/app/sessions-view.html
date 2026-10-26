@@ -101,19 +101,16 @@
           }
           <!-- Beside the status word, because it qualifies it: `idle` with a build still
                going is not idle. Absent rather than `0 background tasks` — the harness
-               cannot see a command backgrounded inside a shell. Past beside `ended`:
+               cannot see a command backgrounded inside a shell. Past tense beside `ended`:
                the count is frozen there, and kept because orphaned work is worth a
-               look at `ps`. See `protocol::detached`. An icon, not the words: the
-               head holds one line at phone width. -->
+               look at `ps`. See `protocol::detached`. -->
           @if (session.background; as running) {
-            <span
-              class="tasks"
-              [class.past]="!session.alive"
-              [title]="backgroundOf(session, running)"
-              ><mat-icon class="exchanges" [attr.aria-label]="backgroundOf(session, running)"
-                >pending</mat-icon
-              >{{ running }}</span
-            >
+            <span class="tasks" [class.past]="!session.alive">
+              {{ running }} background task{{ running === 1 ? '' : 's' }}
+              @if (!session.alive) {
+                when it ended
+              }
+            </span>
           }
         } @else if (row.past?.busy) {
           <span class="ended">in use</span>
