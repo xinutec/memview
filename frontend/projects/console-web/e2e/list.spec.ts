@@ -337,6 +337,20 @@ test('session list — the facts sit on one centre line, as on the session page 
   expect(off).toEqual([]);
 });
 
+test('session list — a session waiting for you is yellow, not the green on every card @ phone width', async ({
+  page,
+}) => {
+  // Which session needs you is what the list is for. Material's yellow 90 on 10.
+  await mockRunner(page);
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto('/');
+    const pill = page.locator('.waiting').first();
+    await expect(pill, scheme).toHaveCSS('background-color', 'rgb(234, 234, 0)');
+    await expect(pill, scheme).toHaveCSS('color', 'rgb(29, 29, 0)');
+  }
+});
+
 test('session list — work still running says so, silence otherwise @ phone width', async ({
   page,
 }, testInfo) => {

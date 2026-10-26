@@ -1,3 +1,6 @@
+@use 'sass:map';
+@use '@angular/material' as mat;
+
 // Clipped, so the fill bar follows the card's rounded corners.
 .session mat-card {
   position: relative;
@@ -76,9 +79,14 @@
   font: var(--mat-sys-label-small);
   padding: 0.1rem 0.5rem;
   border-radius: 1rem;
-  background: var(--mat-sys-tertiary-container);
-  color: var(--mat-sys-on-tertiary-container);
   font-weight: 700;
+}
+
+// Yellow, apart from the green on every card: which session needs you is what
+// the list is for. Material's yellow, the same in both themes.
+.waiting {
+  background: map.get(mat.$yellow-palette, 90);
+  color: map.get(mat.$yellow-palette, 10);
 }
 
 // The colour that means somebody has to act: a session that stopped reading is
