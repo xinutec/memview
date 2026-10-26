@@ -356,6 +356,12 @@ export class SessionsView {
     return modeIcon(session.mode);
   }
 
+  /** The background count in words, for the icon that stands for them. */
+  backgroundOf(session: Summary, running: number): string {
+    const tasks = `${running} background task${running === 1 ? '' : 's'}`;
+    return session.alive ? tasks : `${tasks} when it ended`;
+  }
+
   /** Whether that mode is one the CLI itself colours as an error. */
   modeLoud(session: Summary): boolean {
     return modeIsLoud(session.mode);

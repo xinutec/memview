@@ -112,10 +112,12 @@
 // Work going on inside the session's state, so not a second pill competing with
 // the first. Coloured: the rest of the card is history.
 .tasks {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-primary);
-  // Never the thing that wraps: the name beside it can be long, and half of
-  // `1 background task` on a line of its own says nothing.
+  // Never the thing that gives way: the name beside it does.
   flex: 0 0 auto;
   white-space: nowrap;
 

@@ -334,9 +334,13 @@ test('session list — work still running says so, silence otherwise @ phone wid
   // In the head, beside the status word it qualifies — not down in the
   // facts row with the dates and counts, where it read as one more piece of
   // history rather than as the thing still happening.
-  await expect(
-    page.locator('.session', { hasText: 'long-enough-to-crowd' }).locator('.head'),
-  ).toContainText('1 background task');
+  // An icon and the number, as the other counters: the words did not fit.
+  const tasks = page
+    .locator('.session', { hasText: 'long-enough-to-crowd' })
+    .locator('.head .tasks');
+  await expect(tasks).toHaveAttribute('title', '1 background task');
+  await expect(tasks.locator('mat-icon')).toHaveAttribute('aria-label', '1 background task');
+  await expect(tasks).toHaveText(/^\s*\S+\s*1\s*$/);
   await expect(
     page.locator('.session', { hasText: 'long-enough-to-crowd' }).locator('.head'),
   ).toContainText('idle');

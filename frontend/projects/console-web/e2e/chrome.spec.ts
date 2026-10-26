@@ -972,13 +972,13 @@ test('a session that has ended dates its background work @ phone width', async (
 
   const row = page.locator('.session', { hasText: 'check the corpus' }).locator('.head');
   await expect(row).toContainText('ended');
-  await expect(row).toContainText('2 background tasks when it ended');
+  await expect(row.locator('.tasks')).toHaveAttribute('title', '2 background tasks when it ended');
 
   // And the live session beside it is UNCHANGED — the past tense is keyed
   // to `alive`, so a bug that dated everything would still satisfy the row
   // above. The first fixture session is alive and carries no background work,
   // which is also the assertion that `0 background tasks` is still never said.
-  await expect(page.locator('.session').first()).not.toContainText('background');
+  await expect(page.locator('.session').first().locator('.tasks')).toHaveCount(0);
 
   await expectOneLine(page, '.session .head');
   await expectCleanLayout(page, testInfo);
