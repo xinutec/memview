@@ -40,6 +40,8 @@ import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
 import { MOST, type Picture, looking, pointedAt, shrink } from './picture';
+import { Outbox, type Outgoing, heldBack, standing } from './outbox';
+import { OutgoingSheet } from './outgoing-sheet';
 import { Roster } from './roster';
 import { SignInSheet } from './signin-sheet';
 import { Held, SessionStore } from './session-store';
@@ -72,6 +74,7 @@ export class SessionView implements OnDestroy {
 
   private readonly api = inject(ConsoleApi);
   private readonly sheets = inject(Sheets);
+  private readonly outbox = inject(Outbox);
   private readonly pictures = inject(Pictures);
   private readonly here = inject(Here);
   private readonly store = inject(SessionStore);
@@ -116,7 +119,7 @@ export class SessionView implements OnDestroy {
   /** The one thing worth saying about the link, of the three that might be. */
   readonly notice = computed<Notice | undefined>(() =>
     notice({
-      acting: this.trouble(),
+      acting: this.trouble() || this.outbox.notice(),
       runner: this.roster.notice(),
       stream: this.held()?.link.worth(),
     }),
@@ -159,8 +162,13 @@ export class SessionView implements OnDestroy {
   /** What this session can be told, asked for on the first `/`. See [[suggest]]. */
   readonly commands = signal<Commands | undefined>(undefined);
   private askingCommands = false;
-  readonly sending = signal(false);
   readonly trouble = signal('');
+  /** This conversation's messages the Mac has not confirmed, oldest first. */
+  readonly outgoing = computed(() => this.outbox.all().filter((it) => it.session === this.id()));
+  /** For how long each has waited, redrawn each minute. */
+  readonly minute = signal(Date.now());
+  protected readonly standing = standing;
+  protected readonly heldBack = heldBack;
   readonly pictureTrouble = signal('');
   private readonly stored = toSignal(
     toObservable(this.id).pipe(switchMap((id) => this.drafts.text$(id))),
@@ -187,6 +195,8 @@ export class SessionView implements OnDestroy {
   private was = 0;
 
   constructor() {
+    const ticking = setInterval(() => this.minute.set(Date.now()), 60_000);
+    this.until.onDestroy(() => clearInterval(ticking));
     // Its name, else where it runs, quieter: the same rule titles the list's cards.
     // Nothing during the round trip, rather than a stand-in for a stand-in.
     scaffoldTitle(() => {
@@ -399,28 +409,24 @@ export class SessionView implements OnDestroy {
     });
   }
 
+  /**
+   * Into the outbox, which sends it now or when the Mac can be reached, and keeps
+   * trying under the same id until the Mac confirms it — see [[Outbox]].
+   */
   send(): void {
     const text = this.text().trim();
     const pictures = this.chosen();
-    if ((!text && !pictures.length) || this.sending()) return;
+    if (!text && !pictures.length) return;
     this.following.spoke();
-    this.sending.set(true);
-    const sent = pictures.length
-      ? this.api.show(this.id(), pictures, text)
-      : this.api.send(this.id(), text);
-    sent.subscribe({
-      next: (summary) => {
-        this.sending.set(false);
-        this.trouble.set('');
-        this.text.set('');
-        this.dropAll();
-        this.session.set(summary);
-      },
-      error: (err: unknown) => {
-        this.sending.set(false);
-        this.trouble.set(reason(err));
-      },
-    });
+    void this.outbox.enqueue(this.id(), text, pictures);
+    this.trouble.set('');
+    this.text.set('');
+    this.dropAll();
+  }
+
+  /** What can still be done with a message the Mac has not confirmed. */
+  consider(message: Outgoing): void {
+    this.sheets.open(OutgoingSheet, { data: message, panelClass: 'start-sheet' });
   }
 
   /** Sign the account in again. See [[SignInSheet]]. */

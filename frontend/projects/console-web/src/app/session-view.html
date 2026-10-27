@@ -168,10 +168,37 @@
     </button>
   </div>
 }
+<!-- Written here and not confirmed by the Mac: sent from the outbox, under its own
+     id, until it is. See `outbox.ts`. -->
+@for (message of outgoing(); track message.id) {
+  <div class="waiting outgoing" [class.refused]="message.refused !== undefined">
+    <mat-icon>{{ message.refused !== undefined ? 'error' : 'schedule_send' }}</mat-icon>
+    <span class="what">
+      <span class="words"
+        >{{ message.text
+        }}{{
+          message.pictures?.length
+            ? (message.text ? ' · ' : '') +
+              message.pictures!.length +
+              (message.pictures!.length === 1 ? ' picture' : ' pictures')
+            : ''
+        }}</span
+      >
+      <span class="standing">{{ standing(message, minute(), heldBack(outgoing(), message)) }}</span>
+    </span>
+    <button
+      matIconButton
+      type="button"
+      aria-label="what to do with this message"
+      (click)="consider(message)"
+    >
+      <mat-icon>more_vert</mat-icon>
+    </button>
+  </div>
+}
 <app-composer
   [(text)]="text"
   [commands]="commands()"
-  [sending]="sending()"
   [held]="chosen()"
   [trouble]="pictureTrouble()"
   (send)="send()"

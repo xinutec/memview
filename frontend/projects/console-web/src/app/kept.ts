@@ -6,8 +6,9 @@ import type { Entry } from './models';
 /**
  * The last transcript this phone saw: shown the moment a session opens, until
  * the conversation itself has arrived, and the only one there is when the Mac
- * cannot be reached. Read only — nothing is queued to send later: a message is an
- * instruction, and one delivered minutes late is not what was meant.
+ * cannot be reached. Read only: what is written meanwhile waits in [[Outbox]],
+ * which says how long each message has waited, since one delivered late may not
+ * be what was meant.
  *
  * Local, so replication cannot carry it. No service worker: the console sits
  * behind a client certificate, where ngsw's `navigationUrls` and auth are known

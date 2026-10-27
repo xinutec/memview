@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { unhandled } from './exhaustive';
 import { Kept } from './kept';
+import { Outbox } from './outbox';
 import { type Change, Entry, Timed } from './models';
 import { reason } from './errors';
 import type { Hunk } from './generated/Hunk';
@@ -86,6 +87,7 @@ export interface Held {
 export class SessionStore {
   private api = inject(ConsoleApi);
   private kept = inject(Kept);
+  private outbox = inject(Outbox);
   private held = new Map<string, Held>();
   private clock = 0;
 
@@ -284,6 +286,13 @@ export class SessionStore {
     }
     if (event.kind === 'diverged') {
       held.diverged.update((diverged) => new Set(diverged).add(event.call));
+    }
+    // The Mac has the message: the outbox stops waiting for it — see [[Outbox]].
+    if (
+      (event.kind === 'accepted' || event.kind === 'prompt' || event.kind === 'shown') &&
+      event.id
+    ) {
+      this.outbox.confirm(event.id);
     }
     // Behind a kept copy the conversation is built out of sight: a page half
     // arrived over a slow link would replace the copy with less than it had.

@@ -1,0 +1,41 @@
+<h2 class="what">
+  {{
+    message.refused !== undefined ? 'Not sent' : message.tried ? 'No answer yet' : 'Not sent yet'
+  }}
+</h2>
+<p class="standing" [class.refused]="message.refused !== undefined">{{ standing }}</p>
+
+@if (editing()) {
+  <mat-form-field appearance="outline" class="words">
+    <mat-label>message</mat-label>
+    <textarea matInput [(ngModel)]="text" rows="3"></textarea>
+  </mat-form-field>
+  <!-- One that may already be there is sent only if the original has not arrived. -->
+  @if (message.tried) {
+    <p class="note">
+      Sent instead of the original only if the original has not reached the session.
+    </p>
+  }
+  <button matButton="filled" class="go" (click)="edit()" [disabled]="!text().trim()">
+    <mat-icon>send</mat-icon>
+    send this instead
+  </button>
+} @else if (message.refused !== undefined) {
+  <button matButton="filled" class="go" (click)="resend()">
+    <mat-icon>send</mat-icon>
+    send as a new message
+  </button>
+  <button matButton class="go" (click)="discard()">
+    <mat-icon>delete</mat-icon>
+    discard
+  </button>
+} @else if (!message.cancelling) {
+  <button matButton="filled" class="go" (click)="editing.set(true)">
+    <mat-icon>edit</mat-icon>
+    edit
+  </button>
+  <button matButton class="go" (click)="cancel()">
+    <mat-icon>undo</mat-icon>
+    {{ message.tried ? 'take back, if it has not arrived' : 'take back' }}
+  </button>
+}

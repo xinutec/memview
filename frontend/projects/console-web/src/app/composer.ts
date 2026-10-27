@@ -34,7 +34,6 @@ export class Composer {
   readonly text = model.required<string>();
 
   /** A send is in flight, so pressing again would send it twice. */
-  readonly sending = input(false);
 
   /**
    * Pictures held for the next message, scaled and ready. In the parent because a

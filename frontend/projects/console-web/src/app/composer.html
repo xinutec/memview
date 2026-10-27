@@ -86,7 +86,7 @@
        then send. Two buttons rather than one that swaps, so each keeps its own
        `type` and label. -->
   @if (ready()) {
-    <button class="slot send" matIconButton type="submit" aria-label="send" [disabled]="sending()">
+    <button class="slot send" matIconButton type="submit" aria-label="send">
       <mat-icon>send</mat-icon>
     </button>
   } @else {

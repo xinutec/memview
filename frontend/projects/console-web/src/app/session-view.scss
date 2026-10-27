@@ -185,6 +185,28 @@ app-notice {
   }
 }
 
+// A message the Mac has not confirmed: its words, and how it stands. See `outbox.ts`.
+.outgoing .what {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+
+  .words {
+    color: var(--mat-sys-on-surface);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+.outgoing.refused {
+  mat-icon,
+  .standing {
+    color: var(--mat-sys-error);
+  }
+}
+
 .waiting {
   flex: 0 0 auto;
   display: flex;

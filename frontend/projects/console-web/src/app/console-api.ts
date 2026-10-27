@@ -29,6 +29,7 @@ import {
   type SudoAnswer,
   type Task,
   type Timed,
+  type Withdrawal,
 } from './models';
 import { type Known } from './modes';
 import { type Picture, fetchedAt } from './picture';
@@ -113,16 +114,37 @@ export class ConsoleApi {
     return this.http.post<Summary>('/api/sessions', { dir, prompt, resume } satisfies Start);
   }
 
-  send(id: string, text: string): Observable<Summary> {
-    return this.http.post<Summary>(`${session(id)}/input`, { text } satisfies Message);
+  /**
+   * `message` is the phone's id for it, so a retry is answered without a second
+   * message; `replaces`, a message an edit stands in for — see [[Outbox]].
+   */
+  send(id: string, text: string, message?: string, replaces?: string): Observable<Summary> {
+    return this.http.post<Summary>(`${session(id)}/input`, {
+      text,
+      id: message,
+      replaces,
+    } satisfies Message);
   }
 
-  show(id: string, pictures: readonly Picture[], text: string): Observable<Summary> {
+  show(
+    id: string,
+    pictures: readonly Picture[],
+    text: string,
+    message?: string,
+    replaces?: string,
+  ): Observable<Summary> {
     const body: Shown = {
       pictures: pictures.map(({ data, mediaType }) => ({ data, media_type: mediaType })),
       text,
+      id: message,
+      replaces,
     };
     return this.http.post<Summary>(`${session(id)}/image`, body);
+  }
+
+  /** Take a message back, if it has not reached the session — see [[Outbox]]. */
+  cancel(id: string, message: string): Observable<Summary> {
+    return this.http.post<Summary>(`${session(id)}/cancel`, { id: message } satisfies Withdrawal);
   }
 
   pictureAt(id: string, name: string): string {

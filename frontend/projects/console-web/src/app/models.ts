@@ -17,6 +17,8 @@ export type { Called } from './generated/Called';
 export type { Conversation } from './generated/Conversation';
 export type { CorpusRead } from './generated/CorpusRead';
 export type { Decision } from './generated/Decision';
+export type { Withdrawal } from './generated/Withdrawal';
+export type { Refusal } from './generated/Refusal';
 export type { SudoAnswer } from './generated/SudoAnswer';
 export type { LoginCode } from './generated/LoginCode';
 export type { LoginResult } from './generated/LoginResult';

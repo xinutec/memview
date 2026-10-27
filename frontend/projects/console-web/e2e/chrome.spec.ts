@@ -22,6 +22,7 @@ import {
   type Conversation,
   type Described,
   type Overview,
+  type Refusal,
 } from './console';
 
 test.use({ serviceWorkers: 'block' });
@@ -1067,4 +1068,73 @@ test('a word longer than the screen wraps inside the box rather than widening it
   expect(pill && pill.x + pill.width).toBeLessThanOrEqual(width);
   await expect(page.getByRole('button', { name: 'send' })).toBeInViewport({ ratio: 1 });
   await expectCleanLayout(page, testInfo, { root: 'app-composer' });
+});
+
+test('a message written offline waits on the phone and goes, once, when it is back @ phone width', async ({
+  page,
+  context,
+}, testInfo) => {
+  await mockRunner(page);
+  const sent: { text: string; id?: string }[] = [];
+  await page.route('**/api/sessions/*/input', (r) => {
+    sent.push(r.request().postDataJSON() as { text: string; id?: string });
+    return r.fulfill({ json: RUNNING });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  await context.setOffline(true);
+  const box = page.locator('app-composer textarea');
+  await box.fill('check the build when you can');
+  await page.getByRole('button', { name: 'send' }).click();
+
+  // Kept, and said plainly: offline, it cannot have left.
+  const waiting = page.locator('.outgoing');
+  await expect(waiting).toContainText('check the build when you can');
+  await expect(waiting).toContainText('waiting to send');
+  await expect(box).toHaveValue('');
+  await expectCleanLayout(page, testInfo, { root: '.outgoing' });
+  expect(sent).toHaveLength(0);
+
+  await context.setOffline(false);
+  await expect(waiting).toHaveCount(0);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.text).toBe('check the build when you can');
+  expect(sent[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+});
+
+test('a message never answered may already be there, and is taken back only by asking @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/input', (r) => r.abort('connectionreset'));
+  await page.goto(`/s/${RUNNING.id}`);
+  await page.locator('app-composer textarea').fill('rename the branch');
+  await page.getByRole('button', { name: 'send' }).click();
+
+  const waiting = page.locator('.outgoing');
+  await expect(waiting).toContainText('may already have been delivered');
+  await page.getByRole('button', { name: 'what to do with this message' }).click();
+  await expect(
+    page.getByRole('button', { name: /take back, if it has not arrived/ }),
+  ).toBeVisible();
+  await expectCleanLayout(page, testInfo, { root: 'app-outgoing-sheet' });
+});
+
+test('an edit whose original got there is not sent, and says when @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  const at = Date.now() - 2 * 60_000;
+  await page.route('**/api/sessions/*/input', (r) =>
+    r.fulfill({ status: 409, json: { why: 'delivered', at, original: true } satisfies Refusal }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+  await page.locator('app-composer textarea').fill('use the other branch');
+  await page.getByRole('button', { name: 'send' }).click();
+
+  const refused = page.locator('.outgoing.refused');
+  await expect(refused).toContainText('not sent — the original reached the session at');
+  await expectCleanLayout(page, testInfo, { root: '.outgoing' });
+  await page.getByRole('button', { name: 'what to do with this message' }).click();
+  await expect(page.getByRole('button', { name: /send as a new message/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /discard/ })).toBeVisible();
 });
