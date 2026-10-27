@@ -31,5 +31,6 @@ mod serving;
 mod stream;
 mod sudo;
 mod tasks;
+mod tunnel;
 mod usage;
 mod workflows;

@@ -29,6 +29,7 @@ pub mod sudo;
 pub mod tasks;
 pub mod tls;
 pub mod trace;
+pub mod tunnel;
 pub mod usage;
 pub mod workflows;
 pub mod zombies;

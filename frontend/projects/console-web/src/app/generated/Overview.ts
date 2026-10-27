@@ -5,6 +5,7 @@ import type { IndexSize } from "./IndexSize";
 import type { Reading } from "./Reading";
 import type { Summary } from "./Summary";
 import type { Sweep } from "./Sweep";
+import type { WayIn } from "./WayIn";
 
 /**
  * Everything a client needs to draw the front page in one request.
@@ -46,4 +47,9 @@ index?: IndexSize,
  * When the login every session shares lapses, in epoch milliseconds, for a
  * warning before it does. See [`crate::login::Login::lapses_at`].
  */
-lapses?: number, };
+lapses?: number, 
+/**
+ * Whether the phone can reach this console through isis, and its outages.
+ * Absent without the gate, when there is no way in to keep.
+ */
+way_in?: WayIn, };

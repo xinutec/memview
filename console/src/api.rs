@@ -131,6 +131,11 @@ pub struct Overview {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub lapses: Option<i64>,
+    /// Whether the phone can reach this console through isis, and its outages.
+    /// Absent without the gate, when there is no way in to keep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub way_in: Option<crate::tunnel::WayIn>,
 }
 
 /// `MEMORY.md`'s size and its ceiling, in bytes.
@@ -175,6 +180,7 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         tasks: roster.tasks().await,
         index: index_size(),
         lapses: roster.login().lapses_at().await,
+        way_in: roster.way_in(),
     })
 }
 

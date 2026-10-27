@@ -26,20 +26,14 @@ if [ -s "$DIR/server.key" ] && [ -s "$DIR/clients" ]; then
   export CONSOLE_TLS_CERT="$DIR/server.crt"
   export CONSOLE_TLS_KEY="$DIR/server.key"
   export CONSOLE_CLIENT_KEYS="$PINS"
-  # Loopback even with the gate on: the phone arrives through the tunnel this Mac
-  # dials out to isis, so nothing need reach this socket.
+  # Loopback even with the gate on: the phone arrives through the way in the
+  # console dials out to isis, so nothing need reach this socket.
   export BIND_ADDR="${BIND_ADDR:-127.0.0.1:8097}"
-  # The tunnel stops with the console: one with nothing behind it is an open port
-  # on isis.
-  ./scripts/console-tunnel.sh &
-  TUNNEL=$!
-  trap 'kill "$TUNNEL" 2>/dev/null || true' EXIT
 else
   echo "gate: not configured — loopback only (scripts/console-identity.sh sets it up)"
 fi
 
-# Not `exec`: the trap must survive to stop the tunnel. console-live, not the
-# build output: `ng build` deletes its output path, so a page loading mid-build
+# console-live, not the build output: `ng build` deletes its output path, so a page loading mid-build
 # would get HTML for a font. `publish:console` copies there without deleting, so
 # a page mid-load still finds its old hashed files; a plain build cannot reach
 # it. scripts/console-serving.sh shows what is served.

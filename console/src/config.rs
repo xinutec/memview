@@ -37,6 +37,9 @@ pub struct Config {
     pub modes: PathBuf,
     /// Where unsent words are kept — [`crate::drafts`].
     pub drafts: PathBuf,
+    /// The phone's way in through isis, with the gate only: without it the console
+    /// listens on loopback and there is nothing to reach. See [`crate::tunnel`].
+    pub tunnel: Option<crate::tunnel::Dial>,
 }
 
 /// The home dashboard, where the rate-limit figure is published. See [`crate::usage`].
@@ -119,7 +122,22 @@ impl Config {
                 )
             }))
             .join("drafts.json"),
+            tunnel: None,
         }
+        .with_tunnel()
+    }
+
+    /// The way in, once the gate is configured.
+    fn with_tunnel(mut self) -> Self {
+        if self.tls.is_some() {
+            let dir = self
+                .drafts
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            self.tunnel = Some(crate::tunnel::Dial::from_env(&self.bind, &dir));
+        }
+        self
     }
 
     /// The repositories one level under each allowed directory, for the picker.

@@ -33,6 +33,9 @@ enum Verb {
         /// The command, run by `bash -c` in the current directory.
         command: String,
     },
+    /// Print the address isis listens on for the phone, which the console's
+    /// certificate must name.
+    WayIn,
 }
 
 #[tokio::main]
@@ -40,6 +43,13 @@ async fn main() -> Result<()> {
     // `agent-console hook`: Claude Code's hook for `Bash`, run by every session on
     // this Mac. See [`hook`].
     let verb = Cli::parse().verb;
+    if let Some(Verb::WayIn) = verb {
+        println!(
+            "{}",
+            console::tunnel::Dial::from_env("", std::path::Path::new("")).listen
+        );
+        return Ok(());
+    }
     if let Some(Verb::Sudo { command }) = verb {
         let _ = rustls::crypto::ring::default_provider().install_default();
         match sudo(command).await {
@@ -149,6 +159,7 @@ async fn main() -> Result<()> {
     }
     // Records any `<defunct>` child; reaps nothing.
     tokio::spawn(console::zombies::watch());
+    roster.open_way_in();
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");

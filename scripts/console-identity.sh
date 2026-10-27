@@ -32,12 +32,11 @@ if [ ${#ADDRESSES[@]} -eq 0 ]; then
   # The VPN address is on a utun interface, which ipconfig does not answer for.
   VPN="$(ifconfig 2>/dev/null | awk '/inet 10\.100\./ {print $2}' | head -1)"
   [ -n "$VPN" ] && ADDRESSES+=("$VPN")
-  # The address the phone actually uses: the tunnel's listener on isis, on no
+  # The address the phone actually uses: the way in's listener on isis, on no
   # interface here. Without it every handshake failed the name check before the
-  # pin overrode it. Read from the tunnel script so the two agree.
-  TUNNEL="$(sed -n 's/^LISTEN="\${CONSOLE_TUNNEL_LISTEN:-\([0-9.]*\):.*/\1/p' \
-    "$(dirname "$0")/console-tunnel.sh" 2>/dev/null | head -1)"
-  [ -n "$TUNNEL" ] && ADDRESSES+=("$TUNNEL")
+  # pin overrode it. Asked of the console so the two agree.
+  WAY_IN="$(nix develop -c cargo run -q -p console -- way-in)"
+  ADDRESSES+=("${WAY_IN%:*}")
 fi
 
 SAN=""

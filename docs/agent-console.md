@@ -479,9 +479,11 @@ phase 2 built. isis moves ciphertext and holds no key that opens anything.
     phone ──TLS──▶ isis:8097 ═══tunnel═══▶ Mac 127.0.0.1:8097
                    └─ sees ciphertext ─┘   └─ terminates TLS ─┘
 
-- **`scripts/console-tunnel.sh`** dials it, and `scripts/console.sh` starts it
-  alongside the console and kills it with the console. A standing tunnel to a
-  console that is not running is a listening port on isis with nothing behind it.
+- **The console dials it** (`console/src/tunnel.rs`): its own child ssh, so it
+  ends with the console, and an upgrade carries it across like a session. A
+  standing tunnel to a console that is not running is a listening port on isis
+  with nothing behind it. Each outage is kept with its cause in
+  `~/.config/agent-console/way-in.json` and reported as `way_in` in `/api/state`.
 - **isis** sets `GatewayPorts clientspecified` and carries one key restricted to
   `permitlisten` on exactly that address and port — `restrict,port-forwarding`, so
   no shell, no agent, no local forwards. An unattended tunnel on the ordinary

@@ -51,10 +51,9 @@ install_as() {
 
 install_as "$built" "$CONSOLE_BIN"
 
-# The launchd job runs these installed copies: under launchd, Apple's binaries are
+# The launchd job runs this installed copy: under launchd, Apple's binaries are
 # refused the external volume the checkout lives on (see console-service.sh).
 install_as scripts/console-service.sh "$LIBEXEC/agent-console-service"
-install_as scripts/console-tunnel.sh "$LIBEXEC/console-tunnel.sh"
 
 if [ "${1:-}" = "--install-only" ]; then
   exit 0

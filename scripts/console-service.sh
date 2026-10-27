@@ -10,19 +10,12 @@
 # - It `exec`s, so the job's pid is the console: the SIGUSR2 handover keeps that
 #   pid and launchd never sees an upgrade. Never `launchctl kickstart -k`: its
 #   SIGTERM stops every session.
-# - The tunnel stays in this job's process group, which launchd kills when the
-#   job dies; a trap cannot run once the shell has exec'd. A tunnel with no
-#   console behind it is an open port on isis.
 # - It runs from its installed copy in ~/.local/libexec: under launchd, Apple's
 #   binaries are refused the external volume the checkout is on (`/bin/bash`
 #   reading a script there exits 126, with an empty log, as the log is on the
 #   volume too). Only the console binary, not an Apple one, opens the checkout,
 #   for `$STATIC_DIR`.
 set -euo pipefail
-
-# The install directory under launchd, `scripts/` by hand; never `..`, as the
-# installed copy has no repo above it.
-HERE="$(cd "$(dirname "$0")" && pwd)"
 
 CONSOLE_BIN="${CONSOLE_BIN:-$HOME/.local/libexec/agent-console}"
 DIR="${CONSOLE_HOME:-$HOME/.config/agent-console}"
@@ -40,8 +33,6 @@ if [ -s "$DIR/server.key" ] && [ -s "$DIR/clients" ]; then
   export CONSOLE_TLS_KEY="$DIR/server.key"
   export CONSOLE_CLIENT_KEYS="$PINS"
   export BIND_ADDR="${BIND_ADDR:-127.0.0.1:8097}"
-  # Not waited on (see the process-group note above); it redials by itself.
-  "$HERE/console-tunnel.sh" &
 else
   echo "gate: not configured — loopback only (scripts/console-identity.sh sets it up)"
 fi

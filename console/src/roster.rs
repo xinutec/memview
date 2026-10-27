@@ -44,6 +44,8 @@ pub struct Roster {
     /// Commands waiting for a root password. See [`crate::sudo`].
     sudo: crate::sudo::Waiting,
     login: crate::login::Login,
+    /// The phone's way in, when the gate is on — [`crate::tunnel`].
+    tunnel: Option<Arc<crate::tunnel::Tunnel>>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -79,6 +81,7 @@ impl Roster {
         let gists = Arc::new(crate::gist::Gists::load(config.gists.clone()));
         let drafts = Arc::new(crate::drafts::Drafts::load(config.drafts.clone()));
         let modes = Arc::new(crate::modes::Modes::load(config.modes.clone()));
+        let tunnel = config.tunnel.clone().map(crate::tunnel::Tunnel::new);
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
@@ -92,7 +95,20 @@ impl Roster {
             spent: Mutex::new(BTreeMap::new()),
             sudo: crate::sudo::Waiting::default(),
             login: crate::login::Login::default(),
+            tunnel,
         }
+    }
+
+    /// Bring the way in up, or take over the one an upgrade handed on.
+    pub fn open_way_in(&self) {
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.start();
+        }
+    }
+
+    /// Whether the phone can reach this console through isis, and its outages.
+    pub fn way_in(&self) -> Option<crate::tunnel::WayIn> {
+        self.tunnel.as_ref().map(|tunnel| tunnel.way_in())
     }
 
     /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
@@ -442,6 +458,9 @@ impl Roster {
             tracing::info!("killing {}", session.id);
             session.force();
         }
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.stop();
+        }
     }
 
     /// Replace this console with a newer build by `execve`, which keeps the pid and
@@ -490,12 +509,17 @@ impl Roster {
             carried.len(),
             stopping.len()
         );
-        let error = std::process::Command::new(&binary)
+        let mut command = std::process::Command::new(&binary);
+        command
             // dev-lint: allow-argv-hand-parsed the new image gets this one's argv verbatim
             .args(std::env::args().skip(1))
             .env(HANDOVER, serde_json::to_string(&carried)?)
-            .env(STOPPING, serde_json::to_string(&stopping)?)
-            .exec();
+            .env(STOPPING, serde_json::to_string(&stopping)?);
+        // The way in too: redialled, the phone would lose it to every upgrade.
+        if let Some((name, running)) = self.tunnel.as_ref().and_then(|tunnel| tunnel.hand_over()) {
+            command.env(name, running);
+        }
+        let error = command.exec();
         // exec only returns on failure.
         Err(anyhow::Error::new(error).context(format!("replacing this console with {binary:?}")))
     }
