@@ -386,12 +386,24 @@ fn resets_at(window: &serde_json::Value) -> Option<i64> {
 }
 
 /// One user message, as the CLI reads it on stdin; the caller adds the newline.
-pub fn prompt(text: &str) -> String {
-    serde_json::json!({
-        "type": "user",
-        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
-    })
-    .to_string()
+/// With `id`, the CLI records it under that uuid and ignores a second message with
+/// the same one — see [`crate::sent`].
+pub fn prompt(text: &str, id: Option<&str>) -> String {
+    identified(
+        serde_json::json!({
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        }),
+        id,
+    )
+}
+
+/// A user message with its `uuid`, when it has one.
+fn identified(mut message: serde_json::Value, id: Option<&str>) -> String {
+    if let (Some(id), Some(fields)) = (id, message.as_object_mut()) {
+        fields.insert("uuid".to_string(), serde_json::Value::from(id));
+    }
+    message.to_string()
 }
 
 /// The phrase that ties a sent picture to the copy on disk. Written by
@@ -432,7 +444,7 @@ pub struct Picture<'a> {
 /// read first is answered from the question alone. The text names each of the
 /// console's copies, which a session can open after compaction and [`shown`] finds
 /// on replay.
-pub fn prompt_with_images(text: &str, pictures: &[Picture<'_>]) -> String {
+pub fn prompt_with_images(text: &str, pictures: &[Picture<'_>], id: Option<&str>) -> String {
     let notes = pictures
         .iter()
         .map(|it| format!("({ALSO_AT}{})", it.kept.display()))
@@ -454,9 +466,11 @@ pub fn prompt_with_images(text: &str, pictures: &[Picture<'_>]) -> String {
             serde_json::json!({"type": "text", "text": said}),
         ))
         .collect::<Vec<_>>();
-    serde_json::json!({
-        "type": "user",
-        "message": {"role": "user", "content": content},
-    })
-    .to_string()
+    identified(
+        serde_json::json!({
+            "type": "user",
+            "message": {"role": "user", "content": content},
+        }),
+        id,
+    )
 }

@@ -17,7 +17,22 @@ from: number,
  * Whether a new process took the conversation over, so unfinished calls above
  * never will finish. False for an upgrade or a reader's seed.
  */
-restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "accepted", text: string, } | { "kind": "prompt", text: string, } | { "kind": "command", text: string, } | { "kind": "shown", names: Array<string>, text?: string, } | { "kind": "text", text: string, } | { "kind": "context", tokens: number, } | { "kind": "tool", id: string, name: string, does: Call, } | { "kind": "background", tool?: string, task?: string, 
+restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "accepted", text: string, 
+/**
+ * The message's own id when a client gave it one: how a retry is told from
+ * a second message. See [`crate::sent`].
+ */
+id?: string, } | { "kind": "prompt", text: string, 
+/**
+ * The message's own id when a client gave it one: how a retry is told from
+ * a second message. See [`crate::sent`].
+ */
+id?: string, } | { "kind": "command", text: string, } | { "kind": "shown", names: Array<string>, text?: string, 
+/**
+ * The message's own id when a client gave it one: how a retry is told from
+ * a second message. See [`crate::sent`].
+ */
+id?: string, } | { "kind": "text", text: string, } | { "kind": "context", tokens: number, } | { "kind": "tool", id: string, name: string, does: Call, } | { "kind": "background", tool?: string, task?: string, 
 /**
  * How it ended, when the notification says.
  */

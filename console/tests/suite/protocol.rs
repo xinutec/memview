@@ -25,7 +25,7 @@ fn a_real_turn_reads_end_to_end() {
     // …the prompt came back…
     assert!(
         seen.iter()
-            .any(|e| matches!(e, Event::Prompt { text } if text.contains("hello"))),
+            .any(|e| matches!(e, Event::Prompt { text, .. } if text.contains("hello"))),
         "the replayed prompt should be surfaced"
     );
     // …and the turn ended with what it cost.
@@ -104,7 +104,7 @@ mod recorded {
         let line = r#"{"type":"user","message":{"role":"user","content":"do the thing"}}"#;
         assert!(matches!(
             read_recorded(line).as_slice(),
-            [Event::Prompt { text }] if text == "do the thing"
+            [Event::Prompt { text, .. }] if text == "do the thing"
         ));
     }
 
@@ -538,7 +538,7 @@ fn a_message_that_merely_mentions_a_notification_is_still_a_prompt() {
     let line = r#"{"type":"user","message":{"role":"user","content":"the harness's own word for a detached command, a subagent and a monitor is \"background task\" — each gets a task id and reports via `<task-notification>` carrying `<tool-use-id>`."}}"#;
     assert!(matches!(
         read(line).as_slice(),
-        [Event::Prompt { text }] if text.contains("background task")
+        [Event::Prompt { text, .. }] if text.contains("background task")
     ));
 }
 
@@ -551,7 +551,7 @@ fn the_same_words_in_two_blocks_were_delivered_twice_and_are_shown_once() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"What's next?","type":"text"},{"text":"What's next?","type":"text"}]}}"#;
     assert!(matches!(
         read(line).as_slice(),
-        [Event::Prompt { text }] if text == "What's next?"
+        [Event::Prompt { text, .. }] if text == "What's next?"
     ));
 }
 
@@ -569,7 +569,7 @@ fn two_messages_the_cli_handed_over_together_stay_two_messages() {
     assert!(
         matches!(
             read(line).as_slice(),
-            [Event::Prompt { text: first }, Event::Prompt { text: second }]
+            [Event::Prompt { text: first, .. }, Event::Prompt { text: second, .. }]
                 if first == "Sorry, turned back on at 8:50" && second == "7:50 UTC"
         ),
         "{:?}",
@@ -596,7 +596,9 @@ fn a_repeat_is_only_folded_into_the_message_right_before_it() {
 #[test]
 fn an_ordinary_message_is_still_a_prompt() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}"#;
-    assert!(matches!(read(line).as_slice(), [Event::Prompt { text }] if text == "do the thing"));
+    assert!(
+        matches!(read(line).as_slice(), [Event::Prompt { text, .. }] if text == "do the thing")
+    );
 }
 
 #[test]
@@ -1197,7 +1199,7 @@ fn a_message_delivered_to_a_busy_session_is_a_prompt() {
     let spoken: Vec<String> = console::protocol::read(LINE)
         .into_iter()
         .filter_map(|event| match event {
-            Event::Prompt { text } => Some(text),
+            Event::Prompt { text, .. } => Some(text),
             _ => None,
         })
         .collect();
@@ -1206,7 +1208,7 @@ fn a_message_delivered_to_a_busy_session_is_a_prompt() {
     let replayed: Vec<String> = console::protocol::read_recorded(LINE)
         .into_iter()
         .filter_map(|event| match event {
-            Event::Prompt { text } => Some(text),
+            Event::Prompt { text, .. } => Some(text),
             _ => None,
         })
         .collect();
@@ -1431,5 +1433,56 @@ fn each_line_is_parsed_once_into_an_answer_or_its_events() {
             Output::Events(events) => assert_eq!(events, read(line), "{line}"),
             other => panic!("a turn line read as an answer: {other:?}"),
         }
+    }
+}
+
+/// A message's own id: minted by the phone, carried to the CLI as `uuid`, and given
+/// back on the echo and in the transcript. The CLI records one message per id and
+/// ignores a second (measured on 2.1.289, live and after `--resume`), which is
+/// what makes a retried send safe.
+mod identified {
+    use console::protocol::{Event, prompt, read, read_recorded};
+
+    const ID: &str = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
+
+    #[test]
+    fn a_message_sent_with_an_id_carries_it_to_the_cli() {
+        let line: serde_json::Value =
+            serde_json::from_str(&prompt("hello", Some(ID))).expect("json");
+        assert_eq!(line["uuid"], ID);
+        let line: serde_json::Value = serde_json::from_str(&prompt("hello", None)).expect("json");
+        assert!(line.get("uuid").is_none(), "no id is no field, as before");
+    }
+
+    #[test]
+    fn the_echo_and_the_transcript_give_the_id_back() {
+        // The live echo, as `--replay-user-messages` prints it, and the transcript
+        // line: both carry the message's uuid at the top level.
+        let echo = format!(
+            r#"{{"type":"user","uuid":"{ID}","isReplay":true,"session_id":"s","parent_tool_use_id":null,"message":{{"role":"user","content":"hello"}}}}"#
+        );
+        let said = Event::Prompt {
+            text: "hello".to_string(),
+            id: Some(ID.to_string()),
+        };
+        assert_eq!(read(&echo), vec![said.clone()]);
+        assert_eq!(read_recorded(&echo), vec![said]);
+    }
+
+    #[test]
+    fn a_message_with_pictures_carries_its_id_both_ways() {
+        let kept = std::path::Path::new("/tmp/kept.png");
+        let pictures = [console::protocol::Picture {
+            media_type: "image/png",
+            base64: "iVBORw0KGgo=",
+            kept,
+        }];
+        let line = console::protocol::prompt_with_images("look", &pictures, Some(ID));
+        let parsed: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(parsed["uuid"], ID);
+        assert!(matches!(
+            read_recorded(&line).as_slice(),
+            [Event::Shown { id: Some(id), .. }] if id == ID
+        ));
     }
 }

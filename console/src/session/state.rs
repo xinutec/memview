@@ -139,7 +139,10 @@ pub(super) struct State {
     /// Slash commands written mid-turn, oldest first, which the CLI would hand to the
     /// model as words. Held here, not in a client that may be put away. See
     /// [`Session::release_held`].
-    pub(super) held: VecDeque<String>,
+    pub(super) held: VecDeque<Held>,
+    /// The ids the CLI has echoed back to this process, with when: a second echo of
+    /// one is a retry it ignored, not a second message. See [`crate::sent`].
+    pub(super) echoed: std::collections::BTreeMap<String, i64>,
     /// A `/compact` is outstanding: the one long silence that is not a fault.
     pub(super) compacting: bool,
 }
@@ -190,8 +193,17 @@ pub(super) fn forget(
 pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
     match event {
         // The read receipt. Oldest match first: stdin is a queue.
-        Event::Prompt { text } => {
-            if let Some(at) = state.unread.iter().position(|held| &held.text == text) {
+        Event::Prompt { text, id } => {
+            // By id when it has one: two messages may say the same words.
+            let found = match id {
+                Some(id) => state
+                    .unread
+                    .iter()
+                    .position(|held| held.id.as_deref() == Some(id.as_str())),
+                None => None,
+            }
+            .or_else(|| state.unread.iter().position(|held| &held.text == text));
+            if let Some(at) = found {
                 state.unread.remove(at);
             }
             // It read: the next episode is worth announcing.
@@ -317,6 +329,15 @@ pub(super) struct Unread {
     pub(super) text: String,
     /// When it was written, in epoch milliseconds.
     pub(super) at: i64,
+    /// The client's id for it, when it gave one.
+    pub(super) id: Option<String>,
+}
+
+/// A slash command held for the turn's end, with the client's id for it.
+#[derive(Debug, Clone)]
+pub(super) struct Held {
+    pub(super) text: String,
+    pub(super) id: Option<String>,
 }
 
 impl State {
@@ -368,7 +389,7 @@ impl State {
                     );
                 }
             }
-            Event::Prompt { text } if self.asked.is_none() && !self.origin_read => {
+            Event::Prompt { text, .. } if self.asked.is_none() && !self.origin_read => {
                 self.asked = Some(text.clone());
             }
             Event::Ask {

@@ -49,6 +49,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
+        sent: dir.join("sent.json"),
         tunnel: None,
     }))
 }
@@ -456,6 +457,7 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
         gists: root.join("gists.json"),
         modes: root.join("modes.json"),
         drafts: root.join("drafts.json"),
+        sent: root.join("sent.json"),
         tunnel: None,
     };
     assert!(

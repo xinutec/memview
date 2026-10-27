@@ -66,7 +66,7 @@ fn text_of(events: &[Timed]) -> Vec<String> {
     events
         .iter()
         .filter_map(|timed| match &timed.event {
-            Event::Text { text } | Event::Prompt { text } => Some(text.clone()),
+            Event::Text { text } | Event::Prompt { text, .. } => Some(text.clone()),
             _ => None,
         })
         .collect()

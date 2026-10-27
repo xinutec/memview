@@ -397,6 +397,10 @@ impl Session {
                         protocol::Output::Events(events) => events,
                     };
                     for event in events {
+                        // A retried message: the CLI ignored it, so the client sees it once.
+                        if session.echoed_again(&event) {
+                            continue;
+                        }
                         // A turn's end is when the exchange count changes; counted here,
                         // outside the lock `push_at` holds.
                         let counted = matches!(event, Event::Turn { .. });

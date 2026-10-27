@@ -12,4 +12,12 @@ pictures: Array<ShownPicture>,
 /**
  * What was said about them. Optional: a screenshot alone is a complete message.
  */
-text: string, };
+text: string, 
+/**
+ * As [`Message::id`].
+ */
+id?: string, 
+/**
+ * As [`Message::replaces`].
+ */
+replaces?: string, };

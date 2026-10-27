@@ -147,6 +147,7 @@ fn the_message_puts_the_picture_before_the_question() {
             base64: "AAAA",
             kept: std::path::Path::new("/tmp/shot.png"),
         }],
+        None,
     );
 
     let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -173,6 +174,7 @@ fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
             base64: "AAAA",
             kept: std::path::Path::new("/tmp/shot.jpg"),
         }],
+        None,
     );
 
     let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -195,6 +197,7 @@ fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
             base64: "AAAA",
             kept: std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
         }],
+        None,
     );
 
     let read = console::protocol::read_recorded(&line);
@@ -204,6 +207,7 @@ fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
         vec![console::protocol::Event::Shown {
             names: vec!["2026-08-05-184700Z.png".to_string()],
             text: "what is wrong with this?".to_string(),
+            id: None,
         }],
         "one message, the picture and the words, and the path is not among them"
     );
@@ -221,6 +225,7 @@ fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
             base64: "AAAA",
             kept: std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
         }],
+        None,
     );
 
     assert_eq!(
@@ -228,6 +233,7 @@ fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
         vec![console::protocol::Event::Shown {
             names: vec!["2026-08-05-184700Z.png".to_string()],
             text: String::new(),
+            id: None,
         }]
     );
 }
@@ -254,6 +260,7 @@ fn several_pictures_go_first_in_order_and_read_back_in_order() {
                 kept: &second,
             },
         ],
+        None,
     );
 
     let sent: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -271,6 +278,7 @@ fn several_pictures_go_first_in_order_and_read_back_in_order() {
                 "2026-10-15-0900Z-1.jpg".to_string()
             ],
             text: "which is better?".to_string(),
+            id: None,
         }],
         "one message, so one event"
     );
@@ -281,12 +289,13 @@ fn words_that_merely_talk_about_an_image_are_left_whole() {
     // The note is only read out of a message that actually carries a picture, so
     // an ordinary sentence keeps every word of itself however it is phrased.
     let said = "the image is also at the bottom of the page, oddly";
-    let line = console::protocol::prompt(said);
+    let line = console::protocol::prompt(said, None);
 
     assert_eq!(
         console::protocol::read_recorded(&line),
         vec![console::protocol::Event::Prompt {
-            text: said.to_string()
+            text: said.to_string(),
+            id: None,
         }]
     );
 }

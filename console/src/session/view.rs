@@ -183,7 +183,7 @@ impl Session {
             unread: state.unread.len(),
             deaf: deaf_for(&state, now()).map(|ms| (ms / 1000) as u64),
             signed_out: state.signed_out.map(|ms| ms as u64),
-            held: state.held.iter().cloned().collect(),
+            held: state.held.iter().map(|held| held.text.clone()).collect(),
         }
     }
 }

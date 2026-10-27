@@ -23,6 +23,7 @@ pub mod past;
 pub mod peers;
 pub mod protocol;
 pub mod roster;
+pub mod sent;
 pub mod serving;
 pub mod session;
 pub mod sudo;

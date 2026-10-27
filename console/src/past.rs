@@ -234,7 +234,7 @@ pub fn material(path: &Path, keep: usize) -> Material {
                 crate::protocol::read_recorded(&line)
                     .into_iter()
                     .find_map(|event| match event {
-                        crate::protocol::Event::Prompt { text } => Some(text),
+                        crate::protocol::Event::Prompt { text, .. } => Some(text),
                         _ => None,
                     })
             {
@@ -245,7 +245,7 @@ pub fn material(path: &Path, keep: usize) -> Material {
     }
     for timed in page(path, None).events {
         match timed.event {
-            crate::protocol::Event::Prompt { text } => {
+            crate::protocol::Event::Prompt { text, .. } => {
                 found.recent.push(format!("them: {}", cut(&text)));
             }
             crate::protocol::Event::Text { text } if !text.trim().is_empty() => {
@@ -374,9 +374,9 @@ pub fn landmarks_from(path: &Path, from: u64) -> Walk {
         let past_it = at + read as u64;
         for stamped in timed(&line) {
             let (kind, text) = match stamped.event {
-                crate::protocol::Event::Prompt { text } => (Mark::Prompt, text),
+                crate::protocol::Event::Prompt { text, .. } => (Mark::Prompt, text),
                 crate::protocol::Event::Command { text } => (Mark::Command, text),
-                crate::protocol::Event::Shown { names, text } => {
+                crate::protocol::Event::Shown { names, text, .. } => {
                     (Mark::Shown, shown_sign(&names, text))
                 }
                 crate::protocol::Event::Compacted => (Mark::Compacted, String::new()),
@@ -758,7 +758,7 @@ pub fn opening(path: &Path) -> Option<String> {
     let head = BufReader::new(file.take(OPENING_BYTES));
     for line in head.lines().map_while(Result::ok) {
         for event in crate::protocol::read_recorded(&line) {
-            if let crate::protocol::Event::Prompt { text } = event {
+            if let crate::protocol::Event::Prompt { text, .. } = event {
                 if CONTINUED
                     .iter()
                     .any(|opener| text.trim_start().starts_with(opener))

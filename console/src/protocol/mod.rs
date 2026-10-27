@@ -64,10 +64,20 @@ pub enum Event {
     /// says the session read it, which mid-turn can be minutes later.
     Accepted {
         text: String,
+        /// The message's own id when a client gave it one: how a retry is told from
+        /// a second message. See [`crate::sent`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        id: Option<String>,
     },
     /// The prompt, echoed back: the session has read it.
     Prompt {
         text: String,
+        /// The message's own id when a client gave it one: how a retry is told from
+        /// a second message. See [`crate::sent`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        id: Option<String>,
     },
     /// A slash command, not something said to the model. Never echoed, so never
     /// marked waiting to be read.
@@ -82,6 +92,11 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         #[cfg_attr(feature = "ts", ts(as = "Option<String>", optional))]
         text: String,
+        /// The message's own id when a client gave it one: how a retry is told from
+        /// a second message. See [`crate::sent`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        id: Option<String>,
     },
     Text {
         text: String,
@@ -237,6 +252,9 @@ enum Line {
     },
     User {
         message: Message,
+        /// The message's id: the client's, when it gave one. See [`crate::sent`].
+        #[serde(default)]
+        uuid: Option<String>,
     },
     Result(Turn),
     /// The CLI parking a message it has been handed but not read. The earliest
@@ -577,12 +595,12 @@ fn events(parsed: Line) -> Vec<Event> {
         Line::Assistant { message, error } => assistant(message, error, Words::Unstreamed),
         // A replayed prompt: what this console sent, coming back — read by the same
         // function that reads one out of a transcript, so a picture appears when sent.
-        Line::User { message } => from_user(message.content),
+        Line::User { message, uuid } => from_user(message.content, uuid),
         // The delivery of a message sent while the session was working, read as the
         // prompt it is, so the echo that clears "waiting to be read" arrives.
         Line::Attachment {
             attachment: Attached::QueuedCommand { prompt },
-        } => from_user(prompt),
+        } => from_user(prompt, None),
         Line::Attachment { .. } => Vec::new(),
         Line::Result(turn) => vec![Event::Turn {
             // Whichever model answered; the largest is the honest answer if a turn ever
@@ -630,7 +648,7 @@ fn events(parsed: Line) -> Vec<Event> {
 
 /// Everything one user message says, live or on disk, read across its blocks: a
 /// message with pictures is their image blocks and one text block.
-fn from_user(content: Content) -> Vec<Event> {
+fn from_user(content: Content, id: Option<String>) -> Vec<Event> {
     let blocks = content.blocks();
     let carries = blocks.iter().any(|block| matches!(block, Block::Image));
     blocks
@@ -653,14 +671,21 @@ fn from_user(content: Content) -> Vec<Event> {
             Block::Text { text } if carries => {
                 // One message, so one event: the pictures and the words together.
                 let (names, text) = shown(&text);
-                vec![Event::Shown { names, text }]
+                vec![Event::Shown {
+                    names,
+                    text,
+                    id: id.clone(),
+                }]
             }
             Block::Text { text } => match finished(&text) {
                 Some(event) => vec![event],
                 None if is_notification(&text) => Vec::new(),
                 None => match commanded(&text) {
                     Some(text) => vec![Event::Command { text }],
-                    None if !is_plumbing(&text) => vec![Event::Prompt { text }],
+                    None if !is_plumbing(&text) => vec![Event::Prompt {
+                        text,
+                        id: id.clone(),
+                    }],
                     None => Vec::new(),
                 },
             },
@@ -677,7 +702,7 @@ fn from_user(content: Content) -> Vec<Event> {
 fn said_once(mut said: Vec<Event>, event: Event) -> Vec<Event> {
     let again = matches!(
         (said.last(), &event),
-        (Some(Event::Prompt { text: held }), Event::Prompt { text }) if held == text
+        (Some(Event::Prompt { text: held, .. }), Event::Prompt { text, .. }) if held == text
     );
     if !again {
         said.push(event);
@@ -736,12 +761,12 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
     };
     match parsed {
         Line::Assistant { message, error } => assistant(message, error, Words::All),
-        Line::User { message } => from_user(message.content),
+        Line::User { message, uuid } => from_user(message.content, uuid),
         // The replay path needs this more than the live one: a message sent to a busy
         // session exists in the transcript only as this attachment.
         Line::Attachment {
             attachment: Attached::QueuedCommand { prompt },
-        } => from_user(prompt),
+        } => from_user(prompt, None),
         // Only what has just been handed over, and only a notification: `remove` is the
         // same message going the other way.
         Line::QueueOperation { operation, content } if operation == "enqueue" => content

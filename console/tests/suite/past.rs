@@ -1057,7 +1057,7 @@ fn a_landmark_lands_on_the_page_that_holds_it() {
         let page = console::past::page(&path, Some(mark.at));
         let last = page.events.last().expect("a page with something on it");
         let arrived = match (&mark.kind, &last.event) {
-            (console::past::Mark::Prompt, console::protocol::Event::Prompt { text }) => {
+            (console::past::Mark::Prompt, console::protocol::Event::Prompt { text, .. }) => {
                 text == &mark.text
             }
             (console::past::Mark::Command, console::protocol::Event::Command { text }) => {

@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
 
-use super::state::Unread;
+use super::state::{Held, Unread};
 use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
@@ -30,18 +30,26 @@ impl Session {
     /// Send a message. A slash command sent mid-turn is held, under the lock that
     /// clears `working`, so a turn ending meanwhile cannot strand it.
     pub async fn send(&self, text: &str) -> Result<()> {
+        self.send_with(text, None).await
+    }
+
+    /// [`Self::send`], under the client's id for the message — [`crate::sent`].
+    pub async fn send_with(&self, text: &str, id: Option<&str>) -> Result<()> {
         let parked = {
             let mut state = self.state.lock();
             let parking = state.working && protocol::is_command(text);
             if parking {
-                state.held.push_back(text.to_string());
+                state.held.push_back(Held {
+                    text: text.to_string(),
+                    id: id.map(str::to_string),
+                });
             }
             parking
         };
         if parked {
             return Ok(());
         }
-        self.write_line(&protocol::prompt(text), "writing to the session")
+        self.write_line(&protocol::prompt(text, id), "writing to the session")
             .await?;
         // Announced on the way in: the CLI may not read it for minutes.
         if protocol::is_command(text) {
@@ -53,9 +61,11 @@ impl Session {
             self.state.lock().unread.push_back(Unread {
                 text: text.to_string(),
                 at: now(),
+                id: id.map(str::to_string),
             });
             self.push(Event::Accepted {
                 text: text.to_string(),
+                id: id.map(str::to_string),
             });
         }
         // Held even if the CLI never echoes it.
@@ -67,7 +77,7 @@ impl Session {
     }
 
     /// Send the commands held for this turn's end, one at a time through
-    /// [`Self::send`], so a cancel mid-drain is honoured. A failed write stops it.
+    /// [`Self::send_with`], so a cancel mid-drain is honoured. A failed write stops it.
     pub async fn release_held(&self) -> Result<()> {
         loop {
             let next = {
@@ -75,24 +85,72 @@ impl Session {
                 state.held.pop_front()
             };
             let Some(command) = next else { return Ok(()) };
-            self.send(&command).await?;
+            self.send_with(&command.text, command.id.as_deref()).await?;
         }
     }
 
     /// Take back a held command by its exact text. False when already released.
     pub fn forget_held(&self, text: &str) -> bool {
         let mut state = self.state.lock();
-        let Some(at) = state.held.iter().position(|held| held == text) else {
+        let Some(at) = state.held.iter().position(|held| held.text == text) else {
             return false;
         };
         state.held.remove(at);
         true
     }
 
+    /// Take back a held command by the client's id. False when it is not held.
+    pub fn take_back(&self, id: &str) -> bool {
+        let mut state = self.state.lock();
+        let Some(at) = state
+            .held
+            .iter()
+            .position(|held| held.id.as_deref() == Some(id))
+        else {
+            return false;
+        };
+        state.held.remove(at);
+        true
+    }
+
+    /// Where a message this process was given stands, by the client's id. What it
+    /// cannot see — a message an earlier process wrote — the transcript answers.
+    pub fn whereabouts(&self, id: &str) -> crate::sent::Where {
+        let state = self.state.lock();
+        if let Some(at) = state.echoed.get(id) {
+            crate::sent::Where::Delivered { at: *at }
+        } else if state.held.iter().any(|held| held.id.as_deref() == Some(id)) {
+            crate::sent::Where::Held
+        } else if state.unread.iter().any(|it| it.id.as_deref() == Some(id)) {
+            crate::sent::Where::Unread
+        } else {
+            crate::sent::Where::Nowhere
+        }
+    }
+
+    /// Whether `event` is the echo of a message already echoed: the CLI echoes a
+    /// retried id but records and answers it once. The first echo is noted.
+    pub fn echoed_again(&self, event: &Event) -> bool {
+        let (Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. }) = event else {
+            return false;
+        };
+        let mut state = self.state.lock();
+        if state.echoed.contains_key(id) {
+            return true;
+        }
+        state.echoed.insert(id.clone(), now());
+        false
+    }
+
     /// Show the session pictures with what was said about them —
     /// [`protocol::prompt_with_images`].
-    pub async fn show(&self, text: &str, pictures: &[protocol::Picture<'_>]) -> Result<()> {
-        let line = protocol::prompt_with_images(text, pictures);
+    pub async fn show(
+        &self,
+        text: &str,
+        pictures: &[protocol::Picture<'_>],
+        id: Option<&str>,
+    ) -> Result<()> {
+        let line = protocol::prompt_with_images(text, pictures, id);
         self.write_line(&line, "writing to the session").await?;
         let mut state = self.state.lock();
         if state.asked.is_none() && !state.origin_read {
