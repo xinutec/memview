@@ -204,3 +204,25 @@ fn the_transcript_answers_for_a_message_read_mid_turn() {
         Some(1_793_034_464_995)
     );
 }
+
+#[test]
+fn a_message_read_is_listed_until_its_echo_puts_it_in_the_conversation() {
+    // The CLI says it started on a message, runs its hooks, then echoes it — 1.8s
+    // apart, measured. Unlisted at the start, it was on no list in between.
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Started, 2_000);
+    let listed = messages.waiting();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].stands, Stands::Read);
+    messages.echoed(ID, 3_000);
+    assert!(messages.waiting().is_empty());
+}
+
+#[test]
+fn a_message_read_by_a_process_that_ended_is_not_listed() {
+    // Its echo will not come now; the transcript holds what it had read.
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Started, 2_000);
+    messages.drop_waiting();
+    assert!(messages.waiting().is_empty());
+}

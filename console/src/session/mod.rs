@@ -441,14 +441,10 @@ impl Session {
                         protocol::Output::Events(events) => events,
                     };
                     for event in events {
-                        // A retried message: the CLI ignored it, so the client sees it once.
-                        if session.echoed_again(&event) {
-                            continue;
-                        }
                         // A turn's end is when the exchange count changes; counted here,
-                        // outside the lock `push_at` holds.
+                        // outside the lock `push_output` holds.
                         let counted = matches!(event, Event::Turn { .. });
-                        session.push(event);
+                        session.push_output(event);
                         if counted {
                             session.recount();
                             // Commands parked mid-turn go now. Logged, not propagated: ending
@@ -493,7 +489,7 @@ impl Session {
 
     /// Record that the process is gone, once: reader and reaper can both notice.
     fn ended(&self, code: Option<i32>) {
-        {
+        let listed = {
             let mut state = self.state.lock();
             if !state.alive {
                 return;
@@ -501,7 +497,9 @@ impl Session {
             state.alive = false;
             // Whatever is still waiting will never be read: no process is left to.
             state.messages.drop_waiting();
-        }
+            state.relist(now())
+        };
+        self.tell(listed);
         self.push(Event::Exited { code });
     }
 
@@ -639,8 +637,15 @@ impl Session {
     /// happened when the transcript says.
     fn push_at(&self, event: Event, at: Option<i64>) {
         let stamped = self.state.lock().take(event, at, now());
-        // No listener is normal.
-        let _ = self.tx.send(stamped);
+        self.tell(Some(stamped));
+    }
+
+    /// Hand listeners what the log took, after its lock is let go.
+    fn tell(&self, stamped: Option<Stamped>) {
+        if let Some(stamped) = stamped {
+            // No listener is normal.
+            let _ = self.tx.send(stamped);
+        }
     }
 
     fn note_stderr(&self, line: &str) {

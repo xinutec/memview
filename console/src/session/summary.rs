@@ -173,16 +173,10 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub signed_out: Option<u64>,
-    /// Messages not yet read — held for the turn's end, or waiting in the queue —
-    /// and those its process ended without reading, oldest first. See
-    /// [`super::messages`].
-    #[serde(default)]
-    pub messages: Vec<super::messages::Waiting>,
 }
 
-/// Nothing to report, for a count left off the wire when it is zero.
-/// Now, in microseconds, but always after the last stamp given: two summaries
-/// taken in one microsecond are still ordered.
+/// Now, in microseconds, but always after the last stamp given: two things
+/// stamped in one microsecond are still ordered.
 pub(super) fn stamp() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST: AtomicU64 = AtomicU64::new(0);
@@ -198,6 +192,7 @@ pub(super) fn stamp() -> u64 {
     now.max(previous + 1)
 }
 
+/// Nothing to report, for a count left off the wire when it is zero.
 fn none(count: &usize) -> bool {
     *count == 0
 }

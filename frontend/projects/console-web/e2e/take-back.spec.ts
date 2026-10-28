@@ -103,7 +103,8 @@ test('a message whose take-back answer was lost still comes back, once', async (
   await box(page).fill('queued: check the build');
   await page.getByRole('button', { name: 'send', exact: true }).click();
   const mine = page.locator('li.entry', { hasText: 'queued: check the build' });
-  await expect(mine).toContainText('sent, no answer yet', { timeout: 15_000 });
+  // The answer was lost, but the runner's stream lists it: its word, not the guess.
+  await expect(mine).toContainText('waiting to be read', { timeout: 15_000 });
 
   // Taken back on the runner; the answer never arrives.
   await mine.getByRole('button', { name: 'take back' }).click();

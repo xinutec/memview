@@ -32,6 +32,9 @@ pub struct Backlog {
     /// The highest sequence number this client has now been sent. Live events at or
     /// below it must not be sent again.
     pub through: u64,
+    /// The list of messages as it stood at `through`, taken under the same lock:
+    /// what a joining client is told last, whatever the log has trimmed.
+    pub messages: Event,
 }
 
 /// Whether a client holding everything through `after` can be sent only what it
@@ -122,6 +125,8 @@ pub(super) struct State {
     pub(super) stderr: String,
     /// Every message handed to this session, by id — [`super::messages`].
     pub(super) messages: super::messages::Messages,
+    /// The list of those not yet in the conversation as the stream last said it.
+    pub(super) listed: Vec<super::messages::Waiting>,
     /// Whether the session has spoken since its last turn ended — [`Summary::working`].
     /// Not `idle_since.is_none()`, which a session that has said nothing also is.
     pub(super) working: bool,
@@ -304,6 +309,29 @@ pub fn leaves_a_decision(answered: Option<&Pending>) -> bool {
 }
 
 impl State {
+    /// The list as it stands, stamped in the runner's order.
+    pub(super) fn listing(&self) -> Event {
+        Event::Messages {
+            taken: super::summary::stamp(),
+            messages: self.messages.waiting(),
+        }
+    }
+
+    /// Log the list if it is not what the stream last said: called under the lock
+    /// that changed it, so the log holds every change in the order it was made.
+    pub(super) fn relist(&mut self, now: i64) -> Option<Stamped> {
+        let messages = self.messages.waiting();
+        if messages == self.listed {
+            return None;
+        }
+        self.listed = messages.clone();
+        let listing = Event::Messages {
+            taken: super::summary::stamp(),
+            messages,
+        };
+        Some(self.take(listing, Some(now), now))
+    }
+
     /// Fold one event in and number it. `now` dates an event that carries no time —
     /// which marks it an echo, not a measurement.
     pub(super) fn take(&mut self, event: Event, at: Option<i64>, now: i64) -> Stamped {

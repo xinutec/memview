@@ -98,6 +98,9 @@ fn provenance(event: &Event) -> Provenance {
         Event::Edited { .. } | Event::Diverged { .. } => Provenance::Runtime(Care::Covered(
             "/api/sessions/{id}/edits, kept on disk per conversation — see edits::Edits::of",
         )),
+        Event::Messages { .. } => Provenance::Runtime(Care::Covered(
+            "the list every stream join ends with, taken under the replay's lock — Backlog::messages",
+        )),
         Event::Trouble { .. } => Provenance::Runtime(Care::Covered(
             "nothing — a past error message, of no use once the turn it broke is over",
         )),

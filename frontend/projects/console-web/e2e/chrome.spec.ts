@@ -19,6 +19,7 @@ import {
   test,
   tinyPng,
   withWakeLock,
+  type Accepted,
   type Commands,
   type Conversation,
   type Described,
@@ -27,7 +28,6 @@ import {
   type Returned,
   type Message,
   type Refusal,
-  type Summary,
 } from './console';
 
 test.use({ serviceWorkers: 'block' });
@@ -1076,9 +1076,10 @@ test('a word longer than the screen wraps inside the box rather than widening it
 });
 
 /**
- * A Mac that takes each message it is sent into the session's summary, as the
- * real one does (`Summary.messages`). Taking back a message it holds puts the
- * words in the draft on the runner, so that is tested against the real one in
+ * A Mac that takes each message it is sent and answers with it as listed, as the
+ * real one does (`Accepted`): the page shows it from that answer, this stream
+ * never listing anything newer. Taking back a message it holds puts the words in
+ * the draft on the runner, so that is tested against the real one in
  * `take-back.spec.ts`; here only a session that read it first.
  */
 async function mac(
@@ -1087,18 +1088,15 @@ async function mac(
 ): Promise<{ sent: Message[]; withdrawn: string[] }> {
   const sent: Message[] = [];
   const withdrawn: string[] = [];
-  const summary = (): Summary => ({
-    ...RUNNING,
-    messages: sent
-      .filter((it) => !withdrawn.includes(it.id ?? ''))
-      .map((it) => ({ id: it.id ?? '', text: it.text, at: Date.now(), stands: 'unread' as const })),
-  });
-  await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [summary()] } satisfies Overview }),
-  );
   await page.route('**/api/sessions/*/input', (r) => {
-    sent.push(r.request().postDataJSON() as Message);
-    return r.fulfill({ json: summary() });
+    const message = r.request().postDataJSON() as Message;
+    sent.push(message);
+    return r.fulfill({
+      json: {
+        taken: Date.now() * 1000,
+        message: { id: message.id ?? '', text: message.text, at: Date.now(), stands: 'unread' },
+      } satisfies Accepted,
+    });
   });
   await page.route('**/api/sessions/*/withdraw', async (r) => {
     const { id } = r.request().postDataJSON() as { id: string };
@@ -1212,7 +1210,7 @@ test('a message taken back while its send is still on its way comes back whole @
     await r.fulfill({ status: 409, json: { why: 'withdrawn' } satisfies Refusal });
   });
   await page.route('**/api/sessions/*/withdraw', (r) =>
-    r.fulfill({ json: { drafted: false, pictures: [], session: RUNNING } satisfies Returned }),
+    r.fulfill({ json: { drafted: false, pictures: [] } satisfies Returned }),
   );
   await page.goto(`/s/${RUNNING.id}`);
   const box = page.locator('app-composer textarea');
@@ -1242,7 +1240,7 @@ test('a message taken back comes back to the box though the page was left meanwh
   await page.route('**/api/sessions/*/withdraw', async (r) => {
     await late;
     await r.fulfill({
-      json: { drafted: false, pictures: [], session: RUNNING } satisfies Returned,
+      json: { drafted: false, pictures: [] } satisfies Returned,
     });
   });
   await page.goto(`/s/${RUNNING.id}`);

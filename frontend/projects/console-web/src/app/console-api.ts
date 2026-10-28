@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
+  type Accepted,
   Commands,
   CALLS,
   type Conversation,
@@ -116,8 +117,11 @@ export class ConsoleApi {
   }
 
   /** `message` is the phone's id for it, so a retry is answered without a second message. */
-  send(id: string, text: string, message?: string): Observable<Summary> {
-    return this.http.post<Summary>(`${session(id)}/input`, { text, id: message } satisfies Message);
+  send(id: string, text: string, message?: string): Observable<Accepted> {
+    return this.http.post<Accepted>(`${session(id)}/input`, {
+      text,
+      id: message,
+    } satisfies Message);
   }
 
   show(
@@ -125,13 +129,13 @@ export class ConsoleApi {
     pictures: readonly Picture[],
     text: string,
     message?: string,
-  ): Observable<Summary> {
+  ): Observable<Accepted> {
     const body: Shown = {
       pictures: pictures.map(({ data, mediaType }) => ({ data, media_type: mediaType })),
       text,
       id: message,
     };
-    return this.http.post<Summary>(`${session(id)}/image`, body);
+    return this.http.post<Accepted>(`${session(id)}/image`, body);
   }
 
   /** Take a message back while its session has not read it — see [[Outbox]]. */

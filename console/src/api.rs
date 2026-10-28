@@ -265,11 +265,31 @@ fn checked(id: &str) -> Result<(), Refused> {
     }
 }
 
+/// A message the session has: how it is listed — not at all once it is in the
+/// conversation — and when that was, in the runner's order. The client shows it
+/// from this until the stream's list is as new: the two travel apart.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Accepted {
+    pub taken: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub message: Option<crate::session::Waiting>,
+}
+
 /// A message offered, as an answer: written or already there is a 200; one
 /// taken back is refused, so a late copy does not land.
-fn offered(result: anyhow::Result<crate::session::Offered>) -> Result<(), Refused> {
+fn offered(
+    session: &crate::session::Session,
+    id: &str,
+    result: anyhow::Result<crate::session::Offered>,
+) -> Result<Json<Accepted>, Refused> {
     match result.map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))? {
-        crate::session::Offered::Wrote | crate::session::Offered::Already => Ok(()),
+        crate::session::Offered::Wrote | crate::session::Offered::Already => {
+            let (taken, message) = session.listed(id);
+            Ok(Json(Accepted { taken, message }))
+        }
         crate::session::Offered::Refused(refusal) => Err(Refused::Message(refusal)),
     }
 }
@@ -278,7 +298,7 @@ async fn input(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
     Json(body): Json<Message>,
-) -> Result<Json<Summary>, Refused> {
+) -> Result<Json<Accepted>, Refused> {
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
@@ -296,8 +316,8 @@ async fn input(
         body.text.chars().count()
     );
     let line = crate::protocol::prompt(&body.text, Some(&message));
-    offered(session.offer(&message, &body.text, Vec::new(), line).await)?;
-    Ok(Json(roster.summary_of(&session)))
+    let result = session.offer(&message, &body.text, Vec::new(), line).await;
+    offered(&session, &message, result)
 }
 
 /// Which message to take back.
@@ -318,8 +338,6 @@ pub struct Withdrawal {
 pub struct Returned {
     pub drafted: bool,
     pub pictures: Vec<String>,
-    /// The session without it, so every screen asking can stop showing it at once.
-    pub session: Summary,
 }
 
 /// Take a message back while the session has not read it. A session that could
@@ -342,11 +360,7 @@ async fn withdraw(
             tracing::info!("{id}: {} taken back", body.id);
             let (drafted, pictures) =
                 message.map_or_else(Default::default, |it| (!it.text.is_empty(), it.pictures));
-            Ok(Json(Returned {
-                drafted,
-                pictures,
-                session: roster.summary_of(&session),
-            }))
+            Ok(Json(Returned { drafted, pictures }))
         }
         crate::session::Withdrawal::Refused(refusal) => Err(Refused::Message(refusal)),
     }
@@ -471,7 +485,7 @@ async fn show(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
     Json(body): Json<Shown>,
-) -> Result<Json<Summary>, Refused> {
+) -> Result<Json<Accepted>, Refused> {
     use base64::Engine as _;
 
     let session = roster
@@ -495,12 +509,10 @@ async fn show(
     };
     // Before the pictures are kept: a retry keeps nothing twice.
     if session.knows(&message) {
-        offered(
-            session
-                .offer(&message, &body.text, Vec::new(), String::new())
-                .await,
-        )?;
-        return Ok(Json(roster.summary_of(&session)));
+        let result = session
+            .offer(&message, &body.text, Vec::new(), String::new())
+            .await;
+        return offered(&session, &message, result);
     }
     // UTC: `now_local` is refused in a threaded program here.
     let stamp = time::OffsetDateTime::now_utc()
@@ -550,8 +562,8 @@ async fn show(
         .filter_map(|held| held.path.file_name())
         .map(|name| name.to_string_lossy().into_owned())
         .collect();
-    offered(session.offer(&message, &body.text, names, line).await)?;
-    Ok(Json(roster.summary_of(&session)))
+    let result = session.offer(&message, &body.text, names, line).await;
+    offered(&session, &message, result)
 }
 
 /// What to do about one question.
@@ -891,7 +903,16 @@ async fn events(
             .data("this stream starts again from the beginning")
     }));
 
-    let held = tokio_stream::iter(held);
+    // Last of what is held: the list as it stood, whatever the log has trimmed.
+    let listed = backlog.messages;
+    let held = tokio_stream::iter(held).chain(tokio_stream::iter([Sse::default()
+        .json_data(console_protocol::Timed {
+            at: None,
+            event: listed,
+        })
+        .unwrap_or_else(|err| {
+            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+        })]));
 
     // Where replay ends on this connection, so a replayed `turn` does not read as
     // idle. Per connection, unlike `Joined`, which the log can trim.

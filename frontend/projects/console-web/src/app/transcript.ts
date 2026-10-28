@@ -154,6 +154,8 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
     case 'background':
     case 'limit':
     case 'busy':
+    // Not the conversation: what waits to enter it — see `SessionStore`.
+    case 'messages':
       break;
     default:
       unhandled(event);

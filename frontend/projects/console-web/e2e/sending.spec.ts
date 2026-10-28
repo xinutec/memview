@@ -77,3 +77,39 @@ test('a message sent stays on screen when an older answer arrives after it', asy
   );
   await expect(gone).rejects.toThrow(/Timeout/);
 });
+
+test('a message stays on screen between the session starting on it and its echo', async ({
+  browser,
+}) => {
+  // The CLI says it started on a message, then runs its hooks, then echoes it:
+  // 1.8s apart, measured. A poll in between said "read" before the conversation
+  // had it, and the message left the screen until the echo.
+  const context = await browser.newContext();
+  devices.push(context);
+  const page = await context.newPage();
+  const id = await live(CONVERSATIONS[3]);
+  await page.goto(`${runner.base}/s/${id}`);
+  const box = page.locator('textarea[name="text"]');
+  await box.waitFor();
+  await page.waitForTimeout(1_000);
+  await box.fill('hooked: rename the branch');
+  await page.getByRole('button', { name: 'send', exact: true }).click();
+  const mine = page.locator('li.entry', { hasText: 'hooked: rename the branch' });
+  await expect(mine).toBeVisible();
+  const gone = page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll('li.entry')].some((li) =>
+        li.textContent?.includes('hooked: rename the branch'),
+      ),
+    undefined,
+    { timeout: 5_000, polling: 'raf' },
+  );
+  // Inside the window: the page asks again, as it does coming back to the front.
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  // Read and not yet echoed it is shown as it will be in the conversation: no
+  // "waiting", and nothing to take back.
+  await expect(mine.getByRole('button', { name: 'take back' })).toHaveCount(0);
+  await expect(mine).not.toContainText('waiting');
+  await expect(gone).rejects.toThrow(/Timeout/);
+});

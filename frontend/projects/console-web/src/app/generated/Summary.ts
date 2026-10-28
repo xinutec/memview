@@ -3,7 +3,6 @@ import type { Allowance } from "./Allowance";
 import type { Called } from "./Called";
 import type { Effort } from "./Effort";
 import type { Mode } from "./Mode";
-import type { Waiting } from "./Waiting";
 
 /**
  * What a client sees of a session without reading its transcript.
@@ -99,10 +98,4 @@ deaf?: number,
  * When the shared sign-in was refused, in epoch milliseconds, until a request
  * is answered again. See [`crate::login`].
  */
-signed_out?: number, 
-/**
- * Messages not yet read — held for the turn's end, or waiting in the queue —
- * and those its process ended without reading, oldest first. See
- * [`super::messages`].
- */
-messages: Array<Waiting>, };
+signed_out?: number, };

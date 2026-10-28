@@ -4,6 +4,7 @@ import type { Call } from "./Call";
 import type { Ended } from "./Ended";
 import type { Hunk } from "./Hunk";
 import type { Reply } from "./Reply";
+import type { Waiting } from "./Waiting";
 
 /**
  * What the console tells its clients about a session: a small closed set.
@@ -76,4 +77,4 @@ unread: number,
 /**
  * For how long, in seconds.
  */
-seconds: number, } | { "kind": "exited", code?: number, } | { "kind": "trouble", detail: string, };
+seconds: number, } | { "kind": "messages", taken: number, messages: Array<Waiting>, } | { "kind": "exited", code?: number, } | { "kind": "trouble", detail: string, };

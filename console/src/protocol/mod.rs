@@ -214,6 +214,14 @@ pub enum Event {
         /// For how long, in seconds.
         seconds: u64,
     },
+    /// The messages handed to the session and not yet in its conversation: each
+    /// time that changes, in order with the echoes that take them out of it, and
+    /// last on joining. `taken` orders it against the answer to a send, the one
+    /// word on the list that travels outside the stream.
+    Messages {
+        taken: u64,
+        messages: Vec<crate::session::Waiting>,
+    },
     /// The subprocess ended. Terminal: nothing follows it.
     Exited {
         #[serde(skip_serializing_if = "Option::is_none")]

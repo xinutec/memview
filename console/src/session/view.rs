@@ -110,6 +110,7 @@ impl Session {
                 resumed: true,
                 events,
                 through,
+                messages: state.listing(),
             };
         }
         let events: Vec<Stamped> = state.log.iter().cloned().collect();
@@ -118,7 +119,21 @@ impl Session {
             resumed: false,
             events,
             through,
+            messages: state.listing(),
         }
+    }
+
+    /// The messages handed over and not yet in the conversation, oldest first.
+    pub fn messages(&self) -> Vec<super::messages::Waiting> {
+        self.state.lock().messages.waiting()
+    }
+
+    /// One message as listed now, if it is, and when that was in the runner's
+    /// order — the answer to a send, which the stream's own list overtakes.
+    pub fn listed(&self, id: &str) -> (u64, Option<super::messages::Waiting>) {
+        let state = self.state.lock();
+        let message = state.messages.waiting().into_iter().find(|it| it.id == id);
+        (super::summary::stamp(), message)
     }
 
     /// The last sequence number issued, for a client seeded from the transcript.
@@ -181,7 +196,6 @@ impl Session {
             unread: state.messages.unread().len(),
             deaf: deaf_for(&state, now()).map(|ms| (ms / 1000) as u64),
             signed_out: state.signed_out.map(|ms| ms as u64),
-            messages: state.messages.waiting(),
         }
     }
 }

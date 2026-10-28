@@ -414,8 +414,8 @@ describe('folding runs of tool calls', () => {
 
 describe('transcript · a message the session read', () => {
   it('sits where it was read, under its id', () => {
-    // A message not yet read is the Mac's to show (`Summary.messages`), not the
-    // transcript's: the transcript holds only what the session has said and read.
+    // A message not yet in the conversation is the Mac's to list (its `messages`
+    // event), not the transcript's: that holds only what the session said and read.
     const seen = transcript(tool('t1', 'Bash', bash('cargo test')), {
       kind: 'prompt',
       text: 'is the gate green?',

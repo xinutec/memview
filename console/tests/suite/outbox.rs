@@ -196,7 +196,7 @@ async fn a_queued_message_is_taken_back_from_the_cli_and_never_read() {
         "its words are in the draft"
     );
     assert!(
-        session.summary().messages.is_empty(),
+        session.messages().is_empty(),
         "every client is shown it gone"
     );
     // Asked again, the first answer lost: answered again, the words not twice.
@@ -294,4 +294,22 @@ async fn an_id_that_is_not_a_uuid_is_refused() {
     )
     .await;
     assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn a_send_is_answered_with_the_message_as_listed_and_when() {
+    // The phone shows it from this answer until a streamed list as new arrives:
+    // the stream and the answer race, and the newer word wins.
+    let (_session, base) = served().await;
+    let m42 = id();
+    let (status, body) = post(
+        format!("{base}/input"),
+        serde_json::json!({"text": "queued: rename the branch", "id": m42}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let accepted: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(accepted["taken"].is_u64(), "{body}");
+    assert_eq!(accepted["message"]["id"], m42.as_str());
+    assert_eq!(accepted["message"]["stands"], "unread");
 }

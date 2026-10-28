@@ -1178,7 +1178,7 @@ async fn an_upgrade_keeps_a_message_waiting_in_the_queue_waiting() {
     )
     .expect("adopt");
 
-    let waiting = session.summary().messages;
+    let waiting = session.messages();
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].stands, console::session::Stands::Unread);
     assert!(
@@ -1205,7 +1205,7 @@ async fn a_message_still_waiting_when_the_process_dies_is_dropped() {
             .any(|event| matches!(event, Event::Exited { .. }))
     })
     .await;
-    let waiting = session.summary().messages;
+    let waiting = session.messages();
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].stands, console::session::Stands::Dropped);
 }
@@ -1213,8 +1213,7 @@ async fn a_message_still_waiting_when_the_process_dies_is_dropped() {
 /// The commands a session holds for its turn's end, word for word.
 fn held(session: &console::session::Session) -> Vec<String> {
     session
-        .summary()
-        .messages
+        .messages()
         .into_iter()
         .filter(|message| message.stands == console::session::Stands::Held)
         .map(|message| message.text)
@@ -1455,7 +1454,7 @@ async fn a_held_command_can_be_taken_back() {
     session.send("/compact").await.expect("send");
     let _ = told(&stdin);
 
-    let id = session.summary().messages[0].id.clone();
+    let id = session.messages()[0].id.clone();
     let back = session.withdraw(&id).await.expect("withdraw");
     assert!(
         matches!(&back, console::session::Withdrawal::Back(Some(message)) if message.text == "/compact"),
@@ -1547,7 +1546,7 @@ async fn a_message_taken_back_goes_into_the_draft_once_however_often_it_is_asked
         "rename the branch",
         "its words came back twice"
     );
-    assert!(session.summary().messages.is_empty());
+    assert!(session.messages().is_empty());
 }
 
 #[tokio::test]
@@ -1580,7 +1579,7 @@ async fn a_message_the_cli_cancels_by_itself_goes_back_into_the_draft() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(drafted(&drafts), "and the tests");
-    assert!(session.summary().messages.is_empty());
+    assert!(session.messages().is_empty());
 }
 
 #[tokio::test]
@@ -1589,6 +1588,94 @@ async fn each_summary_is_stamped_after_the_one_before() {
     let (session, _stdin, _stdout, _stderr) = wired();
     let stamps: Vec<u64> = (0..1000).map(|_| session.summary().taken).collect();
     assert!(stamps.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+/// What each `messages` event in the stream listed, in order: words and stand.
+fn lists(events: &[Event]) -> Vec<Vec<(String, console::session::Stands)>> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Messages { messages, .. } => Some(
+                messages
+                    .iter()
+                    .map(|it| (it.text.clone(), it.stands))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_message_leaves_the_streamed_list_only_after_its_echo() {
+    // One channel, in the console's order: a reader that has seen the list
+    // without the message has seen the message in the conversation already.
+    use std::io::Write;
+    let (session, _stdin, mut stdout, _stderr) = wired();
+    let id = "6a1f0e22-4b8c-4d1e-9f3a-0b2c4d6e8f10";
+    let line = console::protocol::prompt("rename the branch", Some(id));
+    session
+        .offer(id, "rename the branch", Vec::new(), line)
+        .await
+        .expect("offer");
+    writeln!(
+        stdout,
+        r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"started","session_id":"s"}}"#
+    )
+    .expect("start");
+    writeln!(
+        stdout,
+        r#"{{"type":"user","uuid":"{id}","isReplay":true,"message":{{"role":"user","content":[{{"type":"text","text":"rename the branch"}}]}},"session_id":"s"}}"#
+    )
+    .expect("echo");
+    let history = until(&session, |events| {
+        lists(events).last().is_some_and(|last| last.is_empty())
+    })
+    .await;
+    let words = "rename the branch".to_string();
+    assert_eq!(
+        lists(&history),
+        vec![
+            vec![(words.clone(), console::session::Stands::Unread)],
+            vec![(words, console::session::Stands::Read)],
+            Vec::new(),
+        ],
+        "listed from the offer, still listed once read, gone with the echo"
+    );
+    let echo = history
+        .iter()
+        .position(|event| matches!(event, Event::Prompt { id: Some(it), .. } if it == id))
+        .expect("the echo");
+    let gone = history
+        .iter()
+        .rposition(|event| matches!(event, Event::Messages { .. }))
+        .expect("the list without it");
+    assert!(
+        echo < gone,
+        "the list let go before the conversation had it"
+    );
+    assert_eq!(
+        session.messages().len(),
+        0,
+        "and the session agrees with what it streamed"
+    );
+}
+
+#[tokio::test]
+async fn joining_the_stream_ends_with_the_list_as_it_stands() {
+    // A page joining late, or after the log was trimmed, is told the list whole.
+    let (session, _stdin, _stdout, _stderr) = wired();
+    let id = "7b2a1f33-5c9d-4e2f-8a4b-1c3d5e7f9a21";
+    let line = console::protocol::prompt("queued: then the tests", Some(id));
+    session
+        .offer(id, "queued: then the tests", Vec::new(), line)
+        .await
+        .expect("offer");
+    let joined = session.since(None);
+    assert!(matches!(
+        &joined.messages,
+        Event::Messages { messages, .. } if messages.len() == 1 && messages[0].id == id
+    ));
 }
 
 #[tokio::test]

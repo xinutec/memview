@@ -5,10 +5,10 @@ import { firstValueFrom } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { Drafts } from './drafts';
 import { Local } from './local';
+import type { Accepted } from './generated/Accepted';
 import type { Refusal } from './generated/Refusal';
-import type { Returned } from './generated/Returned';
-import type { Summary } from './generated/Summary';
 import { MOST, type Picture } from './picture';
+import { SessionStore } from './session-store';
 
 /**
  * Messages written on this phone that the Mac does not have yet: sent from here
@@ -16,9 +16,9 @@ import { MOST, type Picture } from './picture';
  * receipt lost on the way back is retried under the same id, which the Mac
  * answers without sending it again.
  *
- * Once the Mac has a message, this phone keeps nothing of it: the session's
- * summary says where it stands (`messages`), and taking it back is asked of the
- * Mac, which gives its words back once — see console/src/session/messages.rs.
+ * Once the Mac has a message, this phone keeps nothing of it: the conversation's
+ * stream lists where it stands (see `unseen`), and taking it back is asked of the
+ * Mac, which puts its words in the draft once — see console/src/session/messages.rs.
  *
  * Answers to a session's questions are never put here: one written against a
  * question may arrive after that question is gone.
@@ -54,13 +54,12 @@ export type Verdict =
 export type Taken =
   /**
    * Back. `drafted` when the Mac had it and put its words in the draft itself;
-   * its pictures' names on the Mac, and the session without it when the Mac said.
+   * its pictures' names on the Mac.
    */
   | {
       readonly kind: 'back';
       readonly drafted: boolean;
       readonly pictures: readonly string[];
-      readonly session?: Summary;
     }
   /** Not back, and settled: read, or refused. Why, for the reader. */
   | { readonly kind: 'refused'; readonly why: string }
@@ -248,12 +247,11 @@ export class Outbox {
   private api = inject(ConsoleApi);
   private store = inject(Local);
   private drafts = inject(Drafts);
+  private sessions = inject(SessionStore);
 
   private readonly held = signal<readonly Outgoing[]>([]);
   /** Every message the Mac does not have yet, oldest first. */
   readonly all = this.held.asReadonly();
-  /** The session as the Mac last answered a send: it shows the message just taken. */
-  readonly answered = signal<Summary | undefined>(undefined);
 
   private loaded: Promise<void>;
   /** The drain under way: a second call joins it rather than starting its own. */
@@ -341,12 +339,8 @@ export class Outbox {
    */
   private async withdraw(session: string, id: string): Promise<Taken> {
     await this.drafts.flush();
-    let returned: Returned | undefined;
-    const { status, body } = await answered(
-      firstValueFrom(this.api.withdraw(session, id)).then((answer) => (returned = answer)),
-    );
-    const taken = takenJudged(status, body);
-    return taken.kind === 'back' && returned ? { ...taken, session: returned.session } : taken;
+    const { status, body } = await answered(firstValueFrom(this.api.withdraw(session, id)));
+    return takenJudged(status, body);
   }
 
   /** Words and pictures into a conversation's box, before what is already there. */
@@ -425,16 +419,19 @@ export class Outbox {
     const sent = message.pictures
       ? this.api.show(message.session, message.pictures, message.text, message.id)
       : this.api.send(message.session, message.text, message.id);
-    let summary: Summary | undefined;
+    let accepted: Accepted | undefined;
     const { status, body } = await answered(
-      firstValueFrom(sent).then((answer) => (summary = answer)),
+      firstValueFrom(sent).then((answer) => (accepted = answer)),
     );
     const verdict = judged(status, body);
     // Taken back while this send was on its way: the outbox no longer has it.
     if (!this.find(message.id)) return true;
     switch (verdict.kind) {
       case 'sent':
-        this.answered.set(summary);
+        // The conversation shows it from this answer until its stream lists as new.
+        if (accepted?.message) {
+          this.sessions.accepted(message.session, accepted.taken, accepted.message);
+        }
         await this.drop(message.id);
         return true;
       case 'withdrawn':

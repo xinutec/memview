@@ -30,7 +30,6 @@ import {
   type Earlier,
   type Overview,
   type Returned,
-  type Summary,
   type Timed,
 } from './console';
 
@@ -127,25 +126,23 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
   // as a `queued_command` and hands it to the model as words. The runner holds
   // it instead, and the conversation says so where the command will appear.
   await mockRunner(page);
+  await handControlOfTheStream(page);
   const id = RUNNING.id;
-  let held = true;
-  const working = (): Summary => ({
-    ...RUNNING,
-    working: true,
-    messages: held ? [{ id: 'h-1', text: '/compact', at: Date.now(), stands: 'held' }] : [],
-  });
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [working(), ENDED] } satisfies Overview }),
+    r.fulfill({
+      json: { ...STATE, sessions: [{ ...RUNNING, working: true }, ENDED] } satisfies Overview,
+    }),
   );
   let asked: Record<string, unknown> | undefined;
   await page.route(`**/api/sessions/${id}/withdraw`, (r) => {
     asked = r.request().postDataJSON() as Record<string, unknown>;
-    held = false;
-    return r.fulfill({
-      json: { drafted: true, pictures: [], session: working() } satisfies Returned,
-    });
+    return r.fulfill({ json: { drafted: true, pictures: [] } satisfies Returned });
   });
   await page.goto(`/s/${id}`);
+  await page.locator('textarea[name="text"]').waitFor();
+  // Listed on the conversation's stream, as the runner lists whatever waits.
+  const held = { id: 'h-1', text: '/compact', at: Date.now(), stands: 'held' as const };
+  await say(page, { kind: 'messages', taken: 1, messages: [held] }, 1);
 
   const waiting = page.locator('li.entry', { hasText: 'runs when this turn ends' });
   await waiting.waitFor();
@@ -155,7 +152,9 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
 
   await waiting.getByRole('button', { name: 'take back' }).click();
   await expect.poll(() => asked?.['id']).toBe('h-1');
-  // Its words reach the box through the draft the runner wrote: `take-back.spec.ts`.
+  // Off the list on the stream, which the runner changes before it answers. Its
+  // words reach the box through the draft the runner wrote: `take-back.spec.ts`.
+  await say(page, { kind: 'messages', taken: 2, messages: [] }, 2);
   await expect(page.locator('li.entry', { hasText: 'runs when this turn ends' })).toHaveCount(0);
 });
 
@@ -1185,30 +1184,17 @@ test('a message sent mid-answer does not cut the answer in half @ phone width', 
   // neither renders as code.
   //
   // The CLI parks a message sent mid-turn and reads it when the turn ends, so it
-  // interrupted nothing: the Mac holds it (`Summary.messages`), it is shown after
-  // the conversation, and the answer stays one block.
+  // interrupted nothing: the Mac lists it on the stream, between the deltas, it
+  // is shown after the conversation, and the answer stays one block.
   await mockRunner(page);
-  await page.route('**/api/state', (r) =>
-    r.fulfill({
-      json: {
-        ...STATE,
-        sessions: [
-          {
-            ...RUNNING,
-            messages: [
-              { id: 'm-1', text: 'sent while you were typing', at: Date.now(), stands: 'unread' },
-            ],
-          },
-        ],
-      } satisfies Overview,
-    }),
-  );
+  const waiting = { id: 'm-1', text: 'sent while you were typing', at: Date.now() };
   await routeStream(page, (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
       body: (
         [
           { kind: 'text', text: 'Here it is:\n\n```ts\nconst a = 1;\n' },
+          { kind: 'messages', taken: 1, messages: [{ ...waiting, stands: 'unread' }] },
           { kind: 'text', text: 'const b = 2;\n```\n' },
         ] satisfies Timed[]
       )

@@ -4,7 +4,7 @@ import { Observable, map } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { unhandled } from './exhaustive';
 import { Kept } from './kept';
-import { type Change, Entry, Timed } from './models';
+import { type Change, Entry, Timed, type Waiting } from './models';
 import { reason } from './errors';
 import type { Hunk } from './generated/Hunk';
 import { Patience } from './patience';
@@ -15,6 +15,33 @@ import { fold } from './transcript';
  * of the last few things looked at, not a cache of everything.
  */
 const KEPT = 4;
+
+/** The messages not yet in the conversation, as the Mac listed them, and when. */
+export interface Listed {
+  readonly taken: number;
+  readonly messages: readonly Waiting[];
+}
+
+/** A send the Mac accepted: the message as it listed it, and when. */
+export interface Provisional {
+  readonly taken: number;
+  readonly message: Waiting;
+}
+
+/**
+ * What waits to enter the conversation: the stream's list, and each send the Mac
+ * accepted that no streamed list as new has answered yet. The answer to a send
+ * and the stream travel apart; a newer list without the message came after its
+ * echo, which the conversation therefore has.
+ */
+export function unseen(listed: Listed | undefined, accepted: readonly Provisional[]): Waiting[] {
+  const shown = [...(listed?.messages ?? [])];
+  for (const one of accepted) {
+    if (listed && one.taken <= listed.taken) continue;
+    if (!shown.some((it) => it.id === one.message.id)) shown.push(one.message);
+  }
+  return shown;
+}
 
 /** One session's transcript, and the reader's place in it. */
 export interface Held {
@@ -52,6 +79,15 @@ export interface Held {
   readonly unanswered: WritableSignal<boolean>;
   /** The conversation arriving behind a kept copy, swapped in when the replay ends. */
   building?: Entry[];
+  /**
+   * The messages handed over and not yet in the conversation, as the stream last
+   * listed them: in its order with the echoes that take them into it. See [[unseen]].
+   */
+  readonly listed: WritableSignal<Listed | undefined>;
+  /** Sends the Mac accepted, until a streamed list as new — see [[unseen]]. */
+  readonly accepted: WritableSignal<readonly Provisional[]>;
+  /** The list arriving behind a kept copy, swapped in with the conversation. */
+  buildingListed?: Listed;
   /**
    * Whether the stream has been down long enough to say so — see [[Patience]]. A
    * dead stream otherwise looks like a session thinking.
@@ -135,6 +171,8 @@ export class SessionStore {
           if (held.source() === 'kept') {
             held.entries.set(held.building ?? []);
             held.building = undefined;
+            if (held.buildingListed) list(held, held.buildingListed);
+            held.buildingListed = undefined;
             held.source.set('stream');
             held.unanswered.set(false);
           }
@@ -156,9 +194,10 @@ export class SessionStore {
 
   /** Show what was last kept, while nothing of the conversation has arrived. See [[Kept]]. */
   private async hydrate(id: string, held: Held): Promise<void> {
-    const copy = await this.kept.entries(id);
+    const [copy, listed] = await Promise.all([this.kept.entries(id), this.kept.listed(id)]);
     if (!copy.length || held.entries().length || held.seen > 0) return;
     held.entries.set(copy);
+    held.listed.set(listed);
     held.source.set('kept');
   }
 
@@ -175,7 +214,7 @@ export class SessionStore {
     held.link.right();
     // Flushed on the way out, past the throttle: leaving is the moment a copy is
     // most likely to be wanted next.
-    if (held.source() === 'stream') this.kept.keepNow(id, held.entries());
+    if (held.source() === 'stream') this.kept.keepNow(id, held.entries(), held.listed());
   }
 
   /**
@@ -236,6 +275,15 @@ export class SessionStore {
     return this.open(id);
   }
 
+  /**
+   * A send the Mac accepted, shown in its conversation until the stream lists
+   * as new — see [[unseen]]. Nothing for a conversation not held: opening one
+   * joins its stream, which ends with the list as it stands.
+   */
+  accepted(id: string, taken: number, message: Waiting): void {
+    this.held.get(id)?.accepted.update((accepted) => [...accepted, { taken, message }]);
+  }
+
   private fresh(id: string): Held {
     const held: Held = {
       entries: signal<Entry[]>([]),
@@ -250,6 +298,8 @@ export class SessionStore {
       adrift: signal(false),
       edited: signal<ReadonlyMap<string, readonly Change[]>>(new Map()),
       diverged: signal<ReadonlySet<string>>(new Set()),
+      listed: signal<Listed | undefined>(undefined),
+      accepted: signal<readonly Provisional[]>([]),
       seen: 0,
       used: ++this.clock,
     };
@@ -285,13 +335,19 @@ export class SessionStore {
     if (event.kind === 'diverged') {
       held.diverged.update((diverged) => new Set(diverged).add(event.call));
     }
+    // Beside the conversation, and like it built out of sight behind a kept copy:
+    // a list newer than the copy on screen would drop what the copy lacks.
+    if (event.kind === 'messages') {
+      if (held.source() === 'kept') held.buildingListed = event;
+      else list(held, event);
+    }
     // Behind a kept copy the conversation is built out of sight: a page half
     // arrived over a slow link would replace the copy with less than it had.
     if (held.source() === 'kept') held.building = fold(held.building ?? [], event);
     else held.entries.update((entries) => fold(entries, event));
     // Throttled inside, and not done on leaving instead: a phone stops reading when
     // the tunnel drops or the app is killed, and neither runs code here.
-    if (held.source() === 'stream') this.kept.keep(id, held.entries());
+    if (held.source() === 'stream') this.kept.keep(id, held.entries(), held.listed());
   }
 
   /**
@@ -301,8 +357,13 @@ export class SessionStore {
   private forget(held: Held): void {
     held.link.right();
     // A kept copy stays up; what was being built behind it starts again.
-    if (held.source() === 'kept') held.building = undefined;
-    else held.entries.set([]);
+    if (held.source() === 'kept') {
+      held.building = undefined;
+      held.buildingListed = undefined;
+    } else {
+      held.entries.set([]);
+      held.listed.set(undefined);
+    }
     held.cursor.set(0);
     held.seen = 0;
     held.doing.set(undefined);
@@ -323,6 +384,12 @@ export class SessionStore {
       this.held.delete(id);
     }
   }
+}
+
+/** Show a streamed list, and let go of the sends it is as new as. */
+function list(held: Held, listing: Listed): void {
+  held.listed.set({ taken: listing.taken, messages: listing.messages });
+  held.accepted.update((accepted) => accepted.filter((one) => one.taken > listing.taken));
 }
 
 /** An observed hunk, in the shape the diff view draws. Only the lines shown changed. */

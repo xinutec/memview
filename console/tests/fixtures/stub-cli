@@ -228,6 +228,19 @@ while IFS= read -r line; do
           printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$uuid" "$session"
           continue
           ;;
+        # Words starting `hooked:` go in the real CLI's order: started, then the
+        # echo seconds later, once its hooks have run (measured on 2.1.289:
+        # 1.8s with a UserPromptSubmit hook).
+        hooked:*)
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$uuid" "$session"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"started","session_id":"%s"}\n' "$uuid" "$session"
+          sleep 2
+          printf '{"type":"user","uuid":"%s","isReplay":true,"message":{"role":"user","content":[{"type":"text","text":"%s"}]},"session_id":"%s"}\n' "$uuid" "$said" "$session"
+          printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
+          printf '{"type":"result","subtype":"success","total_cost_usd":%s,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$total" "$session"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"completed","session_id":"%s"}\n' "$uuid" "$session"
+          continue
+          ;;
         # Not yet read off stdin when a cancel for it comes: see the cancel above.
         late:*)
           late="$late $uuid"

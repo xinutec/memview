@@ -51,7 +51,7 @@ import { MOST, type Picture, looking, pointedAt, shrink } from './picture';
 import { Outbox, type Standing, age, behindRefused, standing } from './outbox';
 import { Roster } from './roster';
 import { SignInSheet } from './signin-sheet';
-import { Held, SessionStore } from './session-store';
+import { Held, SessionStore, unseen } from './session-store';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
 import { TranscriptList } from './transcript-list';
@@ -62,8 +62,11 @@ import { Updates } from './updates';
 /** How long news, as against a fault, stays on the notice bar. */
 const BRIEFLY_MS = 6_000;
 
-/** How a message the Mac holds stands, for the line under it. */
-function stands(how: Stands, deaf: boolean, waited: string): Standing {
+/**
+ * How a message the Mac holds stands, for the line under it; none once read,
+ * when it looks as it will in the conversation.
+ */
+function stands(how: Stands, deaf: boolean, waited: string): Standing | undefined {
   switch (how) {
     case 'held':
       return { line: 'runs when this turn ends', icon: 'hourglass_top' };
@@ -77,6 +80,8 @@ function stands(how: Stands, deaf: boolean, waited: string): Standing {
         : { line: `waiting to be read${waited}`, icon: 'schedule' };
     case 'dropped':
       return { line: 'not read — the session ended', icon: 'error', alert: true };
+    case 'read':
+      return undefined;
   }
 }
 
@@ -132,42 +137,47 @@ export class SessionView implements OnDestroy {
   private readonly held = signal<Held | undefined>(undefined);
   readonly session = signal<Summary | undefined>(undefined);
   /**
-   * The conversation, then what the session has not read yet: this phone's
-   * messages from the outbox, and commands held for the turn's end that this
-   * phone did not send. One place for every message, whatever stands between it
-   * and being read — see [[Outbox]].
+   * The conversation, then what waits to enter it: what the Mac listed on this
+   * conversation's stream, then this phone's own not yet accepted. Each message
+   * once, from the furthest place it has reached; no place lets go of a message
+   * before the next has it — see [[unseen]] and [[Outbox]].
    */
   readonly entries = computed<Entry[]>(() => {
-    const mine = this.outbox.all().filter((it) => it.session === this.id());
+    const said = this.conversation();
     const now = this.minute();
-    const session = this.session();
-    // Read since the summary was drawn: the conversation has it now.
-    const read = new Set(
-      this.conversation().flatMap((entry) =>
-        entry.kind === 'asked' && entry.id !== undefined ? [entry.id] : [],
-      ),
+    const deaf = !!this.session()?.deaf;
+    const held = this.held();
+    const shown = new Set(
+      said.flatMap((entry) => (entry.kind === 'asked' && entry.id !== undefined ? [entry.id] : [])),
     );
-    const theirs = (session?.messages ?? [])
-      .filter((message) => !read.has(message.id))
-      .map((message): Asked => ({
+    const listed = unseen(held?.listed(), held?.accepted() ?? []).filter(
+      (message) => !shown.has(message.id),
+    );
+    for (const message of listed) shown.add(message.id);
+    const theirs = listed.map((message): Asked => {
+      const waiting = stands(message.stands, deaf, age(now - message.at));
+      return {
         kind: 'asked',
         text: message.pictures?.length
           ? `${message.text}${message.text ? ' · ' : ''}${pictures(message.pictures.length)}`
           : message.text,
         at: message.at,
         id: message.id,
-        waiting: stands(message.stands, !!session?.deaf, age(now - message.at)),
+        ...(waiting && { waiting }),
+      };
+    });
+    const mine = this.outbox.all().filter((it) => it.session === this.id());
+    const sending = mine
+      .filter((it) => !shown.has(it.id))
+      .map((it): Asked => ({
+        kind: 'asked',
+        text: it.pictures?.length
+          ? `${it.text}${it.text ? ' · ' : ''}${pictures(it.pictures.length)}`
+          : it.text,
+        at: it.created,
+        id: it.id,
+        waiting: standing(it, now, behindRefused(mine, it)),
       }));
-    const sending = mine.map((it): Asked => ({
-      kind: 'asked',
-      text: it.pictures?.length
-        ? `${it.text}${it.text ? ' · ' : ''}${pictures(it.pictures.length)}`
-        : it.text,
-      at: it.created,
-      id: it.id,
-      waiting: standing(it, now, behindRefused(mine, it)),
-    }));
-    const said = this.conversation();
     const taking = this.taking();
     return [...said, ...theirs, ...sending].map((entry) =>
       entry.kind === 'asked' && taking.has(entry.id ?? entry.text)
@@ -279,11 +289,6 @@ export class SessionView implements OnDestroy {
   private was = 0;
 
   constructor() {
-    // The Mac's answer to a send shows the message it just took, before the next poll.
-    effect(() => {
-      const answered = this.outbox.answered();
-      if (answered?.id === this.id()) untracked(() => this.show(answered));
-    });
     const ticking = setInterval(() => this.minute.set(Date.now()), 60_000);
     this.until.onDestroy(() => clearInterval(ticking));
     // Its name, else where it runs, quieter: the same rule titles the list's cards.
@@ -540,8 +545,8 @@ export class SessionView implements OnDestroy {
     // The outbox puts the words in this conversation's draft, which the box shows.
     const taken = await this.outbox.takeBack(this.id(), entry.id);
     switch (taken.kind) {
+      // Off the list on the stream, which the Mac changed before it answered.
       case 'back':
-        if (taken.session?.id === this.id()) this.show(taken.session);
         this.trouble.set('');
         break;
       case 'refused':

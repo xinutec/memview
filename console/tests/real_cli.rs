@@ -50,7 +50,7 @@ async fn until(session: &Session, what: impl Fn(&Session) -> bool, seconds: u64)
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("waited {seconds}s: {:?}", session.summary().messages);
+    panic!("waited {seconds}s: {:?}", session.messages());
 }
 
 fn turns(session: &Session) -> usize {
@@ -105,7 +105,7 @@ async fn a_queued_message_is_taken_back_and_never_read() {
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(turns(&session), 1, "the message taken back was answered");
     assert!(!said(&session, "banana"));
-    assert!(session.summary().messages.is_empty());
+    assert!(session.messages().is_empty());
     session.force();
 }
 
@@ -122,10 +122,7 @@ async fn a_message_read_is_refused_and_a_retry_is_not_sent_again() {
         Offered::Wrote
     );
     until(&session, |s| turns(s) >= 1, 60).await;
-    assert!(
-        session.summary().messages.is_empty(),
-        "read, and no longer waiting"
-    );
+    assert!(session.messages().is_empty(), "read, and no longer waiting");
 
     assert_eq!(
         offer(&session, &message, "Reply with just the word ok.").await,
@@ -158,7 +155,7 @@ async fn a_held_command_is_taken_back_and_never_run() {
     let held = id();
     assert_eq!(offer(&session, &held, "/compact").await, Offered::Wrote);
     assert_eq!(
-        session.summary().messages.first().map(|it| it.stands),
+        session.messages().first().map(|it| it.stands),
         Some(console::session::Stands::Held)
     );
     assert!(matches!(
@@ -193,7 +190,7 @@ async fn a_message_waiting_when_the_process_is_killed_is_dropped() {
     session.force();
     until(&session, |s| !s.alive(), 20).await;
     assert_eq!(
-        session.summary().messages.first().map(|it| it.stands),
+        session.messages().first().map(|it| it.stands),
         Some(console::session::Stands::Dropped)
     );
 }

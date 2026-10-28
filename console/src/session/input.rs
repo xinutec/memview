@@ -63,30 +63,20 @@ impl Session {
         // Written by a process before this one, which the transcript remembers.
         if let Some(at) = self.recorded(id) {
             let read = Step::Read { at, echoed: true };
-            self.state
-                .lock()
-                .messages
-                .add(id, text, pictures, read, now());
+            self.change(|messages| messages.add(id, text, pictures, read, now()));
             return Ok(Offered::Already);
         }
         let command = protocol::is_command(text);
         if command && self.state.lock().working {
-            self.state
-                .lock()
-                .messages
-                .add(id, text, pictures, Step::Held, now());
+            self.change(|messages| messages.add(id, text, pictures, Step::Held, now()));
             return Ok(Offered::Wrote);
         }
-        self.write_line(&line, "writing to the session").await?;
-        let mut state = self.state.lock();
-        if state.asked.is_none() && !state.origin_read {
-            // Named by the words, not the base64.
-            state.asked = Some(match (text.trim(), pictures.len()) {
-                ("", 1) => "an image".to_string(),
-                ("", many) if many > 1 => format!("{many} images"),
-                (words, _) => words.to_string(),
-            });
-        }
+        // Named by the words, not the base64.
+        let named = match (text.trim(), pictures.len()) {
+            ("", 1) => "an image".to_string(),
+            ("", many) if many > 1 => format!("{many} images"),
+            (words, _) => words.to_string(),
+        };
         // A command is never echoed, and runs as a command: said once it is written.
         let step = if command {
             Step::Read {
@@ -96,8 +86,19 @@ impl Session {
         } else {
             Step::Written
         };
-        state.messages.add(id, text, pictures, step, now());
-        drop(state);
+        // Recorded before it is written: its echo, read on another task, must find it.
+        self.change(|messages| messages.add(id, text, pictures, step, now()));
+        if let Err(error) = self.write_line(&line, "writing to the session").await {
+            // It never reached the session, so nothing of it is kept: a retry writes it.
+            self.change(|messages| messages.forget(id));
+            return Err(error);
+        }
+        {
+            let mut state = self.state.lock();
+            if state.asked.is_none() && !state.origin_read {
+                state.asked = Some(named);
+            }
+        }
         // Never echoed, so said here; the CLI may not run it for minutes.
         if command {
             self.push(Event::Command {
@@ -125,7 +126,7 @@ impl Session {
                 at: now(),
                 echoed: true,
             };
-            self.state.lock().messages.set(&id, said);
+            self.change(|messages| messages.set(&id, said));
             self.push(Event::Command { text: held.text });
         }
     }
@@ -140,10 +141,7 @@ impl Session {
                 return Ok(Withdrawal::Refused(read_at(at)));
             }
             // Never arrived: remembered as taken back, so a late copy is refused.
-            self.state
-                .lock()
-                .messages
-                .add(id, "", Vec::new(), Step::Withdrawn, now());
+            self.change(|messages| messages.add(id, "", Vec::new(), Step::Withdrawn, now()));
             return Ok(Withdrawal::Back(None));
         };
         match message.step {
@@ -168,7 +166,7 @@ impl Session {
                 }
             }
         }
-        let taken = self.state.lock().messages.withdraw(id);
+        let taken = self.change(|messages| messages.withdraw(id));
         self.give_back(taken);
         Ok(Withdrawal::Back(Some(message)))
     }
@@ -211,23 +209,49 @@ impl Session {
 
     /// The CLI's word on where a message stands in its queue.
     pub(super) fn stepped(&self, id: &str, step: protocol::Lifecycle) {
-        let taken = self.state.lock().messages.stepped(id, step, now());
+        let taken = self.change(|messages| messages.stepped(id, step, now()));
         self.give_back(taken);
     }
 
-    /// Whether `event` is the echo of a message already echoed: the CLI echoes a
-    /// retried id but records and answers it once. The first echo marks it read.
-    pub fn echoed_again(&self, event: &Event) -> bool {
-        let mut state = self.state.lock();
-        match event {
-            Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. } => {
-                state.messages.echoed(id, now())
+    /// Change the message record and log the list it leaves, under one lock, then
+    /// tell the listeners: the stream holds every change in the order made.
+    fn change<T>(&self, how: impl FnOnce(&mut super::messages::Messages) -> T) -> T {
+        let (done, listed) = {
+            let mut state = self.state.lock();
+            let done = how(&mut state.messages);
+            (done, state.relist(now()))
+        };
+        self.tell(listed);
+        done
+    }
+
+    /// Log an event the CLI wrote. An echo marks its message read in the same step,
+    /// and the list without it is logged after it: a reader never sees a message
+    /// leave the list before it is in the conversation. An echo of a message
+    /// echoed already — a retry the CLI ignored — is dropped, so a client sees it
+    /// once.
+    pub(super) fn push_output(&self, event: Event) {
+        let logged = {
+            let mut state = self.state.lock();
+            let again = match &event {
+                Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. } => {
+                    state.messages.echoed(id, now())
+                }
+                Event::Prompt { text, id: None } => {
+                    state.messages.echoed_words(text, now());
+                    false
+                }
+                _ => false,
+            };
+            if again {
+                return;
             }
-            Event::Prompt { text, id: None } => {
-                state.messages.echoed_words(text, now());
-                false
-            }
-            _ => false,
+            let at = now();
+            let event = state.take(event, Some(at), at);
+            [Some(event), state.relist(at)]
+        };
+        for stamped in logged {
+            self.tell(stamped);
         }
     }
 

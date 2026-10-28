@@ -4,8 +4,8 @@ import { Observable, of, Subject } from 'rxjs';
 
 import { ConsoleApi, type Streamed } from './console-api';
 import { Local } from './local';
-import { type EditRecord, Entry, Page, Timed } from './models';
-import { SessionStore } from './session-store';
+import { type EditRecord, Entry, Page, Timed, type Waiting } from './models';
+import { SessionStore, unseen } from './session-store';
 import { first, last, nth } from './testing';
 
 /** One stream the store opened, and the handles to drive it from the test. */
@@ -102,6 +102,19 @@ describe('SessionStore', () => {
     runner.latest.send({ kind: 'text', text }, seq);
     runner.latest.send({ kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 0 }, seq + 1);
   }
+
+  it('takes the list from the stream, and keeps an accepted send until one as new', () => {
+    const held = store.open('s1');
+    const m: Waiting = { id: 'm', text: 'rename the branch', at: 0, stands: 'unread' };
+    store.accepted('s1', 20, m);
+    // From before the send, late on the stream: the answer to the send stands.
+    runner.latest.send({ kind: 'messages', taken: 10, messages: [] }, 1);
+    expect(unseen(held.listed(), held.accepted())).toEqual([m]);
+    // As new and listing it as read: the stream's word.
+    runner.latest.send({ kind: 'messages', taken: 30, messages: [{ ...m, stands: 'read' }] }, 2);
+    expect(unseen(held.listed(), held.accepted())).toEqual([{ ...m, stands: 'read' }]);
+    expect(held.accepted(), 'let go of once a list as new arrived').toEqual([]);
+  });
 
   it('knows the edits the Mac kept as soon as a session is opened', () => {
     runner.kept = {
@@ -419,6 +432,22 @@ describe('SessionStore', () => {
       expect(held.source()).toBe('stream');
     });
 
+    it('swaps the list in with the conversation it goes with, not before', async () => {
+      // A list newer than the copy on screen drops a message the copy has not got
+      // to yet: the two arrive together or the message is on neither.
+      await keptBefore('from last time');
+      const held = store.open('s');
+      await settle();
+      const before = { id: 'm', text: 'rename the branch', at: 0, stands: 'unread' as const };
+      runner.latest.reset();
+      runner.latest.send({ kind: 'messages', taken: 10, messages: [before] }, 1);
+      runner.latest.send({ kind: 'prompt', text: 'rename the branch', id: 'm' }, 2);
+      runner.latest.send({ kind: 'messages', taken: 20, messages: [] }, 3);
+      expect(held.listed(), 'swapped ahead of its conversation').toBeUndefined();
+      runner.latest.caughtUp();
+      expect(held.listed()).toEqual({ taken: 20, messages: [] });
+    });
+
     it('says it is a copy only once the Mac has failed to answer', async () => {
       await keptBefore('from last time');
       const held = store.open('s');
@@ -439,5 +468,33 @@ describe('SessionStore', () => {
       await settle();
       expect(said(held.entries())).toEqual(['the conversation itself']);
     });
+  });
+});
+
+describe('unseen', () => {
+  const listedAs = (id: string, stands: Waiting['stands']): Waiting => ({
+    id,
+    text: id,
+    at: 0,
+    stands,
+  });
+
+  it('shows a send the Mac accepted until the stream lists as new', () => {
+    // The answer to the send arrived before the stream's list: shown from it.
+    const sent = { taken: 20, message: listedAs('m', 'unread') };
+    expect(unseen(undefined, [sent]).map((it) => it.id)).toEqual(['m']);
+    // A list from before the send, late on the stream, does not take it away.
+    expect(unseen({ taken: 10, messages: [] }, [sent]).map((it) => it.id)).toEqual(['m']);
+  });
+
+  it('lets go of it for a list as new, which follows its echo when it lacks it', () => {
+    const sent = { taken: 20, message: listedAs('m', 'unread') };
+    expect(unseen({ taken: 30, messages: [] }, [sent])).toEqual([]);
+  });
+
+  it('shows the stream’s word on a message both have', () => {
+    const sent = { taken: 20, message: listedAs('m', 'unread') };
+    const listed = { taken: 10, messages: [listedAs('m', 'read')] };
+    expect(unseen(listed, [sent])).toEqual([listedAs('m', 'read')]);
   });
 });

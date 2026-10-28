@@ -3,4 +3,4 @@
 /**
  * How a waiting message stands, in the words a person needs.
  */
-export type Stands = "held" | "unread" | "dropped";
+export type Stands = "held" | "unread" | "read" | "dropped";

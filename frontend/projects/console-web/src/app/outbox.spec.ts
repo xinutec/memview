@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConsoleApi } from './console-api';
 import { Drafts } from './drafts';
 import { Local } from './local';
+import type { Waiting } from './models';
+import { SessionStore } from './session-store';
 import {
   Outbox,
   type Outgoing,
@@ -161,6 +163,14 @@ class Memory {
   }
 }
 
+/** The conversations, as far as the outbox tells them of sends the Mac accepted. */
+class Conversations {
+  readonly told: { id: string; taken: number; message: Waiting }[] = [];
+  accepted(id: string, taken: number, message: Waiting): void {
+    this.told.push({ id, taken, message });
+  }
+}
+
 /** A conversation's draft, as the box would show it. */
 class Box {
   words = new Map<string, string>();
@@ -193,16 +203,19 @@ class Box {
 describe('Outbox', () => {
   let mac: Mac;
   let box: Box;
+  let conversations: Conversations;
   let outbox: Outbox;
 
   beforeEach(() => {
     mac = new Mac();
     box = new Box();
+    conversations = new Conversations();
     TestBed.configureTestingModule({
       providers: [
         { provide: ConsoleApi, useValue: mac },
         { provide: Local, useValue: new Memory() },
         { provide: Drafts, useValue: box },
+        { provide: SessionStore, useValue: conversations },
       ],
     });
     outbox = TestBed.inject(Outbox);
@@ -239,6 +252,17 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     expect(seen?.tried).toBe(true);
+  });
+
+  it('hands a send the Mac accepted to its conversation, as listed and when', async () => {
+    // Dropped from here at once: the conversation shows it from this answer until
+    // its stream lists as new, so it is on screen throughout.
+    const listed: Waiting = { id: 'x', text: 'hello', at: 0, stands: 'unread' };
+    mac.answers = [() => of({ taken: 42, message: listed })];
+    await outbox.enqueue('s', 'hello');
+    await outbox.drain();
+    expect(conversations.told).toEqual([{ id: 's', taken: 42, message: listed }]);
+    expect(outbox.all()).toHaveLength(0);
   });
 
   it('takes back a message that never left the phone without asking anyone', async () => {

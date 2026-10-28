@@ -22,6 +22,7 @@ export type { Withdrawal } from './generated/Withdrawal';
 export type { Waiting } from './generated/Waiting';
 export type { Stands } from './generated/Stands';
 export type { Returned } from './generated/Returned';
+export type { Accepted } from './generated/Accepted';
 export type { Refusal } from './generated/Refusal';
 export type { SudoAnswer } from './generated/SudoAnswer';
 export type { LoginCode } from './generated/LoginCode';
@@ -96,6 +97,7 @@ export const KINDS = [
   'compacted',
   'signed_out',
   'deaf',
+  'messages',
   'exited',
   'trouble',
 ] as const satisfies readonly Kind[];

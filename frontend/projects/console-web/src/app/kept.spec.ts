@@ -75,6 +75,30 @@ describe('Kept', () => {
    * touched this phone, so a row may have been written by a build two versions
    * gone — and the damage from a cast lands in the renderer, not here.
    */
+  it('keeps what waits to enter the conversation with it', async () => {
+    // Reopened, the copy shows a message on its way: the list and the
+    // conversation it goes with, never one without the other.
+    const { store } = kept();
+    const listed = {
+      taken: 7,
+      messages: [{ id: 'm', text: 'rename the branch', at: 1, stands: 'unread' as const }],
+    };
+    store.keepNow('s1', [said('hello')], listed);
+    await settled(store, 's1', 1);
+    expect(await store.listed('s1')).toEqual(listed);
+  });
+
+  it('reads past a list that is not one', async () => {
+    const { store } = kept();
+    const local = TestBed.inject(Local);
+    await local.set('kept-s1', {
+      entries: [said('ok')],
+      listed: { taken: 7, messages: [{ id: 'm', text: 'x', at: 1, stands: 'pondering' }] },
+    });
+    expect(await store.listed('s1')).toBeUndefined();
+    expect(await store.entries('s1')).toEqual([said('ok')]);
+  });
+
   it('reads past anything that is not a transcript', async () => {
     const { store } = kept();
     const local = TestBed.inject(Local);

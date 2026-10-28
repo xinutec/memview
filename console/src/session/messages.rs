@@ -86,6 +86,9 @@ pub enum Stands {
     Held,
     /// Waiting to be read.
     Unread,
+    /// Read, and on its way into the conversation: the CLI starts on a message
+    /// before its hooks run and it echoes it.
+    Read,
     /// Will never be read: its session ended.
     Dropped,
 }
@@ -116,6 +119,11 @@ impl Messages {
                 step,
             },
         );
+    }
+
+    /// Forget a message that never reached the session.
+    pub fn forget(&mut self, id: &str) {
+        self.by_id.remove(id);
     }
 
     pub fn set(&mut self, id: &str, step: Step) {
@@ -221,17 +229,20 @@ impl Messages {
         unread
     }
 
-    /// The process is gone: nothing it held or had queued will be read.
+    /// The process is gone: nothing it held or had queued will be read, and no
+    /// echo will come for what it had started on.
     pub fn drop_waiting(&mut self) {
         for message in self.by_id.values_mut() {
-            if message.step.waiting() {
-                message.step = Step::Dropped;
-            }
+            message.step = match message.step {
+                step if step.waiting() => Step::Dropped,
+                Step::Read { at, echoed: false } => Step::Read { at, echoed: true },
+                step => step,
+            };
         }
     }
 
-    /// What the phone is shown: every message not yet read, and those dropped
-    /// until taken back, oldest first.
+    /// What the phone is shown: every message not yet in the conversation — read
+    /// ones until their echo — and those dropped until taken back, oldest first.
     pub fn waiting(&self) -> Vec<Waiting> {
         let mut shown: Vec<_> = self
             .by_id
@@ -240,8 +251,9 @@ impl Messages {
                 let stands = match message.step {
                     Step::Held => Stands::Held,
                     Step::Written | Step::Queued => Stands::Unread,
+                    Step::Read { echoed: false, .. } => Stands::Read,
                     Step::Dropped => Stands::Dropped,
-                    Step::Read { .. } | Step::Withdrawn => return None,
+                    Step::Read { echoed: true, .. } | Step::Withdrawn => return None,
                 };
                 Some((
                     message.order,
