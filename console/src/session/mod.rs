@@ -368,19 +368,30 @@ impl Session {
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);
-        // After the seed, at the end where it still stands, as an ordinary `Ask`.
-        for (id, question) in pending {
-            session.push(question.ask(id));
-        }
-        // After the seed, whose `Joined` clears the count — wrong for an adoption —
-        // less what the transcript shows ended: a task can end in the moments
-        // before an upgrade, its notice recorded and not yet acted on.
+        // What was carried is what the last image knew, and in the moments before
+        // an upgrade something can happen it had not yet acted on: a message read,
+        // a call it asked about run, a task ended. The transcript has it, so it wins.
+        let mut pending = pending;
         let mut background = background;
         for event in session.history() {
+            match &event {
+                Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. } => {
+                    session.state.lock().messages.echoed(id, now());
+                }
+                Event::ToolResult { id, .. } => {
+                    pending.retain(|_, question| question.call.as_deref() != Some(id.as_str()));
+                }
+                _ => {}
+            }
             if let protocol::Running::Ended(named) = protocol::running(&event) {
                 state::forget(&mut background, &named);
             }
         }
+        // After the seed, at the end where it still stands, as an ordinary `Ask`.
+        for (id, question) in pending {
+            session.push(question.ask(id));
+        }
+        // After the seed, whose `Joined` clears the count — wrong for an adoption.
         if !background.is_empty() {
             tracing::info!(
                 "{}: {} background task(s) carried across the upgrade",

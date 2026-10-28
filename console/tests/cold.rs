@@ -709,3 +709,115 @@ async fn a_background_task_the_transcript_shows_ended_is_not_carried_back() {
         "a task the transcript shows ended was carried back as running"
     );
 }
+
+/// A session adopted from a carried `tally`, its transcript the given lines.
+fn adopted(
+    id: &str,
+    lines: &[String],
+    tally: console::session::Tally,
+) -> std::sync::Arc<console::session::Session> {
+    let folder = projects().join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        format!("{}\n", lines.join("\n")),
+    )
+    .expect("transcript");
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    console::session::Session::adopt(
+        id.to_string(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        tally,
+        drafts(),
+    )
+    .expect("adopt")
+}
+
+#[tokio::test]
+async fn a_message_the_transcript_shows_read_is_not_carried_back_as_waiting() {
+    // Read in the moments before an upgrade, as the background task was: the old
+    // image carries it unread, and the transcript has it under its id.
+    let message = "4c1d2e3f-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
+    let mut messages = console::session::Messages::default();
+    messages.add(
+        message,
+        "rename the branch",
+        Vec::new(),
+        console::session::Step::Written,
+        1_000,
+    );
+    let read = serde_json::json!({
+        "type": "user",
+        "uuid": message,
+        "timestamp": "2026-10-28T16:08:40.483Z",
+        "message": {"role": "user", "content": [{"type": "text", "text": "rename the branch"}]},
+    });
+    let session = adopted(
+        "a-session-whose-message-was-read-before-the-upgrade",
+        &[read.to_string()],
+        console::session::Tally {
+            started: 1_754_000_000,
+            messages,
+            ..Default::default()
+        },
+    );
+    assert!(
+        session.messages().is_empty(),
+        "a message the transcript shows read is still listed: {:?}",
+        session.messages()
+    );
+}
+
+#[tokio::test]
+async fn a_question_the_transcript_shows_answered_is_not_asked_again() {
+    // Answered in the moments before an upgrade: the old image carries it as
+    // pending, and the transcript has the call it asked about already run.
+    let pending = [(
+        "request-1".to_string(),
+        console::session::Pending {
+            tool: "Bash".into(),
+            call: Some("toolu_q1".into()),
+            input: serde_json::json!({"command": "ls"}),
+            title: None,
+            detail: None,
+        },
+    )]
+    .into_iter()
+    .collect();
+    let asked = serde_json::json!({
+        "type": "assistant",
+        "timestamp": "2026-10-28T16:08:39.000Z",
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "toolu_q1", "name": "Bash", "input": {"command": "ls"}}
+        ]},
+    });
+    let ran = serde_json::json!({
+        "type": "user",
+        "timestamp": "2026-10-28T16:08:40.000Z",
+        "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_q1", "content": "a.txt", "is_error": false}
+        ]},
+    });
+    let session = adopted(
+        "a-session-whose-question-was-answered-before-the-upgrade",
+        &[asked.to_string(), ran.to_string()],
+        console::session::Tally {
+            started: 1_754_000_000,
+            pending,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        session.summary().waiting,
+        0,
+        "a question whose call already ran is asked again"
+    );
+}
