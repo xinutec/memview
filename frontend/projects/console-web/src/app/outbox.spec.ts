@@ -69,10 +69,10 @@ describe('judged', () => {
 });
 
 describe('takenJudged', () => {
-  it('takes the words the Mac gave back', () => {
-    expect(takenJudged(200, { text: 'hello', pictures: ['p.png'] })).toMatchObject({
+  it('takes whether the Mac put the words in the draft, and its pictures', () => {
+    expect(takenJudged(200, { drafted: true, pictures: ['p.png'] })).toMatchObject({
       kind: 'back',
-      text: 'hello',
+      drafted: true,
       pictures: ['p.png'],
     });
   });
@@ -81,13 +81,6 @@ describe('takenJudged', () => {
     expect(takenJudged(409, { why: 'read', at: NOON.getTime() }, NOON)).toEqual({
       kind: 'refused',
       why: `the session read it at ${AT_NOON}`,
-    });
-  });
-
-  it('says a second take-back finds it already back', () => {
-    expect(takenJudged(409, { why: 'withdrawn' })).toEqual({
-      kind: 'refused',
-      why: 'it was already taken back',
     });
   });
 
@@ -171,6 +164,15 @@ class Memory {
 /** A conversation's draft, as the box would show it. */
 class Box {
   words = new Map<string, string>();
+  synced = 0;
+  flushed = 0;
+  sync(): void {
+    this.synced += 1;
+  }
+  flush(): Promise<void> {
+    this.flushed += 1;
+    return Promise.resolve();
+  }
   held = new Map<string, readonly Picture[]>();
   read(id: string): Promise<string> {
     return Promise.resolve(this.words.get(id) ?? '');
@@ -254,7 +256,7 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     const id = first()?.id ?? '';
-    mac.answers = [() => of({ text: '', pictures: [], session: { id: 's' } })];
+    mac.answers = [() => of({ drafted: false, pictures: [], session: { id: 's' } })];
     expect((await outbox.takeBack('s', id)).kind).toBe('back');
     expect(box.words.get('s'), 'its own words: the Mac never had them').toBe('hello');
     expect(mac.withdrawals).toEqual([id]);
@@ -300,9 +302,17 @@ describe('Outbox', () => {
     expect(box.words.get('s')).toBe('rename the branch\n\nand then');
   });
 
-  it('gives back a message the Mac holds with the words the Mac returns', async () => {
-    mac.answers = [() => of({ text: '/compact', pictures: [], session: { id: 's' } })];
-    expect((await outbox.takeBack('s', 'held-1')).kind).toBe('back');
-    expect(box.words.get('s')).toBe('/compact');
+  it('leaves the words of a message the Mac had to the draft the Mac wrote', async () => {
+    // The phone's own copy too: its send arrived, the answer did not. Written
+    // here as well, the words would be in the box twice.
+    mac.answers = [offline];
+    await outbox.enqueue('s', 'hello');
+    await outbox.drain();
+    mac.answers = [() => of({ drafted: true, pictures: [], session: { id: 's' } })];
+    expect((await outbox.takeBack('s', first()?.id ?? '')).kind).toBe('back');
+    expect(box.words.get('s'), 'the Mac has put them in the draft').toBeUndefined();
+    expect(box.flushed, 'what was being written went first').toBe(1);
+    expect(box.synced, 'and the draft is fetched at once').toBe(1);
+    expect(outbox.all()).toHaveLength(0);
   });
 });

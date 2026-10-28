@@ -142,7 +142,7 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
     asked = r.request().postDataJSON() as Record<string, unknown>;
     held = false;
     return r.fulfill({
-      json: { text: '/compact', pictures: [], session: working() } satisfies Returned,
+      json: { drafted: true, pictures: [], session: working() } satisfies Returned,
     });
   });
   await page.goto(`/s/${id}`);
@@ -155,8 +155,7 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
 
   await waiting.getByRole('button', { name: 'take back' }).click();
   await expect.poll(() => asked?.['id']).toBe('h-1');
-  // Back in the box, to be sent again or not.
-  await expect(page.locator('app-composer textarea')).toHaveValue('/compact');
+  // Its words reach the box through the draft the runner wrote: `take-back.spec.ts`.
   await expect(page.locator('li.entry', { hasText: 'runs when this turn ends' })).toHaveCount(0);
 });
 

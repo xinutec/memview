@@ -2,10 +2,12 @@
 import type { Summary } from "./Summary";
 
 /**
- * A message taken back: its words, to go back into the box, and its pictures'
- * names. Empty for one that never arrived, whose words the client still has.
+ * A message taken back. Its words are in its conversation's draft already,
+ * put there once however often this is asked; `drafted` is false for one that
+ * never arrived, whose words only the client has. Pictures stay with a device,
+ * so their names come back every time.
  */
-export type Returned = { text: string, pictures: Array<string>, 
+export type Returned = { drafted: boolean, pictures: Array<string>, 
 /**
  * The session without it, so every screen asking can stop showing it at once.
  */

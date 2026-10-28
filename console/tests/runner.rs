@@ -930,6 +930,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
             stderr,
         },
         tally.clone(),
+        drafts(),
     )
     .expect("adopt");
 
@@ -1001,6 +1002,7 @@ async fn an_upgrade_keeps_a_session_that_was_working_working() {
             stderr,
         },
         carried,
+        drafts(),
     )
     .expect("adopt");
 
@@ -1061,6 +1063,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
             stderr,
         },
         tally,
+        drafts(),
     )
     .expect("adopt");
 
@@ -1171,6 +1174,7 @@ async fn an_upgrade_keeps_a_message_waiting_in_the_queue_waiting() {
             stderr,
         },
         tally,
+        drafts(),
     )
     .expect("adopt");
 
@@ -1303,6 +1307,7 @@ async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions
             stderr,
         },
         tally,
+        drafts(),
     )
     .expect("adopt");
 
@@ -1316,6 +1321,17 @@ async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions
 /// `adopt` is the only way in that hands the test both ends: the write end of
 /// stdout to speak as the CLI, and the read end of stdin to see what it is told.
 fn wired() -> (
+    Arc<console::session::Session>,
+    std::fs::File,
+    std::fs::File,
+    std::fs::File,
+) {
+    wired_to(drafts())
+}
+
+fn wired_to(
+    drafts: Arc<console::drafts::Drafts>,
+) -> (
     Arc<console::session::Session>,
     std::fs::File,
     std::fs::File,
@@ -1335,6 +1351,7 @@ fn wired() -> (
             stderr,
         },
         Default::default(),
+        drafts,
     )
     .expect("adopt");
     // SAFETY: each descriptor came from `pipe(2)` above and is given away once.
@@ -1445,13 +1462,10 @@ async fn a_held_command_can_be_taken_back() {
         "{back:?}"
     );
     assert!(held(&session).is_empty());
-    // Its words go back once: a second tap, or a second screen, is told it is gone.
+    // Asked again, as after an answer lost on the way, it is answered again.
     assert!(matches!(
         session.withdraw(&id).await.expect("withdraw"),
-        console::session::Withdrawal::Refused(console::sent::Refusal {
-            why: console::sent::Why::Withdrawn,
-            ..
-        })
+        console::session::Withdrawal::Back(Some(_))
     ));
 
     writeln!(stdout, "{ENDED}").expect("end the turn");
@@ -1464,6 +1478,109 @@ async fn a_held_command_can_be_taken_back() {
         "",
         "a command that was taken back was sent anyway"
     );
+}
+
+/// What the console's draft store holds for the session `wired` makes.
+fn drafted(drafts: &console::drafts::Drafts) -> String {
+    drafts
+        .get("not-a-session-on-disk")
+        .map(|it| it.text)
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn a_message_taken_back_goes_into_the_draft_once_however_often_it_is_asked() {
+    // The phone went offline before the answer: the Mac had taken it back and
+    // said so to nobody, and the phone's second ask was refused, the words gone.
+    use std::io::Write;
+    let drafts = drafts();
+    let (session, stdin, mut stdout, _stderr) = wired_to(Arc::clone(&drafts));
+    let id = "5b0e0d6c-7f1a-4a43-9a51-2f4f6a1c0b11";
+    let line = console::protocol::prompt("rename the branch", Some(id));
+    session
+        .offer(id, "rename the branch", Vec::new(), line)
+        .await
+        .expect("offer");
+    writeln!(
+        stdout,
+        r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"queued","session_id":"s"}}"#
+    )
+    .expect("queue it");
+    let _ = told(&stdin);
+
+    let asking = {
+        let session = Arc::clone(&session);
+        tokio::spawn(async move { session.withdraw(id).await })
+    };
+    for _ in 0..100 {
+        if told(&stdin).contains("cancel_async_message") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    writeln!(
+        stdout,
+        r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"cancelled","session_id":"s"}}"#
+    )
+    .expect("cancel it");
+    writeln!(
+        stdout,
+        r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"withdraw-{id}","response":{{"cancelled":true}}}}}}"#
+    )
+    .expect("answer");
+    let first = asking.await.expect("join").expect("withdraw");
+    assert!(
+        matches!(&first, console::session::Withdrawal::Back(Some(_))),
+        "{first:?}"
+    );
+    assert_eq!(drafted(&drafts), "rename the branch");
+
+    // The answer never reached the phone, which asks again, and again.
+    for _ in 0..2 {
+        assert!(matches!(
+            session.withdraw(id).await.expect("withdraw"),
+            console::session::Withdrawal::Back(Some(_))
+        ));
+    }
+    assert_eq!(
+        drafted(&drafts),
+        "rename the branch",
+        "its words came back twice"
+    );
+    assert!(session.summary().messages.is_empty());
+}
+
+#[tokio::test]
+async fn a_message_the_cli_cancels_by_itself_goes_back_into_the_draft() {
+    // Not seen on 2.1.289, where an interrupt leaves the queue to run; but a
+    // cancel nobody asked for must not lose the words with the message.
+    use std::io::Write;
+    let drafts = drafts();
+    let (session, _stdin, mut stdout, _stderr) = wired_to(Arc::clone(&drafts));
+    let id = "0c6f5b1e-3d2a-4e7b-8c19-6a5d4e3f2b10";
+    let line = console::protocol::prompt("and the tests", Some(id));
+    session
+        .offer(id, "and the tests", Vec::new(), line)
+        .await
+        .expect("offer");
+    writeln!(
+        stdout,
+        r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"queued","session_id":"s"}}"#
+    )
+    .expect("queue it");
+    writeln!(
+        stdout,
+        r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"cancelled","session_id":"s"}}"#
+    )
+    .expect("cancel it");
+    for _ in 0..100 {
+        if !drafted(&drafts).is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(drafted(&drafts), "and the tests");
+    assert!(session.summary().messages.is_empty());
 }
 
 #[tokio::test]
@@ -2150,4 +2267,10 @@ async fn a_session_says_what_it_can_be_told() {
         commands.commands[0].argument_hint,
         "<low|medium|high|xhigh|max|auto>"
     );
+}
+
+/// A draft store of the test's own, never the console's.
+fn drafts() -> std::sync::Arc<console::drafts::Drafts> {
+    let file = std::env::temp_dir().join(format!("console-drafts-{}.json", uuid::Uuid::new_v4()));
+    std::sync::Arc::new(console::drafts::Drafts::load(file))
 }

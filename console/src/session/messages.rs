@@ -124,12 +124,25 @@ impl Messages {
         }
     }
 
+    /// Take a message back, if it is not read or taken back already: the message,
+    /// whose words are now to be given back, once — to whoever moved it.
+    pub fn withdraw(&mut self, id: &str) -> Option<Message> {
+        let message = self.by_id.get_mut(id)?;
+        if !message.step.waiting() && message.step != Step::Dropped {
+            return None;
+        }
+        message.step = Step::Withdrawn;
+        Some(message.clone())
+    }
+
     /// The CLI's word on a message. Read stays read: a turn aborted after taking a
-    /// message in reports it cancelled, and it was seen all the same.
-    pub fn stepped(&mut self, id: &str, step: Lifecycle, now: i64) {
-        let Some(message) = self.by_id.get_mut(id) else {
-            return;
-        };
+    /// message in reports it cancelled, and it was seen all the same. A cancel,
+    /// asked for or not, takes it back — see [`Messages::withdraw`].
+    pub fn stepped(&mut self, id: &str, step: Lifecycle, now: i64) -> Option<Message> {
+        if step == Lifecycle::Cancelled {
+            return self.withdraw(id);
+        }
+        let message = self.by_id.get_mut(id)?;
         message.step = match (message.step, step) {
             (read @ Step::Read { .. }, _) => read,
             (Step::Written, Lifecycle::Queued) => Step::Queued,
@@ -137,10 +150,10 @@ impl Messages {
                 at: now,
                 echoed: false,
             },
-            (_, Lifecycle::Cancelled) => Step::Withdrawn,
             (Step::Held | Step::Written | Step::Queued, Lifecycle::Dropped) => Step::Dropped,
             (step, _) => step,
         };
+        None
     }
 
     /// The echo of a message read, by its id: true when it was echoed already —

@@ -130,8 +130,8 @@ impl Session {
         }
     }
 
-    /// Take a message back while the session has not read it, and give its words
-    /// back — once: a second request finds it already taken back.
+    /// Take a message back while the session has not read it. Its words go into
+    /// its conversation's draft, once, however often this is asked.
     pub async fn withdraw(&self, id: &str) -> Result<Withdrawal> {
         let _deciding = self.deciding.lock().await;
         let known = self.state.lock().messages.get(id).cloned();
@@ -148,12 +148,9 @@ impl Session {
         };
         match message.step {
             Step::Read { at, .. } => return Ok(Withdrawal::Refused(read_at(at))),
-            Step::Withdrawn => {
-                return Ok(Withdrawal::Refused(Refusal {
-                    why: Why::Withdrawn,
-                    at: None,
-                }));
-            }
+            // Its words went to the draft when it was taken back; asked again —
+            // the answer lost on the way, or a second tap — it is answered again.
+            Step::Withdrawn => return Ok(Withdrawal::Back(Some(message))),
             Step::Held | Step::Dropped => {}
             Step::Written | Step::Queued => {
                 // Not in the queue at that moment: read, or not yet arrived — and a
@@ -171,8 +168,16 @@ impl Session {
                 }
             }
         }
-        self.state.lock().messages.set(id, Step::Withdrawn);
+        let taken = self.state.lock().messages.withdraw(id);
+        self.give_back(taken);
         Ok(Withdrawal::Back(Some(message)))
+    }
+
+    /// The words of a message just taken back, into its conversation's draft.
+    fn give_back(&self, taken: Option<Message>) {
+        if let Some(message) = taken.filter(|it| !it.text.is_empty()) {
+            self.drafts.give_back(&self.id, &message.text, now() as u64);
+        }
     }
 
     /// Ask the CLI to take a message out of its queue: true when it was there.
@@ -206,7 +211,8 @@ impl Session {
 
     /// The CLI's word on where a message stands in its queue.
     pub(super) fn stepped(&self, id: &str, step: protocol::Lifecycle) {
-        self.state.lock().messages.stepped(id, step, now());
+        let taken = self.state.lock().messages.stepped(id, step, now());
+        self.give_back(taken);
     }
 
     /// Whether `event` is the echo of a message already echoed: the CLI echoes a

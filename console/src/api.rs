@@ -308,20 +308,22 @@ pub struct Withdrawal {
     pub id: String,
 }
 
-/// A message taken back: its words, to go back into the box, and its pictures'
-/// names. Empty for one that never arrived, whose words the client still has.
+/// A message taken back. Its words are in its conversation's draft already,
+/// put there once however often this is asked; `drafted` is false for one that
+/// never arrived, whose words only the client has. Pictures stay with a device,
+/// so their names come back every time.
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Returned {
-    pub text: String,
+    pub drafted: bool,
     pub pictures: Vec<String>,
     /// The session without it, so every screen asking can stop showing it at once.
     pub session: Summary,
 }
 
-/// Take a message back while the session has not read it. Its words come back
-/// once: a second request, from a second tap or a second device, is refused.
+/// Take a message back while the session has not read it. A session that could
+/// not be asked is unavailable, not a refusal: the client asks again.
 async fn withdraw(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -334,14 +336,14 @@ async fn withdraw(
     let withdrawn = session
         .withdraw(&body.id)
         .await
-        .map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))?;
+        .map_err(|err| Refused::Plain(StatusCode::SERVICE_UNAVAILABLE, format!("{err:#}")))?;
     match withdrawn {
         crate::session::Withdrawal::Back(message) => {
             tracing::info!("{id}: {} taken back", body.id);
-            let (text, pictures) =
-                message.map_or_else(Default::default, |it| (it.text, it.pictures));
+            let (drafted, pictures) =
+                message.map_or_else(Default::default, |it| (!it.text.is_empty(), it.pictures));
             Ok(Json(Returned {
-                text,
+                drafted,
                 pictures,
                 session: roster.summary_of(&session),
             }))

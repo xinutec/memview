@@ -83,6 +83,8 @@ pub struct Session {
     /// requests for one message — a retry overtaking the first, or two taps —
     /// cannot both find it untouched.
     deciding: tokio::sync::Mutex<()>,
+    /// Where the words of a message taken back go: its conversation's draft.
+    drafts: Arc<crate::drafts::Drafts>,
 }
 
 /// By hand: the sink is a trait object.
@@ -112,14 +114,24 @@ pub struct Spawn {
 
 impl Session {
     /// Start a session in `dir`, with `id` as both our handle and its session id.
-    pub fn start(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        Self::spawn(id, dir, spawn, false)
+    pub fn start(
+        id: String,
+        dir: &Path,
+        spawn: &Spawn,
+        drafts: Arc<crate::drafts::Drafts>,
+    ) -> Result<Arc<Self>> {
+        Self::spawn(id, dir, spawn, false, drafts)
     }
 
     /// Pick up an existing conversation by `--resume`, which refuses an unknown id
     /// rather than starting a fresh session under it.
-    pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        let session = Self::spawn(id, dir, spawn, true)?;
+    pub fn resume(
+        id: String,
+        dir: &Path,
+        spawn: &Spawn,
+        drafts: Arc<crate::drafts::Drafts>,
+    ) -> Result<Arc<Self>> {
+        let session = Self::spawn(id, dir, spawn, true, drafts)?;
         // Whatever the transcript shows running belonged to a process that is gone.
         session.seed(true);
         Ok(session)
@@ -201,7 +213,13 @@ impl Session {
         }
     }
 
-    fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
+    fn spawn(
+        id: String,
+        dir: &Path,
+        spawn: &Spawn,
+        resuming: bool,
+        drafts: Arc<crate::drafts::Drafts>,
+    ) -> Result<Arc<Self>> {
         let mut command = Command::new(&spawn.binary);
         command
             .current_dir(dir)
@@ -271,6 +289,7 @@ impl Session {
             tx,
             withdrawals: Mutex::default(),
             deciding: tokio::sync::Mutex::new(()),
+            drafts,
         });
 
         let stdout = child.stdout.take();
@@ -289,6 +308,7 @@ impl Session {
         pid: u32,
         fds: Fds,
         mut tally: Tally,
+        drafts: Arc<crate::drafts::Drafts>,
     ) -> Result<Arc<Self>> {
         let pending = std::mem::take(&mut tally.pending);
         // Put back after the seed, like `pending`.
@@ -344,6 +364,7 @@ impl Session {
             tx,
             withdrawals: Mutex::default(),
             deciding: tokio::sync::Mutex::new(()),
+            drafts,
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);

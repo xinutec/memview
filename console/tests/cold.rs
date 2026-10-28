@@ -508,6 +508,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
             counted: Default::default(),
             ..Default::default()
         },
+        drafts(),
     )
     .expect("adopt");
 
@@ -582,6 +583,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
             counted: Default::default(),
             ..Default::default()
         },
+        drafts(),
     )
     .expect("adopt");
 
@@ -636,4 +638,10 @@ fn dechunked(body: &[u8]) -> Vec<u8> {
         out.extend_from_slice(chunk);
         rest = &rest[(from + size + 2).min(rest.len())..];
     }
+}
+
+/// A draft store of the test's own, never the console's.
+fn drafts() -> std::sync::Arc<console::drafts::Drafts> {
+    let file = std::env::temp_dir().join(format!("console-drafts-{}.json", uuid::Uuid::new_v4()));
+    std::sync::Arc::new(console::drafts::Drafts::load(file))
 }

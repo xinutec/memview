@@ -43,11 +43,16 @@ fn read_stays_read_when_an_aborted_turn_reports_it_cancelled() {
 }
 
 #[test]
-fn a_cancel_takes_a_waiting_message_back() {
+fn a_cancel_takes_a_waiting_message_back_and_hands_its_words_out_once() {
+    // Asked for or not. Unasked is not seen on 2.1.289 — an interrupt leaves the
+    // queue to run — but such a cancel must still not lose the words.
     let mut messages = written();
     messages.stepped(ID, Lifecycle::Queued, 2_000);
-    messages.stepped(ID, Lifecycle::Cancelled, 3_000);
+    let back = messages.stepped(ID, Lifecycle::Cancelled, 3_000);
+    assert_eq!(back.map(|it| it.text).as_deref(), Some("rename the branch"));
     assert_eq!(step(&messages), Step::Withdrawn);
+    assert!(messages.stepped(ID, Lifecycle::Cancelled, 3_100).is_none());
+    assert!(messages.withdraw(ID).is_none(), "its words went out twice");
 }
 
 #[test]

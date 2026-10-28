@@ -70,6 +70,25 @@ async fn post(url: String, body: serde_json::Value) -> (u16, String) {
     )
 }
 
+/// The words the runner holds in this session's draft, as every device pulls them.
+async fn drafted(base: &str) -> String {
+    let (root, session) = base.split_once("/api/sessions/").expect("a session's url");
+    let pulled: serde_json::Value = reqwest::get(format!("{root}/api/sync/drafts?since=0"))
+        .await
+        .expect("pull")
+        .json()
+        .await
+        .expect("json");
+    pulled["documents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|it| it["ulid"] == session)
+        .and_then(|it| it["text"].as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -170,18 +189,20 @@ async fn a_queued_message_is_taken_back_from_the_cli_and_never_read() {
     let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
     assert_eq!(status, 200, "{body}");
     let returned: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(returned["drafted"], true, "{body}");
     assert_eq!(
-        returned["text"], "queued: rename the branch",
-        "its words come back"
+        drafted(&base).await,
+        "queued: rename the branch",
+        "its words are in the draft"
     );
     assert!(
         session.summary().messages.is_empty(),
         "every client is shown it gone"
     );
-    // Once: a second tap, or a second device, is told it is already back.
+    // Asked again, the first answer lost: answered again, the words not twice.
     let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
-    assert_eq!(status, 409);
-    assert!(body.contains("\"withdrawn\""), "{body}");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(drafted(&base).await, "queued: rename the branch");
     let (status, body) = post(format!("{base}/input"), message).await;
     assert_eq!(status, 409);
     assert!(body.contains("\"withdrawn\""), "{body}");
@@ -203,7 +224,7 @@ async fn a_take_back_that_reaches_the_cli_before_its_message_still_takes_it_back
 
     let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
     assert_eq!(status, 200, "{body}");
-    assert!(body.contains("late: rename the branch"), "{body}");
+    assert_eq!(drafted(&base).await, "late: rename the branch");
     settled().await;
     assert!(read(&session).is_empty());
 }

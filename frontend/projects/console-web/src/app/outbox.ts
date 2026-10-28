@@ -53,16 +53,16 @@ export type Verdict =
 /** What taking a message back came to. */
 export type Taken =
   /**
-   * Back: its words, its pictures' names on the Mac when it had them, and the
-   * session without it when the Mac said.
+   * Back. `drafted` when the Mac had it and put its words in the draft itself;
+   * its pictures' names on the Mac, and the session without it when the Mac said.
    */
   | {
       readonly kind: 'back';
-      readonly text: string;
+      readonly drafted: boolean;
       readonly pictures: readonly string[];
       readonly session?: Summary;
     }
-  /** Not back, and settled: read, or already taken back. Why, for the reader. */
+  /** Not back, and settled: read, or refused. Why, for the reader. */
   | { readonly kind: 'refused'; readonly why: string }
   /** No answer worth believing: the Mac may have it, so nothing is pretended. */
   | { readonly kind: 'unreachable' };
@@ -95,15 +95,12 @@ export function judged(status: number, body: unknown): Verdict {
 export function takenJudged(status: number, body: unknown, now: Date = new Date()): Taken {
   if (status >= 200 && status < 300) {
     const returned = returnedIn(body);
-    return { kind: 'back', text: returned.text, pictures: returned.pictures };
+    return { kind: 'back', drafted: returned.drafted, pictures: returned.pictures };
   }
   const refusal = refusalIn(body);
   if (status === 409 && refusal?.why === 'read') {
     const when = refusal.at === undefined ? '' : ` at ${clock(refusal.at, now)}`;
     return { kind: 'refused', why: `the session read it${when}` };
-  }
-  if (status === 409 && refusal?.why === 'withdrawn') {
-    return { kind: 'refused', why: 'it was already taken back' };
   }
   if (status >= 400 && status < 500 && typeof body === 'string' && body) {
     return { kind: 'refused', why: body };
@@ -176,11 +173,11 @@ function refusalIn(body: unknown): Refusal | undefined {
 }
 
 /** A message the Mac gave back, read field by field. */
-function returnedIn(body: unknown): { text: string; pictures: string[] } {
-  if (typeof body !== 'object' || body === null) return { text: '', pictures: [] };
+function returnedIn(body: unknown): { drafted: boolean; pictures: string[] } {
+  if (typeof body !== 'object' || body === null) return { drafted: false, pictures: [] };
   const pictures = field(body, 'pictures');
   return {
-    text: textIn(body, 'text') ?? '',
+    drafted: field(body, 'drafted') === true,
     pictures: Array.isArray(pictures)
       ? pictures.filter((it): it is string => typeof it === 'string')
       : [],
@@ -308,34 +305,42 @@ export class Outbox {
   }
 
   /**
-   * Take a message back into its conversation's box: here, when it never left
-   * the phone or was refused; from the Mac, which gives a message's words back
-   * once, when the Mac may have it — and, never having had it, remembers it as
-   * taken back, so a send still on its way is refused.
+   * Take a message back into its conversation's draft: here, when it never left
+   * the phone or was refused; else from the Mac, which puts the words of one it
+   * had into the draft itself, once however often it is asked — so an answer
+   * lost on the way loses nothing. Never having had it, the Mac remembers it as
+   * taken back, so a send still on its way is refused, and this phone gives
+   * back its own words.
    *
-   * The words go into the conversation's draft, not a page's box: on a slow link
-   * the answer can come after the page that asked is gone.
+   * The draft, not a page's box: on a slow link the answer can come after the
+   * page that asked is gone.
    */
   async takeBack(session: string, id: string): Promise<Taken> {
     await this.loaded;
     const mine = this.find(id);
     const taken =
       mine && (!mine.tried || mine.refused !== undefined)
-        ? { kind: 'back' as const, text: '', pictures: [] }
+        ? { kind: 'back' as const, drafted: false, pictures: [] }
         : await this.withdraw(session, id);
     if (taken.kind === 'unreachable') return taken;
     if (taken.kind === 'back') {
-      // This phone's own words and pictures when it has them; else the Mac's.
+      // This phone's own pictures when it has them; else the Mac's.
       const pictures = mine?.pictures ?? (await this.fetched(session, taken.pictures));
-      await this.giveBack(session, mine?.text ?? taken.text, pictures);
+      await this.giveBack(session, taken.drafted ? '' : (mine?.text ?? ''), pictures);
+      if (taken.drafted) this.drafts.sync();
     }
     // Back, read, or taken back elsewhere: either way no longer this phone's to send.
     if (mine) await this.drop(id);
     return taken;
   }
 
-  /** Take back a message the Mac has, and get its words back. */
+  /**
+   * Take back a message the Mac may have. What is being written goes first: the
+   * Mac puts the words before the draft it holds, and one it has not been sent
+   * yet would run into them.
+   */
   private async withdraw(session: string, id: string): Promise<Taken> {
+    await this.drafts.flush();
     let returned: Returned | undefined;
     const { status, body } = await answered(
       firstValueFrom(this.api.withdraw(session, id)).then((answer) => (returned = answer)),
@@ -350,8 +355,10 @@ export class Outbox {
     text: string,
     pictures: readonly Picture[],
   ): Promise<void> {
-    const there = (await this.drafts.read(session)).trim();
-    await this.drafts.write(session, there ? `${text}\n\n${there}` : text);
+    if (text) {
+      const there = (await this.drafts.read(session)).trim();
+      await this.drafts.write(session, there ? `${text}\n\n${there}` : text);
+    }
     if (pictures.length) {
       const held = await firstValueFrom(this.drafts.pictures$(session));
       await this.drafts.hold(session, [...pictures, ...held].slice(0, MOST));

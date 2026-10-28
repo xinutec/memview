@@ -37,7 +37,7 @@ export const CONVERSATIONS = [
  * conversation there as a disposable probe and does not list it either. So it is
  * a real directory inside the workspace's gitignored `target/`.
  */
-function where(): string {
+export function where(): string {
   const dir = join(repo(), 'target', 'sync-fixture', 'demo');
   mkdirSync(dir, { recursive: true });
   return dir;

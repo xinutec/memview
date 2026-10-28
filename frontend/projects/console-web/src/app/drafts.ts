@@ -175,6 +175,15 @@ export class Drafts {
     void this.exchange();
   }
 
+  /**
+   * Send what has changed here now, and take what the runner has: after the
+   * round in flight, which may have started before the latest edit.
+   */
+  async flush(): Promise<void> {
+    await this.sending;
+    await this.exchange();
+  }
+
   /** Send what has changed here, shortly — see [SEND_AFTER_MS]. */
   private push(): void {
     if (this.soon !== undefined) return;

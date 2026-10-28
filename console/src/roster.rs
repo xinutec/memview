@@ -228,6 +228,7 @@ impl Roster {
                 one.pid,
                 one.fds,
                 tally,
+                self.drafts(),
             ) {
                 Ok(session) => {
                     tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
@@ -288,7 +289,7 @@ impl Roster {
         tracing::info!("starting {id} in {}", real.display());
         let session = self.hold(
             id.clone(),
-            Session::start(id.clone(), &real, &self.config.spawn),
+            Session::start(id.clone(), &real, &self.config.spawn, self.drafts()),
         )?;
         // From the first spawn, so any later resume keeps the mode.
         if let Some(mode) = session.mode() {
@@ -355,7 +356,7 @@ impl Roster {
         );
         let session = self.hold(
             id.to_string(),
-            Session::resume(id.to_string(), &real, &spawn),
+            Session::resume(id.to_string(), &real, &spawn, self.drafts()),
         )?;
         // Remembered from the first resume on.
         if let Some(mode) = session.mode() {

@@ -545,7 +545,7 @@ pub enum Lifecycle {
     Started,
     Completed,
     /// Taken out of the queue before a turn took it in, or by a cancel waiting
-    /// for it; or swept with an aborted turn.
+    /// for it. An interrupt does not: what waits runs next (measured, 2.1.289).
     Cancelled,
     /// Discarded with the session, or refused before it was queued.
     Dropped,

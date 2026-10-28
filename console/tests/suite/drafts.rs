@@ -343,3 +343,26 @@ fn an_update_from_the_browser_merges_into_one_the_runner_holds() {
         "the browser's words went: {held:?}"
     );
 }
+
+/// A message taken back goes into its conversation's draft on the runner, before
+/// what is being written, so every device gets it and none can lose it.
+#[test]
+fn words_given_back_go_before_what_is_being_written() {
+    let dir = scratch("given-back");
+    let drafts = store(&dir);
+    drafts.give_back("s1", "rename the branch", 1000);
+    assert_eq!(words(&drafts, "s1"), "rename the branch");
+
+    let phone = typed("and then");
+    drafts.merge("s2", &phone, 1000).unwrap();
+    drafts.give_back("s2", "rename the branch", 2000);
+    assert_eq!(words(&drafts, "s2"), "rename the branch\n\nand then");
+    // A device still typing, not yet having pulled, keeps the words given back.
+    drafts.merge("s2", &phone, 2001).unwrap();
+    assert_eq!(words(&drafts, "s2"), "rename the branch\n\nand then");
+    assert_eq!(drafts.get("s2").map(|d| d.at), Some(2000));
+    assert!(
+        drafts.pull(0).documents.iter().any(|d| d.ulid == "s2"),
+        "devices are not told"
+    );
+}

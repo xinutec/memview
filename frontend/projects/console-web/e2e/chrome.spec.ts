@@ -1077,7 +1077,9 @@ test('a word longer than the screen wraps inside the box rather than widening it
 
 /**
  * A Mac that takes each message it is sent into the session's summary, as the
- * real one does (`Summary.messages`), and gives one back once when asked.
+ * real one does (`Summary.messages`). Taking back a message it holds puts the
+ * words in the draft on the runner, so that is tested against the real one in
+ * `take-back.spec.ts`; here only a session that read it first.
  */
 async function mac(
   page: Page,
@@ -1106,13 +1108,8 @@ async function mac(
     if (!message || readFirst) {
       return r.fulfill({ status: 409, json: { why: 'read', at: Date.now() } satisfies Refusal });
     }
-    if (withdrawn.includes(id)) {
-      return r.fulfill({ status: 409, json: { why: 'withdrawn' } satisfies Refusal });
-    }
     withdrawn.push(id);
-    return r.fulfill({
-      json: { text: message.text, pictures: [], session: summary() } satisfies Returned,
-    });
+    return r.fulfill({ status: 501, body: 'see take-back.spec.ts' });
   });
   return { sent, withdrawn };
 }
@@ -1142,23 +1139,6 @@ test('a message written offline waits in the conversation and goes, once, when b
   expect(sent).toHaveLength(1);
   expect(sent[0]?.text).toBe('check the build when you can');
   expect(sent[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
-});
-
-test('a message not yet read is taken back into the box @ phone width', async ({ page }) => {
-  await mockRunner(page);
-  await mac(page);
-  await page.goto(`/s/${RUNNING.id}`);
-  const box = page.locator('app-composer textarea');
-  await box.fill('rename the branch');
-  await page.getByRole('button', { name: 'send' }).click();
-  const mine = page.locator('li.entry', { hasText: 'rename the branch' });
-  await expect(mine).toContainText('waiting to be read');
-  await box.fill('and then');
-
-  await mine.getByRole('button', { name: 'take back' }).click();
-  // Its words first, what was being written after: nothing typed is lost.
-  await expect(box).toHaveValue('rename the branch\n\nand then');
-  await expect(mine).toHaveCount(0);
 });
 
 test('a message never sent is taken back on the phone alone @ phone width', async ({
@@ -1218,24 +1198,6 @@ test('a refused message stops its session until taken back @ phone width', async
   await expect(box).toHaveValue('one more thing');
 });
 
-test('a message tapped three times is taken back once @ phone width', async ({ page }) => {
-  // Three taps, 60 ms apart on the phone, all reached the Mac before the first
-  // answer. The Mac gives a message's words back once, and the button waits.
-  await mockRunner(page);
-  const { withdrawn } = await mac(page);
-  await page.goto(`/s/${RUNNING.id}`);
-  const box = page.locator('app-composer textarea');
-  await box.fill('rename the branch');
-  await page.getByRole('button', { name: 'send' }).click();
-  const mine = page.locator('li.entry', { hasText: 'rename the branch' });
-  await expect(mine).toContainText('waiting to be read');
-
-  await mine.getByRole('button', { name: 'take back' }).click({ clickCount: 3 });
-  await expect(box).toHaveValue('rename the branch');
-  await expect(mine).toHaveCount(0);
-  expect(withdrawn).toHaveLength(1);
-});
-
 test('a message taken back while its send is still on its way comes back whole @ phone width', async ({
   page,
 }) => {
@@ -1250,7 +1212,7 @@ test('a message taken back while its send is still on its way comes back whole @
     await r.fulfill({ status: 409, json: { why: 'withdrawn' } satisfies Refusal });
   });
   await page.route('**/api/sessions/*/withdraw', (r) =>
-    r.fulfill({ json: { text: '', pictures: [], session: RUNNING } satisfies Returned }),
+    r.fulfill({ json: { drafted: false, pictures: [], session: RUNNING } satisfies Returned }),
   );
   await page.goto(`/s/${RUNNING.id}`);
   const box = page.locator('app-composer textarea');
@@ -1279,7 +1241,9 @@ test('a message taken back comes back to the box though the page was left meanwh
   );
   await page.route('**/api/sessions/*/withdraw', async (r) => {
     await late;
-    await r.fulfill({ json: { text: '', pictures: [], session: RUNNING } satisfies Returned });
+    await r.fulfill({
+      json: { drafted: false, pictures: [], session: RUNNING } satisfies Returned,
+    });
   });
   await page.goto(`/s/${RUNNING.id}`);
   const box = page.locator('app-composer textarea');

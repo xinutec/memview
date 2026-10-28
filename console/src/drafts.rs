@@ -116,6 +116,25 @@ fn reads_as(doc: &yrs::Doc) -> String {
     text.get_string(&txn)
 }
 
+/// Hold `doc` as `id`'s draft, at the next store-wide revision: the pull cursor
+/// is one number across all drafts. Only a changed text moves the draft's date.
+fn keep(held: &mut BTreeMap<String, Held>, id: &str, doc: &yrs::Doc, at: u64) -> Held {
+    let text = reads_as(doc);
+    let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
+    let at = match held.get(id) {
+        Some(was) if was.text == text => was.at,
+        _ => at,
+    };
+    let one = Held {
+        state: encoded(doc),
+        text,
+        rev,
+        at,
+    };
+    held.insert(id.to_string(), one.clone());
+    one
+}
+
 /// A document's whole state, which is what both disk and the wire carry.
 fn encoded(doc: &yrs::Doc) -> Vec<u8> {
     doc.transact()
@@ -205,25 +224,38 @@ impl Drafts {
                 None => yrs::Doc::new(),
             };
             doc.transact_mut().apply_update(update).ok()?;
-            let text = reads_as(&doc);
-            // Store-wide: the pull cursor is one number across all drafts.
-            let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
-            // Only a changed text moves the draft's date.
-            let at = match held.get(id) {
-                Some(was) if was.text == text => was.at,
-                _ => at,
-            };
-            let one = Held {
-                state: encoded(&doc),
-                text,
-                rev,
-                at,
-            };
-            held.insert(id.to_string(), one.clone());
+            let one = keep(&mut held, id, &doc, at);
             (one, held.clone())
         };
         self.write(&all);
         Some(one.seen())
+    }
+
+    /// Put the words of a message taken back before what is being written, here
+    /// rather than on a device: every device pulls them, and an answer lost on
+    /// the way to the phone cannot lose them.
+    pub fn give_back(&self, id: &str, text: &str, at: u64) {
+        let all = {
+            let mut held = self.held.write();
+            let doc = held
+                .get(id)
+                .and_then(|mine| decoded(&mine.state))
+                .unwrap_or_default();
+            let shared = doc.get_or_insert_text(TEXT);
+            {
+                let mut txn = doc.transact_mut();
+                let there = shared.get_string(&txn);
+                let words = if there.trim().is_empty() {
+                    text.to_string()
+                } else {
+                    format!("{text}\n\n")
+                };
+                shared.insert(&mut txn, 0, &words);
+            }
+            keep(&mut held, id, &doc, at);
+            held.clone()
+        };
+        self.write(&all);
     }
 
     /// Drop the drafts of conversations no longer on disk; an empty `alive` drops nothing.
