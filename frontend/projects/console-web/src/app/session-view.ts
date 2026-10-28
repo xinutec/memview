@@ -138,7 +138,12 @@ export class SessionView implements OnDestroy {
     const said = this.conversation().filter(
       (entry) => !(entry.kind === 'asked' && entry.id !== undefined && ours.has(entry.id)),
     );
-    return [...said, ...holding, ...sending];
+    const taking = this.taking();
+    return [...said, ...holding, ...sending].map((entry) =>
+      entry.kind === 'asked' && taking.has(entry.id ?? entry.text)
+        ? { ...entry, taking: true }
+        : entry,
+    );
   });
 
   /** The conversation as the session's events tell it. */
@@ -217,6 +222,8 @@ export class SessionView implements OnDestroy {
   readonly trouble = signal('');
   /** For how long each waiting message has waited, redrawn each minute. */
   readonly minute = signal(Date.now());
+  /** Messages being taken back, by id (or words, for a command held without one). */
+  private readonly taking = signal<ReadonlySet<string>>(new Set());
   readonly pictureTrouble = signal('');
   private readonly stored = toSignal(
     toObservable(this.id).pipe(switchMap((id) => this.drafts.text$(id))),
@@ -478,6 +485,23 @@ export class SessionView implements OnDestroy {
    * the CLI. Refused, and said why, once the session has read it.
    */
   async takeBack(entry: Asked): Promise<void> {
+    // One at a time per message: taps arrive faster than the Mac answers, and each
+    // answer would put the words in the box again.
+    const key = entry.id ?? entry.text;
+    if (this.taking().has(key)) return;
+    this.taking.update((taking) => new Set(taking).add(key));
+    try {
+      await this.takeOne(entry);
+    } finally {
+      this.taking.update((taking) => {
+        const left = new Set(taking);
+        left.delete(key);
+        return left;
+      });
+    }
+  }
+
+  private async takeOne(entry: Asked): Promise<void> {
     const mine = entry.id === undefined ? undefined : this.outbox.find(entry.id);
     let taken: Taken;
     if (mine) {

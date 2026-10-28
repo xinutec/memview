@@ -99,7 +99,13 @@
     <!-- Until the session reads it: its words go back into the box, to be sent
          again or not. See `outbox.ts`. -->
     @if (entry.waiting || (entry.queued && entry.id)) {
-      <button matButton class="take-back" type="button" (click)="takeBack.emit(entry)">
+      <button
+        matButton
+        class="take-back"
+        type="button"
+        [disabled]="entry.taking"
+        (click)="takeBack.emit(entry)"
+      >
         <mat-icon>undo</mat-icon>
         take back
       </button>

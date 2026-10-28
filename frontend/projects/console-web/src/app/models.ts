@@ -144,6 +144,8 @@ export interface Asked extends Stamped {
    * turn's end. How it stands, for the line under it — see [[Outbox]].
    */
   waiting?: Standing;
+  /** Being taken back: the button waits for the Mac's answer. */
+  taking?: boolean;
 }
 
 /** One message with pictures, each by the name the runner kept it under, and its words. */

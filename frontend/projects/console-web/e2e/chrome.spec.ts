@@ -1196,3 +1196,27 @@ test('a message stuck waiting to be read is cleared by taking it back @ phone wi
     .click();
   await expect(page.locator('li.entry', { hasText: 'waiting to be read' })).toHaveCount(0);
 });
+
+test('a message tapped three times is taken back once @ phone width', async ({ page }) => {
+  // Three taps, 60 ms apart on the phone, all reached the Mac before the first
+  // answer: each was answered "back", and the words went into the box three times.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
+  let asked = 0;
+  await page.route('**/api/sessions/*/withdraw', async (r) => {
+    asked += 1;
+    await new Promise((done) => setTimeout(done, 300));
+    await r.fulfill({ json: RUNNING });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('rename the branch');
+  await page.getByRole('button', { name: 'send' }).click();
+  const mine = page.locator('li.entry', { hasText: 'rename the branch' });
+  await expect(mine).toContainText('waiting to be read');
+
+  await mine.getByRole('button', { name: 'take back' }).click({ clickCount: 3 });
+  await expect(box).toHaveValue('rename the branch');
+  await expect(mine).toHaveCount(0);
+  expect(asked).toBe(1);
+});
