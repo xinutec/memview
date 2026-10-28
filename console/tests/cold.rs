@@ -646,3 +646,66 @@ fn drafts() -> std::sync::Arc<console::drafts::Drafts> {
     let file = std::env::temp_dir().join(format!("console-drafts-{}.json", uuid::Uuid::new_v4()));
     std::sync::Arc::new(console::drafts::Drafts::load(file))
 }
+
+#[tokio::test]
+async fn a_background_task_the_transcript_shows_ended_is_not_carried_back() {
+    // Ended two seconds before an upgrade, and the old image had not yet acted on
+    // the notice: it carried the task as running, and putting the carried list
+    // back over the seed kept it "running" for ever. The transcript has the
+    // notice, in the shape the CLI recorded it in health's (2.1.289).
+    let scratch = projects();
+    let id = "a-session-whose-task-ended-before-the-upgrade";
+    let folder = scratch.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let notice = "<task-notification>\n<task-id>bq1abc</task-id>\n<tool-use-id>toolu_long_runner</tool-use-id>\n<output-file>/tmp/bq1abc.output</output-file>\n<status>completed</status>\n<summary>Background command \"rebuild and profile\" completed (exit code 0)</summary>\n</task-notification>";
+    let lines = [
+        r#"{"type":"user","timestamp":"2026-10-28T15:54:00Z","message":{"role":"user","content":[{"type":"text","text":"rebuild it"}]}}"#.to_string(),
+        serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-10-28T16:08:40.483Z",
+            "message": {"role": "user", "content": notice},
+        })
+        .to_string(),
+    ];
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        format!("{}\n", lines.join("\n")),
+    )
+    .expect("transcript");
+
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        id.to_string(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        console::session::Tally {
+            started: 1_754_000_000,
+            background: [(
+                "toolu_long_runner".to_string(),
+                console::protocol::Called {
+                    tool: "Bash".into(),
+                    label: Some("rebuild and profile".into()),
+                    task: Some("bq1abc".into()),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        },
+        drafts(),
+    )
+    .expect("adopt");
+
+    assert_eq!(
+        session.summary().background,
+        0,
+        "a task the transcript shows ended was carried back as running"
+    );
+}

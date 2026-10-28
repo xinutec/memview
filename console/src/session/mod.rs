@@ -372,7 +372,15 @@ impl Session {
         for (id, question) in pending {
             session.push(question.ask(id));
         }
-        // After the seed, whose `Joined` clears the count — wrong for an adoption.
+        // After the seed, whose `Joined` clears the count — wrong for an adoption —
+        // less what the transcript shows ended: a task can end in the moments
+        // before an upgrade, its notice recorded and not yet acted on.
+        let mut background = background;
+        for event in session.history() {
+            if let protocol::Running::Ended(named) = protocol::running(&event) {
+                state::forget(&mut background, &named);
+            }
+        }
         if !background.is_empty() {
             tracing::info!(
                 "{}: {} background task(s) carried across the upgrade",
