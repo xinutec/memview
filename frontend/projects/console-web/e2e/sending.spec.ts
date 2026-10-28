@@ -21,8 +21,14 @@ test.afterAll(() => runner?.stop());
 
 const devices: BrowserContext[] = [];
 
+// Requests held by a route are let go first: one still in flight when its page
+// closes fails, and is counted against the test.
 test.afterEach(async () => {
-  await Promise.all(devices.splice(0, devices.length).map((context) => context.close()));
+  const closing = devices.splice(0, devices.length);
+  for (const page of closing.flatMap((context) => context.pages())) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+  await Promise.all(closing.map((context) => context.close()));
 });
 
 /** Pick up a fixture conversation, so it has a process to take messages. */
