@@ -3,11 +3,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
 import { ConsoleApi } from './console-api';
+import { Drafts } from './drafts';
 import { Local } from './local';
 import type { Refusal } from './generated/Refusal';
 import type { Returned } from './generated/Returned';
 import type { Summary } from './generated/Summary';
-import type { Picture } from './picture';
+import { MOST, type Picture } from './picture';
 
 /**
  * Messages written on this phone that the Mac does not have yet: sent from here
@@ -249,6 +250,7 @@ const RETRY_MS = 15_000;
 export class Outbox {
   private api = inject(ConsoleApi);
   private store = inject(Local);
+  private drafts = inject(Drafts);
 
   private readonly held = signal<readonly Outgoing[]>([]);
   /** Every message the Mac does not have yet, oldest first. */
@@ -306,34 +308,76 @@ export class Outbox {
   }
 
   /**
-   * Take a message of this phone's back: here, when it never left or was refused;
-   * from the Mac when it may have it — which, never having had it, remembers it as
+   * Take a message back into its conversation's box: here, when it never left
+   * the phone or was refused; from the Mac, which gives a message's words back
+   * once, when the Mac may have it — and, never having had it, remembers it as
    * taken back, so a send still on its way is refused.
+   *
+   * The words go into the conversation's draft, not a page's box: on a slow link
+   * the answer can come after the page that asked is gone.
    */
-  async takeBack(id: string): Promise<Taken> {
+  async takeBack(session: string, id: string): Promise<Taken> {
     await this.loaded;
-    const message = this.find(id);
-    if (!message) return { kind: 'refused', why: 'it is no longer waiting' };
-    if (message.tried && message.refused === undefined) {
-      const taken = await this.withdraw(message.session, id);
-      if (taken.kind === 'unreachable') return taken;
-      // Read, or already taken back elsewhere: the Mac had it, so it is not ours now.
-      await this.drop(id);
-      // This phone's own words, pictures and all: it still has them.
-      return taken.kind === 'back' ? { ...taken, text: message.text, pictures: [] } : taken;
+    const mine = this.find(id);
+    const taken =
+      mine && (!mine.tried || mine.refused !== undefined)
+        ? { kind: 'back' as const, text: '', pictures: [] }
+        : await this.withdraw(session, id);
+    if (taken.kind === 'unreachable') return taken;
+    if (taken.kind === 'back') {
+      // This phone's own words and pictures when it has them; else the Mac's.
+      const pictures = mine?.pictures ?? (await this.fetched(session, taken.pictures));
+      await this.giveBack(session, mine?.text ?? taken.text, pictures);
     }
-    await this.drop(id);
-    return { kind: 'back', text: message.text, pictures: [] };
+    // Back, read, or taken back elsewhere: either way no longer this phone's to send.
+    if (mine) await this.drop(id);
+    return taken;
   }
 
   /** Take back a message the Mac has, and get its words back. */
-  async withdraw(session: string, id: string): Promise<Taken> {
+  private async withdraw(session: string, id: string): Promise<Taken> {
     let returned: Returned | undefined;
     const { status, body } = await answered(
       firstValueFrom(this.api.withdraw(session, id)).then((answer) => (returned = answer)),
     );
     const taken = takenJudged(status, body);
     return taken.kind === 'back' && returned ? { ...taken, session: returned.session } : taken;
+  }
+
+  /** Words and pictures into a conversation's box, before what is already there. */
+  private async giveBack(
+    session: string,
+    text: string,
+    pictures: readonly Picture[],
+  ): Promise<void> {
+    const there = (await this.drafts.read(session)).trim();
+    await this.drafts.write(session, there ? `${text}\n\n${there}` : text);
+    if (pictures.length) {
+      const held = await firstValueFrom(this.drafts.pictures$(session));
+      await this.drafts.hold(session, [...pictures, ...held].slice(0, MOST));
+    }
+  }
+
+  /** Pictures the Mac kept, fetched back to go into the box again. */
+  private async fetched(session: string, names: readonly string[]): Promise<Picture[]> {
+    const back: Picture[] = [];
+    for (const name of names) {
+      try {
+        const blob = await (await fetch(this.api.pictureAt(session, name))).blob();
+        const data = await new Promise<string>((done, fail) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            done(typeof reader.result === 'string' ? (reader.result.split(',')[1] ?? '') : '');
+          reader.onerror = () => fail(reader.error ?? new Error('unreadable'));
+          reader.readAsDataURL(blob);
+        });
+        const preview = `data:${blob.type};base64,${data}`;
+        back.push({ data, mediaType: blob.type, width: 0, height: 0, bytes: blob.size, preview });
+      } catch {
+        // One the Mac no longer has stays out; the words still come back.
+      }
+    }
+    return back;
   }
 
   /**

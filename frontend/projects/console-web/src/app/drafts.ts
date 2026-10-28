@@ -121,6 +121,11 @@ export class Drafts {
     });
   }
 
+  /** The words this conversation is holding now. */
+  async read(id: string): Promise<string> {
+    return (await this.open(id)).text.toJSON();
+  }
+
   /** Put `text` in the box, as a diff against what is there — see [[difference]]. */
   async write(id: string, text: string): Promise<void> {
     const kept = await this.open(id);

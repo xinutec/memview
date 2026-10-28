@@ -1,9 +1,11 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { type Observable, of, throwError } from 'rxjs';
+import type { Picture } from './picture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConsoleApi } from './console-api';
+import { Drafts } from './drafts';
 import { Local } from './local';
 import {
   Outbox,
@@ -166,16 +168,39 @@ class Memory {
   }
 }
 
+/** A conversation's draft, as the box would show it. */
+class Box {
+  words = new Map<string, string>();
+  held = new Map<string, readonly Picture[]>();
+  read(id: string): Promise<string> {
+    return Promise.resolve(this.words.get(id) ?? '');
+  }
+  write(id: string, text: string): Promise<void> {
+    this.words.set(id, text);
+    return Promise.resolve();
+  }
+  hold(id: string, pictures: readonly Picture[]): Promise<void> {
+    this.held.set(id, pictures);
+    return Promise.resolve();
+  }
+  pictures$(id: string): Observable<readonly Picture[]> {
+    return of(this.held.get(id) ?? []);
+  }
+}
+
 describe('Outbox', () => {
   let mac: Mac;
+  let box: Box;
   let outbox: Outbox;
 
   beforeEach(() => {
     mac = new Mac();
+    box = new Box();
     TestBed.configureTestingModule({
       providers: [
         { provide: ConsoleApi, useValue: mac },
         { provide: Local, useValue: new Memory() },
+        { provide: Drafts, useValue: box },
       ],
     });
     outbox = TestBed.inject(Outbox);
@@ -217,11 +242,8 @@ describe('Outbox', () => {
   it('takes back a message that never left the phone without asking anyone', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     await outbox.enqueue('s', 'hello');
-    expect(await outbox.takeBack(first()?.id ?? '')).toEqual({
-      kind: 'back',
-      text: 'hello',
-      pictures: [],
-    });
+    expect((await outbox.takeBack('s', first()?.id ?? '')).kind).toBe('back');
+    expect(box.words.get('s')).toBe('hello');
     expect(mac.withdrawals).toHaveLength(0);
   });
 
@@ -233,7 +255,8 @@ describe('Outbox', () => {
     await outbox.drain();
     const id = first()?.id ?? '';
     mac.answers = [() => of({ text: '', pictures: [], session: { id: 's' } })];
-    expect(await outbox.takeBack(id)).toMatchObject({ kind: 'back', text: 'hello', pictures: [] });
+    expect((await outbox.takeBack('s', id)).kind).toBe('back');
+    expect(box.words.get('s'), 'its own words: the Mac never had them').toBe('hello');
     expect(mac.withdrawals).toEqual([id]);
     expect(outbox.all()).toHaveLength(0);
   });
@@ -243,9 +266,10 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     mac.answers = [refused({ why: 'read', at: NOON.getTime() })];
-    const taken = await outbox.takeBack(first()?.id ?? '');
+    const taken = await outbox.takeBack('s', first()?.id ?? '');
     expect(taken.kind).toBe('refused');
     expect(outbox.all()).toHaveLength(0);
+    expect(box.words.get('s'), 'read: nothing comes back').toBeUndefined();
   });
 
   it('does not pretend to take back a message it cannot ask about', async () => {
@@ -253,7 +277,7 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     mac.answers = [offline];
-    expect(await outbox.takeBack(first()?.id ?? '')).toEqual({ kind: 'unreachable' });
+    expect(await outbox.takeBack('s', first()?.id ?? '')).toEqual({ kind: 'unreachable' });
     expect(outbox.all()).toHaveLength(1);
   });
 
@@ -264,7 +288,21 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     expect(first()?.refused).toBe('no session s');
-    expect((await outbox.takeBack(first()?.id ?? '')).kind).toBe('back');
+    expect((await outbox.takeBack('s', first()?.id ?? '')).kind).toBe('back');
     expect(mac.withdrawals).toHaveLength(0);
+  });
+
+  it('puts the words before what is already being written', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await outbox.enqueue('s', 'rename the branch');
+    box.words.set('s', 'and then');
+    await outbox.takeBack('s', first()?.id ?? '');
+    expect(box.words.get('s')).toBe('rename the branch\n\nand then');
+  });
+
+  it('gives back a message the Mac holds with the words the Mac returns', async () => {
+    mac.answers = [() => of({ text: '/compact', pictures: [], session: { id: 's' } })];
+    expect((await outbox.takeBack('s', 'held-1')).kind).toBe('back');
+    expect(box.words.get('s')).toBe('/compact');
   });
 });

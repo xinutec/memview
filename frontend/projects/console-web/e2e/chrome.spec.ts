@@ -17,6 +17,7 @@ import {
   mockRunner,
   openTools,
   test,
+  tinyPng,
   withWakeLock,
   type Commands,
   type Conversation,
@@ -1233,4 +1234,88 @@ test('a message tapped three times is taken back once @ phone width', async ({ p
   await expect(box).toHaveValue('rename the branch');
   await expect(mine).toHaveCount(0);
   expect(withdrawn).toHaveLength(1);
+});
+
+test('a message taken back while its send is still on its way comes back whole @ phone width', async ({
+  page,
+}) => {
+  // The send was slow, the take-back overtook it: the Mac, never having had the
+  // message, remembers it as taken back and has no words to give — the phone
+  // must give back its own, and the late send is refused.
+  await mockRunner(page);
+  let release = (): void => undefined;
+  const late = new Promise<void>((done) => (release = done));
+  await page.route('**/api/sessions/*/input', async (r) => {
+    await late;
+    await r.fulfill({ status: 409, json: { why: 'withdrawn' } satisfies Refusal });
+  });
+  await page.route('**/api/sessions/*/withdraw', (r) =>
+    r.fulfill({ json: { text: '', pictures: [], session: RUNNING } satisfies Returned }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('take me back');
+  await page.getByRole('button', { name: 'send' }).click();
+  const mine = page.locator('li.entry', { hasText: 'take me back' });
+  await expect(mine).toContainText('sent, no answer yet');
+
+  await mine.getByRole('button', { name: 'take back' }).click();
+  await expect(box).toHaveValue('take me back');
+  release();
+  await page.waitForTimeout(500);
+  await expect(box).toHaveValue('take me back');
+});
+
+test('a message taken back comes back to the box though the page was left meanwhile @ phone width', async ({
+  page,
+}) => {
+  // On a slow link the answer came after the conversation was left and opened
+  // again; the words went into a box that no longer existed, and were lost.
+  await mockRunner(page);
+  let release = (): void => undefined;
+  const late = new Promise<void>((done) => (release = done));
+  await page.route('**/api/sessions/*/input', (r) =>
+    r.fulfill({ status: 503, body: 'the link dropped' }),
+  );
+  await page.route('**/api/sessions/*/withdraw', async (r) => {
+    await late;
+    await r.fulfill({ json: { text: '', pictures: [], session: RUNNING } satisfies Returned });
+  });
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('take me back');
+  await page.getByRole('button', { name: 'send' }).click();
+  const mine = page.locator('li.entry', { hasText: 'take me back' });
+  await expect(mine).toContainText('sent, no answer yet');
+  await mine.getByRole('button', { name: 'take back' }).click();
+
+  await page.locator('[aria-label="all sessions"]').click();
+  release();
+  await page
+    .locator('.session', { hasText: RUNNING.name ?? '' })
+    .first()
+    .click();
+  await expect(page.locator('app-composer textarea')).toHaveValue('take me back');
+});
+
+test('a picture taken back goes back into the box with its words @ phone width', async ({
+  page,
+  context,
+}) => {
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  await context.setOffline(true);
+  await page.locator('.picker').setInputFiles(tinyPng());
+  await page.locator('.chosen').waitFor();
+  const box = page.locator('app-composer textarea');
+  await box.fill('look at this');
+  await page.getByRole('button', { name: 'send', exact: true }).click();
+  await expect(page.locator('.chosen')).toHaveCount(0);
+
+  await page
+    .locator('li.entry', { hasText: 'look at this' })
+    .getByRole('button', { name: 'take back' })
+    .click();
+  await expect(box).toHaveValue('look at this');
+  await expect(page.locator('.chosen .tile')).toHaveCount(1);
 });

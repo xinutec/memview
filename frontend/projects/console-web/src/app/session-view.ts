@@ -529,23 +529,13 @@ export class SessionView implements OnDestroy {
 
   private async takeOne(entry: Asked): Promise<void> {
     if (entry.id === undefined) return;
-    const mine = this.outbox.find(entry.id);
-    const taken = mine
-      ? await this.outbox.takeBack(mine.id)
-      : await this.outbox.withdraw(this.id(), entry.id);
+    // The outbox puts the words in this conversation's draft, which the box shows.
+    const taken = await this.outbox.takeBack(this.id(), entry.id);
     switch (taken.kind) {
-      case 'back': {
+      case 'back':
         if (taken.session?.id === this.id()) this.session.set(taken.session);
-        const words = mine?.text ?? taken.text;
-        const current = this.text().trim();
-        this.text.set(current ? `${words}\n\n${current}` : words);
-        const pictures = mine?.pictures ?? (await this.fetched(taken.pictures));
-        if (pictures.length) {
-          await this.drafts.hold(this.id(), [...pictures, ...this.chosen()].slice(0, MOST));
-        }
         this.trouble.set('');
         break;
-      }
       case 'refused':
         this.briefly(`Not taken back: ${taken.why}.`);
         break;
@@ -555,28 +545,6 @@ export class SessionView implements OnDestroy {
         );
         break;
     }
-  }
-
-  /** Pictures the Mac kept, fetched back to go into the box again. */
-  private async fetched(names: readonly string[]): Promise<Picture[]> {
-    const back: Picture[] = [];
-    for (const name of names) {
-      try {
-        const blob = await (await fetch(this.api.pictureAt(this.id(), name))).blob();
-        const data = await new Promise<string>((done, fail) => {
-          const reader = new FileReader();
-          reader.onload = () =>
-            done(typeof reader.result === 'string' ? (reader.result.split(',')[1] ?? '') : '');
-          reader.onerror = () => fail(reader.error ?? new Error('unreadable'));
-          reader.readAsDataURL(blob);
-        });
-        const preview = `data:${blob.type};base64,${data}`;
-        back.push({ data, mediaType: blob.type, width: 0, height: 0, bytes: blob.size, preview });
-      } catch {
-        // One the Mac no longer has stays out; the words still come back.
-      }
-    }
-    return back;
   }
 
   /**
