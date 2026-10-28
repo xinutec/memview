@@ -42,7 +42,6 @@ pub fn router(roster: Arc<Roster>) -> Router {
         )
         .route("/api/sessions/{id}/images/{name}", get(picture))
         .route("/api/picture", get(elsewhere))
-        .route("/api/sessions/{id}/unhold", post(unhold))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/rename", post(rename))
@@ -254,84 +253,24 @@ impl IntoResponse for Refused {
     }
 }
 
-/// Where the message `id` stands in `session`: asked of the session, then of its
-/// transcript for one an earlier process wrote.
-fn whereabouts(session: &crate::session::Session, id: &str) -> crate::sent::Where {
-    match session.whereabouts(id) {
-        crate::sent::Where::Nowhere => {
-            crate::past::transcript_of(&crate::past::projects_root(), &session.id)
-                .and_then(|transcript| crate::sent::recorded_at(&transcript, id))
-                .map_or(crate::sent::Where::Nowhere, |at| {
-                    crate::sent::Where::Delivered { at }
-                })
-        }
-        there => there,
-    }
-}
-
-/// Take the message `id` back, if the session has not read it: from this
-/// console's hold, from the CLI's queue, or — never having arrived — by
-/// remembering it as taken back.
-async fn take_back(
-    roster: &Roster,
-    session: &crate::session::Session,
-    id: &str,
-) -> Result<(), Refused> {
-    use crate::sent::{Fate, Refusal, Why, Withdraw, withdrawing};
-    match withdrawing(roster.sent().fate(id), whereabouts(session, id)) {
-        Withdraw::Done => return Ok(()),
-        Withdraw::Forget => {}
-        Withdraw::TakeBack => {
-            session.take_back(id);
-        }
-        Withdraw::AskCli => {
-            let taken = session
-                .withdraw_queued(id)
-                .await
-                .map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))?;
-            if !taken {
-                // A turn took it in first; its echo says when.
-                return Err(Refused::Message(Refusal {
-                    why: Why::Read,
-                    at: None,
-                }));
-            }
-        }
-        Withdraw::Refuse(refusal) => return Err(Refused::Message(refusal)),
-    }
-    roster
-        .sent()
-        .record(id, &session.id, Fate::Withdrawn, crate::session::now());
-    Ok(())
-}
-
-/// Settle a message sent under `id`: the hold to write it under, or `None` when
-/// it is already on its way or there.
-async fn settle<'a>(
-    roster: &'a Roster,
-    session: &crate::session::Session,
-    id: &str,
-) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>, Refused> {
-    use crate::sent::{Send, sending};
-    if !crate::sent::valid(id) {
-        return Err(Refused::Plain(
+/// A message id given by a client, checked: the CLI takes only a uuid.
+fn checked(id: &str) -> Result<(), Refused> {
+    if crate::sent::valid(id) {
+        Ok(())
+    } else {
+        Err(Refused::Plain(
             StatusCode::BAD_REQUEST,
             format!("{id:?} is not a message id: one is a uuid"),
-        ));
+        ))
     }
-    let deciding = roster.sent().deciding().await;
-    match sending(roster.sent().fate(id), whereabouts(session, id)) {
-        Send::AlreadyHave => Ok(None),
-        Send::Refuse(refusal) => Err(Refused::Message(refusal)),
-        Send::Write => {
-            roster.sent().record(
-                id,
-                &session.id,
-                crate::sent::Fate::Written,
-                crate::session::now(),
-            );
-            Ok(Some(deciding))
-        }
+}
+
+/// A message offered, as an answer: written or already there is a 200; one
+/// taken back is refused, so a late copy does not land.
+fn offered(result: anyhow::Result<crate::session::Offered>) -> Result<(), Refused> {
+    match result.map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))? {
+        crate::session::Offered::Wrote | crate::session::Offered::Already => Ok(()),
+        crate::session::Offered::Refused(refusal) => Err(Refused::Message(refusal)),
     }
 }
 
@@ -343,26 +282,21 @@ async fn input(
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    let deciding = match &body.id {
-        Some(message) => match settle(&roster, &session, message).await? {
-            Some(deciding) => Some(deciding),
-            None => {
-                tracing::info!("{id}: {message} is already on its way, not sent again");
-                return Ok(Json(roster.summary_of(&session)));
-            }
-        },
-        None => None,
+    let message = match body.id {
+        Some(message) => {
+            checked(&message)?;
+            message
+        }
+        // A client before ids: the message gets one here.
+        None => uuid::Uuid::new_v4().to_string(),
     };
     // A receipt — a doubled message leaves no other trace. The length, not the words.
     tracing::info!(
-        "{id}: accepted {} characters to send",
+        "{id}: offered {} characters as {message}",
         body.text.chars().count()
     );
-    session
-        .send_with(&body.text, body.id.as_deref())
-        .await
-        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    drop(deciding);
+    let line = crate::protocol::prompt(&body.text, Some(&message));
+    offered(session.offer(&message, &body.text, Vec::new(), line).await)?;
     Ok(Json(roster.summary_of(&session)))
 }
 
@@ -374,26 +308,46 @@ pub struct Withdrawal {
     pub id: String,
 }
 
-/// Take a message back while the session has not read it, so its words can be
-/// rewritten: refused once it has, with when, rather than pretending.
+/// A message taken back: its words, to go back into the box, and its pictures'
+/// names. Empty for one that never arrived, whose words the client still has.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Returned {
+    pub text: String,
+    pub pictures: Vec<String>,
+    /// The session without it, so every screen asking can stop showing it at once.
+    pub session: Summary,
+}
+
+/// Take a message back while the session has not read it. Its words come back
+/// once: a second request, from a second tap or a second device, is refused.
 async fn withdraw(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
     Json(body): Json<Withdrawal>,
-) -> Result<Json<Summary>, Refused> {
+) -> Result<Json<Returned>, Refused> {
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    if !crate::sent::valid(&body.id) {
-        return Err(Refused::Plain(
-            StatusCode::BAD_REQUEST,
-            format!("{:?} is not a message id: one is a uuid", body.id),
-        ));
+    checked(&body.id)?;
+    let withdrawn = session
+        .withdraw(&body.id)
+        .await
+        .map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))?;
+    match withdrawn {
+        crate::session::Withdrawal::Back(message) => {
+            tracing::info!("{id}: {} taken back", body.id);
+            let (text, pictures) =
+                message.map_or_else(Default::default, |it| (it.text, it.pictures));
+            Ok(Json(Returned {
+                text,
+                pictures,
+                session: roster.summary_of(&session),
+            }))
+        }
+        crate::session::Withdrawal::Refused(refusal) => Err(Refused::Message(refusal)),
     }
-    let _deciding = roster.sent().deciding().await;
-    take_back(&roster, &session, &body.id).await?;
-    tracing::info!("{id}: {} taken back", body.id);
-    Ok(Json(roster.summary_of(&session)))
 }
 
 /// How far a client has already pulled.
@@ -530,14 +484,22 @@ async fn show(
             ),
         ));
     }
-    // Before the pictures are kept: a retry keeps nothing twice.
-    let deciding = match &body.id {
-        Some(message) => match settle(&roster, &session, message).await? {
-            Some(deciding) => Some(deciding),
-            None => return Ok(Json(roster.summary_of(&session))),
-        },
-        None => None,
+    let message = match &body.id {
+        Some(message) => {
+            checked(message)?;
+            message.clone()
+        }
+        None => uuid::Uuid::new_v4().to_string(),
     };
+    // Before the pictures are kept: a retry keeps nothing twice.
+    if session.knows(&message) {
+        offered(
+            session
+                .offer(&message, &body.text, Vec::new(), String::new())
+                .await,
+        )?;
+        return Ok(Json(roster.summary_of(&session)));
+    }
     // UTC: `now_local` is refused in a threaded program here.
     let stamp = time::OffsetDateTime::now_utc()
         .format(&time::macros::format_description!(
@@ -580,11 +542,13 @@ async fn show(
             kept: &held.path,
         })
         .collect::<Vec<_>>();
-    session
-        .show(&body.text, &pictures, body.id.as_deref())
-        .await
-        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    drop(deciding);
+    let line = crate::protocol::prompt_with_images(&body.text, &pictures, Some(&message));
+    let names = kept
+        .iter()
+        .filter_map(|held| held.path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect();
+    offered(session.offer(&message, &body.text, names, line).await)?;
     Ok(Json(roster.summary_of(&session)))
 }
 
@@ -688,27 +652,6 @@ async fn rename(
         .rename(title)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
-    Ok(Json(roster.summary_of(&session)))
-}
-
-/// Take back a command held for the turn's end; one already released is not an error.
-async fn unhold(
-    State(roster): State<Arc<Roster>>,
-    Path(id): Path<String>,
-    Json(body): Json<Message>,
-) -> Result<Json<Summary>, (StatusCode, String)> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
-    let dropped = session.forget_held(&body.text);
-    tracing::info!(
-        "{id}: {} a held command",
-        if dropped {
-            "took back"
-        } else {
-            "was not holding"
-        }
-    );
     Ok(Json(roster.summary_of(&session)))
 }
 

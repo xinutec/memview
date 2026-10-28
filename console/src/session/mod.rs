@@ -24,16 +24,19 @@ use tokio::sync::{broadcast, oneshot};
 use crate::protocol::{self, Event};
 
 mod input;
+mod messages;
 mod process;
 mod state;
 mod summary;
 mod view;
 
+pub use input::{Offered, Withdrawal};
+pub use messages::{Message, Messages, Stands, Step, Waiting};
 pub use process::{Fds, children_started, finish, keepable, names_session};
 pub use state::{
     Backlog, Pending, Stamped, deaf_after, leaves_a_decision, resumable, taken_up, working_after,
 };
-pub use summary::{Heard, HeldCommand, ResetsAt, Seen, Summary, Tally};
+pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
 
 use process::reap_adopted;
 use state::{State, deaf_for, forget};
@@ -76,6 +79,10 @@ pub struct Session {
     /// Withdrawals asked of the CLI and not yet answered, by request id —
     /// [`Session::withdraw_queued`].
     withdrawals: Mutex<std::collections::BTreeMap<String, oneshot::Sender<bool>>>,
+    /// Held across deciding what to do with a message and doing it, so two
+    /// requests for one message — a retry overtaking the first, or two taps —
+    /// cannot both find it untouched.
+    deciding: tokio::sync::Mutex<()>,
 }
 
 /// By hand: the sink is a trait object.
@@ -263,6 +270,7 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
+            deciding: tokio::sync::Mutex::new(()),
         });
 
         let stdout = child.stdout.take();
@@ -326,10 +334,7 @@ impl Session {
                 counted: tally.counted,
                 // Still in flight; its next status or `Turn` corrects it.
                 busy: tally.busy,
-                unread: tally.unread.into(),
-                held: tally.held.into(),
-                steps: tally.steps,
-                echoed: tally.echoed,
+                messages: tally.messages,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -338,6 +343,7 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
+            deciding: tokio::sync::Mutex::new(()),
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);
@@ -408,7 +414,7 @@ impl Session {
                             continue;
                         }
                         protocol::Output::Lifecycle(id, step) => {
-                            session.stepped(id, step);
+                            session.stepped(&id, step);
                             continue;
                         }
                         protocol::Output::Events(events) => events,
@@ -466,23 +472,14 @@ impl Session {
 
     /// Record that the process is gone, once: reader and reaper can both notice.
     fn ended(&self, code: Option<i32>) {
-        let dropped: Vec<String> = {
+        {
             let mut state = self.state.lock();
             if !state.alive {
                 return;
             }
             state.alive = false;
             // Whatever is still waiting will never be read: no process is left to.
-            let unread = std::mem::take(&mut state.unread)
-                .into_iter()
-                .filter_map(|it| it.id);
-            let held = std::mem::take(&mut state.held)
-                .into_iter()
-                .filter_map(|it| it.id);
-            unread.chain(held).collect()
-        };
-        for id in dropped {
-            self.push(Event::Dropped { id });
+            state.messages.drop_waiting();
         }
         self.push(Event::Exited { code });
     }
@@ -611,7 +608,7 @@ impl Session {
             return None;
         }
         state.announced_deaf = true;
-        let unread = state.unread.len();
+        let unread = state.messages.unread().len();
         drop(state);
         self.push(Event::Deaf { unread, seconds });
         Some((seconds, unread))

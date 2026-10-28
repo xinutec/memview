@@ -13,10 +13,12 @@ import type {
   LoginCode,
   LoginResult,
   LoginStarted,
+  Message,
   Overview,
   Page as Earlier,
   Parsed,
   Refusal,
+  Returned,
   Run,
   SudoAnswer,
   Summary,
@@ -304,7 +306,7 @@ export const RUNNING: Summary = {
   running: [],
   waiting: 1,
   unread: 0,
-  held: [],
+  messages: [],
   asked:
     'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin, then run the golden set and report which journeys moved.',
 };
@@ -323,7 +325,7 @@ export const ENDED: Summary = {
   running: [],
   waiting: 0,
   unread: 0,
-  held: [],
+  messages: [],
   asked: 'check the corpus',
 };
 
@@ -1608,10 +1610,12 @@ export type {
   LoginCode,
   LoginResult,
   LoginStarted,
+  Message,
   Overview,
   Earlier,
   Parsed,
   Refusal,
+  Returned,
   Run,
   SudoAnswer,
   Summary,

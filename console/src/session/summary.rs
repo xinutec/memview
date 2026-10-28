@@ -42,19 +42,12 @@ pub struct Tally {
     /// re-read gigabytes. See [`crate::past::counted`].
     #[serde(default)]
     pub counted: crate::past::Counted,
-    /// Messages handed to the CLI and not yet read, commands held for the turn's
-    /// end, each message's step through the CLI's queue, and the ids it has echoed:
-    /// none written anywhere, and all a withdrawal decides by. Carried, or an
-    /// upgrade would forget a message still waiting and give its words back while
-    /// the CLI still means to read it.
+    /// Every message handed over and where it stands — none of it written
+    /// anywhere, and all a withdrawal decides by. Carried, or an upgrade would
+    /// forget a message still queued and give its words back while the CLI still
+    /// means to read it.
     #[serde(default)]
-    pub unread: Vec<super::state::Unread>,
-    #[serde(default)]
-    pub held: Vec<super::state::Held>,
-    #[serde(default)]
-    pub steps: BTreeMap<String, (crate::protocol::Lifecycle, i64)>,
-    #[serde(default)]
-    pub echoed: BTreeMap<String, i64>,
+    pub messages: super::messages::Messages,
 }
 
 /// When a rate-limit window turns over, in epoch seconds — not [`Heard`]'s clock
@@ -177,20 +170,11 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub signed_out: Option<u64>,
-    /// Slash commands waiting for the turn to end, oldest first, word for word.
+    /// Messages not yet read — held for the turn's end, or waiting in the queue —
+    /// and those its process ended without reading, oldest first. See
+    /// [`super::messages`].
     #[serde(default)]
-    pub held: Vec<HeldCommand>,
-}
-
-/// A slash command waiting for the turn to end, with the client's id for it.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
-pub struct HeldCommand {
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub id: Option<String>,
+    pub messages: Vec<super::messages::Waiting>,
 }
 
 /// Nothing to report, for a count left off the wire when it is zero.

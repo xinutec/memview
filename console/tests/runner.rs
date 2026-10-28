@@ -49,7 +49,6 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
-        sent: dir.join("sent.json"),
         tunnel: None,
     }))
 }
@@ -457,7 +456,6 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
         gists: root.join("gists.json"),
         modes: root.join("modes.json"),
         drafts: root.join("drafts.json"),
-        sent: root.join("sent.json"),
         tunnel: None,
     };
     assert!(
@@ -1147,17 +1145,19 @@ async fn an_upgrade_keeps_a_message_waiting_in_the_queue_waiting() {
     // that never arrived: taken back, its words came back while the CLI still
     // meant to read it, and sent again it reached the session twice.
     let id = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
-    let tally: console::session::Tally = serde_json::from_value(serde_json::json!({
-        "started": 1_754_000_000,
-        "model": null,
-        "cost_usd": 0.0,
-        "window": null,
-        "limit": null,
-        "mode": null,
-        "unread": [{"text": "rename the branch", "at": 1_754_000_100_000_i64, "id": id}],
-        "steps": {"f755ed6d-912f-4f4f-99aa-6cd37466b2f0": ["started", 1_754_000_050_000_i64]}
-    }))
-    .expect("a tally");
+    let mut messages = console::session::Messages::default();
+    messages.add(
+        id,
+        "rename the branch",
+        Vec::new(),
+        console::session::Step::Queued,
+        1_754_000_100_000,
+    );
+    let tally = console::session::Tally {
+        started: 1_754_000_000,
+        messages,
+        ..Default::default()
+    };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();
     let (stderr, _stderr_write) = carried_pipe();
@@ -1174,15 +1174,11 @@ async fn an_upgrade_keeps_a_message_waiting_in_the_queue_waiting() {
     )
     .expect("adopt");
 
-    assert_eq!(session.whereabouts(id), console::sent::Where::Unread);
-    assert!(matches!(
-        session.whereabouts("f755ed6d-912f-4f4f-99aa-6cd37466b2f0"),
-        console::sent::Where::Delivered { .. }
-    ));
-    let carried = session.tally();
-    assert_eq!(
-        carried.unread.len(),
-        1,
+    let waiting = session.summary().messages;
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].stands, console::session::Stands::Unread);
+    assert!(
+        session.tally().messages.get(id).is_some(),
         "and the next upgrade carries it on"
     );
 }
@@ -1194,9 +1190,8 @@ async fn a_message_still_waiting_when_the_process_dies_is_dropped() {
     let dir = std::env::temp_dir();
     let roster = roster(&dir);
     let session = roster.start(&dir.display().to_string()).expect("start");
-    let id = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
     session
-        .send_with("queued: rename the branch", Some(id))
+        .send("queued: rename the branch")
         .await
         .expect("send");
     session.force();
@@ -1206,12 +1201,20 @@ async fn a_message_still_waiting_when_the_process_dies_is_dropped() {
             .any(|event| matches!(event, Event::Exited { .. }))
     })
     .await;
-    assert!(
-        session
-            .history()
-            .iter()
-            .any(|event| matches!(event, Event::Dropped { id: dropped } if dropped == id))
-    );
+    let waiting = session.summary().messages;
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].stands, console::session::Stands::Dropped);
+}
+
+/// The commands a session holds for its turn's end, word for word.
+fn held(session: &console::session::Session) -> Vec<String> {
+    session
+        .summary()
+        .messages
+        .into_iter()
+        .filter(|message| message.stands == console::session::Stands::Held)
+        .map(|message| message.text)
+        .collect()
 }
 
 #[tokio::test]
@@ -1394,12 +1397,7 @@ async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose()
         "the command went to the CLI mid-turn, which hands it to the model as words"
     );
     assert_eq!(
-        session
-            .summary()
-            .held
-            .into_iter()
-            .map(|held| held.text)
-            .collect::<Vec<_>>(),
+        held(&session),
         ["/compact"],
         "nothing on screen would say the command is waiting"
     );
@@ -1423,7 +1421,7 @@ async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose()
         "the command never went at all, which is worse than sending it early"
     );
     assert!(
-        session.summary().held.is_empty(),
+        held(&session).is_empty(),
         "the chip would still be on screen over a command that has run"
     );
 }
@@ -1440,11 +1438,21 @@ async fn a_held_command_can_be_taken_back() {
     session.send("/compact").await.expect("send");
     let _ = told(&stdin);
 
-    assert!(session.forget_held("/compact"), "it was not holding it");
-    assert!(session.summary().held.is_empty());
-    // Not an error the second time: two screens can be looking at one session,
-    // and the turn can end between the chip being drawn and the tap on it.
-    assert!(!session.forget_held("/compact"));
+    let id = session.summary().messages[0].id.clone();
+    let back = session.withdraw(&id).await.expect("withdraw");
+    assert!(
+        matches!(&back, console::session::Withdrawal::Back(Some(message)) if message.text == "/compact"),
+        "{back:?}"
+    );
+    assert!(held(&session).is_empty());
+    // Its words go back once: a second tap, or a second screen, is told it is gone.
+    assert!(matches!(
+        session.withdraw(&id).await.expect("withdraw"),
+        console::session::Withdrawal::Refused(console::sent::Refusal {
+            why: console::sent::Why::Withdrawn,
+            ..
+        })
+    ));
 
     writeln!(stdout, "{ENDED}").expect("end the turn");
     until(&session, |seen| {
@@ -1470,7 +1478,7 @@ async fn a_command_is_not_held_by_a_session_that_is_not_working() {
         told(&stdin).contains("/compact"),
         "an idle session's command was held instead of run"
     );
-    assert!(session.summary().held.is_empty());
+    assert!(held(&session).is_empty());
 }
 
 /// When the console is prepared to say a session has stopped listening.
@@ -1680,8 +1688,12 @@ async fn a_message_stops_being_in_flight_when_the_session_reads_it_back() {
 
     session.send("do the thing").await.expect("send");
     assert_eq!(
-        session.unread(),
-        vec!["do the thing".to_string()],
+        session
+            .unread()
+            .into_iter()
+            .map(|(_, message)| message.text)
+            .collect::<Vec<_>>(),
+        ["do the thing"],
         "in flight the moment it is written"
     );
     until(&session, |seen| {

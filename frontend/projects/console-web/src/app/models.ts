@@ -19,7 +19,9 @@ export type { Conversation } from './generated/Conversation';
 export type { CorpusRead } from './generated/CorpusRead';
 export type { Decision } from './generated/Decision';
 export type { Withdrawal } from './generated/Withdrawal';
-export type { HeldCommand } from './generated/HeldCommand';
+export type { Waiting } from './generated/Waiting';
+export type { Stands } from './generated/Stands';
+export type { Returned } from './generated/Returned';
 export type { Refusal } from './generated/Refusal';
 export type { SudoAnswer } from './generated/SudoAnswer';
 export type { LoginCode } from './generated/LoginCode';
@@ -76,9 +78,6 @@ export type Kind = Event['kind'];
 export const KINDS = [
   'joined',
   'started',
-  'accepted',
-  'withdrawn',
-  'dropped',
   'prompt',
   'command',
   'shown',
@@ -132,13 +131,12 @@ export interface Said extends Stamped {
   text: string;
 }
 
-/** Something the person said or ran. `queued` until the runner reads it. */
+/** Something the person said or ran. */
 export interface Asked extends Stamped {
   kind: 'asked';
   text: string;
   /** The id its client gave it, by which it is taken back while not yet read. */
   id?: string;
-  queued?: boolean;
   /**
    * Not yet read and not yet in the conversation: this phone's, or held for the
    * turn's end. How it stands, for the line under it — see [[Outbox]].

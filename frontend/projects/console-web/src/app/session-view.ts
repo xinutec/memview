@@ -35,6 +35,7 @@ import { modelName } from './model';
 import { titleOf } from './naming';
 import {
   type Asked,
+  type Stands,
   type Change,
   type Commands,
   type Entry,
@@ -47,7 +48,7 @@ import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
 import { MOST, type Picture, looking, pointedAt, shrink } from './picture';
-import { Outbox, type Taken, behindRefused, standing } from './outbox';
+import { Outbox, type Standing, age, behindRefused, standing } from './outbox';
 import { Roster } from './roster';
 import { SignInSheet } from './signin-sheet';
 import { Held, SessionStore } from './session-store';
@@ -60,6 +61,24 @@ import { Updates } from './updates';
 /** One conversation: its transcript, what it is doing, and the box to reply in. */
 /** How long news, as against a fault, stays on the notice bar. */
 const BRIEFLY_MS = 6_000;
+
+/** How a message the Mac holds stands, for the line under it. */
+function stands(how: Stands, deaf: boolean, waited: string): Standing {
+  switch (how) {
+    case 'held':
+      return { line: 'runs when this turn ends', icon: 'hourglass_top' };
+    case 'unread':
+      return deaf
+        ? {
+            line: 'not read — the session has stopped listening',
+            icon: 'hearing_disabled',
+            alert: true,
+          }
+        : { line: `waiting to be read${waited}`, icon: 'schedule' };
+    case 'dropped':
+      return { line: 'not read — the session ended', icon: 'error', alert: true };
+  }
+}
 
 /** How many pictures a waiting message carries, in words. */
 function pictures(count: number): string {
@@ -112,11 +131,25 @@ export class SessionView implements OnDestroy {
    */
   readonly entries = computed<Entry[]>(() => {
     const mine = this.outbox.all().filter((it) => it.session === this.id());
-    const ours = new Set(mine.map((it) => it.id));
     const now = this.minute();
-    const held = this.session()?.held ?? [];
-    const heldBy = new Set(held.map((command) => command.id));
-    const HELD = { line: 'runs when this turn ends', icon: 'hourglass_top' };
+    const session = this.session();
+    // Read since the summary was drawn: the conversation has it now.
+    const read = new Set(
+      this.conversation().flatMap((entry) =>
+        entry.kind === 'asked' && entry.id !== undefined ? [entry.id] : [],
+      ),
+    );
+    const theirs = (session?.messages ?? [])
+      .filter((message) => !read.has(message.id))
+      .map((message): Asked => ({
+        kind: 'asked',
+        text: message.pictures?.length
+          ? `${message.text}${message.text ? ' · ' : ''}${pictures(message.pictures.length)}`
+          : message.text,
+        at: message.at,
+        id: message.id,
+        waiting: stands(message.stands, !!session?.deaf, age(now - message.at)),
+      }));
     const sending = mine.map((it): Asked => ({
       kind: 'asked',
       text: it.pictures?.length
@@ -124,22 +157,11 @@ export class SessionView implements OnDestroy {
         : it.text,
       at: it.created,
       id: it.id,
-      // Held by the Mac for the turn's end: when it will run is the news.
-      waiting: heldBy.has(it.id) ? HELD : standing(it, now, behindRefused(mine, it)),
+      waiting: standing(it, now, behindRefused(mine, it)),
     }));
-    const holding = held
-      .filter((command) => command.id === undefined || !ours.has(command.id))
-      .map((command): Asked => ({
-        kind: 'asked',
-        text: command.text,
-        id: command.id,
-        waiting: HELD,
-      }));
-    const said = this.conversation().filter(
-      (entry) => !(entry.kind === 'asked' && entry.id !== undefined && ours.has(entry.id)),
-    );
+    const said = this.conversation();
     const taking = this.taking();
-    return [...said, ...holding, ...sending].map((entry) =>
+    return [...said, ...theirs, ...sending].map((entry) =>
       entry.kind === 'asked' && taking.has(entry.id ?? entry.text)
         ? { ...entry, taking: true }
         : entry,
@@ -234,7 +256,6 @@ export class SessionView implements OnDestroy {
     { initialValue: [] },
   );
   readonly reviving = signal(false);
-  readonly unholding = signal<string | undefined>(undefined);
   readonly loading = signal(false);
   protected readonly full = signal<string | undefined>(undefined);
   protected readonly folding = new Folding();
@@ -250,6 +271,11 @@ export class SessionView implements OnDestroy {
   private was = 0;
 
   constructor() {
+    // The Mac's answer to a send shows the message it just took, before the next poll.
+    effect(() => {
+      const answered = this.outbox.answered();
+      if (answered?.id === this.id()) this.session.set(answered);
+    });
     const ticking = setInterval(() => this.minute.set(Date.now()), 60_000);
     this.until.onDestroy(() => clearInterval(ticking));
     // Its name, else where it runs, quieter: the same rule titles the list's cards.
@@ -502,39 +528,26 @@ export class SessionView implements OnDestroy {
   }
 
   private async takeOne(entry: Asked): Promise<void> {
-    const mine = entry.id === undefined ? undefined : this.outbox.find(entry.id);
-    let taken: Taken;
-    if (mine) {
-      taken = await this.outbox.takeBack(mine.id);
-    } else if (entry.id !== undefined) {
-      taken = await this.outbox.withdraw(this.id(), entry.id);
-    } else {
-      // A command held without an id, from a client before ids.
-      this.unhold(entry.text);
-      taken = { kind: 'back' };
-    }
+    if (entry.id === undefined) return;
+    const mine = this.outbox.find(entry.id);
+    const taken = mine
+      ? await this.outbox.takeBack(mine.id)
+      : await this.outbox.withdraw(this.id(), entry.id);
     switch (taken.kind) {
       case 'back': {
-        const words = mine?.text ?? entry.text;
+        if (taken.session?.id === this.id()) this.session.set(taken.session);
+        const words = mine?.text ?? taken.text;
         const current = this.text().trim();
         this.text.set(current ? `${words}\n\n${current}` : words);
-        const pictures = (mine?.pictures ?? []).map((it) => ({
-          ...it,
-          preview: `data:${it.mediaType};base64,${it.data}`,
-        }));
+        const pictures = mine?.pictures ?? (await this.fetched(taken.pictures));
         if (pictures.length) {
           await this.drafts.hold(this.id(), [...pictures, ...this.chosen()].slice(0, MOST));
         }
         this.trouble.set('');
         break;
       }
-      case 'read':
-        // It is history now, and the conversation shows it.
-        if (mine) this.outbox.done(mine.id);
-        this.briefly(`Not taken back: ${taken.note}.`);
-        break;
-      case 'unsettled':
-        this.briefly(`Not taken back: ${taken.note}.`);
+      case 'refused':
+        this.briefly(`Not taken back: ${taken.why}.`);
         break;
       case 'unreachable':
         this.briefly(
@@ -542,6 +555,28 @@ export class SessionView implements OnDestroy {
         );
         break;
     }
+  }
+
+  /** Pictures the Mac kept, fetched back to go into the box again. */
+  private async fetched(names: readonly string[]): Promise<Picture[]> {
+    const back: Picture[] = [];
+    for (const name of names) {
+      try {
+        const blob = await (await fetch(this.api.pictureAt(this.id(), name))).blob();
+        const data = await new Promise<string>((done, fail) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            done(typeof reader.result === 'string' ? (reader.result.split(',')[1] ?? '') : '');
+          reader.onerror = () => fail(reader.error ?? new Error('unreadable'));
+          reader.readAsDataURL(blob);
+        });
+        const preview = `data:${blob.type};base64,${data}`;
+        back.push({ data, mediaType: blob.type, width: 0, height: 0, bytes: blob.size, preview });
+      } catch {
+        // One the Mac no longer has stays out; the words still come back.
+      }
+    }
+    return back;
   }
 
   /**
@@ -574,20 +609,6 @@ export class SessionView implements OnDestroy {
         this.reviving.set(false);
         this.trouble.set(reason(err));
         this.telemetry.note('revive-refused', reason(err));
-      },
-    });
-  }
-
-  unhold(command: string): void {
-    this.unholding.set(command);
-    this.api.unhold(this.id(), command).subscribe({
-      next: (summary) => {
-        this.unholding.set(undefined);
-        this.session.set(summary);
-      },
-      error: (err: unknown) => {
-        this.unholding.set(undefined);
-        this.trouble.set(reason(err));
       },
     });
   }

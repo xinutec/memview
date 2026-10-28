@@ -18,7 +18,7 @@ const BARE: Summary = {
   working: false,
   background: 0,
   running: [],
-  held: [],
+  messages: [],
 };
 
 const labels = (session: Summary): string[] => factsOf(session).map((fact) => fact.label);

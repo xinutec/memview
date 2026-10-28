@@ -46,8 +46,6 @@ pub struct Roster {
     login: crate::login::Login,
     /// The phone's way in, when the gate is on — [`crate::tunnel`].
     tunnel: Option<Arc<crate::tunnel::Tunnel>>,
-    /// What became of each message a client gave an id — [`crate::sent`].
-    sent: crate::sent::Sent,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -84,7 +82,6 @@ impl Roster {
         let drafts = Arc::new(crate::drafts::Drafts::load(config.drafts.clone()));
         let modes = Arc::new(crate::modes::Modes::load(config.modes.clone()));
         let tunnel = config.tunnel.clone().map(crate::tunnel::Tunnel::new);
-        let sent = crate::sent::Sent::load(config.sent.clone());
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
@@ -99,13 +96,7 @@ impl Roster {
             sudo: crate::sudo::Waiting::default(),
             login: crate::login::Login::default(),
             tunnel,
-            sent,
         }
-    }
-
-    /// What became of each message a client gave an id.
-    pub fn sent(&self) -> &crate::sent::Sent {
-        &self.sent
     }
 
     /// Bring the way in up, or take over the one an upgrade handed on.
@@ -403,8 +394,13 @@ impl Roster {
             ));
         }
         let fresh = self.resume_as(&dir, id, mode)?;
-        for text in unread {
-            if let Err(why) = fresh.send(&text).await {
+        // Under the same ids: one the old process did read is ignored by the CLI.
+        for (message, unread) in unread {
+            let line = crate::protocol::prompt(&unread.text, Some(&message));
+            if let Err(why) = fresh
+                .offer(&message, &unread.text, unread.pictures, line)
+                .await
+            {
                 tracing::warn!("could not re-send a message to the revived {id}: {why:#}");
             }
         }

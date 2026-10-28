@@ -82,23 +82,11 @@
         <mat-icon>{{ standing.icon }}</mat-icon>
         {{ standing.line }}
       </span>
-    } @else if (entry.queued) {
-      @if (deaf()) {
-        <span class="queued unheard">
-          <mat-icon>hearing_disabled</mat-icon>
-          not read — the session has stopped listening
-        </span>
-      } @else {
-        <span class="queued">
-          <mat-icon>schedule</mat-icon>
-          waiting to be read — the session is mid-turn
-        </span>
-      }
     }
     <div class="body" [innerHTML]="entry.text | rendered"></div>
     <!-- Until the session reads it: its words go back into the box, to be sent
          again or not. See `outbox.ts`. -->
-    @if (entry.waiting || (entry.queued && entry.id)) {
+    @if (entry.waiting) {
       <button
         matButton
         class="take-back"

@@ -35,7 +35,6 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
-        sent: dir.join("sent.json"),
         tunnel: None,
     }))
 }
@@ -127,14 +126,18 @@ async fn a_retry_after_a_lost_receipt_reaches_the_session_once() {
         vec![("hello".to_string(), Some(m42.clone()))]
     );
     assert_eq!(turns(&session), 1, "answered once");
-    // And written once: the CLI would ignore a second copy, but this side never
-    // relies on that for an id it already knows.
-    let written = session
-        .history()
-        .iter()
-        .filter(|event| matches!(event, Event::Accepted { id: Some(id), .. } if *id == m42))
-        .count();
-    assert_eq!(written, 1);
+    // And not written again: the CLI would ignore a second copy, but this side
+    // never relies on that for an id it already knows.
+    let again = session
+        .offer(
+            &m42,
+            "hello",
+            Vec::new(),
+            console::protocol::prompt("hello", Some(&m42)),
+        )
+        .await
+        .expect("offer");
+    assert_eq!(again, console::session::Offered::Already);
 }
 
 #[tokio::test]
@@ -166,13 +169,19 @@ async fn a_queued_message_is_taken_back_from_the_cli_and_never_read() {
 
     let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
     assert_eq!(status, 200, "{body}");
-    assert!(
-        session
-            .history()
-            .iter()
-            .any(|event| matches!(event, Event::Withdrawn { id } if *id == m42)),
-        "every client is told it is gone"
+    let returned: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(
+        returned["text"], "queued: rename the branch",
+        "its words come back"
     );
+    assert!(
+        session.summary().messages.is_empty(),
+        "every client is shown it gone"
+    );
+    // Once: a second tap, or a second device, is told it is already back.
+    let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
+    assert_eq!(status, 409);
+    assert!(body.contains("\"withdrawn\""), "{body}");
     let (status, body) = post(format!("{base}/input"), message).await;
     assert_eq!(status, 409);
     assert!(body.contains("\"withdrawn\""), "{body}");
@@ -194,12 +203,7 @@ async fn a_take_back_that_reaches_the_cli_before_its_message_still_takes_it_back
 
     let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
     assert_eq!(status, 200, "{body}");
-    assert!(
-        session
-            .history()
-            .iter()
-            .any(|event| matches!(event, Event::Withdrawn { id } if *id == m42))
-    );
+    assert!(body.contains("late: rename the branch"), "{body}");
     settled().await;
     assert!(read(&session).is_empty());
 }

@@ -61,27 +61,6 @@ pub enum Event {
         cwd: String,
         tools: usize,
     },
-    /// A message written to stdin, not yet read: the runner has it. [`Event::Prompt`]
-    /// says the session read it, which mid-turn can be minutes later.
-    Accepted {
-        text: String,
-        /// The message's own id when a client gave it one: how a retry is told from
-        /// a second message. See [`crate::sent`].
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        id: Option<String>,
-    },
-    /// A message taken back before the session read it, by its id: it was never
-    /// said. See [`crate::sent`].
-    Withdrawn {
-        id: String,
-    },
-    /// A message the session will never read, by its id: the process ended with it
-    /// still waiting. A stop lets the CLI read its queue first; a kill or a crash
-    /// does not.
-    Dropped {
-        id: String,
-    },
     /// The prompt, echoed back: the session has read it.
     Prompt {
         text: String,

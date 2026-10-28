@@ -29,6 +29,7 @@ import {
   type SudoAnswer,
   type Task,
   type Timed,
+  type Returned,
   type Withdrawal,
 } from './models';
 import { type Known } from './modes';
@@ -134,8 +135,10 @@ export class ConsoleApi {
   }
 
   /** Take a message back while its session has not read it — see [[Outbox]]. */
-  withdraw(id: string, message: string): Observable<Summary> {
-    return this.http.post<Summary>(`${session(id)}/withdraw`, { id: message } satisfies Withdrawal);
+  withdraw(id: string, message: string): Observable<Returned> {
+    return this.http.post<Returned>(`${session(id)}/withdraw`, {
+      id: message,
+    } satisfies Withdrawal);
   }
 
   pictureAt(id: string, name: string): string {
@@ -189,10 +192,6 @@ export class ConsoleApi {
 
   rename(id: string, title: string): Observable<Summary> {
     return this.http.post<Summary>(`${session(id)}/rename`, { title } satisfies Renaming);
-  }
-
-  unhold(id: string, text: string): Observable<Summary> {
-    return this.http.post<Summary>(`${session(id)}/unhold`, { text } satisfies Message);
   }
 
   stop(id: string): Observable<Summary> {

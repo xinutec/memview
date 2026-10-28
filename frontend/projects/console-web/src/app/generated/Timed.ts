@@ -18,12 +18,7 @@ from: number,
  * Whether a new process took the conversation over, so unfinished calls above
  * never will finish. False for an upgrade or a reader's seed.
  */
-restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "accepted", text: string, 
-/**
- * The message's own id when a client gave it one: how a retry is told from
- * a second message. See [`crate::sent`].
- */
-id?: string, } | { "kind": "withdrawn", id: string, } | { "kind": "dropped", id: string, } | { "kind": "prompt", text: string, 
+restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "prompt", text: string, 
 /**
  * The message's own id when a client gave it one: how a retry is told from
  * a second message. See [`crate::sent`].

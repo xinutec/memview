@@ -5,25 +5,25 @@ import { firstValueFrom } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { Local } from './local';
 import type { Refusal } from './generated/Refusal';
+import type { Returned } from './generated/Returned';
+import type { Summary } from './generated/Summary';
 import type { Picture } from './picture';
 
 /**
- * Messages written on this phone and not yet read by their session: sent from
- * here until the Mac has them, and kept until the session reads them, so a
- * message written offline goes when the phone is back, a receipt lost on the way
- * back is retried rather than guessed at, and any message not yet read can be
- * taken back into the composer.
+ * Messages written on this phone that the Mac does not have yet: sent from here
+ * until it does, so a message written offline goes when the phone is back, and a
+ * receipt lost on the way back is retried under the same id, which the Mac
+ * answers without sending it again.
  *
- * Each message has an id from the moment Send is pressed, and every retry carries
- * it, so the Mac answers a retry without sending it again (console/src/sent.rs).
- * Taking back a message the Mac may have is asked of the Mac, which takes it from
- * the CLI's queue or says the session read it first — never pretended here.
+ * Once the Mac has a message, this phone keeps nothing of it: the session's
+ * summary says where it stands (`messages`), and taking it back is asked of the
+ * Mac, which gives its words back once — see console/src/session/messages.rs.
  *
  * Answers to a session's questions are never put here: one written against a
  * question may arrive after that question is gone.
  */
 
-/** One message its session has not read. */
+/** One message the Mac does not have yet. */
 export interface Outgoing {
   readonly id: string;
   readonly session: string;
@@ -36,8 +36,6 @@ export interface Outgoing {
    * with no answer, the Mac may have it.
    */
   readonly tried: boolean;
-  /** The Mac has it: waiting for the session to read it. */
-  readonly sent?: boolean;
   /** Why the Mac would not take it: its session's queue stops here until it is taken back. */
   readonly refused?: string;
 }
@@ -47,16 +45,25 @@ export type Verdict =
   | { readonly kind: 'sent' }
   /** No answer worth believing: the network, or the Mac failing. Same id later. */
   | { readonly kind: 'retry' }
-  /** Taken back earlier; this was a late copy of it. */
+  /** Taken back while this send was on its way. */
   | { readonly kind: 'withdrawn' }
   | { readonly kind: 'refused'; readonly why: string };
 
-/** What the Mac's answer to taking a message back means. */
+/** What taking a message back came to. */
 export type Taken =
-  | { readonly kind: 'back' }
-  | { readonly kind: 'read'; readonly note: string }
-  /** The Mac answered, and could not settle it: its words. */
-  | { readonly kind: 'unsettled'; readonly note: string }
+  /**
+   * Back: its words, its pictures' names on the Mac when it had them, and the
+   * session without it when the Mac said.
+   */
+  | {
+      readonly kind: 'back';
+      readonly text: string;
+      readonly pictures: readonly string[];
+      readonly session?: Summary;
+    }
+  /** Not back, and settled: read, or already taken back. Why, for the reader. */
+  | { readonly kind: 'refused'; readonly why: string }
+  /** No answer worth believing: the Mac may have it, so nothing is pretended. */
   | { readonly kind: 'unreachable' };
 
 /** How a waiting message stands, for the line under it. */
@@ -68,7 +75,7 @@ export interface Standing {
 
 /** The oldest message `session` still has to send, or none while one there needs deciding. */
 export function nextFor(outbox: readonly Outgoing[], session: string): Outgoing | undefined {
-  const head = outbox.find((message) => message.session === session && !message.sent);
+  const head = outbox.find((message) => message.session === session);
   return head?.refused === undefined ? head : undefined;
 }
 
@@ -85,14 +92,20 @@ export function judged(status: number, body: unknown): Verdict {
 
 /** What the Mac's answer to taking a message back means. */
 export function takenJudged(status: number, body: unknown, now: Date = new Date()): Taken {
-  if (status >= 200 && status < 300) return { kind: 'back' };
+  if (status >= 200 && status < 300) {
+    const returned = returnedIn(body);
+    return { kind: 'back', text: returned.text, pictures: returned.pictures };
+  }
   const refusal = refusalIn(body);
   if (status === 409 && refusal?.why === 'read') {
     const when = refusal.at === undefined ? '' : ` at ${clock(refusal.at, now)}`;
-    return { kind: 'read', note: `the session read it${when}` };
+    return { kind: 'refused', why: `the session read it${when}` };
+  }
+  if (status === 409 && refusal?.why === 'withdrawn') {
+    return { kind: 'refused', why: 'it was already taken back' };
   }
   if (status >= 400 && status < 500 && typeof body === 'string' && body) {
-    return { kind: 'unsettled', note: body };
+    return { kind: 'refused', why: body };
   }
   return { kind: 'unreachable' };
 }
@@ -106,7 +119,6 @@ export function standing(message: Outgoing, now: number, behind = false): Standi
     return { line: `not sent — ${message.refused}`, icon: 'error', alert: true };
   }
   const waited = age(now - message.created);
-  if (message.sent) return { line: `waiting to be read${waited}`, icon: 'schedule' };
   if (message.tried) return { line: `sent, no answer yet${waited}`, icon: 'sync' };
   if (behind) {
     return {
@@ -124,7 +136,8 @@ export function behindRefused(outbox: readonly Outgoing[], message: Outgoing): b
   return refused !== -1 && own.indexOf(message) > refused;
 }
 
-function age(ms: number): string {
+/** How long something has waited, for the end of its line. */
+export function age(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 1) return '';
   if (minutes < 60) return ` · ${minutes} min`;
@@ -159,6 +172,18 @@ function refusalIn(body: unknown): Refusal | undefined {
   if (!why) return undefined;
   const at = field(body, 'at');
   return { why, at: typeof at === 'number' ? at : undefined };
+}
+
+/** A message the Mac gave back, read field by field. */
+function returnedIn(body: unknown): { text: string; pictures: string[] } {
+  if (typeof body !== 'object' || body === null) return { text: '', pictures: [] };
+  const pictures = field(body, 'pictures');
+  return {
+    text: textIn(body, 'text') ?? '',
+    pictures: Array.isArray(pictures)
+      ? pictures.filter((it): it is string => typeof it === 'string')
+      : [],
+  };
 }
 
 /** A picture read back from this device's storage: what a send needs of it. */
@@ -201,7 +226,6 @@ function outgoingIn(kept: unknown): Outgoing | undefined {
     pictures: read.length ? read : undefined,
     created,
     tried: field(kept, 'tried') === true,
-    sent: field(kept, 'sent') === true ? true : undefined,
     refused: textIn(kept, 'refused'),
   };
 }
@@ -227,8 +251,10 @@ export class Outbox {
   private store = inject(Local);
 
   private readonly held = signal<readonly Outgoing[]>([]);
-  /** Every message not yet read, oldest first. */
+  /** Every message the Mac does not have yet, oldest first. */
   readonly all = this.held.asReadonly();
+  /** The session as the Mac last answered a send: it shows the message just taken. */
+  readonly answered = signal<Summary | undefined>(undefined);
 
   private loaded: Promise<void>;
   /** The drain under way: a second call joins it rather than starting its own. */
@@ -252,7 +278,7 @@ export class Outbox {
       });
     }
     const timer = setInterval(() => {
-      if (this.held().some((message) => !message.sent)) wake();
+      if (this.held().length) wake();
     }, RETRY_MS);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }
@@ -280,48 +306,34 @@ export class Outbox {
   }
 
   /**
-   * Take a message back, for its words to go back into the composer: here, when
-   * it never left the phone or was refused; from the Mac, which asks the CLI,
-   * when the Mac may have it.
+   * Take a message of this phone's back: here, when it never left or was refused;
+   * from the Mac when it may have it — which, never having had it, remembers it as
+   * taken back, so a send still on its way is refused.
    */
   async takeBack(id: string): Promise<Taken> {
     await this.loaded;
     const message = this.find(id);
-    if (!message) return { kind: 'unreachable' };
-    if (!message.tried || message.refused !== undefined) {
+    if (!message) return { kind: 'refused', why: 'it is no longer waiting' };
+    if (message.tried && message.refused === undefined) {
+      const taken = await this.withdraw(message.session, id);
+      if (taken.kind === 'unreachable') return taken;
+      // Read, or already taken back elsewhere: the Mac had it, so it is not ours now.
       await this.drop(id);
-      return { kind: 'back' };
+      // This phone's own words, pictures and all: it still has them.
+      return taken.kind === 'back' ? { ...taken, text: message.text, pictures: [] } : taken;
     }
-    return this.withdraw(message.session, id);
+    await this.drop(id);
+    return { kind: 'back', text: message.text, pictures: [] };
   }
 
-  /**
-   * Take back a message the Mac may have — this phone's, or one sent from
-   * elsewhere and still waiting to be read — by asking the Mac.
-   */
+  /** Take back a message the Mac has, and get its words back. */
   async withdraw(session: string, id: string): Promise<Taken> {
-    const { status, body } = await answered(firstValueFrom(this.api.withdraw(session, id)));
+    let returned: Returned | undefined;
+    const { status, body } = await answered(
+      firstValueFrom(this.api.withdraw(session, id)).then((answer) => (returned = answer)),
+    );
     const taken = takenJudged(status, body);
-    if (taken.kind === 'back') await this.drop(id);
-    return taken;
-  }
-
-  /** The Mac has it: the event stream said so. */
-  accepted(id: string): void {
-    if (this.find(id)) void this.mark(id, { tried: true, sent: true });
-  }
-
-  /**
-   * Its session ended with it unread, and nothing will read it now: not sent, so
-   * taking it back gives its words back here.
-   */
-  dropped(id: string): void {
-    if (this.find(id)) void this.mark(id, { refused: 'the session ended before reading it' });
-  }
-
-  /** Read by its session, or taken back from another device: no longer waiting. */
-  done(id: string): void {
-    if (this.find(id)) void this.drop(id);
+    return taken.kind === 'back' && returned ? { ...taken, session: returned.session } : taken;
   }
 
   /**
@@ -362,13 +374,17 @@ export class Outbox {
     const sent = message.pictures
       ? this.api.show(message.session, message.pictures, message.text, message.id)
       : this.api.send(message.session, message.text, message.id);
-    const { status, body } = await answered(firstValueFrom(sent));
+    let summary: Summary | undefined;
+    const { status, body } = await answered(
+      firstValueFrom(sent).then((answer) => (summary = answer)),
+    );
     const verdict = judged(status, body);
     // Taken back while this send was on its way: the outbox no longer has it.
     if (!this.find(message.id)) return true;
     switch (verdict.kind) {
       case 'sent':
-        await this.mark(message.id, { sent: true });
+        this.answered.set(summary);
+        await this.drop(message.id);
         return true;
       case 'withdrawn':
         await this.drop(message.id);

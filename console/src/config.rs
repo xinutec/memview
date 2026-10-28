@@ -37,8 +37,6 @@ pub struct Config {
     pub modes: PathBuf,
     /// Where unsent words are kept — [`crate::drafts`].
     pub drafts: PathBuf,
-    /// What became of each message a client gave an id — [`crate::sent`].
-    pub sent: PathBuf,
     /// The phone's way in through isis, with the gate only: without it the console
     /// listens on loopback and there is nothing to reach. See [`crate::tunnel`].
     pub tunnel: Option<crate::tunnel::Dial>,
@@ -124,13 +122,6 @@ impl Config {
                 )
             }))
             .join("drafts.json"),
-            sent: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
-                format!(
-                    "{}/.config/agent-console",
-                    std::env::var("HOME").unwrap_or_default()
-                )
-            }))
-            .join("sent.json"),
             tunnel: None,
         }
         .with_tunnel()

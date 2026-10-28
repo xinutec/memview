@@ -120,8 +120,8 @@ pub(super) struct State {
     pub(super) origin_read: bool,
     pub(super) asked: Option<String>,
     pub(super) stderr: String,
-    /// Messages written to stdin and not echoed back, oldest first. See [`Session::deaf`].
-    pub(super) unread: VecDeque<Unread>,
+    /// Every message handed to this session, by id — [`super::messages`].
+    pub(super) messages: super::messages::Messages,
     /// Whether the session has spoken since its last turn ended — [`Summary::working`].
     /// Not `idle_since.is_none()`, which a session that has said nothing also is.
     pub(super) working: bool,
@@ -136,16 +136,6 @@ pub(super) struct State {
     pub(super) decided: Option<i64>,
     /// When the sign-in was refused, in epoch milliseconds, until a request is answered.
     pub(super) signed_out: Option<i64>,
-    /// Slash commands written mid-turn, oldest first, which the CLI would hand to the
-    /// model as words. Held here, not in a client that may be put away. See
-    /// [`Session::release_held`].
-    pub(super) held: VecDeque<Held>,
-    /// The ids the CLI has echoed back to this process, with when: a second echo of
-    /// one is a retry it ignored, not a second message. See [`crate::sent`].
-    pub(super) echoed: std::collections::BTreeMap<String, i64>,
-    /// Each message's latest step through the CLI's queue, and when it was seen —
-    /// [`crate::protocol::Lifecycle`]: the truth about a message the queue has seen.
-    pub(super) steps: std::collections::BTreeMap<String, (crate::protocol::Lifecycle, i64)>,
     /// A `/compact` is outstanding: the one long silence that is not a fault.
     pub(super) compacting: bool,
 }
@@ -195,20 +185,8 @@ pub(super) fn forget(
 /// conjunction, and a field updated in only some arms fails silently.
 pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
     match event {
-        // The read receipt. Oldest match first: stdin is a queue.
-        Event::Prompt { text, id } => {
-            // By id when it has one: two messages may say the same words.
-            let found = match id {
-                Some(id) => state
-                    .unread
-                    .iter()
-                    .position(|held| held.id.as_deref() == Some(id.as_str())),
-                None => None,
-            }
-            .or_else(|| state.unread.iter().position(|held| &held.text == text));
-            if let Some(at) = found {
-                state.unread.remove(at);
-            }
+        // The read receipt: [`Session::echoed_again`] marked the message read.
+        Event::Prompt { .. } => {
             // It read: the next episode is worth announcing.
             state.announced_deaf = false;
         }
@@ -283,7 +261,7 @@ pub(super) fn deaf_for(state: &State, now: i64) -> Option<i64> {
     }
     deaf_after(
         state.idle_since,
-        state.unread.front().map(|held| held.at),
+        state.messages.oldest_unread(),
         state.decided,
         state.compacting,
         now,
@@ -323,26 +301,6 @@ pub fn taken_up(decided: i64, children_started: &[i64]) -> bool {
 /// question does not: the console runs that command itself.
 pub fn leaves_a_decision(answered: Option<&Pending>) -> bool {
     answered.is_none_or(|asked| asked.tool != crate::sudo::TOOL)
-}
-
-/// A message written to stdin and not yet replayed by the CLI. Commands are never
-/// replayed, so never held.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Unread {
-    pub(super) text: String,
-    /// When it was written, in epoch milliseconds.
-    pub(super) at: i64,
-    /// The client's id for it, when it gave one.
-    #[serde(default)]
-    pub(super) id: Option<String>,
-}
-
-/// A slash command held for the turn's end, with the client's id for it.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Held {
-    pub(super) text: String,
-    #[serde(default)]
-    pub(super) id: Option<String>,
 }
 
 impl State {
@@ -424,7 +382,6 @@ impl State {
                 self.busy = None;
                 // A gone process can be asked nothing and sent nothing.
                 self.pending.clear();
-                self.held.clear();
             }
             _ => {}
         }

@@ -95,20 +95,6 @@ fn provenance(event: &Event) -> Provenance {
         Event::Answered { .. } => Provenance::Runtime(Care::Covered(
             "the tool result the answer produced, which IS in the transcript",
         )),
-        Event::Accepted { .. } => Provenance::Runtime(Care::Covered(
-            "nothing — weighed with the user 2026-08-24 and dropped: the marker \
-             lives only between the write and the CLI's echo, and they had never \
-             seen it. The one entry here that admits a loss rather than naming a \
-             source; if the chip is ever missed, this is the line to change.",
-        )),
-        Event::Dropped { .. } => Provenance::Runtime(Care::Covered(
-            "Summary::alive going false: every message a dead process held is unread, \
-             and the transcript has none of them",
-        )),
-        Event::Withdrawn { .. } => Provenance::Runtime(Care::Covered(
-            "the transcript itself: a message taken back from the CLI's queue is never \
-             recorded, and a cold reader never saw the `accepted` it removes",
-        )),
         Event::Edited { .. } | Event::Diverged { .. } => Provenance::Runtime(Care::Covered(
             "/api/sessions/{id}/edits, kept on disk per conversation — see edits::Edits::of",
         )),
@@ -239,7 +225,6 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
-        sent: dir.join("sent.json"),
         tunnel: None,
     }))
 }

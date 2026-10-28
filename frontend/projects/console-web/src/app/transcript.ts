@@ -1,13 +1,5 @@
 import { unhandled } from './exhaustive';
-import {
-  type Asked,
-  type Call,
-  type Change,
-  type Entry,
-  type Timed,
-  type ToolCall,
-  asking,
-} from './models';
+import { type Call, type Change, type Entry, type Timed, type ToolCall, asking } from './models';
 import { launched } from './workflow';
 
 /**
@@ -21,10 +13,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
   const out = SPOKE.has(event.kind) ? entries.map(settled) : [...entries];
   switch (event.kind) {
     case 'text': {
-      // Past queued messages only. The CLI reads a message sent mid-turn when the
-      // turn ends, so it interrupts nothing; ending the model's block there would
-      // cut one message, and any list or code fence in it, in two. A tool call
-      // does interrupt, and starts a new block.
+      // A tool call interrupts, and starts a new block.
       const carries = lastSaid(out);
       if (carries !== undefined) {
         const said = out[carries];
@@ -34,52 +23,12 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       }
       break;
     }
-    case 'accepted':
-      add(out, { kind: 'asked', text: event.text, at: at(event), queued: true, id: event.id });
-      break;
-    case 'dropped': {
-      // The session ended with it unread: say so, and keep its words to take back.
-      const left = out.findIndex(
-        (entry) => entry.kind === 'asked' && !!entry.queued && entry.id === event.id,
-      );
-      const entry = out[left];
-      if (entry?.kind === 'asked') {
-        out[left] = {
-          ...entry,
-          waiting: { line: 'not read — the session ended', icon: 'error', alert: true },
-        };
-      }
-      break;
-    }
-    case 'withdrawn': {
-      // Taken back before it was read: it was never said.
-      const gone = out.findIndex(
-        (entry) => entry.kind === 'asked' && !!entry.queued && entry.id === event.id,
-      );
-      if (gone !== -1) out.splice(gone, 1);
-      break;
-    }
     case 'command':
       add(out, { kind: 'asked', text: event.text, at: at(event) });
       break;
-    case 'prompt': {
-      // The runner echoes a queued message when the session reads it: move it
-      // to the end rather than showing it twice.
-      // By id when it has one: two messages may say the same words.
-      const queued = (entry: Entry): entry is Asked => entry.kind === 'asked' && !!entry.queued;
-      const read =
-        (event.id === undefined
-          ? undefined
-          : out.find((entry): entry is Asked => queued(entry) && entry.id === event.id)) ??
-        out.find((entry): entry is Asked => queued(entry) && entry.text === event.text);
-      if (!read) {
-        add(out, { kind: 'asked', text: event.text, at: at(event), id: event.id });
-        break;
-      }
-      out.splice(out.indexOf(read), 1);
-      out.push({ ...read, queued: undefined, at: at(event) ?? read.at });
+    case 'prompt':
+      add(out, { kind: 'asked', text: event.text, at: at(event), id: event.id });
       break;
-    }
     case 'shown':
       add(out, { kind: 'shown', pictures: event.names, text: event.text, at: at(event) });
       break;
@@ -213,15 +162,13 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
 }
 
 /**
- * Where the model's current block is, stepping back over messages it has not
- * read yet. `undefined` when the run has been ended by anything else — a tool
- * call, a result, a turn — all of which genuinely end a block.
+ * Where the model's current block is. `undefined` when the run has been ended by
+ * anything else — a tool call, a result, a turn — all of which end a block.
  */
 function lastSaid(entries: readonly Entry[]): number | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     if (entry?.kind === 'said') return i;
-    if (entry?.kind === 'asked' && entry.queued) continue;
     return undefined;
   }
   return undefined;

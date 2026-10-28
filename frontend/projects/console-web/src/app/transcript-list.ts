@@ -22,8 +22,6 @@ export class TranscriptList {
   readonly pictureAt = input.required<(name: string) => string>();
   /** A clock the parent ticks while something is running. */
   readonly now = input(0);
-  /** The session has stopped reading, so a queued message will not be. */
-  readonly deaf = input(false);
   /** The picture currently shown full size, by name. */
   readonly full = input<string | undefined>(undefined);
   /** Who a prompt came from, as its row says. */

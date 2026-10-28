@@ -31,10 +31,7 @@ impl Session {
             pending: state.pending.clone(),
             background: state.background.clone(),
             counted: state.counted,
-            unread: state.unread.iter().cloned().collect(),
-            held: state.held.iter().cloned().collect(),
-            steps: state.steps.clone(),
-            echoed: state.echoed.clone(),
+            messages: state.messages.clone(),
         }
     }
 
@@ -76,13 +73,8 @@ impl Session {
 
     /// What was written and never read, oldest first — resent by
     /// [`crate::roster::Roster::revive`].
-    pub fn unread(&self) -> Vec<String> {
-        self.state
-            .lock()
-            .unread
-            .iter()
-            .map(|held| held.text.clone())
-            .collect()
+    pub fn unread(&self) -> Vec<(String, super::messages::Message)> {
+        self.state.lock().messages.unread()
     }
 
     /// The transcript so far, unnumbered — for asking what a session has done.
@@ -184,17 +176,10 @@ impl Session {
             name: None,
             peer_name: None,
             waiting: state.pending.len(),
-            unread: state.unread.len(),
+            unread: state.messages.unread().len(),
             deaf: deaf_for(&state, now()).map(|ms| (ms / 1000) as u64),
             signed_out: state.signed_out.map(|ms| ms as u64),
-            held: state
-                .held
-                .iter()
-                .map(|held| super::HeldCommand {
-                    text: held.text.clone(),
-                    id: held.id.clone(),
-                })
-                .collect(),
+            messages: state.messages.waiting(),
         }
     }
 }

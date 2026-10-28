@@ -22,6 +22,9 @@ import {
   type Conversation,
   type Described,
   type Overview,
+  type Page,
+  type Returned,
+  type Message,
   type Refusal,
   type Summary,
 } from './console';
@@ -1071,16 +1074,54 @@ test('a word longer than the screen wraps inside the box rather than widening it
   await expectCleanLayout(page, testInfo, { root: 'app-composer' });
 });
 
+/**
+ * A Mac that takes each message it is sent into the session's summary, as the
+ * real one does (`Summary.messages`), and gives one back once when asked.
+ */
+async function mac(
+  page: Page,
+  readFirst = false,
+): Promise<{ sent: Message[]; withdrawn: string[] }> {
+  const sent: Message[] = [];
+  const withdrawn: string[] = [];
+  const summary = (): Summary => ({
+    ...RUNNING,
+    messages: sent
+      .filter((it) => !withdrawn.includes(it.id ?? ''))
+      .map((it) => ({ id: it.id ?? '', text: it.text, at: Date.now(), stands: 'unread' as const })),
+  });
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [summary()] } satisfies Overview }),
+  );
+  await page.route('**/api/sessions/*/input', (r) => {
+    sent.push(r.request().postDataJSON() as Message);
+    return r.fulfill({ json: summary() });
+  });
+  await page.route('**/api/sessions/*/withdraw', async (r) => {
+    const { id } = r.request().postDataJSON() as { id: string };
+    const message = sent.find((it) => it.id === id);
+    await new Promise((done) => setTimeout(done, 200));
+    // `readFirst`: the session took it in between the summary and the tap.
+    if (!message || readFirst) {
+      return r.fulfill({ status: 409, json: { why: 'read', at: Date.now() } satisfies Refusal });
+    }
+    if (withdrawn.includes(id)) {
+      return r.fulfill({ status: 409, json: { why: 'withdrawn' } satisfies Refusal });
+    }
+    withdrawn.push(id);
+    return r.fulfill({
+      json: { text: message.text, pictures: [], session: summary() } satisfies Returned,
+    });
+  });
+  return { sent, withdrawn };
+}
+
 test('a message written offline waits in the conversation and goes, once, when back @ phone width', async ({
   page,
   context,
 }, testInfo) => {
   await mockRunner(page);
-  const sent: { text: string; id?: string }[] = [];
-  await page.route('**/api/sessions/*/input', (r) => {
-    sent.push(r.request().postDataJSON() as { text: string; id?: string });
-    return r.fulfill({ json: RUNNING });
-  });
+  const { sent } = await mac(page);
   await page.goto(`/s/${RUNNING.id}`);
   await context.setOffline(true);
   const box = page.locator('app-composer textarea');
@@ -1102,45 +1143,57 @@ test('a message written offline waits in the conversation and goes, once, when b
   expect(sent[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
 });
 
-test('a message not yet read is taken back into the box @ phone width', async ({
+test('a message not yet read is taken back into the box @ phone width', async ({ page }) => {
+  await mockRunner(page);
+  await mac(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('rename the branch');
+  await page.getByRole('button', { name: 'send' }).click();
+  const mine = page.locator('li.entry', { hasText: 'rename the branch' });
+  await expect(mine).toContainText('waiting to be read');
+  await box.fill('and then');
+
+  await mine.getByRole('button', { name: 'take back' }).click();
+  // Its words first, what was being written after: nothing typed is lost.
+  await expect(box).toHaveValue('rename the branch\n\nand then');
+  await expect(mine).toHaveCount(0);
+});
+
+test('a message never sent is taken back on the phone alone @ phone width', async ({
   page,
   context,
 }) => {
   await mockRunner(page);
+  const { withdrawn } = await mac(page);
   await page.goto(`/s/${RUNNING.id}`);
   await context.setOffline(true);
   const box = page.locator('app-composer textarea');
-  await box.fill('rename the branch');
+  await box.fill('not yet');
   await page.getByRole('button', { name: 'send' }).click();
-  await box.fill('and then');
-
   await page
-    .locator('li.entry', { hasText: 'rename the branch' })
+    .locator('li.entry', { hasText: 'not yet' })
     .getByRole('button', { name: 'take back' })
     .click();
-  // Its words first, what was being written after: nothing typed is lost.
-  await expect(box).toHaveValue('rename the branch\n\nand then');
-  await expect(page.locator('li.entry', { hasText: 'waiting to send' })).toHaveCount(0);
+  await expect(box).toHaveValue('not yet');
+  expect(withdrawn).toHaveLength(0);
 });
 
 test('a message the session read first is not taken back, and says when @ phone width', async ({
   page,
 }) => {
   await mockRunner(page);
-  const at = Date.now() - 60_000;
-  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
-  await page.route('**/api/sessions/*/withdraw', (r) =>
-    r.fulfill({ status: 409, json: { why: 'read', at } satisfies Refusal }),
-  );
+  await mac(page, true);
   await page.goto(`/s/${RUNNING.id}`);
-  await page.locator('app-composer textarea').fill('use the other branch');
+  const box = page.locator('app-composer textarea');
+  await box.fill('use the other branch');
   await page.getByRole('button', { name: 'send' }).click();
-
   const mine = page.locator('li.entry', { hasText: 'use the other branch' });
   await expect(mine).toContainText('waiting to be read');
+
   await mine.getByRole('button', { name: 'take back' }).click();
   await expect(page.getByText(/Not taken back: the session read it at/)).toBeVisible();
-  await expect(page.locator('app-composer textarea')).toHaveValue('');
+  await expect(box).toHaveValue('');
   // News, not a fault: it goes by itself rather than staying until the next send.
   await expect(page.getByText(/Not taken back/)).toHaveCount(0, { timeout: 10_000 });
 });
@@ -1164,50 +1217,11 @@ test('a refused message stops its session until taken back @ phone width', async
   await expect(box).toHaveValue('one more thing');
 });
 
-test('a message stuck waiting to be read is cleared by taking it back @ phone width', async ({
-  page,
-}) => {
-  // Read mid-turn before the console carried its id there, a message's echo
-  // never reached the phone, which said "waiting to be read" for ever. The Mac
-  // knows better: taken back, it gives the words back if the session never read
-  // it, and says it was read if it was — and either way it stops waiting.
-  await mockRunner(page);
-  let answer: { status: number; json: Refusal | Summary } = { status: 200, json: RUNNING };
-  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
-  await page.route('**/api/sessions/*/withdraw', (r) => r.fulfill(answer));
-  await page.goto(`/s/${RUNNING.id}`);
-  const box = page.locator('app-composer textarea');
-  for (const words of ['never read', 'read mid-turn']) {
-    await box.fill(words);
-    await page.getByRole('button', { name: 'send' }).click();
-    await expect(page.locator('li.entry', { hasText: words })).toContainText('waiting to be read');
-  }
-
-  await page
-    .locator('li.entry', { hasText: 'never read' })
-    .getByRole('button', { name: 'take back' })
-    .click();
-  await expect(box).toHaveValue('never read');
-
-  answer = { status: 409, json: { why: 'read', at: Date.now() } };
-  await page
-    .locator('li.entry', { hasText: 'read mid-turn' })
-    .getByRole('button', { name: 'take back' })
-    .click();
-  await expect(page.locator('li.entry', { hasText: 'waiting to be read' })).toHaveCount(0);
-});
-
 test('a message tapped three times is taken back once @ phone width', async ({ page }) => {
   // Three taps, 60 ms apart on the phone, all reached the Mac before the first
-  // answer: each was answered "back", and the words went into the box three times.
+  // answer. The Mac gives a message's words back once, and the button waits.
   await mockRunner(page);
-  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
-  let asked = 0;
-  await page.route('**/api/sessions/*/withdraw', async (r) => {
-    asked += 1;
-    await new Promise((done) => setTimeout(done, 300));
-    await r.fulfill({ json: RUNNING });
-  });
+  const { withdrawn } = await mac(page);
   await page.goto(`/s/${RUNNING.id}`);
   const box = page.locator('app-composer textarea');
   await box.fill('rename the branch');
@@ -1218,5 +1232,5 @@ test('a message tapped three times is taken back once @ phone width', async ({ p
   await mine.getByRole('button', { name: 'take back' }).click({ clickCount: 3 });
   await expect(box).toHaveValue('rename the branch');
   await expect(mine).toHaveCount(0);
-  expect(asked).toBe(1);
+  expect(withdrawn).toHaveLength(1);
 });

@@ -4,13 +4,12 @@
 use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
 
-use super::state::{Held, Unread};
+use super::messages::{Message, Step};
+use crate::sent::{Refusal, Why};
 
 /// How long a withdrawal waits for the CLI: it answers from its queue, at once.
 const WITHDRAW_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// How many messages' steps a session remembers.
-const STEPS_KEPT: usize = 2_000;
 use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
@@ -33,121 +32,151 @@ impl Session {
         Ok(())
     }
 
-    /// Send a message. A slash command sent mid-turn is held, under the lock that
-    /// clears `working`, so a turn ending meanwhile cannot strand it.
+    /// Send a message under an id of its own — for the console itself and tests;
+    /// a client gives its own, through [`Self::offer`].
     pub async fn send(&self, text: &str) -> Result<()> {
-        self.send_with(text, None).await
+        let id = uuid::Uuid::new_v4().to_string();
+        let line = protocol::prompt(text, Some(&id));
+        self.offer(&id, text, Vec::new(), line).await.map(|_| ())
     }
 
-    /// [`Self::send`], under the client's id for the message — [`crate::sent`].
-    pub async fn send_with(&self, text: &str, id: Option<&str>) -> Result<()> {
-        let parked = {
-            let mut state = self.state.lock();
-            let parking = state.working && protocol::is_command(text);
-            if parking {
-                state.held.push_back(Held {
-                    text: text.to_string(),
-                    id: id.map(str::to_string),
-                });
-            }
-            parking
-        };
-        if parked {
-            return Ok(());
+    /// Hand the session a message under the client's id, written as `line`: once,
+    /// however often it is offered. A slash command sent mid-turn is held for the
+    /// turn's end, since the CLI would hand it to the model as words.
+    pub async fn offer(
+        &self,
+        id: &str,
+        text: &str,
+        pictures: Vec<String>,
+        line: String,
+    ) -> Result<Offered> {
+        let _deciding = self.deciding.lock().await;
+        if let Some(message) = self.state.lock().messages.get(id) {
+            return Ok(match message.step {
+                Step::Withdrawn => Offered::Refused(Refusal {
+                    why: Why::Withdrawn,
+                    at: None,
+                }),
+                _ => Offered::Already,
+            });
         }
-        self.write_line(&protocol::prompt(text, id), "writing to the session")
-            .await?;
-        // Announced on the way in: the CLI may not read it for minutes.
-        if protocol::is_command(text) {
+        // Written by a process before this one, which the transcript remembers.
+        if let Some(at) = self.recorded(id) {
+            let read = Step::Read { at, echoed: true };
+            self.state
+                .lock()
+                .messages
+                .add(id, text, pictures, read, now());
+            return Ok(Offered::Already);
+        }
+        let command = protocol::is_command(text);
+        if command && self.state.lock().working {
+            self.state
+                .lock()
+                .messages
+                .add(id, text, pictures, Step::Held, now());
+            return Ok(Offered::Wrote);
+        }
+        self.write_line(&line, "writing to the session").await?;
+        let mut state = self.state.lock();
+        if state.asked.is_none() && !state.origin_read {
+            // Named by the words, not the base64.
+            state.asked = Some(match (text.trim(), pictures.len()) {
+                ("", 1) => "an image".to_string(),
+                ("", many) if many > 1 => format!("{many} images"),
+                (words, _) => words.to_string(),
+            });
+        }
+        // A command is never echoed, and runs as a command: said once it is written.
+        let step = if command {
+            Step::Read {
+                at: now(),
+                echoed: true,
+            }
+        } else {
+            Step::Written
+        };
+        state.messages.add(id, text, pictures, step, now());
+        drop(state);
+        // Never echoed, so said here; the CLI may not run it for minutes.
+        if command {
             self.push(Event::Command {
                 text: text.to_string(),
             });
-        } else {
-            // In flight until replayed — all [`Self::deaf`] goes on.
-            self.state.lock().unread.push_back(Unread {
-                text: text.to_string(),
-                at: now(),
-                id: id.map(str::to_string),
-            });
-            self.push(Event::Accepted {
-                text: text.to_string(),
-                id: id.map(str::to_string),
-            });
         }
-        // Held even if the CLI never echoes it.
-        let mut state = self.state.lock();
-        if state.asked.is_none() && !state.origin_read {
-            state.asked = Some(text.to_string());
-        }
-        Ok(())
+        Ok(Offered::Wrote)
     }
 
-    /// Send the commands held for this turn's end, one at a time through
-    /// [`Self::send_with`], so a cancel mid-drain is honoured. A failed write stops it.
+    /// Send the commands held for this turn's end, oldest first. A failed write
+    /// stops it, leaving the rest held.
     pub async fn release_held(&self) -> Result<()> {
+        let _deciding = self.deciding.lock().await;
         loop {
-            let next = {
-                let mut state = self.state.lock();
-                state.held.pop_front()
+            let next = self.state.lock().messages.next_held();
+            let Some((id, held)) = next else {
+                return Ok(());
             };
-            let Some(command) = next else { return Ok(()) };
-            self.send_with(&command.text, command.id.as_deref()).await?;
+            self.write_line(
+                &protocol::prompt(&held.text, Some(&id)),
+                "writing to the session",
+            )
+            .await?;
+            let said = Step::Read {
+                at: now(),
+                echoed: true,
+            };
+            self.state.lock().messages.set(&id, said);
+            self.push(Event::Command { text: held.text });
         }
     }
 
-    /// Take back a held command by its exact text. False when already released.
-    pub fn forget_held(&self, text: &str) -> bool {
-        let mut state = self.state.lock();
-        let Some(at) = state.held.iter().position(|held| held.text == text) else {
-            return false;
-        };
-        state.held.remove(at);
-        true
-    }
-
-    /// Take back a held command by the client's id. False when it is not held.
-    pub fn take_back(&self, id: &str) -> bool {
-        {
-            let mut state = self.state.lock();
-            let Some(at) = state
-                .held
-                .iter()
-                .position(|held| held.id.as_deref() == Some(id))
-            else {
-                return false;
-            };
-            state.held.remove(at);
-        }
-        self.push(Event::Withdrawn { id: id.to_string() });
-        true
-    }
-
-    /// Where a message this process was given stands, by the client's id. What it
-    /// cannot see — a message an earlier process wrote — the transcript answers.
-    pub fn whereabouts(&self, id: &str) -> crate::sent::Where {
-        let state = self.state.lock();
-        // The queue's own word first: a message read mid-turn may have no echo.
-        match state.steps.get(id) {
-            Some((step, at)) if step.read() => return crate::sent::Where::Delivered { at: *at },
-            Some((protocol::Lifecycle::Cancelled | protocol::Lifecycle::Dropped, _)) => {
-                return crate::sent::Where::Nowhere;
+    /// Take a message back while the session has not read it, and give its words
+    /// back — once: a second request finds it already taken back.
+    pub async fn withdraw(&self, id: &str) -> Result<Withdrawal> {
+        let _deciding = self.deciding.lock().await;
+        let known = self.state.lock().messages.get(id).cloned();
+        let Some(message) = known else {
+            if let Some(at) = self.recorded(id) {
+                return Ok(Withdrawal::Refused(read_at(at)));
             }
-            _ => {}
+            // Never arrived: remembered as taken back, so a late copy is refused.
+            self.state
+                .lock()
+                .messages
+                .add(id, "", Vec::new(), Step::Withdrawn, now());
+            return Ok(Withdrawal::Back(None));
+        };
+        match message.step {
+            Step::Read { at, .. } => return Ok(Withdrawal::Refused(read_at(at))),
+            Step::Withdrawn => {
+                return Ok(Withdrawal::Refused(Refusal {
+                    why: Why::Withdrawn,
+                    at: None,
+                }));
+            }
+            Step::Held | Step::Dropped => {}
+            Step::Written | Step::Queued => {
+                // Not in the queue at that moment: read, or not yet arrived — and a
+                // cancel that comes first takes the message out the moment it does
+                // (measured, at twenty seconds' wait). Which it is was said before
+                // this answer: the CLI writes `started` when a turn takes a message,
+                // before it answers a cancel that no longer finds it, and lines are
+                // read in order.
+                let cancelled = self.cancel_in_cli(id).await?;
+                if !cancelled
+                    && let Some(Step::Read { at, .. }) =
+                        self.state.lock().messages.get(id).map(|it| it.step)
+                {
+                    return Ok(Withdrawal::Refused(read_at(at)));
+                }
+            }
         }
-        if let Some(at) = state.echoed.get(id) {
-            crate::sent::Where::Delivered { at: *at }
-        } else if state.held.iter().any(|held| held.id.as_deref() == Some(id)) {
-            crate::sent::Where::Held
-        } else if state.unread.iter().any(|it| it.id.as_deref() == Some(id)) {
-            crate::sent::Where::Unread
-        } else {
-            crate::sent::Where::Nowhere
-        }
+        self.state.lock().messages.set(id, Step::Withdrawn);
+        Ok(Withdrawal::Back(Some(message)))
     }
 
-    /// Ask the CLI to take back a message it holds in its queue: true when it
-    /// did, false once a turn has taken it in. Every client is told it is gone.
-    pub async fn withdraw_queued(&self, id: &str) -> Result<bool> {
+    /// Ask the CLI to take a message out of its queue: true when it was there.
+    async fn cancel_in_cli(&self, id: &str) -> Result<bool> {
         let request = format!("{}{id}", protocol::WITHDRAW);
         let (answered, answer) = tokio::sync::oneshot::channel();
         self.withdrawals.lock().insert(request.clone(), answered);
@@ -158,35 +187,14 @@ impl Session {
             self.withdrawals.lock().remove(&request);
             return Err(error);
         }
-        let cancelled = match tokio::time::timeout(WITHDRAW_PATIENCE, answer).await {
-            Ok(Ok(cancelled)) => cancelled,
+        match tokio::time::timeout(WITHDRAW_PATIENCE, answer).await {
+            Ok(Ok(cancelled)) => Ok(cancelled),
             Ok(Err(_)) => anyhow::bail!("the session ended before it answered"),
             Err(_) => {
                 self.withdrawals.lock().remove(&request);
                 anyhow::bail!("the session did not answer in time")
             }
-        };
-        // Not in the queue at that moment: read, or not yet arrived — and a cancel
-        // that comes first takes the message out the moment it does (measured, at
-        // twenty seconds' wait). Which it is was said before this answer: the CLI
-        // writes a message's `started` when a turn takes it, which is before it
-        // answers a cancel that no longer finds it, and lines are read in order.
-        if !cancelled
-            && self
-                .state
-                .lock()
-                .steps
-                .get(id)
-                .is_some_and(|(step, _)| step.read())
-        {
-            return Ok(false);
         }
-        self.state
-            .lock()
-            .unread
-            .retain(|it| it.id.as_deref() != Some(id));
-        self.push(Event::Withdrawn { id: id.to_string() });
-        Ok(true)
     }
 
     /// Hand a withdrawal's answer to whoever is waiting for it.
@@ -196,53 +204,36 @@ impl Session {
         }
     }
 
-    /// Note a message's step through the CLI's queue.
-    pub(super) fn stepped(&self, id: String, step: protocol::Lifecycle) {
-        let mut state = self.state.lock();
-        // A long session's ids, without end: keep the newer half by time.
-        if state.steps.len() >= STEPS_KEPT {
-            let mut seen: Vec<i64> = state.steps.values().map(|(_, at)| *at).collect();
-            seen.sort_unstable();
-            let cut = seen[seen.len() / 2];
-            state.steps.retain(|_, (_, at)| *at >= cut);
-        }
-        state.steps.insert(id, (step, now()));
+    /// The CLI's word on where a message stands in its queue.
+    pub(super) fn stepped(&self, id: &str, step: protocol::Lifecycle) {
+        self.state.lock().messages.stepped(id, step, now());
     }
 
     /// Whether `event` is the echo of a message already echoed: the CLI echoes a
-    /// retried id but records and answers it once. The first echo is noted.
+    /// retried id but records and answers it once. The first echo marks it read.
     pub fn echoed_again(&self, event: &Event) -> bool {
-        let (Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. }) = event else {
-            return false;
-        };
         let mut state = self.state.lock();
-        if state.echoed.contains_key(id) {
-            return true;
+        match event {
+            Event::Prompt { id: Some(id), .. } | Event::Shown { id: Some(id), .. } => {
+                state.messages.echoed(id, now())
+            }
+            Event::Prompt { text, id: None } => {
+                state.messages.echoed_words(text, now());
+                false
+            }
+            _ => false,
         }
-        state.echoed.insert(id.clone(), now());
-        false
     }
 
-    /// Show the session pictures with what was said about them —
-    /// [`protocol::prompt_with_images`].
-    pub async fn show(
-        &self,
-        text: &str,
-        pictures: &[protocol::Picture<'_>],
-        id: Option<&str>,
-    ) -> Result<()> {
-        let line = protocol::prompt_with_images(text, pictures, id);
-        self.write_line(&line, "writing to the session").await?;
-        let mut state = self.state.lock();
-        if state.asked.is_none() && !state.origin_read {
-            // Named by the words, not the base64.
-            state.asked = Some(match (text.trim(), pictures.len()) {
-                ("", 1) => "an image".to_string(),
-                ("", many) => format!("{many} images"),
-                (words, _) => words.to_string(),
-            });
-        }
-        Ok(())
+    /// Whether this message was handed over already, here or before this process.
+    pub fn knows(&self, id: &str) -> bool {
+        self.state.lock().messages.get(id).is_some() || self.recorded(id).is_some()
+    }
+
+    /// When this session's transcript recorded the message `id`, if it did.
+    fn recorded(&self, id: &str) -> Option<i64> {
+        crate::past::transcript_of(&crate::past::projects_root(), &self.id)
+            .and_then(|transcript| crate::sent::recorded_at(&transcript, id))
     }
 
     /// Answer a question the session is blocked on. An unknown id is an error — two
@@ -391,5 +382,30 @@ impl Session {
         if let Err(why) = self.write_line(&line, "asking the session").await {
             tracing::debug!("{}: {why:#}", self.id);
         }
+    }
+}
+
+/// What became of a message offered.
+#[derive(Debug, PartialEq)]
+pub enum Offered {
+    Wrote,
+    /// It was already handed over, or read before this process: nothing written.
+    Already,
+    Refused(Refusal),
+}
+
+/// What became of a message taken back.
+#[derive(Debug)]
+pub enum Withdrawal {
+    /// Taken back: the message, to give its words back, or none for one that
+    /// never arrived.
+    Back(Option<Message>),
+    Refused(Refusal),
+}
+
+fn read_at(at: i64) -> Refusal {
+    Refusal {
+        why: Why::Read,
+        at: Some(at),
     }
 }

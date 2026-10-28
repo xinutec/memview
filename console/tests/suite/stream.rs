@@ -52,7 +52,6 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
-        sent: dir.join("sent.json"),
         tunnel: None,
     }))
 }

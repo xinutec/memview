@@ -1,118 +1,151 @@
-//! A message sent under the client's id: delivered once however often it is
-//! retried, and taken back only while the session has not read it.
+//! Where each message stands, as the CLI's own word moves it — and what a
+//! transcript remembers of messages an earlier process was handed. The steps are
+//! the CLI's, measured on 2.1.289; see `console/src/session/messages.rs`.
 
-use console::sent::{Fate, Refusal, Send, Sent, Where, Why, Withdraw, sending, withdrawing};
+use console::protocol::Lifecycle;
+use console::session::{Messages, Stands, Step};
 
-const READ: Where = Where::Delivered { at: 1_000 };
+const ID: &str = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
 
-#[test]
-fn a_new_message_is_written() {
-    assert_eq!(sending(None, Where::Nowhere), Send::Write);
+fn written() -> Messages {
+    let mut messages = Messages::default();
+    messages.add(ID, "rename the branch", Vec::new(), Step::Written, 1_000);
+    messages
+}
+
+fn step(messages: &Messages) -> Step {
+    messages.get(ID).expect("the message").step
 }
 
 #[test]
-fn a_retry_after_a_lost_receipt_is_answered_without_a_second_message() {
-    // Sent, and the answer lost on the way back: the phone retries with the same
-    // id, and the message is already held, queued, or read.
-    for there in [Where::Held, Where::Unread, READ] {
-        assert_eq!(sending(Some(Fate::Written), there), Send::AlreadyHave);
-    }
-}
-
-#[test]
-fn a_message_in_the_transcript_but_not_the_record_is_still_not_sent_twice() {
-    // The record lost or expired, the transcript still has it under its id.
-    assert_eq!(sending(None, READ), Send::AlreadyHave);
-}
-
-#[test]
-fn a_message_written_to_a_session_that_died_unread_is_written_again() {
-    // The CLI ignores an id it already has, so writing again cannot double it.
-    assert_eq!(sending(Some(Fate::Written), Where::Nowhere), Send::Write);
-}
-
-#[test]
-fn a_late_retry_of_a_message_taken_back_is_refused() {
-    // The person has its words back, and may be rewriting them.
+fn a_message_moves_through_the_queue_as_the_cli_says() {
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Queued, 2_000);
+    assert_eq!(step(&messages), Step::Queued);
+    messages.stepped(ID, Lifecycle::Started, 3_000);
     assert_eq!(
-        sending(Some(Fate::Withdrawn), Where::Nowhere),
-        Send::Refuse(Refusal {
-            why: Why::Withdrawn,
-            at: None
-        })
+        step(&messages),
+        Step::Read {
+            at: 3_000,
+            echoed: false
+        }
     );
 }
 
 #[test]
-fn a_message_the_session_read_cannot_be_taken_back_and_says_when() {
+fn read_stays_read_when_an_aborted_turn_reports_it_cancelled() {
+    // The CLI calls a message cancelled when the turn that took it in was aborted;
+    // it was seen all the same.
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Started, 3_000);
+    messages.stepped(ID, Lifecycle::Cancelled, 4_000);
+    assert!(matches!(step(&messages), Step::Read { .. }));
+}
+
+#[test]
+fn a_cancel_takes_a_waiting_message_back() {
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Queued, 2_000);
+    messages.stepped(ID, Lifecycle::Cancelled, 3_000);
+    assert_eq!(step(&messages), Step::Withdrawn);
+}
+
+#[test]
+fn a_second_echo_of_a_message_is_not_shown_again() {
+    // The CLI echoes a retried id it ignores; `started` comes before the first
+    // echo, which must still be shown.
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Started, 3_000);
+    assert!(!messages.echoed(ID, 3_100), "the first echo is shown");
+    assert!(messages.echoed(ID, 3_200), "the retry's echo is not");
+}
+
+#[test]
+fn an_echo_without_an_id_reads_the_oldest_message_with_those_words() {
+    let mut messages = Messages::default();
+    messages.add("a", "yes", Vec::new(), Step::Written, 1_000);
+    messages.add("b", "yes", Vec::new(), Step::Written, 1_000);
+    messages.echoed_words("yes", 2_000);
+    assert!(matches!(
+        messages.get("a").expect("a").step,
+        Step::Read { .. }
+    ));
+    assert_eq!(messages.get("b").expect("b").step, Step::Written);
+}
+
+#[test]
+fn a_dead_process_drops_what_it_held_or_had_not_read() {
+    let mut messages = written();
+    messages.add("held", "/compact", Vec::new(), Step::Held, 1_000);
+    messages.add(
+        "read",
+        "done",
+        Vec::new(),
+        Step::Read {
+            at: 1_000,
+            echoed: true,
+        },
+        1_000,
+    );
+    messages.drop_waiting();
+    assert_eq!(step(&messages), Step::Dropped);
+    assert_eq!(messages.get("held").expect("held").step, Step::Dropped);
+    assert!(matches!(
+        messages.get("read").expect("read").step,
+        Step::Read { .. }
+    ));
+}
+
+#[test]
+fn the_phone_is_shown_what_is_not_yet_read_oldest_first() {
+    let mut messages = Messages::default();
+    messages.add("held", "/compact", Vec::new(), Step::Held, 1_000);
+    messages.add("unread", "rename", Vec::new(), Step::Queued, 2_000);
+    messages.add(
+        "read",
+        "done",
+        Vec::new(),
+        Step::Read {
+            at: 3_000,
+            echoed: true,
+        },
+        3_000,
+    );
+    messages.add("back", "gone", Vec::new(), Step::Withdrawn, 4_000);
+    messages.add("dropped", "lost", Vec::new(), Step::Dropped, 5_000);
+    let shown: Vec<_> = messages
+        .waiting()
+        .into_iter()
+        .map(|waiting| (waiting.id, waiting.stands))
+        .collect();
     assert_eq!(
-        withdrawing(Some(Fate::Written), READ),
-        Withdraw::Refuse(Refusal {
-            why: Why::Read,
-            at: Some(1_000)
-        })
+        shown,
+        [
+            ("held".to_string(), Stands::Held),
+            ("unread".to_string(), Stands::Unread),
+            ("dropped".to_string(), Stands::Dropped)
+        ]
     );
 }
 
 #[test]
-fn a_queued_message_is_asked_of_the_cli() {
-    // Only the CLI knows whether a turn has taken it in.
-    assert_eq!(
-        withdrawing(Some(Fate::Written), Where::Unread),
-        Withdraw::AskCli
-    );
+fn a_settled_message_is_forgotten_after_a_week_and_a_waiting_one_never() {
+    let week = 7 * 24 * 60 * 60 * 1000;
+    let mut messages = Messages::default();
+    messages.add("back", "gone", Vec::new(), Step::Withdrawn, 0);
+    messages.add("queued", "still", Vec::new(), Step::Queued, 0);
+    messages.add("later", "new", Vec::new(), Step::Written, week + 1);
+    assert!(messages.get("back").is_none());
+    assert!(messages.get("queued").is_some());
 }
 
 #[test]
-fn a_held_command_is_taken_back_here() {
-    assert_eq!(
-        withdrawing(Some(Fate::Written), Where::Held),
-        Withdraw::TakeBack
-    );
-}
-
-#[test]
-fn a_message_that_never_arrived_is_forgotten_and_a_second_withdrawal_is_done() {
-    assert_eq!(withdrawing(None, Where::Nowhere), Withdraw::Forget);
-    assert_eq!(
-        withdrawing(Some(Fate::Withdrawn), Where::Nowhere),
-        Withdraw::Done
-    );
-}
-
-#[test]
-fn the_record_outlives_the_console() {
-    // A message taken back must still be refused after a restart.
-    let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).expect("dir");
-    let file = dir.join("sent.json");
-    Sent::load(file.clone()).record("m-42", "s", Fate::Withdrawn, 1_000);
-    assert_eq!(Sent::load(file).fate("m-42"), Some(Fate::Withdrawn));
-}
-
-#[test]
-fn a_record_written_before_withdrawals_still_reads() {
-    // The first build called a taken-back id cancelled.
-    let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).expect("dir");
-    let file = dir.join("sent.json");
-    std::fs::write(
-        &file,
-        r#"{"m-42":{"session":"s","at":1000,"fate":"cancelled"}}"#,
-    )
-    .expect("file");
-    assert_eq!(Sent::load(file).fate("m-42"), Some(Fate::Withdrawn));
-}
-
-#[test]
-fn ids_older_than_a_week_are_forgotten() {
-    let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).expect("dir");
-    let sent = Sent::load(dir.join("sent.json"));
-    sent.record("old", "s", Fate::Withdrawn, 0);
-    sent.record("new", "s", Fate::Written, console::sent::KEEP_MS);
-    assert_eq!(sent.fate("old"), None);
-    assert_eq!(sent.fate("new"), Some(Fate::Written));
+fn the_record_reads_back_what_it_wrote() {
+    let mut messages = written();
+    messages.stepped(ID, Lifecycle::Queued, 2_000);
+    let text = serde_json::to_string(&messages).expect("written");
+    let read: Messages = serde_json::from_str(&text).expect("read");
+    assert_eq!(read.get(ID).map(|it| it.step), Some(Step::Queued));
 }
 
 #[test]

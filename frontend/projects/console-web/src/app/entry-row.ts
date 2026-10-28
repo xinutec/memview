@@ -26,8 +26,6 @@ import { PICTURE, Rendered } from './rendered';
 export class EntryRow {
   readonly entry = input.required<Entry>();
   readonly folding = input.required<Folding>();
-  /** The session has stopped reading, so a queued message will not be. */
-  readonly deaf = input(false);
   /** A clock the parent ticks while something is running. */
   readonly now = input(0);
   /** The picture currently shown full size, by name. */

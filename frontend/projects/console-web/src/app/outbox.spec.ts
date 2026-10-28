@@ -16,10 +16,10 @@ import {
 } from './outbox';
 
 /**
- * Messages written on the phone and kept until their session reads them. The
- * Mac's side — a retry answered without a second message, a withdrawal asked of
- * the CLI — is tested in Rust (`console/tests/suite/outbox.rs`); this is the
- * phone's: what it keeps, what it says, and what it asks.
+ * Messages written on the phone until the Mac has them. The Mac's side — a retry
+ * answered without a second message, a message given back once — is tested in
+ * Rust (`console/tests/suite/outbox.rs`); this is the phone's: what it keeps,
+ * what it says, and what it asks.
  */
 
 const NOON = new Date(2026, 9, 27, 12, 0);
@@ -31,9 +31,9 @@ function message(change: Partial<Outgoing> = {}): Outgoing {
 }
 
 describe('nextFor', () => {
-  it('sends the oldest of a session first, past what the Mac already has', () => {
-    const outbox = [message({ id: 'a', tried: true, sent: true }), message({ id: 'b' })];
-    expect(nextFor(outbox, 's')?.id).toBe('b');
+  it('sends the oldest of a session first', () => {
+    const outbox = [message({ id: 'a' }), message({ id: 'b' })];
+    expect(nextFor(outbox, 's')?.id).toBe('a');
   });
 
   it('stops a session at a refused message, and only that session', () => {
@@ -57,7 +57,7 @@ describe('judged', () => {
     for (const status of [0, 502, 503, 504]) expect(judged(status, undefined).kind).toBe('retry');
   });
 
-  it('drops a late copy of a message taken back', () => {
+  it('drops a send that was taken back while it was on its way', () => {
     expect(judged(409, { why: 'withdrawn' })).toEqual({ kind: 'withdrawn' });
   });
 
@@ -67,34 +67,37 @@ describe('judged', () => {
 });
 
 describe('takenJudged', () => {
-  it('takes a 200 as back', () => {
-    expect(takenJudged(200, {})).toEqual({ kind: 'back' });
+  it('takes the words the Mac gave back', () => {
+    expect(takenJudged(200, { text: 'hello', pictures: ['p.png'] })).toMatchObject({
+      kind: 'back',
+      text: 'hello',
+      pictures: ['p.png'],
+    });
   });
 
   it('says when the session read it first', () => {
     expect(takenJudged(409, { why: 'read', at: NOON.getTime() }, NOON)).toEqual({
-      kind: 'read',
-      note: `the session read it at ${AT_NOON}`,
+      kind: 'refused',
+      why: `the session read it at ${AT_NOON}`,
     });
   });
 
-  it('passes on what the Mac said when it could not settle it', () => {
-    expect(takenJudged(409, 'the session did not answer in time')).toEqual({
-      kind: 'unsettled',
-      note: 'the session did not answer in time',
+  it('says a second take-back finds it already back', () => {
+    expect(takenJudged(409, { why: 'withdrawn' })).toEqual({
+      kind: 'refused',
+      why: 'it was already taken back',
     });
   });
 
   it('does not pretend when there was no answer', () => {
-    expect(takenJudged(0, undefined).kind).toBe('unreachable');
+    expect(takenJudged(0, undefined)).toEqual({ kind: 'unreachable' });
   });
 });
 
 describe('standing', () => {
-  it('tells each step from the next', () => {
+  it('tells a message that never left the phone from one that may have arrived', () => {
     expect(standing(message(), 0).line).toBe('waiting to send');
     expect(standing(message({ tried: true }), 0).line).toBe('sent, no answer yet');
-    expect(standing(message({ tried: true, sent: true }), 0).line).toBe('waiting to be read');
   });
 
   it('says how long it has waited', () => {
@@ -106,13 +109,14 @@ describe('standing', () => {
     const refused = message({ id: 'a', refused: 'the session has ended' });
     const after = message({ id: 'b' });
     expect(behindRefused([refused, after], after)).toBe(true);
-    expect(behindRefused([refused, after], refused)).toBe(false);
     expect(standing(after, 0, true).line).toBe('waiting until the message above is taken back');
   });
 
   it('says why it was not sent, as an alert', () => {
-    const refused = standing(message({ refused: 'the session has ended' }), 0);
-    expect(refused).toMatchObject({ line: 'not sent — the session has ended', alert: true });
+    expect(standing(message({ refused: 'the session has ended' }), 0)).toMatchObject({
+      line: 'not sent — the session has ended',
+      alert: true,
+    });
   });
 });
 
@@ -142,7 +146,7 @@ class Mac {
   }
 }
 
-const ok = () => of({});
+const ok = () => of({ id: 's' });
 const offline = () => throwError(() => new HttpErrorResponse({ status: 0 }));
 const refused = (body: unknown) => () =>
   throwError(() => new HttpErrorResponse({ status: 409, error: body }));
@@ -193,8 +197,8 @@ describe('Outbox', () => {
     await outbox.drain();
     const [one, two] = mac.sends;
     expect(two?.id).toBe(one?.id);
-    // The Mac has it; it waits to be read, and can still be taken back.
-    expect(first()).toMatchObject({ sent: true });
+    // The Mac has it now, and says where it stands; the phone keeps nothing.
+    expect(outbox.all()).toHaveLength(0);
   });
 
   it('marks a message tried before it is sent, so a phone killed mid-send remembers', async () => {
@@ -213,35 +217,34 @@ describe('Outbox', () => {
   it('takes back a message that never left the phone without asking anyone', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     await outbox.enqueue('s', 'hello');
-    expect(await outbox.takeBack(first()?.id ?? '')).toEqual({ kind: 'back' });
-    expect(outbox.all()).toHaveLength(0);
+    expect(await outbox.takeBack(first()?.id ?? '')).toEqual({
+      kind: 'back',
+      text: 'hello',
+      pictures: [],
+    });
     expect(mac.withdrawals).toHaveLength(0);
   });
 
-  it('asks the Mac to take back a message it may have', async () => {
-    mac.answers = [ok];
+  it('asks the Mac about a message it may have, and gives its own words back', async () => {
+    // Sent, no answer: the Mac may have it, so only the Mac can say; never having
+    // had it, it remembers it as taken back, so the send still on its way is refused.
+    mac.answers = [offline];
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     const id = first()?.id ?? '';
-
-    mac.answers = [ok];
-    expect(await outbox.takeBack(id)).toEqual({ kind: 'back' });
+    mac.answers = [() => of({ text: '', pictures: [], session: { id: 's' } })];
+    expect(await outbox.takeBack(id)).toMatchObject({ kind: 'back', text: 'hello', pictures: [] });
     expect(mac.withdrawals).toEqual([id]);
     expect(outbox.all()).toHaveLength(0);
   });
 
-  it('keeps a message the session read first, and says when', async () => {
-    mac.answers = [ok];
+  it('does not give back a message the session read', async () => {
+    mac.answers = [offline];
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
-    const id = first()?.id ?? '';
-
     mac.answers = [refused({ why: 'read', at: NOON.getTime() })];
-    const taken = await outbox.takeBack(id);
-    expect(taken.kind).toBe('read');
-    // Its echo takes it out of the outbox, into the conversation.
-    outbox.done(id);
-    await Promise.resolve();
+    const taken = await outbox.takeBack(first()?.id ?? '');
+    expect(taken.kind).toBe('refused');
     expect(outbox.all()).toHaveLength(0);
   });
 
@@ -261,28 +264,7 @@ describe('Outbox', () => {
     await outbox.enqueue('s', 'hello');
     await outbox.drain();
     expect(first()?.refused).toBe('no session s');
-    expect(await outbox.takeBack(first()?.id ?? '')).toEqual({ kind: 'back' });
+    expect((await outbox.takeBack(first()?.id ?? '')).kind).toBe('back');
     expect(mac.withdrawals).toHaveLength(0);
-  });
-
-  it('gives back the words of a message its session ended without reading', async () => {
-    mac.answers = [ok];
-    await outbox.enqueue('s', 'hello');
-    await outbox.drain();
-    const id = first()?.id ?? '';
-    outbox.dropped(id);
-    await Promise.resolve();
-    expect(first()?.refused).toBe('the session ended before reading it');
-    expect(await outbox.takeBack(id)).toEqual({ kind: 'back' });
-    expect(mac.withdrawals).toHaveLength(0);
-  });
-
-  it('marks a message sent when the event stream says the Mac has it', async () => {
-    mac.answers = [offline];
-    await outbox.enqueue('s', 'hello');
-    await outbox.drain();
-    outbox.accepted(first()?.id ?? '');
-    await Promise.resolve();
-    expect(first()?.sent).toBe(true);
   });
 });

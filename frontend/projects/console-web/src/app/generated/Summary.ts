@@ -2,8 +2,8 @@
 import type { Allowance } from "./Allowance";
 import type { Called } from "./Called";
 import type { Effort } from "./Effort";
-import type { HeldCommand } from "./HeldCommand";
 import type { Mode } from "./Mode";
+import type { Waiting } from "./Waiting";
 
 /**
  * What a client sees of a session without reading its transcript.
@@ -96,6 +96,8 @@ deaf?: number,
  */
 signed_out?: number, 
 /**
- * Slash commands waiting for the turn to end, oldest first, word for word.
+ * Messages not yet read — held for the turn's end, or waiting in the queue —
+ * and those its process ended without reading, oldest first. See
+ * [`super::messages`].
  */
-held: Array<HeldCommand>, };
+messages: Array<Waiting>, };

@@ -412,134 +412,17 @@ describe('folding runs of tool calls', () => {
   });
 });
 
-describe('transcript · a message the session has not read yet', () => {
-  it('shows it at once, marked, rather than after the CLI gets to it', () => {
-    const seen = transcript({ kind: 'accepted', text: 'is the gate green?' });
-    expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: true }]);
-  });
-
-  it('promotes the waiting message rather than showing it twice', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'is the gate green?' },
-      { kind: 'prompt', text: 'is the gate green?' },
-    );
-    expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: undefined }]);
-  });
-
-  it('answers the copy with its id when the same words were sent twice', () => {
-    // Two messages may say the same words; the id says which one was read.
-    const seen = transcript(
-      { kind: 'accepted', text: 'yes', id: 'first' },
-      { kind: 'accepted', text: 'yes', id: 'second' },
-      { kind: 'prompt', text: 'yes', id: 'second' },
-    );
-    expect(seen.map((entry) => [only(entry, 'asked').id, only(entry, 'asked').queued])).toEqual([
-      ['first', true],
-      ['second', undefined],
-    ]);
-  });
-
-  it('removes a message taken back before it was read: it was never said', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'rename the branch', id: 'gone' },
-      { kind: 'accepted', text: 'and push it', id: 'kept' },
-      { kind: 'withdrawn', id: 'gone' },
-    );
-    expect(seen.map((entry) => only(entry, 'asked').text)).toEqual(['and push it']);
-  });
-
-  it('says a message the session ended without reading was not read, and keeps it', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'rename the branch', id: 'left' },
-      { kind: 'dropped', id: 'left' },
-    );
-    expect(seen).toHaveLength(1);
-    expect(only(seen[0], 'asked').waiting).toMatchObject({
-      line: 'not read — the session ended',
-      alert: true,
+describe('transcript · a message the session read', () => {
+  it('sits where it was read, under its id', () => {
+    // A message not yet read is the Mac's to show (`Summary.messages`), not the
+    // transcript's: the transcript holds only what the session has said and read.
+    const seen = transcript(tool('t1', 'Bash', bash('cargo test')), {
+      kind: 'prompt',
+      text: 'is the gate green?',
+      id: 'm-42',
+      at: 9000,
     });
-  });
-
-  it('answers the oldest copy when the same words were sent twice', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'why is it idle?' },
-      { kind: 'accepted', text: 'why is it idle?' },
-      { kind: 'prompt', text: 'why is it idle?' },
-    );
-    expect(seen.map((entry) => only(entry, 'asked').queued)).toEqual([true, undefined]);
-  });
-
-  it('does not break the model mid-sentence when a message is sent while it types', () => {
-    // The defect: one message became TWO. A queued message is added the
-    // moment it is sent, so the next delta found an `asked` at the end and
-    // started a fresh `said`. On screen that is a paragraph break in the middle
-    // of a sentence — and if the split falls inside a list or a code fence, BOTH
-    // halves render as broken markdown.
-    //
-    // It did not interrupt anything: the CLI parks a message sent mid-turn and
-    // reads it when the turn ends. So the model's words stay one block and the
-    // message sits after them, which is also the order it was read in.
-    const seen = transcript(
-      { kind: 'text', text: '- one\n- two\n' },
-      { kind: 'accepted', text: 'sent while it was typing' },
-      { kind: 'text', text: '- three\n' },
-    );
-    expect(seen.map((entry) => entry.kind)).toEqual(['said', 'asked']);
-    expect(only(first(seen), 'said').text).toBe('- one\n- two\n- three\n');
-  });
-
-  it('still starts a new block after a tool call, which DID interrupt', () => {
-    // The control. Text either side of a tool call is two blocks and must stay
-    // two — a fix that skipped back past anything would merge these.
-    const seen = transcript(
-      { kind: 'text', text: 'before' },
-      { kind: 'tool', id: 'toolu_1', name: 'Bash', does: bash('ls') },
-      { kind: 'text', text: 'after' },
-    );
-    expect(seen.filter((entry) => entry.kind === 'said')).toHaveLength(2);
-  });
-
-  it('carries on through several messages sent in a row', () => {
-    const seen = transcript(
-      { kind: 'text', text: 'one ' },
-      { kind: 'accepted', text: 'first' },
-      { kind: 'accepted', text: 'second' },
-      { kind: 'text', text: 'two' },
-    );
-    expect(only(first(seen), 'said').text).toBe('one two');
-    expect(seen.map((entry) => entry.kind)).toEqual(['said', 'asked', 'asked']);
-  });
-
-  it('shows a replayed message plainly, having never seen it wait', () => {
-    const seen = transcript({ kind: 'prompt', text: 'from the transcript' });
-    expect(seen).toEqual([{ kind: 'asked', text: 'from the transcript' }]);
-  });
-
-  it('never marks a slash command as waiting, because nothing will answer', () => {
-    const seen = transcript({ kind: 'command', text: '/compact' });
-    expect(seen).toEqual([{ kind: 'asked', text: '/compact' }]);
-  });
-
-  it('says on the page which message went unread, and for how long', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'is the gate green?' },
-      { kind: 'deaf', unread: 1, seconds: 1284 },
-    );
-    expect(seen.map((entry) => entry.kind)).toEqual(['asked', 'note']);
-    expect(only(seen[1], 'note').text).toBe(
-      'not reading — 1 message written and untouched for 21m 24s',
-    );
-  });
-
-  it('reads a command back out of the transcript, where it used to vanish', () => {
-    const seen = transcript(
-      { kind: 'command', text: '/compact' },
-      { kind: 'command', text: '/loop check eval output' },
-    );
-    expect(seen.map((entry) => only(entry, 'asked').text)).toEqual([
-      '/compact',
-      '/loop check eval output',
-    ]);
+    expect(only(seen.at(-1), 'asked')).toMatchObject({ id: 'm-42', at: 9000 });
   });
 });
 
@@ -568,44 +451,6 @@ describe('transcript · an answer the session has not acted on', () => {
       { kind: 'busy', status: 'requesting' },
     );
     expect(asked(seen[0]).settling).toBe(true);
-  });
-});
-
-describe('transcript · where a message that waited belongs', () => {
-  it('moves it below the work that happened before it was read', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'is the gate green?', at: 1000 },
-      tool('t1', 'Bash', bash('cargo test')),
-      { kind: 'text', text: 'still on the last thing' },
-      { kind: 'prompt', text: 'is the gate green?', at: 9000 },
-    );
-    expect(seen.map((e) => e.kind)).toEqual(['day', 'tool', 'said', 'asked']);
-    const read = only(seen[3], 'asked');
-    expect(read.queued).toBeUndefined();
-    expect(read.at, 'stamped when it was read, so the clock stays monotonic').toBe(9000);
-  });
-
-  it('moves the oldest copy when the same words were sent twice', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'why is it idle?', at: 1000 },
-      { kind: 'accepted', text: 'why is it idle?', at: 2000 },
-      { kind: 'prompt', text: 'why is it idle?', at: 9000 },
-    );
-    expect(
-      seen.filter((e) => e.kind === 'asked').map((e) => [e.at, only(e, 'asked').queued]),
-    ).toEqual([
-      [2000, true],
-      [9000, undefined],
-    ]);
-  });
-
-  it('leaves a message alone while it is still waiting', () => {
-    const seen = transcript(
-      { kind: 'accepted', text: 'have a look', at: 1000 },
-      tool('t1', 'Bash', bash('ls')),
-    );
-    expect(seen.map((e) => e.kind)).toEqual(['day', 'asked', 'tool']);
-    expect(only(seen[1], 'asked').queued).toBe(true);
   });
 });
 
