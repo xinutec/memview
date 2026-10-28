@@ -148,6 +148,8 @@ impl Session {
         let state = self.state.lock();
         Summary {
             id: self.id.clone(),
+            // Under the lock: stamps follow the order the states were read.
+            taken: super::summary::stamp(),
             dir: self.dir.display().to_string(),
             started: self
                 .started

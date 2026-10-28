@@ -80,6 +80,14 @@ function stands(how: Stands, deaf: boolean, waited: string): Standing {
   }
 }
 
+/**
+ * What to show of a session: `next`, unless it is an older word on the same
+ * session than `shown`. A poll asked before a send can be answered after it.
+ */
+export function newest(shown: Summary | undefined, next: Summary | undefined): Summary | undefined {
+  return next && shown?.id === next.id && next.taken < shown.taken ? shown : next;
+}
+
 /** How many pictures a waiting message carries, in words. */
 function pictures(count: number): string {
   return `${count} picture${count === 1 ? '' : 's'}`;
@@ -274,7 +282,7 @@ export class SessionView implements OnDestroy {
     // The Mac's answer to a send shows the message it just took, before the next poll.
     effect(() => {
       const answered = this.outbox.answered();
-      if (answered?.id === this.id()) this.session.set(answered);
+      if (answered?.id === this.id()) untracked(() => this.show(answered));
     });
     const ticking = setInterval(() => this.minute.set(Date.now()), 60_000);
     this.until.onDestroy(() => clearInterval(ticking));
@@ -296,7 +304,7 @@ export class SessionView implements OnDestroy {
       const id = this.id();
       untracked(() => {
         const mine = state?.sessions.find((s) => s.id === id);
-        this.session.set(mine);
+        this.show(mine);
         this.here.open.set(mine);
         this.here.gist.set(state?.gists[id]);
         this.here.tasks.set(state?.tasks.sessions[id]);
@@ -533,7 +541,7 @@ export class SessionView implements OnDestroy {
     const taken = await this.outbox.takeBack(this.id(), entry.id);
     switch (taken.kind) {
       case 'back':
-        if (taken.session?.id === this.id()) this.session.set(taken.session);
+        if (taken.session?.id === this.id()) this.show(taken.session);
         this.trouble.set('');
         break;
       case 'refused':
@@ -564,6 +572,11 @@ export class SessionView implements OnDestroy {
     this.sheets.open(SignInSheet, { panelClass: 'start-sheet' });
   }
 
+  /** Show the runner's word on this session, unless what is shown is newer: [[newest]]. */
+  private show(next: Summary | undefined): void {
+    this.session.set(newest(this.session(), next));
+  }
+
   revive(id: string): void {
     if (this.reviving()) return;
     this.reviving.set(true);
@@ -571,7 +584,7 @@ export class SessionView implements OnDestroy {
       next: (summary) => {
         this.reviving.set(false);
         this.trouble.set('');
-        this.session.set(summary);
+        this.show(summary);
       },
       error: (err: unknown) => {
         this.reviving.set(false);

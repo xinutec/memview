@@ -279,6 +279,7 @@ export const REPOS = [
 /** The session most of these tests open: deep path, long first instruction, still alive. */
 export const RUNNING: Summary = {
   id: '6f7c2f11-0000-4000-8000-000000000001',
+  taken: 0,
   dir: '/home/example/Code/health/packages/health-sync-backend/src/decode',
   started: 1785600000,
   alive: true,
@@ -314,6 +315,7 @@ export const RUNNING: Summary = {
 /** The other one on the roster: ended, cheap, and holding no tasks. */
 export const ENDED: Summary = {
   id: '6f7c2f11-0000-4000-8000-000000000002',
+  taken: 0,
   dir: '/home/example/Code/memview',
   started: 1785599000,
   alive: false,

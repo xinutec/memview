@@ -90,6 +90,9 @@ pub struct Seen {
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Summary {
     pub id: String,
+    /// When the runner took this summary, in microseconds and never twice the
+    /// same: an answer can arrive after a later one, and a client keeps the newest.
+    pub taken: u64,
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
@@ -178,6 +181,23 @@ pub struct Summary {
 }
 
 /// Nothing to report, for a count left off the wire when it is zero.
+/// Now, in microseconds, but always after the last stamp given: two summaries
+/// taken in one microsecond are still ordered.
+pub(super) fn stamp() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as u64;
+    let previous = LAST
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
+            Some(now.max(last + 1))
+        })
+        .unwrap_or_default();
+    now.max(previous + 1)
+}
+
 fn none(count: &usize) -> bool {
     *count == 0
 }

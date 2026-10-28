@@ -8,6 +8,7 @@ import { first } from './testing';
  *  started, before it has read a name, a model or a mode for it. */
 const BARE: Summary = {
   id: '6f7c2f11-0000-4000-8000-000000000001',
+  taken: 0,
   dir: '/home/example/Code/health',
   started: 1785600000,
   alive: true,

@@ -8,7 +8,12 @@ import type { Waiting } from "./Waiting";
 /**
  * What a client sees of a session without reading its transcript.
  */
-export type Summary = { id: string, dir: string, 
+export type Summary = { id: string, 
+/**
+ * When the runner took this summary, in microseconds and never twice the
+ * same: an answer can arrive after a later one, and a client keeps the newest.
+ */
+taken: number, dir: string, 
 /**
  * Seconds since the epoch.
  */

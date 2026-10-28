@@ -14,7 +14,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['**/two-devices.spec.ts', '**/take-back.spec.ts'],
+  testMatch: ['**/two-devices.spec.ts', '**/take-back.spec.ts', '**/sending.spec.ts'],
   fullyParallel: false,
   workers: 1,
   // Sync is a poll, so every assertion here is "within the interval" rather than
