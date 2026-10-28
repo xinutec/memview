@@ -58,6 +58,9 @@ import { Block, blocks } from './transcript';
 import { Updates } from './updates';
 
 /** One conversation: its transcript, what it is doing, and the box to reply in. */
+/** How long news, as against a fault, stays on the notice bar. */
+const BRIEFLY_MS = 6_000;
+
 /** How many pictures a waiting message carries, in words. */
 function pictures(count: number): string {
   return `${count} picture${count === 1 ? '' : 's'}`;
@@ -502,14 +505,26 @@ export class SessionView implements OnDestroy {
         break;
       }
       case 'read':
-        this.trouble.set(`Not taken back: ${taken.note}.`);
+        this.briefly(`Not taken back: ${taken.note}.`);
         break;
       case 'unreachable':
-        this.trouble.set(
+        this.briefly(
           'Not taken back: the Mac could not be reached, and it may already have the message.',
         );
         break;
     }
+  }
+
+  /**
+   * Say something that is news rather than a fault, for long enough to read: a
+   * take-back that came too late changes nothing that needs mending, so it does
+   * not stay until the next send the way a failure does.
+   */
+  private briefly(what: string): void {
+    this.trouble.set(what);
+    setTimeout(() => {
+      if (this.trouble() === what) this.trouble.set('');
+    }, BRIEFLY_MS);
   }
 
   /** Sign the account in again. See [[SignInSheet]]. */

@@ -1140,6 +1140,8 @@ test('a message the session read first is not taken back, and says when @ phone 
   await mine.getByRole('button', { name: 'take back' }).click();
   await expect(page.getByText(/Not taken back: the session read it at/)).toBeVisible();
   await expect(page.locator('app-composer textarea')).toHaveValue('');
+  // News, not a fault: it goes by itself rather than staying until the next send.
+  await expect(page.getByText(/Not taken back/)).toHaveCount(0, { timeout: 10_000 });
 });
 
 test('a refused message stops its session until taken back @ phone width', async ({
