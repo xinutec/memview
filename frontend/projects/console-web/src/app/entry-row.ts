@@ -8,7 +8,7 @@ import { Clock } from './clock';
 import { Coloured } from './coloured';
 import { Folding } from './folding';
 import { Lasted } from './lasted';
-import { type Change, type ToolCall, type Entry, pending } from './models';
+import { type Asked, type Change, type ToolCall, type Entry, pending } from './models';
 import { fetchedAt, thumbnailAt } from './picture';
 import { PICTURE, Rendered } from './rendered';
 
@@ -39,6 +39,8 @@ export class EntryRow {
   readonly parse = output<ToolCall>();
   readonly diff = output<Change>();
   readonly enlarge = output<string>();
+  /** A message not yet read, to be taken back into the composer. */
+  readonly takeBack = output<Asked>();
 
   protected readonly drawn = computed(() => (pending(this.entry()) ? 'ask' : this.entry().kind));
   protected readonly pending = pending;

@@ -1,9 +1,9 @@
 //! A message sent under the client's id: delivered once however often it is
-//! retried, and taken back only while it can be.
+//! retried, and taken back only while the session has not read it.
 
-use console::sent::{Cancel, Fate, Refusal, Send, Sent, Where, Why, cancelling, sending};
+use console::sent::{Fate, Refusal, Send, Sent, Where, Why, Withdraw, sending, withdrawing};
 
-const DELIVERED: Where = Where::Delivered { at: 1_000 };
+const READ: Where = Where::Delivered { at: 1_000 };
 
 #[test]
 fn a_new_message_is_written() {
@@ -12,21 +12,17 @@ fn a_new_message_is_written() {
 
 #[test]
 fn a_retry_after_a_lost_receipt_is_answered_without_a_second_message() {
-    // Sent, delivered, and the answer lost on the way back: the phone retries with
-    // the same id, and the session already has it.
-    assert_eq!(sending(Some(Fate::Written), DELIVERED), Send::AlreadyHave);
-    // Or it has been handed over and not read yet, or is held for the turn's end.
-    assert_eq!(
-        sending(Some(Fate::Written), Where::Unread),
-        Send::AlreadyHave
-    );
-    assert_eq!(sending(Some(Fate::Written), Where::Held), Send::AlreadyHave);
+    // Sent, and the answer lost on the way back: the phone retries with the same
+    // id, and the message is already held, queued, or read.
+    for there in [Where::Held, Where::Unread, READ] {
+        assert_eq!(sending(Some(Fate::Written), there), Send::AlreadyHave);
+    }
 }
 
 #[test]
 fn a_message_in_the_transcript_but_not_the_record_is_still_not_sent_twice() {
     // The record lost or expired, the transcript still has it under its id.
-    assert_eq!(sending(None, DELIVERED), Send::AlreadyHave);
+    assert_eq!(sending(None, READ), Send::AlreadyHave);
 }
 
 #[test]
@@ -36,67 +32,76 @@ fn a_message_written_to_a_session_that_died_unread_is_written_again() {
 }
 
 #[test]
-fn a_late_retry_of_a_cancelled_message_is_refused() {
-    // A slow retry must not land after the edit that replaced it.
-    assert!(matches!(
-        sending(Some(Fate::Cancelled), Where::Nowhere),
+fn a_late_retry_of_a_message_taken_back_is_refused() {
+    // The person has its words back, and may be rewriting them.
+    assert_eq!(
+        sending(Some(Fate::Withdrawn), Where::Nowhere),
         Send::Refuse(Refusal {
-            why: Why::Cancelled,
-            ..
-        })
-    ));
-}
-
-#[test]
-fn a_message_that_got_there_cannot_be_taken_back_and_says_when() {
-    // Sent, delivered, receipt lost, then cancelled from the phone: refused, with
-    // when it got there, so the phone does not pretend.
-    assert_eq!(
-        cancelling(Some(Fate::Written), DELIVERED),
-        Cancel::Refuse(Refusal {
-            why: Why::Delivered,
-            at: Some(1_000),
-            original: false,
+            why: Why::Withdrawn,
+            at: None
         })
     );
 }
 
 #[test]
-fn a_message_handed_to_the_session_cannot_be_taken_back() {
-    assert!(matches!(
-        cancelling(Some(Fate::Written), Where::Unread),
-        Cancel::Refuse(Refusal {
-            why: Why::InFlight,
-            ..
-        })
-    ));
-}
-
-#[test]
-fn a_held_command_can_be_taken_back() {
+fn a_message_the_session_read_cannot_be_taken_back_and_says_when() {
     assert_eq!(
-        cancelling(Some(Fate::Written), Where::Held),
-        Cancel::TakeBack
+        withdrawing(Some(Fate::Written), READ),
+        Withdraw::Refuse(Refusal {
+            why: Why::Read,
+            at: Some(1_000)
+        })
     );
 }
 
 #[test]
-fn a_message_that_never_arrived_is_forgotten_and_a_second_cancel_is_done() {
-    assert_eq!(cancelling(None, Where::Nowhere), Cancel::Forget);
+fn a_queued_message_is_asked_of_the_cli() {
+    // Only the CLI knows whether a turn has taken it in.
     assert_eq!(
-        cancelling(Some(Fate::Cancelled), Where::Nowhere),
-        Cancel::Done
+        withdrawing(Some(Fate::Written), Where::Unread),
+        Withdraw::AskCli
+    );
+}
+
+#[test]
+fn a_held_command_is_taken_back_here() {
+    assert_eq!(
+        withdrawing(Some(Fate::Written), Where::Held),
+        Withdraw::TakeBack
+    );
+}
+
+#[test]
+fn a_message_that_never_arrived_is_forgotten_and_a_second_withdrawal_is_done() {
+    assert_eq!(withdrawing(None, Where::Nowhere), Withdraw::Forget);
+    assert_eq!(
+        withdrawing(Some(Fate::Withdrawn), Where::Nowhere),
+        Withdraw::Done
     );
 }
 
 #[test]
 fn the_record_outlives_the_console() {
-    // A cancelled id must still be refused after a restart.
+    // A message taken back must still be refused after a restart.
     let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
     let file = dir.join("sent.json");
-    Sent::load(file.clone()).record("m-42", "s", Fate::Cancelled, 1_000);
-    assert_eq!(Sent::load(file).fate("m-42"), Some(Fate::Cancelled));
+    Sent::load(file.clone()).record("m-42", "s", Fate::Withdrawn, 1_000);
+    assert_eq!(Sent::load(file).fate("m-42"), Some(Fate::Withdrawn));
+}
+
+#[test]
+fn a_record_written_before_withdrawals_still_reads() {
+    // The first build called a taken-back id cancelled.
+    let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let file = dir.join("sent.json");
+    std::fs::write(
+        &file,
+        r#"{"m-42":{"session":"s","at":1000,"fate":"cancelled"}}"#,
+    )
+    .expect("file");
+    assert_eq!(Sent::load(file).fate("m-42"), Some(Fate::Withdrawn));
 }
 
 #[test]
@@ -104,7 +109,7 @@ fn ids_older_than_a_week_are_forgotten() {
     let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
     let sent = Sent::load(dir.join("sent.json"));
-    sent.record("old", "s", Fate::Cancelled, 0);
+    sent.record("old", "s", Fate::Withdrawn, 0);
     sent.record("new", "s", Fate::Written, console::sent::KEEP_MS);
     assert_eq!(sent.fate("old"), None);
     assert_eq!(sent.fate("new"), Some(Fate::Written));

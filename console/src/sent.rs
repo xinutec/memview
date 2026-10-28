@@ -1,12 +1,13 @@
 //! What became of each message a client gave an id, so a retry is never a second
-//! message and a cancel never pretends.
+//! message and a message is taken back only while the session has not read it.
 //!
 //! The phone keeps an outbox and retries with the same id until it hears back:
 //! after a lost receipt it cannot know whether its message arrived, and only this
-//! side can. The CLI does the rest of the work — it records a message under the
-//! client's id as `uuid` and ignores a second one with the same id, live and after
-//! `--resume` (measured on 2.1.289) — so what is kept here is what the CLI cannot
-//! know: which ids were cancelled, and which this console already wrote.
+//! side can. The CLI does much of the work — it records a message under the
+//! client's id as `uuid`, ignores a second with the same id, and takes one back
+//! from its queue by id until a turn takes it in (`cancel_async_message`,
+//! measured on 2.1.289) — so what is kept here is what the CLI cannot know: which
+//! ids were taken back, and which this console already wrote.
 //!
 //! Where a message stands is asked of the session (held, unread, echoed) and, for
 //! one an earlier process wrote, of the transcript, which records it under its id.
@@ -32,9 +33,10 @@ const TAIL: u64 = 32 * 1024 * 1024;
 pub enum Fate {
     /// Written to the session, or held for its turn's end.
     Written,
-    /// Taken back before it reached the session: a retry of it is refused, so a slow
-    /// one cannot land after the message that replaced it.
-    Cancelled,
+    /// Taken back before the session read it: a retry of it is refused, so a slow
+    /// one cannot land after the person has rewritten it.
+    #[serde(alias = "cancelled")]
+    Withdrawn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,31 +50,29 @@ struct Entry {
 /// Where a message stands, as the session and its transcript see it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Where {
-    /// Held by this console for the turn's end: it can still be taken back.
+    /// Held by this console for the turn's end.
     Held,
-    /// Written to the CLI and not yet read: it will be, and cannot be taken back.
+    /// Written to the CLI and not yet read: in its queue, where it can be taken back.
     Unread,
-    /// The CLI has it, since `at` (epoch milliseconds).
+    /// The session has read it, at `at` (epoch milliseconds).
     Delivered { at: i64 },
     /// Neither here nor in the transcript.
     Nowhere,
 }
 
-/// Why a message, or a cancel, was refused.
+/// Why a message, or taking one back, was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub enum Why {
-    /// It was cancelled; this is a late retry of it.
-    Cancelled,
-    /// The session already has it.
-    Delivered,
-    /// The session has been handed it and will read it: too late to take back.
-    InFlight,
+    /// It was taken back; this is a late retry of it.
+    Withdrawn,
+    /// The session has read it.
+    Read,
 }
 
-/// A refusal, with when the message got there when that is known.
+/// A refusal, with when the session read the message when that is known.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
@@ -82,21 +82,6 @@ pub struct Refusal {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub at: Option<i64>,
-    /// About the message an edit replaces, not the edit: the original got there, so
-    /// the edit was not sent.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
-    pub original: bool,
-}
-
-impl Refusal {
-    fn because(why: Why, at: Option<i64>) -> Self {
-        Self {
-            why,
-            at,
-            original: false,
-        }
-    }
 }
 
 /// What to do with a message arriving under an id.
@@ -110,12 +95,14 @@ pub enum Send {
 
 /// What to do with a request to take a message back.
 #[derive(Debug, PartialEq)]
-pub enum Cancel {
-    /// Never reached the session: remember the id as cancelled.
+pub enum Withdraw {
+    /// Never reached the session: remember the id as taken back.
     Forget,
-    /// Held here: release it, and remember the id as cancelled.
+    /// Held here: release it, and remember the id as taken back.
     TakeBack,
-    /// Already cancelled.
+    /// In the CLI's queue: ask it, which says whether a turn took it in first.
+    AskCli,
+    /// Already taken back.
     Done,
     Refuse(Refusal),
 }
@@ -123,7 +110,10 @@ pub enum Cancel {
 /// A message arriving under an id this console has `fate` for, standing `there`.
 pub fn sending(fate: Option<Fate>, there: Where) -> Send {
     match (fate, there) {
-        (Some(Fate::Cancelled), _) => Send::Refuse(Refusal::because(Why::Cancelled, None)),
+        (Some(Fate::Withdrawn), _) => Send::Refuse(Refusal {
+            why: Why::Withdrawn,
+            at: None,
+        }),
         // Written by a process that died before the CLI read it: the CLI ignores
         // the id if it did, so writing again is safe.
         (_, Where::Nowhere) => Send::Write,
@@ -132,17 +122,20 @@ pub fn sending(fate: Option<Fate>, there: Where) -> Send {
 }
 
 /// A request to take back a message this console has `fate` for, standing `there`.
-pub fn cancelling(fate: Option<Fate>, there: Where) -> Cancel {
+pub fn withdrawing(fate: Option<Fate>, there: Where) -> Withdraw {
     match (fate, there) {
-        (Some(Fate::Cancelled), _) => Cancel::Done,
-        (_, Where::Delivered { at }) => Cancel::Refuse(Refusal::because(Why::Delivered, Some(at))),
-        (_, Where::Unread) => Cancel::Refuse(Refusal::because(Why::InFlight, None)),
-        (_, Where::Held) => Cancel::TakeBack,
-        (_, Where::Nowhere) => Cancel::Forget,
+        (Some(Fate::Withdrawn), _) => Withdraw::Done,
+        (_, Where::Delivered { at }) => Withdraw::Refuse(Refusal {
+            why: Why::Read,
+            at: Some(at),
+        }),
+        (_, Where::Unread) => Withdraw::AskCli,
+        (_, Where::Held) => Withdraw::TakeBack,
+        (_, Where::Nowhere) => Withdraw::Forget,
     }
 }
 
-/// Every id a client gave, kept on disk so a restart still refuses a cancelled one.
+/// Every id a client gave, kept on disk so a restart still refuses one taken back.
 pub struct Sent {
     file: PathBuf,
     entries: Mutex<BTreeMap<String, Entry>>,
@@ -159,7 +152,7 @@ impl Sent {
                 Ok(entries) => entries,
                 Err(error) => {
                     tracing::error!(
-                        "{} could not be read, so no cancelled message is remembered: {error}",
+                        "{} could not be read, so no message taken back is remembered: {error}",
                         file.display()
                     );
                     BTreeMap::new()

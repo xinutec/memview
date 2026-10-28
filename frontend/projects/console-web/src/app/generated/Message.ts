@@ -5,9 +5,4 @@ export type Message = { text: string,
  * The client's id for the message, a uuid: a retry under it is answered
  * without a second message. See [`crate::sent`].
  */
-id?: string, 
-/**
- * The id of a message this one replaces: sent only if that one can still be
- * taken back.
- */
-replaces?: string, };
+id?: string, };

@@ -133,6 +133,40 @@ pub fn set_mode(request_id: &str, mode: &crate::modes::Mode) -> String {
     .to_string()
 }
 
+/// Take back a message the CLI holds in its queue, by its id: refused, as
+/// `cancelled: false`, once a turn has taken it in.
+pub fn withdraw(request_id: &str, message: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "cancel_async_message", "message_uuid": message},
+    })
+    .to_string()
+}
+
+/// The request id of a withdrawal, then the message's id, so its answer is found.
+pub const WITHDRAW: &str = "withdraw-";
+
+/// A session's answer to a withdrawal: the request it answers, and whether the
+/// message was still waiting. An error is an answer too: nothing was taken back.
+///
+/// ```text
+/// {"subtype":"success","request_id":"withdraw-…","response":{"cancelled":true}}
+/// ```
+pub fn withdraw_answer(parsed: &serde_json::Value) -> Option<(String, bool)> {
+    if parsed.get("type")?.as_str()? != "control_response" {
+        return None;
+    }
+    let response = parsed.get("response")?;
+    let request = response.get("request_id")?.as_str()?;
+    if !request.starts_with(WITHDRAW) {
+        return None;
+    }
+    let cancelled = response.get("subtype")?.as_str()? == "success"
+        && response.get("response")?.get("cancelled")?.as_bool()?;
+    Some((request.to_string(), cancelled))
+}
+
 /// The request id of a mode change, one per session, so its answer is found.
 pub const SET_MODE: &str = "set-mode-";
 

@@ -23,7 +23,7 @@ restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: 
  * The message's own id when a client gave it one: how a retry is told from
  * a second message. See [`crate::sent`].
  */
-id?: string, } | { "kind": "prompt", text: string, 
+id?: string, } | { "kind": "withdrawn", id: string, } | { "kind": "prompt", text: string, 
 /**
  * The message's own id when a client gave it one: how a retry is told from
  * a second message. See [`crate::sent`].

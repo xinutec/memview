@@ -287,13 +287,10 @@ export class SessionStore {
     if (event.kind === 'diverged') {
       held.diverged.update((diverged) => new Set(diverged).add(event.call));
     }
-    // The Mac has the message: the outbox stops waiting for it — see [[Outbox]].
-    if (
-      (event.kind === 'accepted' || event.kind === 'prompt' || event.kind === 'shown') &&
-      event.id
-    ) {
-      this.outbox.confirm(event.id);
-    }
+    // Where a message of this phone's stands — see [[Outbox]].
+    if (event.kind === 'accepted' && event.id) this.outbox.accepted(event.id);
+    if ((event.kind === 'prompt' || event.kind === 'shown') && event.id) this.outbox.done(event.id);
+    if (event.kind === 'withdrawn') this.outbox.done(event.id);
     // Behind a kept copy the conversation is built out of sight: a page half
     // arrived over a slow link would replace the copy with less than it had.
     if (held.source() === 'kept') held.building = fold(held.building ?? [], event);

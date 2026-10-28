@@ -1070,7 +1070,7 @@ test('a word longer than the screen wraps inside the box rather than widening it
   await expectCleanLayout(page, testInfo, { root: 'app-composer' });
 });
 
-test('a message written offline waits on the phone and goes, once, when it is back @ phone width', async ({
+test('a message written offline waits in the conversation and goes, once, when back @ phone width', async ({
   page,
   context,
 }, testInfo) => {
@@ -1086,55 +1086,77 @@ test('a message written offline waits on the phone and goes, once, when it is ba
   await box.fill('check the build when you can');
   await page.getByRole('button', { name: 'send' }).click();
 
-  // Kept, and said plainly: offline, it cannot have left.
-  const waiting = page.locator('.outgoing');
-  await expect(waiting).toContainText('check the build when you can');
-  await expect(waiting).toContainText('waiting to send');
+  // In the conversation, where it will stay once read; offline, it cannot have left.
+  const mine = page.locator('li.entry', { hasText: 'check the build when you can' });
+  await expect(mine).toContainText('waiting to send');
   await expect(box).toHaveValue('');
-  await expectCleanLayout(page, testInfo, { root: '.outgoing' });
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+  await expectThumbTargets(page);
   expect(sent).toHaveLength(0);
 
   await context.setOffline(false);
-  await expect(waiting).toHaveCount(0);
+  await expect(mine).toContainText('waiting to be read');
   expect(sent).toHaveLength(1);
   expect(sent[0]?.text).toBe('check the build when you can');
   expect(sent[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
 });
 
-test('a message never answered may already be there, and is taken back only by asking @ phone width', async ({
+test('a message not yet read is taken back into the box @ phone width', async ({
   page,
-}, testInfo) => {
+  context,
+}) => {
   await mockRunner(page);
-  await page.route('**/api/sessions/*/input', (r) => r.abort('connectionreset'));
   await page.goto(`/s/${RUNNING.id}`);
-  await page.locator('app-composer textarea').fill('rename the branch');
+  await context.setOffline(true);
+  const box = page.locator('app-composer textarea');
+  await box.fill('rename the branch');
   await page.getByRole('button', { name: 'send' }).click();
+  await box.fill('and then');
 
-  const waiting = page.locator('.outgoing');
-  await expect(waiting).toContainText('may already have been delivered');
-  await page.getByRole('button', { name: 'what to do with this message' }).click();
-  await expect(
-    page.getByRole('button', { name: /take back, if it has not arrived/ }),
-  ).toBeVisible();
-  await expectCleanLayout(page, testInfo, { root: 'app-outgoing-sheet' });
+  await page
+    .locator('li.entry', { hasText: 'rename the branch' })
+    .getByRole('button', { name: 'take back' })
+    .click();
+  // Its words first, what was being written after: nothing typed is lost.
+  await expect(box).toHaveValue('rename the branch\n\nand then');
+  await expect(page.locator('li.entry', { hasText: 'waiting to send' })).toHaveCount(0);
 });
 
-test('an edit whose original got there is not sent, and says when @ phone width', async ({
+test('a message the session read first is not taken back, and says when @ phone width', async ({
   page,
-}, testInfo) => {
+}) => {
   await mockRunner(page);
-  const at = Date.now() - 2 * 60_000;
-  await page.route('**/api/sessions/*/input', (r) =>
-    r.fulfill({ status: 409, json: { why: 'delivered', at, original: true } satisfies Refusal }),
+  const at = Date.now() - 60_000;
+  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
+  await page.route('**/api/sessions/*/withdraw', (r) =>
+    r.fulfill({ status: 409, json: { why: 'read', at } satisfies Refusal }),
   );
   await page.goto(`/s/${RUNNING.id}`);
   await page.locator('app-composer textarea').fill('use the other branch');
   await page.getByRole('button', { name: 'send' }).click();
 
-  const refused = page.locator('.outgoing.refused');
-  await expect(refused).toContainText('not sent — the original reached the session at');
-  await expectCleanLayout(page, testInfo, { root: '.outgoing' });
-  await page.getByRole('button', { name: 'what to do with this message' }).click();
-  await expect(page.getByRole('button', { name: /send as a new message/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /discard/ })).toBeVisible();
+  const mine = page.locator('li.entry', { hasText: 'use the other branch' });
+  await expect(mine).toContainText('waiting to be read');
+  await mine.getByRole('button', { name: 'take back' }).click();
+  await expect(page.getByText(/Not taken back: the session read it at/)).toBeVisible();
+  await expect(page.locator('app-composer textarea')).toHaveValue('');
+});
+
+test('a refused message stops its session until taken back @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/input', (r) =>
+    r.fulfill({ status: 409, body: 'session is no longer accepting input' }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  await box.fill('one more thing');
+  await page.getByRole('button', { name: 'send' }).click();
+
+  const refused = page.locator('li.entry', { hasText: 'one more thing' });
+  await expect(refused).toContainText('not sent — session is no longer accepting input');
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+  await refused.getByRole('button', { name: 'take back' }).click();
+  await expect(box).toHaveValue('one more thing');
 });

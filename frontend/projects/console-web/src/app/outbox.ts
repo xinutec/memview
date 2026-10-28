@@ -4,119 +4,116 @@ import { firstValueFrom } from 'rxjs';
 
 import { ConsoleApi } from './console-api';
 import { Local } from './local';
-import type { Picture } from './picture';
 import type { Refusal } from './generated/Refusal';
+import type { Picture } from './picture';
 
 /**
- * Messages written on this phone and not yet confirmed by the Mac: sent from here
- * until the Mac says it has them, so a message written offline goes when the
- * phone is back, and a receipt lost on the way back is retried rather than
- * guessed at.
+ * Messages written on this phone and not yet read by their session: sent from
+ * here until the Mac has them, and kept until the session reads them, so a
+ * message written offline goes when the phone is back, a receipt lost on the way
+ * back is retried rather than guessed at, and any message not yet read can be
+ * taken back into the composer.
  *
  * Each message has an id from the moment Send is pressed, and every retry carries
  * it, so the Mac answers a retry without sending it again (console/src/sent.rs).
- * What the phone cannot know after a send it never heard back from — whether the
- * message got there — it says so, and an edit or a cancel of such a message is a
- * question put to the Mac, never a pretence.
+ * Taking back a message the Mac may have is asked of the Mac, which takes it from
+ * the CLI's queue or says the session read it first — never pretended here.
  *
  * Answers to a session's questions are never put here: one written against a
  * question may arrive after that question is gone.
  */
 
-/** One message waiting to be confirmed. */
+/** One message its session has not read. */
 export interface Outgoing {
   readonly id: string;
   readonly session: string;
   readonly text: string;
   readonly pictures?: readonly Picture[];
-  /** An edit of a message that may already have arrived: sent only if that one has not. */
-  readonly replaces?: string;
   /** When Send was pressed, in epoch milliseconds. */
   readonly created: number;
   /**
-   * Whether a send was ever attempted. Until then the message never left the phone
-   * and can be changed or dropped here alone; after, it may already be there.
+   * Whether a send was ever attempted. Until then it never left the phone; after,
+   * with no answer, the Mac may have it.
    */
   readonly tried: boolean;
-  /** Taking back a message that may already be there, waiting to ask the Mac. */
-  readonly cancelling?: boolean;
-  /** Why the Mac would not take it: the session's queue stops here until decided. */
+  /** The Mac has it: waiting for the session to read it. */
+  readonly sent?: boolean;
+  /** Why the Mac would not take it: its session's queue stops here until it is taken back. */
   readonly refused?: string;
 }
 
-/** What one answer from the Mac means for the message sent. */
+/** What one answer from the Mac to a send means. */
 export type Verdict =
   | { readonly kind: 'sent' }
   /** No answer worth believing: the network, or the Mac failing. Same id later. */
   | { readonly kind: 'retry' }
   /** Taken back earlier; this was a late copy of it. */
-  | { readonly kind: 'cancelled' }
+  | { readonly kind: 'withdrawn' }
   | { readonly kind: 'refused'; readonly why: string };
 
-/** The oldest message to send for `session`, or none while one there needs deciding. */
+/** What the Mac's answer to taking a message back means. */
+export type Taken =
+  | { readonly kind: 'back' }
+  | { readonly kind: 'read'; readonly note: string }
+  | { readonly kind: 'unreachable' };
+
+/** How a waiting message stands, for the line under it. */
+export interface Standing {
+  readonly line: string;
+  readonly icon: string;
+  readonly alert?: boolean;
+}
+
+/** The oldest message `session` still has to send, or none while one there needs deciding. */
 export function nextFor(outbox: readonly Outgoing[], session: string): Outgoing | undefined {
-  const head = outbox.find((message) => message.session === session);
+  const head = outbox.find((message) => message.session === session && !message.sent);
   return head?.refused === undefined ? head : undefined;
 }
 
 /** What the Mac's answer to a send means. `status` 0 is no answer at all. */
-export function judged(status: number, body: unknown, now: Date = new Date()): Verdict {
+export function judged(status: number, body: unknown): Verdict {
   if (status >= 200 && status < 300) return { kind: 'sent' };
   if (status === 0 || status >= 500 || status === 408 || status === 429) return { kind: 'retry' };
-  const refusal = refusalIn(body);
-  if (status === 409 && refusal) {
-    if (refusal.why === 'cancelled') return { kind: 'cancelled' };
-    const when = refusal.at === undefined ? '' : ` at ${clock(refusal.at, now)}`;
-    return {
-      kind: 'refused',
-      why:
-        refusal.why === 'delivered'
-          ? `the original reached the session${when}, so this edit was not sent`
-          : 'the original was already handed to the session, so this edit was not sent',
-    };
-  }
+  if (status === 409 && refusalIn(body)?.why === 'withdrawn') return { kind: 'withdrawn' };
   return {
     kind: 'refused',
     why: typeof body === 'string' && body ? body : `the Mac said ${status}`,
   };
 }
 
-/** What the Mac's answer to a cancel means: gone, already there (and when), or ask again. */
-export function cancelJudged(
-  status: number,
-  body: unknown,
-  now: Date = new Date(),
-):
-  | { readonly kind: 'gone' }
-  | { readonly kind: 'retry' }
-  | { readonly kind: 'there'; readonly note: string } {
-  if (status >= 200 && status < 300) return { kind: 'gone' };
+/** What the Mac's answer to taking a message back means. */
+export function takenJudged(status: number, body: unknown, now: Date = new Date()): Taken {
+  if (status >= 200 && status < 300) return { kind: 'back' };
   const refusal = refusalIn(body);
-  if (status === 409 && refusal?.why === 'delivered') {
+  if (status === 409 && refusal?.why === 'read') {
     const when = refusal.at === undefined ? '' : ` at ${clock(refusal.at, now)}`;
-    return { kind: 'there', note: `it had already reached the session${when}` };
+    return { kind: 'read', note: `the session read it${when}` };
   }
-  if (status === 409 && refusal?.why === 'in_flight') {
-    return { kind: 'there', note: 'it had already been handed to the session' };
-  }
-  return { kind: 'retry' };
+  return { kind: 'unreachable' };
 }
 
 /**
- * The line under a waiting message: how it stands, and for how long. `held` when
- * an earlier message of its session was refused, which stops the queue there.
+ * How a message stands, and for how long it has waited. `behind` when an earlier
+ * message of its session was refused, which stops the queue there.
  */
-export function standing(message: Outgoing, now: number, held = false): string {
-  if (message.refused !== undefined) return `not sent — ${message.refused}`;
+export function standing(message: Outgoing, now: number, behind = false): Standing {
+  if (message.refused !== undefined) {
+    return { line: `not sent — ${message.refused}`, icon: 'error', alert: true };
+  }
   const waited = age(now - message.created);
-  if (message.cancelling) return `taking back — may already have been delivered${waited}`;
-  if (message.tried) return `may already have been delivered — no answer yet${waited}`;
-  if (held) return `waiting until the message above is sent or discarded${waited}`;
-  return `waiting to send${waited}`;
+  if (message.sent) return { line: `waiting to be read${waited}`, icon: 'schedule' };
+  if (message.tried) return { line: `sent, no answer yet${waited}`, icon: 'sync' };
+  if (behind) {
+    return {
+      line: `waiting until the message above is taken back${waited}`,
+      icon: 'schedule_send',
+    };
+  }
+  return { line: `waiting to send${waited}`, icon: 'schedule_send' };
 }
 
-/** Whether a message of `outbox` waits behind a refused one of its session. */
-export function heldBack(outbox: readonly Outgoing[], message: Outgoing): boolean {
+/** Whether `message` waits behind a refused message of its session. */
+export function behindRefused(outbox: readonly Outgoing[], message: Outgoing): boolean {
   const own = outbox.filter((it) => it.session === message.session);
   const refused = own.findIndex((it) => it.refused !== undefined);
   return refused !== -1 && own.indexOf(message) > refused;
@@ -126,8 +123,7 @@ function age(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 1) return '';
   if (minutes < 60) return ` · ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  return ` · ${hours} h`;
+  return ` · ${Math.floor(minutes / 60)} h`;
 }
 
 function clock(at: number, now: Date): string {
@@ -138,7 +134,7 @@ function clock(at: number, now: Date): string {
     : `${then.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
-const WHYS: readonly Refusal['why'][] = ['cancelled', 'delivered', 'in_flight'];
+const WHYS: readonly Refusal['why'][] = ['withdrawn', 'read'];
 
 /** One field of something read from outside, unchecked until its use checks it. */
 function field(from: object, key: string): unknown {
@@ -157,11 +153,7 @@ function refusalIn(body: unknown): Refusal | undefined {
   const why = WHYS.find((it) => it === field(body, 'why'));
   if (!why) return undefined;
   const at = field(body, 'at');
-  return {
-    why,
-    at: typeof at === 'number' ? at : undefined,
-    original: field(body, 'original') === true ? true : undefined,
-  };
+  return { why, at: typeof at === 'number' ? at : undefined };
 }
 
 /** A picture read back from this device's storage: what a send needs of it. */
@@ -180,7 +172,8 @@ function pictureIn(kept: unknown): Picture | undefined {
     width: number('width'),
     height: number('height'),
     bytes: number('bytes'),
-    preview: textIn(kept, 'preview') ?? '',
+    // A preview's object URL dies with the page that made it; this one is whole.
+    preview: `data:${mediaType};base64,${data}`,
   };
 }
 
@@ -201,10 +194,9 @@ function outgoingIn(kept: unknown): Outgoing | undefined {
     session,
     text,
     pictures: read.length ? read : undefined,
-    replaces: textIn(kept, 'replaces'),
     created,
     tried: field(kept, 'tried') === true,
-    cancelling: field(kept, 'cancelling') === true ? true : undefined,
+    sent: field(kept, 'sent') === true ? true : undefined,
     refused: textIn(kept, 'refused'),
   };
 }
@@ -221,7 +213,7 @@ async function answered(sent: Promise<unknown>): Promise<{ status: number; body:
 
 const KEY = 'outbox';
 
-/** How often a waiting message is tried again while the phone has one. */
+/** How often a waiting message is tried again while the phone has one to send. */
 const RETRY_MS = 15_000;
 
 @Injectable({ providedIn: 'root' })
@@ -230,17 +222,14 @@ export class Outbox {
   private store = inject(Local);
 
   private readonly held = signal<readonly Outgoing[]>([]);
-  /** Every message waiting, oldest first. */
+  /** Every message not yet read, oldest first. */
   readonly all = this.held.asReadonly();
-  /** Something to tell about a message that is gone: why a cancel came too late. */
-  readonly notice = signal('');
 
   private loaded: Promise<void>;
   /** The drain under way: a second call joins it rather than starting its own. */
   private draining?: Promise<void>;
   /** Asked for during a drain, which then looks once more before it ends. */
   private again = false;
-  private timer?: ReturnType<typeof setInterval>;
 
   constructor() {
     this.loaded = this.store.get(KEY).then((kept) => {
@@ -257,83 +246,68 @@ export class Outbox {
         if (document.visibilityState === 'visible') wake();
       });
     }
-    this.timer = setInterval(() => {
-      if (this.held().length) wake();
+    const timer = setInterval(() => {
+      if (this.held().some((message) => !message.sent)) wake();
     }, RETRY_MS);
-    inject(DestroyRef).onDestroy(() => clearInterval(this.timer));
-  }
-
-  /** Messages waiting for one session. */
-  for(session: string): readonly Outgoing[] {
-    return this.held().filter((message) => message.session === session);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }
 
   /** Put a message in the outbox and start sending. */
   async enqueue(session: string, text: string, pictures?: readonly Picture[]): Promise<void> {
-    await this.put({
-      id: crypto.randomUUID(),
-      session,
-      text,
-      pictures: pictures?.length ? pictures : undefined,
-      created: Date.now(),
-      tried: false,
-    });
-  }
-
-  /**
-   * Take a message back. One that never left the phone is dropped here; one that
-   * may already be there is asked of the Mac, which knows.
-   */
-  async cancel(id: string): Promise<void> {
     await this.loaded;
-    const message = this.find(id);
-    if (!message) return;
-    if (!message.tried) return this.drop(id);
-    await this.save(this.held().map((it) => (it.id === id ? { ...it, cancelling: true } : it)));
+    await this.save([
+      ...this.held(),
+      {
+        id: crypto.randomUUID(),
+        session,
+        text,
+        pictures: pictures?.length ? pictures : undefined,
+        created: Date.now(),
+        tried: false,
+      },
+    ]);
     void this.drain();
   }
 
+  /** The message held under `id`, for its words. */
+  find(id: string): Outgoing | undefined {
+    return this.held().find((message) => message.id === id);
+  }
+
   /**
-   * Change a message. One that never left the phone is changed here; one that may
-   * already be there becomes an edit the Mac sends only if the original has not
-   * arrived, and refuses, with when, if it has.
+   * Take a message back, for its words to go back into the composer: here, when
+   * it never left the phone or was refused; from the Mac, which asks the CLI,
+   * when the Mac may have it.
    */
-  async edit(id: string, text: string): Promise<void> {
+  async takeBack(id: string): Promise<Taken> {
     await this.loaded;
     const message = this.find(id);
-    if (!message) return;
-    const outbox = this.held();
-    const replaced: Outgoing = message.tried
-      ? {
-          ...message,
-          id: crypto.randomUUID(),
-          text,
-          replaces: message.id,
-          tried: false,
-          refused: undefined,
-        }
-      : { ...message, text, refused: undefined };
-    await this.save(outbox.map((it) => (it.id === id ? replaced : it)));
-    void this.drain();
+    if (!message) return { kind: 'unreachable' };
+    if (!message.tried || message.refused !== undefined) {
+      await this.drop(id);
+      return { kind: 'back' };
+    }
+    return this.withdraw(message.session, id);
   }
 
-  /** Send a refused message after all, as a new one. */
-  async resend(id: string): Promise<void> {
-    await this.loaded;
-    const message = this.find(id);
-    if (!message) return;
-    await this.drop(id);
-    await this.enqueue(message.session, message.text, message.pictures);
+  /**
+   * Take back a message the Mac may have — this phone's, or one sent from
+   * elsewhere and still waiting to be read — by asking the Mac.
+   */
+  async withdraw(session: string, id: string): Promise<Taken> {
+    const { status, body } = await answered(firstValueFrom(this.api.withdraw(session, id)));
+    const taken = takenJudged(status, body);
+    if (taken.kind === 'back') await this.drop(id);
+    return taken;
   }
 
-  /** Drop a message without sending it. */
-  async discard(id: string): Promise<void> {
-    await this.loaded;
-    await this.drop(id);
+  /** The Mac has it: the event stream said so. */
+  accepted(id: string): void {
+    if (this.find(id)) void this.mark(id, { tried: true, sent: true });
   }
 
-  /** The session has it: the Mac said so on the event stream. */
-  confirm(id: string): void {
+  /** Read by its session, or taken back from another device: no longer waiting. */
+  done(id: string): void {
     if (this.find(id)) void this.drop(id);
   }
 
@@ -355,7 +329,7 @@ export class Outbox {
   private async drained(): Promise<void> {
     await this.loaded;
     // Known to be offline, a send cannot leave: not trying keeps it plainly
-    // waiting, rather than "may already have been delivered".
+    // waiting, rather than "sent, no answer yet".
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     for (;;) {
       this.again = false;
@@ -363,9 +337,7 @@ export class Outbox {
       const next = sessions
         .map((session) => nextFor(this.held(), session))
         .find((message) => message !== undefined);
-      const moved =
-        next !== undefined &&
-        (next.cancelling ? await this.withdraw(next) : await this.deliver(next));
+      const moved = next !== undefined && (await this.deliver(next));
       if (!moved && !this.again) return;
     }
   }
@@ -375,19 +347,17 @@ export class Outbox {
     // Before the request: a phone killed mid-send must remember it may have gone.
     if (!message.tried) await this.mark(message.id, { tried: true });
     const sent = message.pictures
-      ? this.api.show(message.session, message.pictures, message.text, message.id, message.replaces)
-      : this.api.send(message.session, message.text, message.id, message.replaces);
+      ? this.api.show(message.session, message.pictures, message.text, message.id)
+      : this.api.send(message.session, message.text, message.id);
     const { status, body } = await answered(firstValueFrom(sent));
     const verdict = judged(status, body);
+    // Taken back while this send was on its way: the outbox no longer has it.
+    if (!this.find(message.id)) return true;
     switch (verdict.kind) {
       case 'sent':
-        // Taken back while the send was on its way: too late, and said so.
-        if (this.find(message.id)?.cancelling) {
-          this.notice.set('Not taken back: it had already reached the session.');
-        }
-        await this.drop(message.id);
+        await this.mark(message.id, { sent: true });
         return true;
-      case 'cancelled':
+      case 'withdrawn':
         await this.drop(message.id);
         return true;
       case 'refused':
@@ -396,28 +366,6 @@ export class Outbox {
       case 'retry':
         return false;
     }
-  }
-
-  /** One cancel; whether the outbox moved on. */
-  private async withdraw(message: Outgoing): Promise<boolean> {
-    const { status, body } = await answered(
-      firstValueFrom(this.api.cancel(message.session, message.id)),
-    );
-    const verdict = cancelJudged(status, body);
-    if (verdict.kind === 'retry') return false;
-    if (verdict.kind === 'there') this.notice.set(`Not taken back: ${verdict.note}.`);
-    await this.drop(message.id);
-    return true;
-  }
-
-  private find(id: string): Outgoing | undefined {
-    return this.held().find((message) => message.id === id);
-  }
-
-  private async put(message: Outgoing): Promise<void> {
-    await this.loaded;
-    await this.save([...this.held(), message]);
-    void this.drain();
   }
 
   private async mark(id: string, change: Partial<Outgoing>): Promise<void> {

@@ -33,15 +33,21 @@ import { EffortBars } from './effort-bars';
 import { LapseBanner } from './lapse-banner';
 import { modelName } from './model';
 import { titleOf } from './naming';
-import { type Change, type Commands, type Entry, type Summary, type ToolCall } from './models';
+import {
+  type Asked,
+  type Change,
+  type Commands,
+  type Entry,
+  type Summary,
+  type ToolCall,
+} from './models';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Notice, NoticeBar, notice } from './notice';
 import { DiffSheet } from './diff-sheet';
 import { ParseSheet } from './parse-sheet';
 import { PICTURE } from './rendered';
 import { MOST, type Picture, looking, pointedAt, shrink } from './picture';
-import { Outbox, type Outgoing, heldBack, standing } from './outbox';
-import { OutgoingSheet } from './outgoing-sheet';
+import { Outbox, type Taken, behindRefused, standing } from './outbox';
 import { Roster } from './roster';
 import { SignInSheet } from './signin-sheet';
 import { Held, SessionStore } from './session-store';
@@ -52,6 +58,11 @@ import { Block, blocks } from './transcript';
 import { Updates } from './updates';
 
 /** One conversation: its transcript, what it is doing, and the box to reply in. */
+/** How many pictures a waiting message carries, in words. */
+function pictures(count: number): string {
+  return `${count} picture${count === 1 ? '' : 's'}`;
+}
+
 @Component({
   selector: 'app-session-view',
   templateUrl: './session-view.html',
@@ -90,7 +101,45 @@ export class SessionView implements OnDestroy {
   // What the store holds for this conversation, and what is derived from it.
   private readonly held = signal<Held | undefined>(undefined);
   readonly session = signal<Summary | undefined>(undefined);
+  /**
+   * The conversation, then what the session has not read yet: this phone's
+   * messages from the outbox, and commands held for the turn's end that this
+   * phone did not send. One place for every message, whatever stands between it
+   * and being read — see [[Outbox]].
+   */
   readonly entries = computed<Entry[]>(() => {
+    const mine = this.outbox.all().filter((it) => it.session === this.id());
+    const ours = new Set(mine.map((it) => it.id));
+    const now = this.minute();
+    const held = this.session()?.held ?? [];
+    const heldBy = new Set(held.map((command) => command.id));
+    const HELD = { line: 'runs when this turn ends', icon: 'hourglass_top' };
+    const sending = mine.map((it): Asked => ({
+      kind: 'asked',
+      text: it.pictures?.length
+        ? `${it.text}${it.text ? ' · ' : ''}${pictures(it.pictures.length)}`
+        : it.text,
+      at: it.created,
+      id: it.id,
+      // Held by the Mac for the turn's end: when it will run is the news.
+      waiting: heldBy.has(it.id) ? HELD : standing(it, now, behindRefused(mine, it)),
+    }));
+    const holding = held
+      .filter((command) => command.id === undefined || !ours.has(command.id))
+      .map((command): Asked => ({
+        kind: 'asked',
+        text: command.text,
+        id: command.id,
+        waiting: HELD,
+      }));
+    const said = this.conversation().filter(
+      (entry) => !(entry.kind === 'asked' && entry.id !== undefined && ours.has(entry.id)),
+    );
+    return [...said, ...holding, ...sending];
+  });
+
+  /** The conversation as the session's events tell it. */
+  private readonly conversation = computed<Entry[]>(() => {
     const held = this.held();
     if (!held) return [];
     const edited = held.edited();
@@ -119,7 +168,7 @@ export class SessionView implements OnDestroy {
   /** The one thing worth saying about the link, of the three that might be. */
   readonly notice = computed<Notice | undefined>(() =>
     notice({
-      acting: this.trouble() || this.outbox.notice(),
+      acting: this.trouble(),
       runner: this.roster.notice(),
       stream: this.held()?.link.worth(),
     }),
@@ -163,12 +212,8 @@ export class SessionView implements OnDestroy {
   readonly commands = signal<Commands | undefined>(undefined);
   private askingCommands = false;
   readonly trouble = signal('');
-  /** This conversation's messages the Mac has not confirmed, oldest first. */
-  readonly outgoing = computed(() => this.outbox.all().filter((it) => it.session === this.id()));
-  /** For how long each has waited, redrawn each minute. */
+  /** For how long each waiting message has waited, redrawn each minute. */
   readonly minute = signal(Date.now());
-  protected readonly standing = standing;
-  protected readonly heldBack = heldBack;
   readonly pictureTrouble = signal('');
   private readonly stored = toSignal(
     toObservable(this.id).pipe(switchMap((id) => this.drafts.text$(id))),
@@ -424,9 +469,47 @@ export class SessionView implements OnDestroy {
     this.dropAll();
   }
 
-  /** What can still be done with a message the Mac has not confirmed. */
-  consider(message: Outgoing): void {
-    this.sheets.open(OutgoingSheet, { data: message, panelClass: 'start-sheet' });
+  /**
+   * A message the session has not read, back into the box: this phone's from the
+   * outbox, one sent elsewhere or held for the turn's end from the Mac, which asks
+   * the CLI. Refused, and said why, once the session has read it.
+   */
+  async takeBack(entry: Asked): Promise<void> {
+    const mine = entry.id === undefined ? undefined : this.outbox.find(entry.id);
+    let taken: Taken;
+    if (mine) {
+      taken = await this.outbox.takeBack(mine.id);
+    } else if (entry.id !== undefined) {
+      taken = await this.outbox.withdraw(this.id(), entry.id);
+    } else {
+      // A command held without an id, from a client before ids.
+      this.unhold(entry.text);
+      taken = { kind: 'back' };
+    }
+    switch (taken.kind) {
+      case 'back': {
+        const words = mine?.text ?? entry.text;
+        const current = this.text().trim();
+        this.text.set(current ? `${words}\n\n${current}` : words);
+        const pictures = (mine?.pictures ?? []).map((it) => ({
+          ...it,
+          preview: `data:${it.mediaType};base64,${it.data}`,
+        }));
+        if (pictures.length) {
+          await this.drafts.hold(this.id(), [...pictures, ...this.chosen()].slice(0, MOST));
+        }
+        this.trouble.set('');
+        break;
+      }
+      case 'read':
+        this.trouble.set(`Not taken back: ${taken.note}.`);
+        break;
+      case 'unreachable':
+        this.trouble.set(
+          'Not taken back: the Mac could not be reached, and it may already have the message.',
+        );
+        break;
+    }
   }
 
   /** Sign the account in again. See [[SignInSheet]]. */

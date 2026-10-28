@@ -14,8 +14,9 @@ use background::{finished, is_notification};
 pub use background::{Called, Ended, Named, Running, called, running};
 pub use control::{
     Annotation, Annotations, Answer, Answers, COMMANDS, Commands, ModeReply, ModelChoice, Picture,
-    QUESTION_TOOL, Reply, SET_MODE, SlashCommand, UsageReply, commands_reply, decision, get_usage,
-    initialize, mode_reply, prompt, prompt_with_images, rename, set_mode, shown, usage_reply,
+    QUESTION_TOOL, Reply, SET_MODE, SlashCommand, UsageReply, WITHDRAW, commands_reply, decision,
+    get_usage, initialize, mode_reply, prompt, prompt_with_images, rename, set_mode, shown,
+    usage_reply, withdraw,
 };
 
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,11 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         id: Option<String>,
+    },
+    /// A message taken back before the session read it, by its id: it was never
+    /// said. See [`crate::sent`].
+    Withdrawn {
+        id: String,
     },
     /// The prompt, echoed back: the session has read it.
     Prompt {
@@ -531,6 +537,8 @@ pub enum Output {
     Commands(Commands),
     Usage(UsageReply),
     Mode(ModeReply),
+    /// A withdrawal answered: its request id, and whether the message was taken back.
+    Withdrawn(String, bool),
     Events(Vec<Event>),
 }
 
@@ -550,6 +558,9 @@ pub fn output(line: &str) -> Output {
         }
         if let Some(mode) = control::mode_answer(&value) {
             return Output::Mode(mode);
+        }
+        if let Some((request, cancelled)) = control::withdraw_answer(&value) {
+            return Output::Withdrawn(request, cancelled);
         }
     }
     // A line of no shape the console reads is nothing to say, as in `read`.

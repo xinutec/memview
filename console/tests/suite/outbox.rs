@@ -1,6 +1,6 @@
 //! A message sent under the phone's id, over the wire, to a session: delivered
-//! once however often it is retried, and edited or taken back only while it can
-//! be — a lost receipt, then a cancel or an edit, end to end.
+//! once however often it is retried, and taken back only while the session has
+//! not read it — a lost receipt, then a withdrawal, end to end.
 //!
 //! Against the stand-in CLI, which records one message per id as the real one
 //! does (`tests/fixtures/stub-cli`).
@@ -138,7 +138,7 @@ async fn a_retry_after_a_lost_receipt_reaches_the_session_once() {
 }
 
 #[tokio::test]
-async fn cancelling_a_message_that_got_there_is_refused_with_when() {
+async fn a_message_the_session_read_cannot_be_taken_back_and_says_when() {
     let (session, base) = served().await;
     let m42 = id();
     post(
@@ -148,89 +148,45 @@ async fn cancelling_a_message_that_got_there_is_refused_with_when() {
     .await;
     until(&session, |s| turns(s) == 1).await;
 
-    let (status, body) = post(format!("{base}/cancel"), serde_json::json!({"id": m42})).await;
+    let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
     assert_eq!(status, 409);
     let refusal: serde_json::Value = serde_json::from_str(&body).expect("json");
-    assert_eq!(refusal["why"], "delivered");
-    assert!(refusal["at"].is_i64(), "says when it got there: {body}");
+    assert_eq!(refusal["why"], "read");
+    assert!(refusal["at"].is_i64(), "says when it was read: {body}");
 }
 
 #[tokio::test]
-async fn an_edit_of_a_message_that_got_there_is_not_sent() {
-    // Sent, delivered, receipt lost; then cancelled, edited and sent again. The
-    // session must not get both.
+async fn a_queued_message_is_taken_back_from_the_cli_and_never_read() {
+    // Sent to a busy session, it waits in the CLI's queue; taken back there, it is
+    // never said, every client is told, and a late retry is refused.
     let (session, base) = served().await;
     let m42 = id();
-    post(
-        format!("{base}/input"),
-        serde_json::json!({"text": "hello", "id": m42}),
-    )
-    .await;
-    until(&session, |s| turns(s) == 1).await;
+    let message = serde_json::json!({"text": "queued: rename the branch", "id": m42});
+    assert_eq!(post(format!("{base}/input"), message.clone()).await.0, 200);
 
-    let m43 = id();
-    let (status, body) = post(
-        format!("{base}/input"),
-        serde_json::json!({"text": "hello, edited", "id": m43, "replaces": m42}),
-    )
-    .await;
-    assert_eq!(status, 409);
-    let refusal: serde_json::Value = serde_json::from_str(&body).expect("json");
-    assert_eq!(refusal["why"], "delivered");
-    assert_eq!(
-        refusal["original"], true,
-        "about the original, not the edit"
+    let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        session
+            .history()
+            .iter()
+            .any(|event| matches!(event, Event::Withdrawn { id } if *id == m42)),
+        "every client is told it is gone"
     );
-    settled().await;
-    assert_eq!(read(&session), vec![("hello".to_string(), Some(m42))]);
-}
-
-#[tokio::test]
-async fn an_edit_of_a_message_that_never_arrived_replaces_it() {
-    let (session, base) = served().await;
-    let m42 = id();
-    let m43 = id();
-    let (status, _) = post(
-        format!("{base}/input"),
-        serde_json::json!({"text": "hello, edited", "id": m43, "replaces": m42}),
-    )
-    .await;
-    assert_eq!(status, 200);
-    until(&session, |s| turns(s) == 1).await;
-
-    // The original's retry, still somewhere in the network, arrives late.
-    let (status, body) = post(
-        format!("{base}/input"),
-        serde_json::json!({"text": "hello", "id": m42}),
-    )
-    .await;
+    let (status, body) = post(format!("{base}/input"), message).await;
     assert_eq!(status, 409);
-    assert!(body.contains("\"cancelled\""), "{body}");
+    assert!(body.contains("\"withdrawn\""), "{body}");
     settled().await;
-    assert_eq!(
-        read(&session),
-        vec![("hello, edited".to_string(), Some(m43))]
-    );
+    assert!(read(&session).is_empty());
+    assert_eq!(turns(&session), 0);
 }
 
 #[tokio::test]
-async fn a_retry_of_an_edit_is_answered_without_a_second_message() {
-    let (session, base) = served().await;
-    let (m42, m43) = (id(), id());
-    let edit = serde_json::json!({"text": "hello, edited", "id": m43, "replaces": m42});
-    assert_eq!(post(format!("{base}/input"), edit.clone()).await.0, 200);
-    until(&session, |s| turns(s) == 1).await;
-    assert_eq!(post(format!("{base}/input"), edit).await.0, 200);
-    settled().await;
-    assert_eq!(read(&session).len(), 1);
-}
-
-#[tokio::test]
-async fn a_cancelled_message_stays_cancelled() {
+async fn a_message_that_never_arrived_is_taken_back_and_stays_back() {
     let (session, base) = served().await;
     let m42 = id();
     assert_eq!(
-        post(format!("{base}/cancel"), serde_json::json!({"id": m42}))
+        post(format!("{base}/withdraw"), serde_json::json!({"id": m42}))
             .await
             .0,
         200
@@ -241,7 +197,7 @@ async fn a_cancelled_message_stays_cancelled() {
     )
     .await;
     assert_eq!(status, 409);
-    assert!(body.contains("\"cancelled\""), "{body}");
+    assert!(body.contains("\"withdrawn\""), "{body}");
     settled().await;
     assert!(read(&session).is_empty());
 }

@@ -33,7 +33,7 @@ pub use process::{Fds, children_started, finish, keepable, names_session};
 pub use state::{
     Backlog, Pending, Stamped, deaf_after, leaves_a_decision, resumable, taken_up, working_after,
 };
-pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
+pub use summary::{Heard, HeldCommand, ResetsAt, Seen, Summary, Tally};
 
 use process::reap_adopted;
 use state::{State, deaf_for, forget};
@@ -73,6 +73,9 @@ pub struct Session {
     fds: Fds,
     kill: Mutex<Option<oneshot::Sender<()>>>,
     tx: broadcast::Sender<Stamped>,
+    /// Withdrawals asked of the CLI and not yet answered, by request id —
+    /// [`Session::withdraw_queued`].
+    withdrawals: Mutex<std::collections::BTreeMap<String, oneshot::Sender<bool>>>,
 }
 
 /// By hand: the sink is a trait object.
@@ -259,6 +262,7 @@ impl Session {
             fds,
             kill: Mutex::new(Some(kill_tx)),
             tx,
+            withdrawals: Mutex::default(),
         });
 
         let stdout = child.stdout.take();
@@ -329,6 +333,7 @@ impl Session {
             fds,
             kill: Mutex::new(Some(kill_tx)),
             tx,
+            withdrawals: Mutex::default(),
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);
@@ -392,6 +397,10 @@ impl Session {
                         }
                         protocol::Output::Mode(reply) => {
                             session.settle_mode(reply);
+                            continue;
+                        }
+                        protocol::Output::Withdrawn(request, cancelled) => {
+                            session.answer_withdrawal(&request, cancelled);
                             continue;
                         }
                         protocol::Output::Events(events) => events,

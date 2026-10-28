@@ -5,6 +5,9 @@ use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
 
 use super::state::{Held, Unread};
+
+/// How long a withdrawal waits for the CLI: it answers from its queue, at once.
+const WITHDRAW_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
@@ -101,15 +104,18 @@ impl Session {
 
     /// Take back a held command by the client's id. False when it is not held.
     pub fn take_back(&self, id: &str) -> bool {
-        let mut state = self.state.lock();
-        let Some(at) = state
-            .held
-            .iter()
-            .position(|held| held.id.as_deref() == Some(id))
-        else {
-            return false;
-        };
-        state.held.remove(at);
+        {
+            let mut state = self.state.lock();
+            let Some(at) = state
+                .held
+                .iter()
+                .position(|held| held.id.as_deref() == Some(id))
+            else {
+                return false;
+            };
+            state.held.remove(at);
+        }
+        self.push(Event::Withdrawn { id: id.to_string() });
         true
     }
 
@@ -125,6 +131,44 @@ impl Session {
             crate::sent::Where::Unread
         } else {
             crate::sent::Where::Nowhere
+        }
+    }
+
+    /// Ask the CLI to take back a message it holds in its queue: true when it
+    /// did, false once a turn has taken it in. Every client is told it is gone.
+    pub async fn withdraw_queued(&self, id: &str) -> Result<bool> {
+        let request = format!("{}{id}", protocol::WITHDRAW);
+        let (answered, answer) = tokio::sync::oneshot::channel();
+        self.withdrawals.lock().insert(request.clone(), answered);
+        let asked = self
+            .write_line(&protocol::withdraw(&request, id), "taking a message back")
+            .await;
+        if let Err(error) = asked {
+            self.withdrawals.lock().remove(&request);
+            return Err(error);
+        }
+        let cancelled = match tokio::time::timeout(WITHDRAW_PATIENCE, answer).await {
+            Ok(Ok(cancelled)) => cancelled,
+            Ok(Err(_)) => anyhow::bail!("the session ended before it answered"),
+            Err(_) => {
+                self.withdrawals.lock().remove(&request);
+                anyhow::bail!("the session did not answer in time")
+            }
+        };
+        if cancelled {
+            self.state
+                .lock()
+                .unread
+                .retain(|it| it.id.as_deref() != Some(id));
+            self.push(Event::Withdrawn { id: id.to_string() });
+        }
+        Ok(cancelled)
+    }
+
+    /// Hand a withdrawal's answer to whoever is waiting for it.
+    pub(super) fn answer_withdrawal(&self, request: &str, cancelled: bool) {
+        if let Some(waiting) = self.withdrawals.lock().remove(request) {
+            let _ = waiting.send(cancelled);
         }
     }
 

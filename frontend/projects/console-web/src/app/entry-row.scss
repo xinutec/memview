@@ -48,6 +48,12 @@
   }
 }
 
+// Under the words it takes back, not beside them: a phone's line holds the words.
+.take-back {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+}
+
 :host(.turn),
 :host(.note) {
   font: var(--mat-sys-body-small);

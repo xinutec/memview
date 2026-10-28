@@ -1319,8 +1319,13 @@ async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose()
         "the command went to the CLI mid-turn, which hands it to the model as words"
     );
     assert_eq!(
-        session.summary().held,
-        vec!["/compact".to_string()],
+        session
+            .summary()
+            .held
+            .into_iter()
+            .map(|held| held.text)
+            .collect::<Vec<_>>(),
+        ["/compact"],
         "nothing on screen would say the command is waiting"
     );
 

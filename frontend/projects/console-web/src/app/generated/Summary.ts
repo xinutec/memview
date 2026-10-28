@@ -2,6 +2,7 @@
 import type { Allowance } from "./Allowance";
 import type { Called } from "./Called";
 import type { Effort } from "./Effort";
+import type { HeldCommand } from "./HeldCommand";
 import type { Mode } from "./Mode";
 
 /**
@@ -97,4 +98,4 @@ signed_out?: number,
 /**
  * Slash commands waiting for the turn to end, oldest first, word for word.
  */
-held: Array<string>, };
+held: Array<HeldCommand>, };

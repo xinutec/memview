@@ -426,6 +426,28 @@ describe('transcript · a message the session has not read yet', () => {
     expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: undefined }]);
   });
 
+  it('answers the copy with its id when the same words were sent twice', () => {
+    // Two messages may say the same words; the id says which one was read.
+    const seen = transcript(
+      { kind: 'accepted', text: 'yes', id: 'first' },
+      { kind: 'accepted', text: 'yes', id: 'second' },
+      { kind: 'prompt', text: 'yes', id: 'second' },
+    );
+    expect(seen.map((entry) => [only(entry, 'asked').id, only(entry, 'asked').queued])).toEqual([
+      ['first', true],
+      ['second', undefined],
+    ]);
+  });
+
+  it('removes a message taken back before it was read: it was never said', () => {
+    const seen = transcript(
+      { kind: 'accepted', text: 'rename the branch', id: 'gone' },
+      { kind: 'accepted', text: 'and push it', id: 'kept' },
+      { kind: 'withdrawn', id: 'gone' },
+    );
+    expect(seen.map((entry) => only(entry, 'asked').text)).toEqual(['and push it']);
+  });
+
   it('answers the oldest copy when the same words were sent twice', () => {
     const seen = transcript(
       { kind: 'accepted', text: 'why is it idle?' },

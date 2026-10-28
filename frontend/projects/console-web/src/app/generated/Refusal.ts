@@ -2,15 +2,10 @@
 import type { Why } from "./Why";
 
 /**
- * A refusal, with when the message got there when that is known.
+ * A refusal, with when the session read the message when that is known.
  */
 export type Refusal = { why: Why, 
 /**
  * In epoch milliseconds.
  */
-at?: number, 
-/**
- * About the message an edit replaces, not the edit: the original got there, so
- * the edit was not sent.
- */
-original?: boolean, };
+at?: number, };

@@ -35,18 +35,29 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       break;
     }
     case 'accepted':
-      add(out, { kind: 'asked', text: event.text, at: at(event), queued: true });
+      add(out, { kind: 'asked', text: event.text, at: at(event), queued: true, id: event.id });
       break;
+    case 'withdrawn': {
+      // Taken back before it was read: it was never said.
+      const gone = out.findIndex(
+        (entry) => entry.kind === 'asked' && !!entry.queued && entry.id === event.id,
+      );
+      if (gone !== -1) out.splice(gone, 1);
+      break;
+    }
     case 'command':
       add(out, { kind: 'asked', text: event.text, at: at(event) });
       break;
     case 'prompt': {
       // The runner echoes a queued message when the session reads it: move it
       // to the end rather than showing it twice.
-      const read = out.find(
-        (entry): entry is Asked =>
-          entry.kind === 'asked' && !!entry.queued && entry.text === event.text,
-      );
+      // By id when it has one: two messages may say the same words.
+      const queued = (entry: Entry): entry is Asked => entry.kind === 'asked' && !!entry.queued;
+      const read =
+        (event.id === undefined
+          ? undefined
+          : out.find((entry): entry is Asked => queued(entry) && entry.id === event.id)) ??
+        out.find((entry): entry is Asked => queued(entry) && entry.text === event.text);
       if (!read) {
         add(out, { kind: 'asked', text: event.text, at: at(event) });
         break;

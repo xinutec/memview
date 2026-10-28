@@ -124,10 +124,10 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
 }, testInfo) => {
   // A slash command written to a working session is not run: the CLI parks it
   // as a `queued_command` and hands it to the model as words. The runner holds
-  // it instead, and this is the screen saying so.
+  // it instead, and the conversation says so where the command will appear.
   await mockRunner(page);
   const id = RUNNING.id;
-  const working = { ...RUNNING, working: true, held: ['/compact'] };
+  const working = { ...RUNNING, working: true, held: [{ text: '/compact' }] };
   await page.route('**/api/state', (r) =>
     r.fulfill({ json: { ...STATE, sessions: [working, ENDED] } satisfies Overview }),
   );
@@ -138,21 +138,17 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
   });
   await page.goto(`/s/${id}`);
 
-  const chip = page.locator('.waiting');
-  await chip.waitFor();
-  await expect(chip).toContainText('/compact');
-  await expect(chip, 'the chip does not say when it will run').toContainText(
-    'runs when this turn ends',
-  );
-  // The fullest this strip gets is a long command beside its own button, on a
-  // phone 412px wide.
+  const waiting = page.locator('li.entry', { hasText: 'runs when this turn ends' });
+  await waiting.waitFor();
+  await expect(waiting).toContainText('/compact');
   await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await expectThumbTargets(page);
 
-  await chip.getByRole('button', { name: /do not run/ }).click();
+  await waiting.getByRole('button', { name: 'take back' }).click();
   await expect.poll(() => cancelled?.['text']).toBe('/compact');
-  // Gone because the runner said it is gone, not because the button was pressed.
-  await expect(page.locator('.waiting')).toHaveCount(0);
+  // Back in the box, to be sent again or not.
+  await expect(page.locator('app-composer textarea')).toHaveValue('/compact');
+  await expect(page.locator('li.entry', { hasText: 'runs when this turn ends' })).toHaveCount(0);
 });
 
 test('what is being written survives leaving the conversation @ phone width', async ({ page }) => {

@@ -101,6 +101,10 @@ fn provenance(event: &Event) -> Provenance {
              seen it. The one entry here that admits a loss rather than naming a \
              source; if the chip is ever missed, this is the line to change.",
         )),
+        Event::Withdrawn { .. } => Provenance::Runtime(Care::Covered(
+            "the transcript itself: a message taken back from the CLI's queue is never \
+             recorded, and a cold reader never saw the `accepted` it removes",
+        )),
         Event::Edited { .. } | Event::Diverged { .. } => Provenance::Runtime(Care::Covered(
             "/api/sessions/{id}/edits, kept on disk per conversation — see edits::Edits::of",
         )),

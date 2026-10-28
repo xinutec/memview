@@ -2,7 +2,7 @@ import { Component, ElementRef, inject, input, output } from '@angular/core';
 
 import { EntryRow } from './entry-row';
 import { Folding } from './folding';
-import { type Change, type Entry, type ToolCall } from './models';
+import { type Asked, type Change, type Entry, type ToolCall } from './models';
 import { RunRow } from './run-row';
 import { type Block } from './transcript';
 
@@ -35,6 +35,7 @@ export class TranscriptList {
   readonly parse = output<ToolCall>();
   readonly diff = output<Change>();
   readonly enlarge = output<string>();
+  readonly takeBack = output<Asked>();
 
   protected shown(block: Block): readonly Entry[] {
     if (block.kind === 'one') return [block.entry];

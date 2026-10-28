@@ -33,7 +33,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
-        .route("/api/sessions/{id}/cancel", post(cancel))
+        .route("/api/sessions/{id}/withdraw", post(withdraw))
         .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
         // Its own body limit, so [`crate::images::keep`] can say why an image is refused.
         .route(
@@ -231,11 +231,6 @@ pub struct Message {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub id: Option<String>,
-    /// The id of a message this one replaces: sent only if that one can still be
-    /// taken back.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub replaces: Option<String>,
 }
 
 /// A request refused: by status and words, or because of where a message stands.
@@ -274,67 +269,70 @@ fn whereabouts(session: &crate::session::Session, id: &str) -> crate::sent::Wher
     }
 }
 
-/// Take the message `id` back, if it has not reached the session.
-fn take_back(
+/// Take the message `id` back, if the session has not read it: from this
+/// console's hold, from the CLI's queue, or — never having arrived — by
+/// remembering it as taken back.
+async fn take_back(
     roster: &Roster,
     session: &crate::session::Session,
     id: &str,
-) -> Result<(), crate::sent::Refusal> {
-    use crate::sent::{Cancel, Fate, cancelling};
-    match cancelling(roster.sent().fate(id), whereabouts(session, id)) {
-        Cancel::Done => {}
-        Cancel::Forget => {}
-        Cancel::TakeBack => {
+) -> Result<(), Refused> {
+    use crate::sent::{Fate, Refusal, Why, Withdraw, withdrawing};
+    match withdrawing(roster.sent().fate(id), whereabouts(session, id)) {
+        Withdraw::Done => return Ok(()),
+        Withdraw::Forget => {}
+        Withdraw::TakeBack => {
             session.take_back(id);
         }
-        Cancel::Refuse(refusal) => return Err(refusal),
+        Withdraw::AskCli => {
+            let taken = session
+                .withdraw_queued(id)
+                .await
+                .map_err(|err| Refused::Plain(StatusCode::CONFLICT, format!("{err:#}")))?;
+            if !taken {
+                // A turn took it in first; its echo says when.
+                return Err(Refused::Message(Refusal {
+                    why: Why::Read,
+                    at: None,
+                }));
+            }
+        }
+        Withdraw::Refuse(refusal) => return Err(Refused::Message(refusal)),
     }
     roster
         .sent()
-        .record(id, &session.id, Fate::Cancelled, crate::session::now());
+        .record(id, &session.id, Fate::Withdrawn, crate::session::now());
     Ok(())
 }
 
-/// Settle a message sent under `id`, replacing `replaces`: the hold to write it
-/// under, or `None` when it is already on its way or there.
+/// Settle a message sent under `id`: the hold to write it under, or `None` when
+/// it is already on its way or there.
 async fn settle<'a>(
     roster: &'a Roster,
     session: &crate::session::Session,
     id: &str,
-    replaces: Option<&str>,
 ) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>, Refused> {
     use crate::sent::{Send, sending};
-    for given in std::iter::once(id).chain(replaces) {
-        if !crate::sent::valid(given) {
-            return Err(Refused::Plain(
-                StatusCode::BAD_REQUEST,
-                format!("{given:?} is not a message id: one is a uuid"),
-            ));
-        }
+    if !crate::sent::valid(id) {
+        return Err(Refused::Plain(
+            StatusCode::BAD_REQUEST,
+            format!("{id:?} is not a message id: one is a uuid"),
+        ));
     }
     let deciding = roster.sent().deciding().await;
-    // A retry of an edit whose original was taken back on its first try: the
-    // original is cancelled, and this one is settled on its own.
     match sending(roster.sent().fate(id), whereabouts(session, id)) {
-        Send::AlreadyHave => return Ok(None),
-        Send::Refuse(refusal) => return Err(Refused::Message(refusal)),
-        Send::Write => {}
+        Send::AlreadyHave => Ok(None),
+        Send::Refuse(refusal) => Err(Refused::Message(refusal)),
+        Send::Write => {
+            roster.sent().record(
+                id,
+                &session.id,
+                crate::sent::Fate::Written,
+                crate::session::now(),
+            );
+            Ok(Some(deciding))
+        }
     }
-    if let Some(original) = replaces {
-        take_back(roster, session, original).map_err(|refusal| {
-            Refused::Message(crate::sent::Refusal {
-                original: true,
-                ..refusal
-            })
-        })?;
-    }
-    roster.sent().record(
-        id,
-        &session.id,
-        crate::sent::Fate::Written,
-        crate::session::now(),
-    );
-    Ok(Some(deciding))
 }
 
 async fn input(
@@ -346,15 +344,13 @@ async fn input(
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
     let deciding = match &body.id {
-        Some(message) => {
-            match settle(&roster, &session, message, body.replaces.as_deref()).await? {
-                Some(deciding) => Some(deciding),
-                None => {
-                    tracing::info!("{id}: {message} is already on its way, not sent again");
-                    return Ok(Json(roster.summary_of(&session)));
-                }
+        Some(message) => match settle(&roster, &session, message).await? {
+            Some(deciding) => Some(deciding),
+            None => {
+                tracing::info!("{id}: {message} is already on its way, not sent again");
+                return Ok(Json(roster.summary_of(&session)));
             }
-        }
+        },
         None => None,
     };
     // A receipt — a doubled message leaves no other trace. The length, not the words.
@@ -378,9 +374,9 @@ pub struct Withdrawal {
     pub id: String,
 }
 
-/// Take a message back before it reaches the session: refused once it has, with
-/// when, so the phone can say so rather than pretend.
-async fn cancel(
+/// Take a message back while the session has not read it, so its words can be
+/// rewritten: refused once it has, with when, rather than pretending.
+async fn withdraw(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
     Json(body): Json<Withdrawal>,
@@ -395,7 +391,7 @@ async fn cancel(
         ));
     }
     let _deciding = roster.sent().deciding().await;
-    take_back(&roster, &session, &body.id).map_err(Refused::Message)?;
+    take_back(&roster, &session, &body.id).await?;
     tracing::info!("{id}: {} taken back", body.id);
     Ok(Json(roster.summary_of(&session)))
 }
@@ -439,10 +435,6 @@ pub struct Shown {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub id: Option<String>,
-    /// As [`Message::replaces`].
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub replaces: Option<String>,
 }
 
 /// One picture in a [`Shown`].
@@ -540,12 +532,10 @@ async fn show(
     }
     // Before the pictures are kept: a retry keeps nothing twice.
     let deciding = match &body.id {
-        Some(message) => {
-            match settle(&roster, &session, message, body.replaces.as_deref()).await? {
-                Some(deciding) => Some(deciding),
-                None => return Ok(Json(roster.summary_of(&session))),
-            }
-        }
+        Some(message) => match settle(&roster, &session, message).await? {
+            Some(deciding) => Some(deciding),
+            None => return Ok(Json(roster.summary_of(&session))),
+        },
         None => None,
     };
     // UTC: `now_local` is refused in a threaded program here.

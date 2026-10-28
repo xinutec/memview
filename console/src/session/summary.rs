@@ -166,7 +166,18 @@ pub struct Summary {
     pub signed_out: Option<u64>,
     /// Slash commands waiting for the turn to end, oldest first, word for word.
     #[serde(default)]
-    pub held: Vec<String>,
+    pub held: Vec<HeldCommand>,
+}
+
+/// A slash command waiting for the turn to end, with the client's id for it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct HeldCommand {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub id: Option<String>,
 }
 
 /// Nothing to report, for a count left off the wire when it is zero.

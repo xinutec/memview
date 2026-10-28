@@ -16,8 +16,4 @@ text: string,
 /**
  * As [`Message::id`].
  */
-id?: string, 
-/**
- * As [`Message::replaces`].
- */
-replaces?: string, };
+id?: string, };

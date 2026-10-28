@@ -59,6 +59,21 @@ while IFS= read -r line; do
       id=$(printf '%s' "$line" | sed -e 's/.*"request_id":"//' -e 's/".*//')
       printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"effort","description":"Set effort level for model usage","argumentHint":"<low|medium|high|xhigh|max|auto>"}],"models":[],"available_output_styles":["default"]}}}\n' "$id"
       ;;
+    # Taking back a message still in the queue, by its id, as the real CLI does
+    # (`cancel_async_message`): cancelled while it waits, not once a turn took it.
+    *'"subtype":"cancel_async_message"'*)
+      id=$(printf '%s' "$line" | sed -e 's/.*"request_id":"//' -e 's/".*//')
+      target=$(printf '%s' "$line" | sed -e 's/.*"message_uuid":"//' -e 's/".*//')
+      case " $queued " in
+        *" $target "*)
+          queued=$(printf '%s' " $queued " | sed -e "s/ $target / /")
+          printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"cancelled":true}}}\n' "$id"
+          ;;
+        *)
+          printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"cancelled":false}}}\n' "$id"
+          ;;
+      esac
+      ;;
     # An ANSWER to the question below. It reports what it was told, which is what
     # lets a test drive a whole approval round trip and see the verdict land.
     *'"control_response"'*)
@@ -195,6 +210,14 @@ while IFS= read -r line; do
       esac
       own=$((own + 1))
       uuid="${given:-00000000-0000-4000-8000-$(printf '%012d' "$own")}"
+      # Words starting `queued:` wait in the queue, unread, as a message sent to a
+      # busy session does: no echo until a turn takes it in, which here none does.
+      case "$said" in
+        queued:*)
+          queued="$queued $uuid"
+          continue
+          ;;
+      esac
       printf '{"type":"user","uuid":"%s","isReplay":true,"message":{"role":"user","content":[{"type":"text","text":"%s"}]},"session_id":"%s"}\n' "$uuid" "$said" "$session"
       case " $answered " in
         *" $uuid "*) continue ;;
