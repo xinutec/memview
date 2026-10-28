@@ -125,15 +125,15 @@ impl Session {
     /// Where a message this process was given stands, by the client's id. What it
     /// cannot see — a message an earlier process wrote — the transcript answers.
     pub fn whereabouts(&self, id: &str) -> crate::sent::Where {
+        let state = self.state.lock();
         // The queue's own word first: a message read mid-turn may have no echo.
-        match self.steps.lock().get(id) {
+        match state.steps.get(id) {
             Some((step, at)) if step.read() => return crate::sent::Where::Delivered { at: *at },
             Some((protocol::Lifecycle::Cancelled | protocol::Lifecycle::Dropped, _)) => {
                 return crate::sent::Where::Nowhere;
             }
             _ => {}
         }
-        let state = self.state.lock();
         if let Some(at) = state.echoed.get(id) {
             crate::sent::Where::Delivered { at: *at }
         } else if state.held.iter().any(|held| held.id.as_deref() == Some(id)) {
@@ -166,14 +166,18 @@ impl Session {
                 anyhow::bail!("the session did not answer in time")
             }
         };
-        // Not in the queue at that moment: read, already taken back, or not yet
-        // arrived — and a cancel that comes first is honoured when the message
-        // does. Only its step says which.
+        // Not in the queue at that moment: read, or not yet arrived — and a cancel
+        // that comes first takes the message out the moment it does (measured, at
+        // twenty seconds' wait). Which it is was said before this answer: the CLI
+        // writes a message's `started` when a turn takes it, which is before it
+        // answers a cancel that no longer finds it, and lines are read in order.
         if !cancelled
             && self
-                .settled(id, WITHDRAW_PATIENCE)
-                .await
-                .is_some_and(protocol::Lifecycle::read)
+                .state
+                .lock()
+                .steps
+                .get(id)
+                .is_some_and(|(step, _)| step.read())
         {
             return Ok(false);
         }
@@ -185,47 +189,24 @@ impl Session {
         Ok(true)
     }
 
-    /// Note a message's step through the CLI's queue, and wake whoever waits on it.
-    pub(super) fn stepped(&self, id: String, step: protocol::Lifecycle) {
-        {
-            let mut steps = self.steps.lock();
-            // A long session's ids, without end: keep the newer half by time.
-            if steps.len() >= STEPS_KEPT {
-                let mut seen: Vec<i64> = steps.values().map(|(_, at)| *at).collect();
-                seen.sort_unstable();
-                let cut = seen[seen.len() / 2];
-                steps.retain(|_, (_, at)| *at >= cut);
-            }
-            steps.insert(id, (step, now()));
-        }
-        self.stepped.notify_waiters();
-    }
-
-    /// The message's step, once it is where the message ends up, or whatever it
-    /// was when `patience` ran out.
-    async fn settled(
-        &self,
-        id: &str,
-        patience: std::time::Duration,
-    ) -> Option<protocol::Lifecycle> {
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let woken = self.stepped.notified();
-            let step = self.steps.lock().get(id).map(|(step, _)| *step);
-            if step.is_some_and(protocol::Lifecycle::settled) {
-                return step;
-            }
-            if tokio::time::timeout_at(deadline, woken).await.is_err() {
-                return step;
-            }
-        }
-    }
-
     /// Hand a withdrawal's answer to whoever is waiting for it.
     pub(super) fn answer_withdrawal(&self, request: &str, cancelled: bool) {
         if let Some(waiting) = self.withdrawals.lock().remove(request) {
             let _ = waiting.send(cancelled);
         }
+    }
+
+    /// Note a message's step through the CLI's queue.
+    pub(super) fn stepped(&self, id: String, step: protocol::Lifecycle) {
+        let mut state = self.state.lock();
+        // A long session's ids, without end: keep the newer half by time.
+        if state.steps.len() >= STEPS_KEPT {
+            let mut seen: Vec<i64> = state.steps.values().map(|(_, at)| *at).collect();
+            seen.sort_unstable();
+            let cut = seen[seen.len() / 2];
+            state.steps.retain(|_, (_, at)| *at >= cut);
+        }
+        state.steps.insert(id, (step, now()));
     }
 
     /// Whether `event` is the echo of a message already echoed: the CLI echoes a

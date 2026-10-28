@@ -31,6 +31,10 @@ impl Session {
             pending: state.pending.clone(),
             background: state.background.clone(),
             counted: state.counted,
+            unread: state.unread.iter().cloned().collect(),
+            held: state.held.iter().cloned().collect(),
+            steps: state.steps.clone(),
+            echoed: state.echoed.clone(),
         }
     }
 

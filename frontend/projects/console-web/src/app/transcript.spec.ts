@@ -448,6 +448,18 @@ describe('transcript · a message the session has not read yet', () => {
     expect(seen.map((entry) => only(entry, 'asked').text)).toEqual(['and push it']);
   });
 
+  it('says a message the session ended without reading was not read, and keeps it', () => {
+    const seen = transcript(
+      { kind: 'accepted', text: 'rename the branch', id: 'left' },
+      { kind: 'dropped', id: 'left' },
+    );
+    expect(seen).toHaveLength(1);
+    expect(only(seen[0], 'asked').waiting).toMatchObject({
+      line: 'not read — the session ended',
+      alert: true,
+    });
+  });
+
   it('answers the oldest copy when the same words were sent twice', () => {
     const seen = transcript(
       { kind: 'accepted', text: 'why is it idle?' },

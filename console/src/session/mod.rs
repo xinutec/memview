@@ -76,10 +76,6 @@ pub struct Session {
     /// Withdrawals asked of the CLI and not yet answered, by request id —
     /// [`Session::withdraw_queued`].
     withdrawals: Mutex<std::collections::BTreeMap<String, oneshot::Sender<bool>>>,
-    /// Each message's latest step through the CLI's queue, and when it was seen —
-    /// [`protocol::Lifecycle`]. Woken on every step, for a withdrawal waiting on one.
-    steps: Mutex<std::collections::BTreeMap<String, (protocol::Lifecycle, i64)>>,
-    stepped: tokio::sync::Notify,
 }
 
 /// By hand: the sink is a trait object.
@@ -267,8 +263,6 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
-            steps: Mutex::default(),
-            stepped: tokio::sync::Notify::new(),
         });
 
         let stdout = child.stdout.take();
@@ -332,6 +326,10 @@ impl Session {
                 counted: tally.counted,
                 // Still in flight; its next status or `Turn` corrects it.
                 busy: tally.busy,
+                unread: tally.unread.into(),
+                held: tally.held.into(),
+                steps: tally.steps,
+                echoed: tally.echoed,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -340,8 +338,6 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
-            steps: Mutex::default(),
-            stepped: tokio::sync::Notify::new(),
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);
@@ -470,12 +466,23 @@ impl Session {
 
     /// Record that the process is gone, once: reader and reaper can both notice.
     fn ended(&self, code: Option<i32>) {
-        {
+        let dropped: Vec<String> = {
             let mut state = self.state.lock();
             if !state.alive {
                 return;
             }
             state.alive = false;
+            // Whatever is still waiting will never be read: no process is left to.
+            let unread = std::mem::take(&mut state.unread)
+                .into_iter()
+                .filter_map(|it| it.id);
+            let held = std::mem::take(&mut state.held)
+                .into_iter()
+                .filter_map(|it| it.id);
+            unread.chain(held).collect()
+        };
+        for id in dropped {
+            self.push(Event::Dropped { id });
         }
         self.push(Event::Exited { code });
     }

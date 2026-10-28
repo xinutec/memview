@@ -914,6 +914,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         background: Default::default(),
         spent: Default::default(),
         counted: Default::default(),
+        ..Default::default()
     };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();
@@ -1046,6 +1047,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
         background: Default::default(),
         spent: Default::default(),
         counted: Default::default(),
+        ..Default::default()
     };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();
@@ -1137,6 +1139,79 @@ async fn a_session_hands_on_the_numbers_it_has_counted() {
     let tally = session.tally();
     assert_eq!(tally.started, summary.started);
     assert_eq!(tally.window, summary.window);
+}
+
+#[tokio::test]
+async fn an_upgrade_keeps_a_message_waiting_in_the_queue_waiting() {
+    // Forgotten across the exec, a message still in the CLI's queue read as one
+    // that never arrived: taken back, its words came back while the CLI still
+    // meant to read it, and sent again it reached the session twice.
+    let id = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
+    let tally: console::session::Tally = serde_json::from_value(serde_json::json!({
+        "started": 1_754_000_000,
+        "model": null,
+        "cost_usd": 0.0,
+        "window": null,
+        "limit": null,
+        "mode": null,
+        "unread": [{"text": "rename the branch", "at": 1_754_000_100_000_i64, "id": id}],
+        "steps": {"f755ed6d-912f-4f4f-99aa-6cd37466b2f0": ["started", 1_754_000_050_000_i64]}
+    }))
+    .expect("a tally");
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        tally,
+    )
+    .expect("adopt");
+
+    assert_eq!(session.whereabouts(id), console::sent::Where::Unread);
+    assert!(matches!(
+        session.whereabouts("f755ed6d-912f-4f4f-99aa-6cd37466b2f0"),
+        console::sent::Where::Delivered { .. }
+    ));
+    let carried = session.tally();
+    assert_eq!(
+        carried.unread.len(),
+        1,
+        "and the next upgrade carries it on"
+    );
+}
+
+#[tokio::test]
+async fn a_message_still_waiting_when_the_process_dies_is_dropped() {
+    // A stop lets the CLI read its queue before it goes (measured); a kill or a
+    // crash does not, and nothing will ever read what was left.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    let id = "113278ac-cc76-4e4e-ad0b-17d85afa59ca";
+    session
+        .send_with("queued: rename the branch", Some(id))
+        .await
+        .expect("send");
+    session.force();
+    until(&session, |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Exited { .. }))
+    })
+    .await;
+    assert!(
+        session
+            .history()
+            .iter()
+            .any(|event| matches!(event, Event::Dropped { id: dropped } if dropped == id))
+    );
 }
 
 #[tokio::test]

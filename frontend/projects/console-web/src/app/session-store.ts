@@ -291,6 +291,7 @@ export class SessionStore {
     if (event.kind === 'accepted' && event.id) this.outbox.accepted(event.id);
     if ((event.kind === 'prompt' || event.kind === 'shown') && event.id) this.outbox.done(event.id);
     if (event.kind === 'withdrawn') this.outbox.done(event.id);
+    if (event.kind === 'dropped') this.outbox.dropped(event.id);
     // Behind a kept copy the conversation is built out of sight: a page half
     // arrived over a slow link would replace the copy with less than it had.
     if (held.source() === 'kept') held.building = fold(held.building ?? [], event);

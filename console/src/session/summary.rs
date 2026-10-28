@@ -42,6 +42,19 @@ pub struct Tally {
     /// re-read gigabytes. See [`crate::past::counted`].
     #[serde(default)]
     pub counted: crate::past::Counted,
+    /// Messages handed to the CLI and not yet read, commands held for the turn's
+    /// end, each message's step through the CLI's queue, and the ids it has echoed:
+    /// none written anywhere, and all a withdrawal decides by. Carried, or an
+    /// upgrade would forget a message still waiting and give its words back while
+    /// the CLI still means to read it.
+    #[serde(default)]
+    pub unread: Vec<super::state::Unread>,
+    #[serde(default)]
+    pub held: Vec<super::state::Held>,
+    #[serde(default)]
+    pub steps: BTreeMap<String, (crate::protocol::Lifecycle, i64)>,
+    #[serde(default)]
+    pub echoed: BTreeMap<String, i64>,
 }
 
 /// When a rate-limit window turns over, in epoch seconds — not [`Heard`]'s clock

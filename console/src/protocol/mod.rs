@@ -76,6 +76,12 @@ pub enum Event {
     Withdrawn {
         id: String,
     },
+    /// A message the session will never read, by its id: the process ended with it
+    /// still waiting. A stop lets the CLI read its queue first; a kill or a crash
+    /// does not.
+    Dropped {
+        id: String,
+    },
     /// The prompt, echoed back: the session has read it.
     Prompt {
         text: String,
@@ -552,7 +558,8 @@ pub enum Output {
 /// about a message the queue has seen: a withdrawal's own answer says only
 /// whether the message was in the queue at that moment, and a cancel that comes
 /// before its message is still honoured when the message arrives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Lifecycle {
     Queued,
     /// A turn took it in: the session has read it.
@@ -569,11 +576,6 @@ impl Lifecycle {
     /// Whether the session has read the message.
     pub fn read(self) -> bool {
         matches!(self, Lifecycle::Started | Lifecycle::Completed)
-    }
-
-    /// Whether this is where the message ends up.
-    pub fn settled(self) -> bool {
-        !matches!(self, Lifecycle::Queued)
     }
 }
 

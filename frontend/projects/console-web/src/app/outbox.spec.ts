@@ -78,6 +78,13 @@ describe('takenJudged', () => {
     });
   });
 
+  it('passes on what the Mac said when it could not settle it', () => {
+    expect(takenJudged(409, 'the session did not answer in time')).toEqual({
+      kind: 'unsettled',
+      note: 'the session did not answer in time',
+    });
+  });
+
   it('does not pretend when there was no answer', () => {
     expect(takenJudged(0, undefined).kind).toBe('unreachable');
   });
@@ -255,6 +262,18 @@ describe('Outbox', () => {
     await outbox.drain();
     expect(first()?.refused).toBe('no session s');
     expect(await outbox.takeBack(first()?.id ?? '')).toEqual({ kind: 'back' });
+    expect(mac.withdrawals).toHaveLength(0);
+  });
+
+  it('gives back the words of a message its session ended without reading', async () => {
+    mac.answers = [ok];
+    await outbox.enqueue('s', 'hello');
+    await outbox.drain();
+    const id = first()?.id ?? '';
+    outbox.dropped(id);
+    await Promise.resolve();
+    expect(first()?.refused).toBe('the session ended before reading it');
+    expect(await outbox.takeBack(id)).toEqual({ kind: 'back' });
     expect(mac.withdrawals).toHaveLength(0);
   });
 

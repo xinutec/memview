@@ -37,6 +37,20 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
     case 'accepted':
       add(out, { kind: 'asked', text: event.text, at: at(event), queued: true, id: event.id });
       break;
+    case 'dropped': {
+      // The session ended with it unread: say so, and keep its words to take back.
+      const left = out.findIndex(
+        (entry) => entry.kind === 'asked' && !!entry.queued && entry.id === event.id,
+      );
+      const entry = out[left];
+      if (entry?.kind === 'asked') {
+        out[left] = {
+          ...entry,
+          waiting: { line: 'not read — the session ended', icon: 'error', alert: true },
+        };
+      }
+      break;
+    }
     case 'withdrawn': {
       // Taken back before it was read: it was never said.
       const gone = out.findIndex(

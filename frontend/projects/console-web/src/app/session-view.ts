@@ -509,6 +509,9 @@ export class SessionView implements OnDestroy {
         if (mine) this.outbox.done(mine.id);
         this.briefly(`Not taken back: ${taken.note}.`);
         break;
+      case 'unsettled':
+        this.briefly(`Not taken back: ${taken.note}.`);
+        break;
       case 'unreachable':
         this.briefly(
           'Not taken back: the Mac could not be reached, and it may already have the message.',

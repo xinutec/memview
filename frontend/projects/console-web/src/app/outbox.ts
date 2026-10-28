@@ -55,6 +55,8 @@ export type Verdict =
 export type Taken =
   | { readonly kind: 'back' }
   | { readonly kind: 'read'; readonly note: string }
+  /** The Mac answered, and could not settle it: its words. */
+  | { readonly kind: 'unsettled'; readonly note: string }
   | { readonly kind: 'unreachable' };
 
 /** How a waiting message stands, for the line under it. */
@@ -88,6 +90,9 @@ export function takenJudged(status: number, body: unknown, now: Date = new Date(
   if (status === 409 && refusal?.why === 'read') {
     const when = refusal.at === undefined ? '' : ` at ${clock(refusal.at, now)}`;
     return { kind: 'read', note: `the session read it${when}` };
+  }
+  if (status >= 400 && status < 500 && typeof body === 'string' && body) {
+    return { kind: 'unsettled', note: body };
   }
   return { kind: 'unreachable' };
 }
@@ -304,6 +309,14 @@ export class Outbox {
   /** The Mac has it: the event stream said so. */
   accepted(id: string): void {
     if (this.find(id)) void this.mark(id, { tried: true, sent: true });
+  }
+
+  /**
+   * Its session ended with it unread, and nothing will read it now: not sent, so
+   * taking it back gives its words back here.
+   */
+  dropped(id: string): void {
+    if (this.find(id)) void this.mark(id, { refused: 'the session ended before reading it' });
   }
 
   /** Read by its session, or taken back from another device: no longer waiting. */

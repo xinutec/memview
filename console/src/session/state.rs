@@ -143,6 +143,9 @@ pub(super) struct State {
     /// The ids the CLI has echoed back to this process, with when: a second echo of
     /// one is a retry it ignored, not a second message. See [`crate::sent`].
     pub(super) echoed: std::collections::BTreeMap<String, i64>,
+    /// Each message's latest step through the CLI's queue, and when it was seen —
+    /// [`crate::protocol::Lifecycle`]: the truth about a message the queue has seen.
+    pub(super) steps: std::collections::BTreeMap<String, (crate::protocol::Lifecycle, i64)>,
     /// A `/compact` is outstanding: the one long silence that is not a fault.
     pub(super) compacting: bool,
 }
@@ -324,19 +327,21 @@ pub fn leaves_a_decision(answered: Option<&Pending>) -> bool {
 
 /// A message written to stdin and not yet replayed by the CLI. Commands are never
 /// replayed, so never held.
-#[derive(Debug, Clone)]
-pub(super) struct Unread {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Unread {
     pub(super) text: String,
     /// When it was written, in epoch milliseconds.
     pub(super) at: i64,
     /// The client's id for it, when it gave one.
+    #[serde(default)]
     pub(super) id: Option<String>,
 }
 
 /// A slash command held for the turn's end, with the client's id for it.
-#[derive(Debug, Clone)]
-pub(super) struct Held {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Held {
     pub(super) text: String,
+    #[serde(default)]
     pub(super) id: Option<String>,
 }
 

@@ -101,6 +101,10 @@ fn provenance(event: &Event) -> Provenance {
              seen it. The one entry here that admits a loss rather than naming a \
              source; if the chip is ever missed, this is the line to change.",
         )),
+        Event::Dropped { .. } => Provenance::Runtime(Care::Covered(
+            "Summary::alive going false: every message a dead process held is unread, \
+             and the transcript has none of them",
+        )),
         Event::Withdrawn { .. } => Provenance::Runtime(Care::Covered(
             "the transcript itself: a message taken back from the CLI's queue is never \
              recorded, and a cold reader never saw the `accepted` it removes",

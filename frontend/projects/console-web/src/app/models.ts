@@ -78,6 +78,7 @@ export const KINDS = [
   'started',
   'accepted',
   'withdrawn',
+  'dropped',
   'prompt',
   'command',
   'shown',

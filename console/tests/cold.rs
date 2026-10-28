@@ -507,6 +507,7 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
             .collect(),
             spent: Default::default(),
             counted: Default::default(),
+            ..Default::default()
         },
     )
     .expect("adopt");
@@ -580,6 +581,7 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
             background: Default::default(),
             spent: Default::default(),
             counted: Default::default(),
+            ..Default::default()
         },
     )
     .expect("adopt");
