@@ -1502,3 +1502,34 @@ mod identified {
         ));
     }
 }
+
+/// What the CLI writes live when a background task ends, captured from 2.1.289
+/// (`sleep 5` run in the background). The `<task-notification>` user message the
+/// console read for this is in the transcript only: never on the live output.
+const TASK_ENDED: &str = r#"{"type":"system","subtype":"task_notification","task_id":"b2vkralxb","tool_use_id":"toolu_016Dv8NrUqMnm3MUjevhpfMZ","status":"completed","output_file":"/private/tmp/claude-501/-Volumes-Backup-scratch-notice-probe/60b3ed83-a30d-43ca-93d1-6a07da17fb91/tasks/b2vkralxb.output","summary":"Background command \"sleep 5\" completed (exit code 0)","uuid":"2946a4c9-962b-4884-bb29-7eba61b896f9","session_id":"60b3ed83-a30d-43ca-93d1-6a07da17fb91"}"#;
+
+#[test]
+fn a_background_task_ending_live_ends_it() {
+    // Unread, a finished task stayed "running" until a transcript was next read
+    // — an upgrade or a restart.
+    let events = read(TASK_ENDED);
+    assert!(
+        matches!(
+            events.as_slice(),
+            [Event::Background { tool: Some(tool), status: Some(console::protocol::Ended::Completed), .. }]
+                if tool == "toolu_016Dv8NrUqMnm3MUjevhpfMZ"
+        ),
+        "{events:?}"
+    );
+    assert!(matches!(
+        console::protocol::running(&events[0]),
+        console::protocol::Running::Ended(_)
+    ));
+}
+
+#[test]
+fn a_task_notification_without_a_status_ends_nothing() {
+    // A monitor reports while it runs; only a status says something is over.
+    let line = TASK_ENDED.replace(r#""status":"completed","#, "");
+    assert!(read(&line).is_empty(), "{:?}", read(&line));
+}

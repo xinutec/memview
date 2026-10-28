@@ -329,6 +329,17 @@ enum System {
     },
     /// Written where a compaction happened — see [`Event::Compacted`].
     CompactBoundary,
+    /// A background task's status, live: the transcript records it as a
+    /// `<task-notification>` user message instead (measured, 2.1.289).
+    TaskNotification {
+        #[serde(default)]
+        tool_use_id: Option<String>,
+        #[serde(default)]
+        task_id: Option<String>,
+        /// Absent while a task only reports; present once it is over.
+        #[serde(default)]
+        status: Option<String>,
+    },
     #[serde(other)]
     Other,
 }
@@ -630,10 +641,21 @@ fn events(parsed: Line) -> Vec<Event> {
             tools: init.tools.len(),
         }],
         Line::System(System::Status { status }) => vec![Event::Busy { status }],
+        // Ends nothing without a status, nor without a name to end it by.
+        Line::System(System::TaskNotification {
+            tool_use_id,
+            task_id,
+            status: Some(status),
+        }) if tool_use_id.is_some() || task_id.is_some() => vec![Event::Background {
+            tool: tool_use_id,
+            task: task_id,
+            status: Some(crate::named::named(&status)),
+        }],
         // Not something the live stream says. Named so the match stays exhaustive and
         // the day it does arrive is a decision rather than a drop into `Other`.
         Line::System(System::CompactBoundary) => Vec::new(),
-        Line::System(System::Other) => Vec::new(),
+        // A task reporting, not ending, or naming nothing.
+        Line::System(System::TaskNotification { .. }) | Line::System(System::Other) => Vec::new(),
         // Also file-only. Read off the transcript — see [`crate::past::Appended::finished`].
         Line::QueueOperation { .. } => Vec::new(),
         Line::StreamEvent { event } => match event {
