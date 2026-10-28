@@ -76,6 +76,10 @@ pub struct Session {
     /// Withdrawals asked of the CLI and not yet answered, by request id —
     /// [`Session::withdraw_queued`].
     withdrawals: Mutex<std::collections::BTreeMap<String, oneshot::Sender<bool>>>,
+    /// Each message's latest step through the CLI's queue, and when it was seen —
+    /// [`protocol::Lifecycle`]. Woken on every step, for a withdrawal waiting on one.
+    steps: Mutex<std::collections::BTreeMap<String, (protocol::Lifecycle, i64)>>,
+    stepped: tokio::sync::Notify,
 }
 
 /// By hand: the sink is a trait object.
@@ -263,6 +267,8 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
+            steps: Mutex::default(),
+            stepped: tokio::sync::Notify::new(),
         });
 
         let stdout = child.stdout.take();
@@ -334,6 +340,8 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
             withdrawals: Mutex::default(),
+            steps: Mutex::default(),
+            stepped: tokio::sync::Notify::new(),
         });
         // The same child across the exec: nothing above the boundary died.
         session.seed(false);
@@ -401,6 +409,10 @@ impl Session {
                         }
                         protocol::Output::Withdrawn(request, cancelled) => {
                             session.answer_withdrawal(&request, cancelled);
+                            continue;
+                        }
+                        protocol::Output::Lifecycle(id, step) => {
+                            session.stepped(id, step);
                             continue;
                         }
                         protocol::Output::Events(events) => events,

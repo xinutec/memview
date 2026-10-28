@@ -1470,6 +1470,22 @@ mod identified {
     }
 
     #[test]
+    fn a_message_read_mid_turn_carries_its_id_from_source_uuid() {
+        // A message sent to a busy session is delivered into the running turn as a
+        // `queued_command` attachment, with the client's id as `source_uuid` and an
+        // id of the attachment's own as `uuid`. As the CLI wrote it on 2.1.289.
+        let delivered = format!(
+            r#"{{"parentUuid":"e0aa92fb-9b56-46dc-a92f-b663107d4f0b","isSidechain":false,"attachment":{{"type":"queued_command","prompt":[{{"text":"That's weird","type":"text"}}],"source_uuid":"{ID}","delivery_id":"60717d4e-dc3f-488a-acb8-38d46f3b2bed","commandMode":"prompt","timestamp":"2026-10-26T17:07:44.995Z"}},"type":"attachment","uuid":"394f7f32-4151-4c65-8f0f-6030a9a63d9c","timestamp":"2026-10-26T17:07:44.995Z"}}"#
+        );
+        let said = Event::Prompt {
+            text: "That's weird".to_string(),
+            id: Some(ID.to_string()),
+        };
+        assert_eq!(read(&delivered), vec![said.clone()]);
+        assert_eq!(read_recorded(&delivered), vec![said]);
+    }
+
+    #[test]
     fn a_message_with_pictures_carries_its_id_both_ways() {
         let kept = std::path::Path::new("/tmp/kept.png");
         let pictures = [console::protocol::Picture {

@@ -145,3 +145,24 @@ fn the_transcript_answers_for_a_message_an_earlier_process_wrote() {
         None
     );
 }
+
+#[test]
+fn the_transcript_answers_for_a_message_read_mid_turn() {
+    // Delivered into a running turn, a message is recorded as a `queued_command`
+    // attachment carrying the client's id as `source_uuid`.
+    let dir = std::env::temp_dir().join(format!("sent-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let transcript = dir.join("t.jsonl");
+    let id = "a9cefb2b-8fe7-4680-886a-f352ef349252";
+    std::fs::write(
+        &transcript,
+        format!(
+            "{{\"parentUuid\":\"e0aa92fb-9b56-46dc-a92f-b663107d4f0b\",\"attachment\":{{\"type\":\"queued_command\",\"prompt\":[{{\"text\":\"That's weird\",\"type\":\"text\"}}],\"source_uuid\":\"{id}\",\"commandMode\":\"prompt\"}},\"type\":\"attachment\",\"uuid\":\"394f7f32-4151-4c65-8f0f-6030a9a63d9c\",\"timestamp\":\"2026-10-26T17:07:44.995Z\"}}\n"
+        ),
+    )
+    .expect("transcript");
+    assert_eq!(
+        console::sent::recorded_at(&transcript, id),
+        Some(1_793_034_464_995)
+    );
+}

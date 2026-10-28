@@ -505,6 +505,8 @@ export class SessionView implements OnDestroy {
         break;
       }
       case 'read':
+        // It is history now, and the conversation shows it.
+        if (mine) this.outbox.done(mine.id);
         this.briefly(`Not taken back: ${taken.note}.`);
         break;
       case 'unreachable':

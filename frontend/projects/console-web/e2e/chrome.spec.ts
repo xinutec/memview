@@ -23,6 +23,7 @@ import {
   type Described,
   type Overview,
   type Refusal,
+  type Summary,
 } from './console';
 
 test.use({ serviceWorkers: 'block' });
@@ -1161,4 +1162,37 @@ test('a refused message stops its session until taken back @ phone width', async
   await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
   await refused.getByRole('button', { name: 'take back' }).click();
   await expect(box).toHaveValue('one more thing');
+});
+
+test('a message stuck waiting to be read is cleared by taking it back @ phone width', async ({
+  page,
+}) => {
+  // Read mid-turn before the console carried its id there, a message's echo
+  // never reached the phone, which said "waiting to be read" for ever. The Mac
+  // knows better: taken back, it gives the words back if the session never read
+  // it, and says it was read if it was — and either way it stops waiting.
+  await mockRunner(page);
+  let answer: { status: number; json: Refusal | Summary } = { status: 200, json: RUNNING };
+  await page.route('**/api/sessions/*/input', (r) => r.fulfill({ json: RUNNING }));
+  await page.route('**/api/sessions/*/withdraw', (r) => r.fulfill(answer));
+  await page.goto(`/s/${RUNNING.id}`);
+  const box = page.locator('app-composer textarea');
+  for (const words of ['never read', 'read mid-turn']) {
+    await box.fill(words);
+    await page.getByRole('button', { name: 'send' }).click();
+    await expect(page.locator('li.entry', { hasText: words })).toContainText('waiting to be read');
+  }
+
+  await page
+    .locator('li.entry', { hasText: 'never read' })
+    .getByRole('button', { name: 'take back' })
+    .click();
+  await expect(box).toHaveValue('never read');
+
+  answer = { status: 409, json: { why: 'read', at: Date.now() } };
+  await page
+    .locator('li.entry', { hasText: 'read mid-turn' })
+    .getByRole('button', { name: 'take back' })
+    .click();
+  await expect(page.locator('li.entry', { hasText: 'waiting to be read' })).toHaveCount(0);
 });

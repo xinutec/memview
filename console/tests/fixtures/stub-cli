@@ -68,9 +68,19 @@ while IFS= read -r line; do
         *" $target "*)
           queued=$(printf '%s' " $queued " | sed -e "s/ $target / /")
           printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"cancelled":true}}}\n' "$id"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"cancelled","session_id":"%s"}\n' "$target" "$session"
           ;;
         *)
+          # Not in the queue yet: answered false, and the cancel waits for the
+          # message, which it takes out the moment it arrives.
           printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"cancelled":false}}}\n' "$id"
+          case " $late " in
+            *" $target "*)
+              late=$(printf '%s' " $late " | sed -e "s/ $target / /")
+              printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$target" "$session"
+              printf '{"type":"command_lifecycle","command_uuid":"%s","state":"cancelled","session_id":"%s"}\n' "$target" "$session"
+              ;;
+          esac
           ;;
       esac
       ;;
@@ -215,6 +225,22 @@ while IFS= read -r line; do
       case "$said" in
         queued:*)
           queued="$queued $uuid"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$uuid" "$session"
+          continue
+          ;;
+        # Not yet read off stdin when a cancel for it comes: see the cancel above.
+        late:*)
+          late="$late $uuid"
+          continue
+          ;;
+        # Delivered into a running turn: an attachment carrying the client's id as
+        # `source_uuid`, read, and no echo of its own.
+        fold:*)
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$uuid" "$session"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"started","session_id":"%s"}\n' "$uuid" "$session"
+          printf '{"type":"attachment","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"%s"}],"source_uuid":"%s","commandMode":"prompt"},"uuid":"00000000-0000-4000-9000-%012d","session_id":"%s"}\n' "$said" "$uuid" "$own" "$session"
+          printf '{"type":"result","subtype":"success","total_cost_usd":0,"num_turns":1,"duration_ms":1,"session_id":"%s"}\n' "$session"
+          printf '{"type":"command_lifecycle","command_uuid":"%s","state":"completed","session_id":"%s"}\n' "$uuid" "$session"
           continue
           ;;
       esac
@@ -223,8 +249,11 @@ while IFS= read -r line; do
         *" $uuid "*) continue ;;
       esac
       answered="$answered $uuid"
+      printf '{"type":"command_lifecycle","command_uuid":"%s","state":"queued","session_id":"%s"}\n' "$uuid" "$session"
+      printf '{"type":"command_lifecycle","command_uuid":"%s","state":"started","session_id":"%s"}\n' "$uuid" "$session"
       printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
       printf '{"type":"result","subtype":"success","total_cost_usd":%s,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$total" "$session"
+      printf '{"type":"command_lifecycle","command_uuid":"%s","state":"completed","session_id":"%s"}\n' "$uuid" "$session"
       ;;
   esac
 done

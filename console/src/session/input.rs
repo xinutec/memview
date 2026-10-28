@@ -8,6 +8,9 @@ use super::state::{Held, Unread};
 
 /// How long a withdrawal waits for the CLI: it answers from its queue, at once.
 const WITHDRAW_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How many messages' steps a session remembers.
+const STEPS_KEPT: usize = 2_000;
 use super::{ResetsAt, Seen, Session, now};
 use crate::protocol::{self, Event};
 
@@ -122,6 +125,14 @@ impl Session {
     /// Where a message this process was given stands, by the client's id. What it
     /// cannot see — a message an earlier process wrote — the transcript answers.
     pub fn whereabouts(&self, id: &str) -> crate::sent::Where {
+        // The queue's own word first: a message read mid-turn may have no echo.
+        match self.steps.lock().get(id) {
+            Some((step, at)) if step.read() => return crate::sent::Where::Delivered { at: *at },
+            Some((protocol::Lifecycle::Cancelled | protocol::Lifecycle::Dropped, _)) => {
+                return crate::sent::Where::Nowhere;
+            }
+            _ => {}
+        }
         let state = self.state.lock();
         if let Some(at) = state.echoed.get(id) {
             crate::sent::Where::Delivered { at: *at }
@@ -155,14 +166,59 @@ impl Session {
                 anyhow::bail!("the session did not answer in time")
             }
         };
-        if cancelled {
-            self.state
-                .lock()
-                .unread
-                .retain(|it| it.id.as_deref() != Some(id));
-            self.push(Event::Withdrawn { id: id.to_string() });
+        // Not in the queue at that moment: read, already taken back, or not yet
+        // arrived — and a cancel that comes first is honoured when the message
+        // does. Only its step says which.
+        if !cancelled
+            && self
+                .settled(id, WITHDRAW_PATIENCE)
+                .await
+                .is_some_and(protocol::Lifecycle::read)
+        {
+            return Ok(false);
         }
-        Ok(cancelled)
+        self.state
+            .lock()
+            .unread
+            .retain(|it| it.id.as_deref() != Some(id));
+        self.push(Event::Withdrawn { id: id.to_string() });
+        Ok(true)
+    }
+
+    /// Note a message's step through the CLI's queue, and wake whoever waits on it.
+    pub(super) fn stepped(&self, id: String, step: protocol::Lifecycle) {
+        {
+            let mut steps = self.steps.lock();
+            // A long session's ids, without end: keep the newer half by time.
+            if steps.len() >= STEPS_KEPT {
+                let mut seen: Vec<i64> = steps.values().map(|(_, at)| *at).collect();
+                seen.sort_unstable();
+                let cut = seen[seen.len() / 2];
+                steps.retain(|_, (_, at)| *at >= cut);
+            }
+            steps.insert(id, (step, now()));
+        }
+        self.stepped.notify_waiters();
+    }
+
+    /// The message's step, once it is where the message ends up, or whatever it
+    /// was when `patience` ran out.
+    async fn settled(
+        &self,
+        id: &str,
+        patience: std::time::Duration,
+    ) -> Option<protocol::Lifecycle> {
+        let deadline = tokio::time::Instant::now() + patience;
+        loop {
+            let woken = self.stepped.notified();
+            let step = self.steps.lock().get(id).map(|(step, _)| *step);
+            if step.is_some_and(protocol::Lifecycle::settled) {
+                return step;
+            }
+            if tokio::time::timeout_at(deadline, woken).await.is_err() {
+                return step;
+            }
+        }
     }
 
     /// Hand a withdrawal's answer to whoever is waiting for it.

@@ -208,11 +208,17 @@ pub fn recorded_at(transcript: &Path, id: &str) -> Option<i64> {
         .ok()?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail).ok()?;
-    let needle = format!("\"uuid\":\"{id}\"");
+    // Read between turns, the message is a user line under its id; read mid-turn,
+    // a `queued_command` attachment carrying it as `source_uuid`.
+    let said = format!("\"uuid\":\"{id}\"");
+    let delivered = format!("\"source_uuid\":\"{id}\"");
     String::from_utf8_lossy(&tail)
         .lines()
-        .filter(|line| line.contains(&needle))
-        .find(|line| line.starts_with("{\"") && line.contains("\"type\":\"user\""))
+        .filter(|line| line.starts_with("{\""))
+        .find(|line| {
+            (line.contains(&said) && line.contains("\"type\":\"user\""))
+                || (line.contains(&delivered) && line.contains("\"queued_command\""))
+        })
         .and_then(crate::protocol::recorded_at)
 }
 

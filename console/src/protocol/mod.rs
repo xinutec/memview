@@ -298,6 +298,10 @@ enum Attached {
     QueuedCommand {
         #[serde(default)]
         prompt: Content,
+        /// The message's id: the client's, when it gave one. The attachment's own
+        /// `uuid` is another id, the delivery's. See [`crate::sent`].
+        #[serde(default)]
+        source_uuid: Option<String>,
     },
     #[serde(other)]
     Other,
@@ -539,7 +543,51 @@ pub enum Output {
     Mode(ModeReply),
     /// A withdrawal answered: its request id, and whether the message was taken back.
     Withdrawn(String, bool),
+    /// Where a message stands in the CLI's queue: its id, and the step.
+    Lifecycle(String, Lifecycle),
     Events(Vec<Event>),
+}
+
+/// A message's step through the CLI's queue, by `command_lifecycle`. The truth
+/// about a message the queue has seen: a withdrawal's own answer says only
+/// whether the message was in the queue at that moment, and a cancel that comes
+/// before its message is still honoured when the message arrives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lifecycle {
+    Queued,
+    /// A turn took it in: the session has read it.
+    Started,
+    Completed,
+    /// Taken out of the queue before a turn took it in, or by a cancel waiting
+    /// for it; or swept with an aborted turn.
+    Cancelled,
+    /// Discarded with the session, or refused before it was queued.
+    Dropped,
+}
+
+impl Lifecycle {
+    /// Whether the session has read the message.
+    pub fn read(self) -> bool {
+        matches!(self, Lifecycle::Started | Lifecycle::Completed)
+    }
+
+    /// Whether this is where the message ends up.
+    pub fn settled(self) -> bool {
+        !matches!(self, Lifecycle::Queued)
+    }
+}
+
+/// A `command_lifecycle` line: the message's id and its step.
+fn lifecycle_of(value: &serde_json::Value) -> Option<(String, Lifecycle)> {
+    let id = value.get("command_uuid")?.as_str()?.to_string();
+    let step = match value.get("state")?.as_str()? {
+        "queued" => Lifecycle::Queued,
+        "started" => Lifecycle::Started,
+        "completed" => Lifecycle::Completed,
+        "cancelled" => Lifecycle::Cancelled,
+        _ => Lifecycle::Dropped,
+    };
+    Some((id, step))
 }
 
 /// What one output line is. Parsed once, where trying each reader in turn parsed
@@ -549,6 +597,12 @@ pub fn output(line: &str) -> Output {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
         return Output::Events(Vec::new());
     };
+    if value.get("type").and_then(|it| it.as_str()) == Some("command_lifecycle") {
+        return match lifecycle_of(&value) {
+            Some((id, step)) => Output::Lifecycle(id, step),
+            None => Output::Events(Vec::new()),
+        };
+    }
     if value.get("type").and_then(|it| it.as_str()) == Some("control_response") {
         if let Some(commands) = control::commands_answer(&value) {
             return Output::Commands(commands);
@@ -610,8 +664,12 @@ fn events(parsed: Line) -> Vec<Event> {
         // The delivery of a message sent while the session was working, read as the
         // prompt it is, so the echo that clears "waiting to be read" arrives.
         Line::Attachment {
-            attachment: Attached::QueuedCommand { prompt },
-        } => from_user(prompt, None),
+            attachment:
+                Attached::QueuedCommand {
+                    prompt,
+                    source_uuid,
+                },
+        } => from_user(prompt, source_uuid),
         Line::Attachment { .. } => Vec::new(),
         Line::Result(turn) => vec![Event::Turn {
             // Whichever model answered; the largest is the honest answer if a turn ever
@@ -776,8 +834,12 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         // The replay path needs this more than the live one: a message sent to a busy
         // session exists in the transcript only as this attachment.
         Line::Attachment {
-            attachment: Attached::QueuedCommand { prompt },
-        } => from_user(prompt, None),
+            attachment:
+                Attached::QueuedCommand {
+                    prompt,
+                    source_uuid,
+                },
+        } => from_user(prompt, source_uuid),
         // Only what has just been handed over, and only a notification: `remove` is the
         // same message going the other way.
         Line::QueueOperation { operation, content } if operation == "enqueue" => content

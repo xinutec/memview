@@ -59,7 +59,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
           : out.find((entry): entry is Asked => queued(entry) && entry.id === event.id)) ??
         out.find((entry): entry is Asked => queued(entry) && entry.text === event.text);
       if (!read) {
-        add(out, { kind: 'asked', text: event.text, at: at(event) });
+        add(out, { kind: 'asked', text: event.text, at: at(event), id: event.id });
         break;
       }
       out.splice(out.indexOf(read), 1);

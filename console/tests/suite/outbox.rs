@@ -182,6 +182,52 @@ async fn a_queued_message_is_taken_back_from_the_cli_and_never_read() {
 }
 
 #[tokio::test]
+async fn a_take_back_that_reaches_the_cli_before_its_message_still_takes_it_back() {
+    // The CLI had not read the message off its input when the cancel came, so it
+    // answered `cancelled: false` — and then took the message out the moment it
+    // arrived. Read as "the session read it", the phone waited for ever for an
+    // echo that never came (measured on 2.1.289).
+    let (session, base) = served().await;
+    let m42 = id();
+    let message = serde_json::json!({"text": "late: rename the branch", "id": m42});
+    assert_eq!(post(format!("{base}/input"), message).await.0, 200);
+
+    let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        session
+            .history()
+            .iter()
+            .any(|event| matches!(event, Event::Withdrawn { id } if *id == m42))
+    );
+    settled().await;
+    assert!(read(&session).is_empty());
+}
+
+#[tokio::test]
+async fn a_message_read_mid_turn_is_known_read_by_its_id() {
+    // Delivered into a running turn it has no echo: the CLI records it as an
+    // attachment carrying the client's id. Without that id the phone showed it
+    // "waiting to be read" for ever, and the Mac could not say it was read.
+    let (session, base) = served().await;
+    let m42 = id();
+    post(
+        format!("{base}/input"),
+        serde_json::json!({"text": "fold: check the build", "id": m42}),
+    )
+    .await;
+    until(&session, |s| turns(s) == 1).await;
+    assert_eq!(
+        read(&session),
+        vec![("fold: check the build".to_string(), Some(m42.clone()))]
+    );
+
+    let (status, body) = post(format!("{base}/withdraw"), serde_json::json!({"id": m42})).await;
+    assert_eq!(status, 409);
+    assert!(body.contains("\"read\""), "{body}");
+}
+
+#[tokio::test]
 async fn a_message_that_never_arrived_is_taken_back_and_stays_back() {
     let (session, base) = served().await;
     let m42 = id();
