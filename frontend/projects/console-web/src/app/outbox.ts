@@ -2,6 +2,7 @@ import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
+import { clock } from './clock';
 import { ConsoleApi } from './console-api';
 import { Drafts } from './drafts';
 import { Local } from './local';
@@ -86,7 +87,7 @@ export function judged(status: number, body: unknown): Verdict {
   if (status === 409 && refusalIn(body)?.why === 'withdrawn') return { kind: 'withdrawn' };
   return {
     kind: 'refused',
-    why: typeof body === 'string' && body ? body : `the Mac said ${status}`,
+    why: typeof body === 'string' && body ? body : `the runner answered ${status}`,
   };
 }
 
@@ -139,14 +140,6 @@ export function age(ms: number): string {
   if (minutes < 1) return '';
   if (minutes < 60) return ` · ${minutes} min`;
   return ` · ${Math.floor(minutes / 60)} h`;
-}
-
-function clock(at: number, now: Date): string {
-  const then = new Date(at);
-  const time = then.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return then.toDateString() === now.toDateString()
-    ? time
-    : `${then.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
 const WHYS: readonly Refusal['why'][] = ['withdrawn', 'read'];

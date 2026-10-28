@@ -334,6 +334,7 @@ export const ENDED: Summary = {
  *  first instruction, a session that is working and one that has ended. */
 export const STATE: Overview = {
   dirs: ['/home/example/Code'],
+  unreached: [],
   repos: REPOS,
   sessions: [RUNNING, ENDED],
   // Who is holding what, keyed by id the way the runner sends it — every holder

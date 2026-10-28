@@ -5,6 +5,7 @@ import type { IndexSize } from "./IndexSize";
 import type { Reading } from "./Reading";
 import type { Summary } from "./Summary";
 import type { Sweep } from "./Sweep";
+import type { Unreached } from "./Unreached";
 import type { WayIn } from "./WayIn";
 
 /**
@@ -52,4 +53,13 @@ lapses?: number,
  * Whether the phone can reach this console through isis, and its outages.
  * Absent without the gate, when there is no way in to keep.
  */
-way_in?: WayIn, };
+way_in?: WayIn, 
+/**
+ * Whether the console's own trips in through isis come back, and when they
+ * did not: the way in up says nothing of what isis passes. Absent without it.
+ */
+round_trip?: WayIn, 
+/**
+ * The stretches clients could not reach the console, as they measured them.
+ */
+unreached: Array<Unreached>, };

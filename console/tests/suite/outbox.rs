@@ -35,6 +35,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
+        reach: dir.join("unreached.json"),
         tunnel: None,
     }))
 }
@@ -312,4 +313,35 @@ async fn a_send_is_answered_with_the_message_as_listed_and_when() {
     assert!(accepted["taken"].is_u64(), "{body}");
     assert_eq!(accepted["message"]["id"], m42.as_str());
     assert_eq!(accepted["message"]["stands"], "unread");
+}
+
+#[tokio::test]
+async fn a_stretch_a_client_could_not_reach_the_console_is_kept_and_shown() {
+    // Reported once the client is back — and again if that answer is lost.
+    let (_session, base) = served().await;
+    let root = base
+        .split("/api/sessions/")
+        .next()
+        .expect("root")
+        .to_string();
+    let stretch = serde_json::json!([{
+        "last_answer": 1_000,
+        "first_failure": 5_000,
+        "last_failure": 55_000,
+        "answered_again": 60_000,
+        "failures": 11
+    }]);
+    assert_eq!(
+        post(format!("{root}/api/reach"), stretch.clone()).await.0,
+        204
+    );
+    assert_eq!(post(format!("{root}/api/reach"), stretch).await.0, 204);
+    let state: serde_json::Value = reqwest::get(format!("{root}/api/state"))
+        .await
+        .expect("state")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(state["unreached"].as_array().map(Vec::len), Some(1));
+    assert_eq!(state["unreached"][0]["answered_again"], 60_000);
 }

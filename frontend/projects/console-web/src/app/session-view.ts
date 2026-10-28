@@ -554,7 +554,7 @@ export class SessionView implements OnDestroy {
         break;
       case 'unreachable':
         this.briefly(
-          'Not taken back: the Mac could not be reached, and it may already have the message.',
+          'Not taken back: the runner did not answer, and it may already have the message.',
         );
         break;
     }

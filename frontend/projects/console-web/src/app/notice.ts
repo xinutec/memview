@@ -1,6 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 
+import { clock } from './clock';
+
 /**
  * What to tell the reader about the link to the runner. Never two at once — see
  * [[notice]] for the ranking.
@@ -11,8 +13,17 @@ import { MatIconModule } from '@angular/material/icon';
 export type Notice =
   /** Something the reader pressed failed. Said on the press: they are watching. */
   | { readonly kind: 'acting'; readonly what: string }
-  /** The runner has stopped answering the poll. See [[Roster]]. */
-  | { readonly kind: 'runner'; readonly what: string }
+  /**
+   * The runner has stopped answering the poll, or answers it with an error. See
+   * [[Roster]]. `since` when there is no answer at all, with when it last
+   * answered if it had: all a client can know, which names no device and no cause.
+   */
+  | {
+      readonly kind: 'runner';
+      readonly what: string;
+      readonly since?: number;
+      readonly answered?: number;
+    }
   /** This conversation's stream has stopped arriving. See [[SessionStore]]. */
   | { readonly kind: 'stream' };
 
@@ -31,7 +42,7 @@ export function notice(from: {
 }
 
 /** A notice as it reads on screen. */
-interface Worded {
+export interface Worded {
   readonly icon: string;
   /** A state named in bold, for a notice that carries no message of its own. */
   readonly lead?: string;
@@ -40,12 +51,21 @@ interface Worded {
   readonly quiet?: true;
 }
 
-function worded(notice: Notice): Worded {
+export function worded(notice: Notice): Worded {
   switch (notice.kind) {
     case 'acting':
       return { icon: 'error_outline', what: notice.what };
     case 'runner':
-      return { icon: 'cloud_off', lead: 'Cannot reach the runner.', what: notice.what };
+      if (notice.since === undefined) return { icon: 'error_outline', what: notice.what };
+      return {
+        icon: 'cloud_off',
+        // To the second: a stretch most often begins within a minute of the answer.
+        lead: `No answer from the runner since ${clock(notice.since, new Date(), true)}.`,
+        what:
+          notice.answered === undefined
+            ? ''
+            : `It last answered at ${clock(notice.answered, new Date(), true)}.`,
+      };
     case 'stream':
       return {
         icon: 'cloud_off',

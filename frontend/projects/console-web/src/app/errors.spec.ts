@@ -15,22 +15,15 @@ describe('reason — what went wrong, in words fit to put on screen', () => {
     );
   });
 
-  it('names the phone before the Mac when there is no answer at all', () => {
-    // The order is a finding, not a preference: status-0 failures track waking
-    // hours, the opposite of what a sleeping Mac produces. The near cause is this
-    // phone's client certificate passing its window.
-    const said = reason(failed(0));
-    expect(said).toContain('unlocking');
-    // Both named before either is ordered — `indexOf` returns -1 for a word that
-    // is missing, so the comparison below passes vacuously without these.
-    expect(said).toContain('phone');
-    // The Mac stays in the sentence: it is the case nobody would think of.
-    expect(said).toContain('Mac');
-    expect(said.indexOf('phone')).toBeLessThan(said.indexOf('Mac'));
+  it('says there was no answer, and guesses at no device or cause', () => {
+    // No answer says nothing of where it stopped: the client's network or key (its
+    // window passing tracks waking hours), the way in, or the runner. Where it
+    // stopped is measured instead — `Reach` and the runner's round trip.
+    expect(reason(failed(0))).toBe('No answer from the runner.');
   });
 
   it('does not mistake an empty body for an explanation', () => {
-    expect(reason(failed(0, '   '))).toContain('unlocking');
+    expect(reason(failed(0, '   '))).toBe('No answer from the runner.');
   });
 
   it('reports any other status as the runner answering', () => {

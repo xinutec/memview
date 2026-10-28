@@ -31,6 +31,7 @@ import {
   type Task,
   type Timed,
   type Returned,
+  type Unreached,
   type Withdrawal,
 } from './models';
 import { type Known } from './modes';
@@ -47,6 +48,11 @@ export type Streamed =
 @Injectable({ providedIn: 'root' })
 export class ConsoleApi {
   private readonly http = inject(HttpClient);
+
+  /** What this client saw of stretches the runner did not answer — see [[Reach]]. */
+  reach(stretches: readonly Unreached[]): Observable<void> {
+    return this.http.post<void>('/api/reach', stretches);
+  }
 
   state(): Observable<Overview> {
     return this.http.get<Overview>('/api/state');

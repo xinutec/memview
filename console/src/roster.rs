@@ -46,6 +46,8 @@ pub struct Roster {
     login: crate::login::Login,
     /// The phone's way in, when the gate is on — [`crate::tunnel`].
     tunnel: Option<Arc<crate::tunnel::Tunnel>>,
+    /// The stretches clients could not reach the console — [`crate::reach`].
+    reports: crate::reach::Reports,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -82,6 +84,7 @@ impl Roster {
         let drafts = Arc::new(crate::drafts::Drafts::load(config.drafts.clone()));
         let modes = Arc::new(crate::modes::Modes::load(config.modes.clone()));
         let tunnel = config.tunnel.clone().map(crate::tunnel::Tunnel::new);
+        let reports = crate::reach::Reports::load(config.reach.clone());
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
@@ -96,6 +99,7 @@ impl Roster {
             sudo: crate::sudo::Waiting::default(),
             login: crate::login::Login::default(),
             tunnel,
+            reports,
         }
     }
 
@@ -109,6 +113,16 @@ impl Roster {
     /// Whether the phone can reach this console through isis, and its outages.
     pub fn way_in(&self) -> Option<crate::tunnel::WayIn> {
         self.tunnel.as_ref().map(|tunnel| tunnel.way_in())
+    }
+
+    /// Whether the console's own trips through isis come back — [`crate::tunnel::answers`].
+    pub fn round_trip(&self) -> Option<crate::tunnel::WayIn> {
+        self.tunnel.as_ref().map(|tunnel| tunnel.round_trip())
+    }
+
+    /// What clients said of the stretches they could not reach the console.
+    pub fn reports(&self) -> &crate::reach::Reports {
+        &self.reports
     }
 
     /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].

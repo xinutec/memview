@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { notice } from './notice';
+import { notice, worded } from './notice';
 
 /**
  * Which of the three gets the line. There is one banner, so this ranking is the
@@ -33,5 +33,26 @@ describe('notice', () => {
     // The case the stream marker exists for: the poll is healthy, so the list
     // looks fine, and the transcript has silently stopped.
     expect(notice({ acting: '', runner: undefined, stream: STREAM })).toEqual(STREAM);
+  });
+});
+
+describe('worded', () => {
+  it('says since when there has been no answer, and names no device or cause', () => {
+    const at = new Date(2026, 9, 28, 14, 25).getTime();
+    const said = worded({
+      kind: 'runner',
+      what: 'No answer from the runner.',
+      since: at,
+      answered: at - 5_000,
+    });
+    expect(said.lead).toMatch(/^No answer from the runner since .+\.$/);
+    expect(said.what).toMatch(/^It last answered at .+\.$/);
+    expect(`${said.lead} ${said.what}`).not.toMatch(/phone|Mac|asleep|unlock/i);
+  });
+
+  it('passes on an error the runner answered with', () => {
+    expect(worded({ kind: 'runner', what: 'The runner answered 500.' })).toMatchObject({
+      what: 'The runner answered 500.',
+    });
   });
 });

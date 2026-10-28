@@ -30,6 +30,7 @@ use crate::trace;
 pub fn router(roster: Arc<Roster>) -> Router {
     Router::new()
         .route("/api/state", get(state))
+        .route("/api/reach", post(reach))
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
@@ -136,6 +137,13 @@ pub struct Overview {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub way_in: Option<crate::tunnel::WayIn>,
+    /// Whether the console's own trips in through isis come back, and when they
+    /// did not: the way in up says nothing of what isis passes. Absent without it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub round_trip: Option<crate::tunnel::WayIn>,
+    /// The stretches clients could not reach the console, as they measured them.
+    pub unreached: Vec<crate::reach::Unreached>,
 }
 
 /// `MEMORY.md`'s size and its ceiling, in bytes.
@@ -181,7 +189,18 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         index: index_size(),
         lapses: roster.login().lapses_at().await,
         way_in: roster.way_in(),
+        round_trip: roster.round_trip(),
+        unreached: roster.reports().all(),
     })
+}
+
+/// A client's word on the stretches it could not reach the console, once it can.
+async fn reach(
+    State(roster): State<Arc<Roster>>,
+    Json(stretches): Json<Vec<crate::reach::Unreached>>,
+) -> StatusCode {
+    roster.reports().add(stretches);
+    StatusCode::NO_CONTENT
 }
 
 #[derive(Debug, Deserialize)]

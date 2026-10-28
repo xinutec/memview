@@ -183,6 +183,8 @@ fn ssh_is_asked_for_exactly_the_forward_and_gives_up_on_a_silent_host() {
         listen: "10.100.0.2:8097".to_string(),
         local: "127.0.0.1:8097".to_string(),
         record: PathBuf::from("/tmp/way-in.json"),
+        certificate: None,
+        trips: PathBuf::from("/tmp/round-trip.json"),
     };
     let args = dial.args();
     let has = |pair: [&str; 2]| args.windows(2).any(|w| w == pair);
@@ -201,4 +203,84 @@ fn ssh_is_asked_for_exactly_the_forward_and_gives_up_on_a_silent_host() {
         args.last().map(String::as_str),
         Some("someone@isis.xinutec.org")
     );
+}
+
+/// A console's gate on loopback, as isis passes it on: it asks every client for
+/// a key and refuses one without, as the real one does.
+async fn gate() -> (String, rustls::pki_types::CertificateDer<'static>) {
+    let console = rcgen::generate_simple_self_signed(vec!["console".to_string()]).expect("cert");
+    let client = rcgen::generate_simple_self_signed(vec!["phone".to_string()]).expect("cert");
+    let pin = console::tls::pin_of(client.cert.der())
+        .expect("pin")
+        .to_string();
+    let config = console::tls::Gate::new(
+        &console.cert.pem(),
+        &console.signing_key.serialize_pem(),
+        &[pin],
+    )
+    .expect("gate")
+    .server_config()
+    .expect("server config");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("addr").to_string();
+    let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config));
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let _ = acceptor.accept(stream).await;
+            });
+        }
+    });
+    (address, console.cert.der().clone())
+}
+
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[tokio::test]
+async fn the_console_answering_through_the_way_in_is_the_round_trip_made() {
+    // Its own certificate coming back is the proof: no key is needed to see it.
+    let (address, certificate) = gate().await;
+    assert_eq!(
+        console::tunnel::answers(&address, &certificate, PATIENCE).await,
+        Ok(())
+    );
+}
+
+#[tokio::test]
+async fn another_listener_answering_is_not_the_console() {
+    let (address, _) = gate().await;
+    let other = rcgen::generate_simple_self_signed(vec!["other".to_string()]).expect("cert");
+    let said = console::tunnel::answers(&address, other.cert.der(), PATIENCE)
+        .await
+        .expect_err("a stranger's certificate");
+    assert!(said.contains("certificate"), "{said}");
+}
+
+#[tokio::test]
+async fn a_way_in_that_takes_the_connection_and_says_nothing_is_down() {
+    // What a stalled forward looks like from outside: isis accepts, nothing comes back.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("addr").to_string();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    let (_, certificate) = gate().await;
+    let started = std::time::Instant::now();
+    let said = console::tunnel::answers(
+        &address,
+        &certificate,
+        std::time::Duration::from_millis(300),
+    )
+    .await
+    .expect_err("silence");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(said.contains("no answer"), "{said}");
 }

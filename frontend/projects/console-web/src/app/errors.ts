@@ -14,10 +14,9 @@ export function reason(err: unknown): string {
     // The runner answers failures with a plain-text explanation, which is better
     // than anything composed here.
     if (typeof err.error === 'string' && err.error.trim()) return err.error.trim();
-    // Status 0 is no answer: this phone's key past its authentication window
-    // (Chromium refuses the handshake silently), or a Mac not answering. The phone
-    // first, as these failures follow waking hours.
-    if (err.status === 0) return 'This phone may need unlocking, or the Mac may be asleep.';
+    // Status 0 is no answer, and says nothing of where along the way it stopped:
+    // the client's network or key, the way in, or the runner. Not guessed at.
+    if (err.status === 0) return 'No answer from the runner.';
     return `The runner answered ${err.status}.`;
   }
   if (err instanceof Error) return err.message;

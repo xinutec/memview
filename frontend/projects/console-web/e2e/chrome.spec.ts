@@ -1281,3 +1281,38 @@ test('a picture taken back goes back into the box with its words @ phone width',
   await expect(box).toHaveValue('look at this');
   await expect(page.locator('.chosen .tile')).toHaveCount(1);
 });
+
+test('no answer from the runner says since when, and the stretch is handed over after @ phone width', async ({
+  page,
+}, testInfo) => {
+  // What the client knows, and only that: no device named, no cause guessed. The
+  // stretch it measured goes to the runner once it answers, where nothing else
+  // could have seen it.
+  await mockRunner(page);
+  await page.goto(`/s/${RUNNING.id}`);
+  await page.locator('app-composer textarea').waitFor();
+  let silent = true;
+  await page.route('**/api/state', (r) => (silent ? r.abort() : r.fulfill({ json: STATE })));
+  const told: unknown[] = [];
+  await page.route('**/api/reach', (r) => {
+    told.push(r.request().postDataJSON());
+    return r.fulfill({ status: 204, body: '' });
+  });
+
+  const banner = page.locator('app-notice');
+  await expect(banner).toContainText(/No answer from the runner since \d/, { timeout: 20_000 });
+  await expect(banner).not.toContainText(/phone|Mac|asleep|unlock/i);
+  await expectCleanLayout(page, testInfo, { root: 'app-notice' });
+  await page.screenshot({ path: testInfo.outputPath('no-answer.png') });
+
+  silent = false;
+  await expect(banner).not.toContainText('No answer from the runner', { timeout: 10_000 });
+  await expect.poll(() => told.length).toBe(1);
+  const [stretch] = told[0] as {
+    first_failure: number;
+    answered_again: number;
+    failures: number;
+  }[];
+  expect(stretch?.failures).toBeGreaterThan(1);
+  expect((stretch?.answered_again ?? 0) - (stretch?.first_failure ?? 0)).toBeGreaterThan(8_000);
+});

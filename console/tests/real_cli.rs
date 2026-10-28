@@ -38,6 +38,7 @@ fn roster() -> (Arc<Roster>, std::path::PathBuf) {
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
         drafts: dir.join("drafts.json"),
+        reach: dir.join("unreached.json"),
         tunnel: None,
     }));
     (roster, dir)

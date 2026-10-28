@@ -22,6 +22,7 @@ pub mod parse;
 pub mod past;
 pub mod peers;
 pub mod protocol;
+pub mod reach;
 pub mod roster;
 pub mod sent;
 pub mod serving;

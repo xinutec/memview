@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 
 import { ConsoleApi } from './console-api';
@@ -5,6 +6,7 @@ import { reason } from './errors';
 import { Local } from './local';
 import type { Overview } from './models';
 import { Patience } from './patience';
+import { Reach } from './reach';
 import { Updates } from './updates';
 
 /** How often the runner is asked what it is holding. */
@@ -26,6 +28,7 @@ export class Roster {
   private readonly patience = new Patience();
 
   private store = inject(Local);
+  private reach = inject(Reach);
   private keptAt = 0;
 
   /** The last answer, or before the first one the answer this phone kept, if any. */
@@ -86,8 +89,25 @@ export class Roster {
         }
         this.updates.saw(state.bundle);
         this.patience.right();
+        void this.reach.answered();
       },
-      error: (err: unknown) => this.patience.wrong({ kind: 'runner', what: reason(err) }),
+      error: (err: unknown) => {
+        // An answer that is an error is the runner speaking; only silence is a
+        // stretch without one — see [[Reach]].
+        if (!(err instanceof HttpErrorResponse) || err.status !== 0) {
+          this.patience.wrong({ kind: 'runner', what: reason(err) });
+          return;
+        }
+        const now = Date.now();
+        const stretch = this.reach.stretch();
+        void this.reach.unanswered(now);
+        this.patience.wrong({
+          kind: 'runner',
+          what: reason(err),
+          since: stretch?.first_failure ?? now,
+          ...(stretch?.last_answer !== undefined && { answered: stretch.last_answer }),
+        });
+      },
     });
   }
 }

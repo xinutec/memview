@@ -19,7 +19,10 @@ use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+use rustls::pki_types::{CertificateDer, ServerName};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -42,6 +45,12 @@ const CONNECT_TIMEOUT: &str = "10";
 /// How many outages are kept: enough to see a pattern, few enough to read.
 const KEPT: usize = 20;
 
+/// How often the console comes in through isis as a phone would — [`answers`].
+const TRIP_EVERY: Duration = Duration::from_secs(10);
+
+/// How long one such trip waits. Through isis it takes milliseconds.
+const TRIP_PATIENCE: Duration = Duration::from_secs(5);
+
 /// How to dial.
 #[derive(Debug, Clone)]
 pub struct Dial {
@@ -54,6 +63,11 @@ pub struct Dial {
     pub local: String,
     /// Where [`WayIn`] is kept, so outages outlive the console.
     pub record: PathBuf,
+    /// The console's own certificate, recognised when a trip through isis comes
+    /// back — [`answers`]. Without it there is no trip.
+    pub certificate: Option<PathBuf>,
+    /// Where the trips' record is kept.
+    pub trips: PathBuf,
 }
 
 impl Dial {
@@ -72,6 +86,8 @@ impl Dial {
             listen: std::env::var("CONSOLE_TUNNEL_LISTEN").unwrap_or_else(|_| LISTEN.to_string()),
             local: local.to_string(),
             record: dir.join("way-in.json"),
+            certificate: None,
+            trips: dir.join("round-trip.json"),
         }
     }
 
@@ -224,38 +240,67 @@ pub struct Running {
     pub stderr: RawFd,
 }
 
+/// A record as the last console kept it. No record is a first start; an
+/// unreadable one is said, and started over.
+fn kept(path: &std::path::Path) -> WayIn {
+    match std::fs::read(path) {
+        Err(_) => WayIn::default(),
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(kept) => kept,
+            Err(error) => {
+                tracing::error!(
+                    "way in: {} could not be read, so its outages are lost: {error}",
+                    path.display()
+                );
+                WayIn::default()
+            }
+        },
+    }
+}
+
+/// Write a record down, so a restart still knows its outages.
+fn keep(record: &WayIn, path: &std::path::Path) {
+    let written = serde_json::to_vec(record)
+        .map_err(anyhow::Error::from)
+        .and_then(|bytes| Ok(std::fs::write(path, bytes)?));
+    if let Err(error) = written {
+        tracing::warn!(
+            "way in: could not keep its record in {}: {error}",
+            path.display()
+        );
+    }
+}
+
 /// The way in, kept up for as long as the console runs.
 pub struct Tunnel {
     dial: Dial,
     way: Mutex<WayIn>,
+    /// The console coming in through isis as a phone would: whether it gets
+    /// there, which the ssh being up does not say — [`answers`].
+    trips: Mutex<WayIn>,
     running: Mutex<Option<Running>>,
 }
 
 impl Tunnel {
     pub fn new(dial: Dial) -> Arc<Self> {
-        // No record is a first start; an unreadable one is said, and started over.
-        let kept = match std::fs::read(&dial.record) {
-            Err(_) => WayIn::default(),
-            Ok(bytes) => match serde_json::from_slice(&bytes) {
-                Ok(kept) => kept,
-                Err(error) => {
-                    tracing::error!(
-                        "way in: {} could not be read, so its outages are lost: {error}",
-                        dial.record.display()
-                    );
-                    WayIn::default()
-                }
-            },
-        };
+        let way = kept(&dial.record);
+        // Nothing of a trip carries across a restart but its outages.
+        let trips = kept(&dial.trips).restarted();
         Arc::new(Self {
             dial,
-            way: Mutex::new(kept),
+            way: Mutex::new(way),
+            trips: Mutex::new(trips),
             running: Mutex::new(None),
         })
     }
 
     pub fn way_in(&self) -> WayIn {
         self.way.lock().clone()
+    }
+
+    /// Whether the console's trips through isis come back, and when they did not.
+    pub fn round_trip(&self) -> WayIn {
+        self.trips.lock().clone()
     }
 
     /// Dial, or take over the ssh the previous image handed on, and redial for as
@@ -273,6 +318,52 @@ impl Tunnel {
         }
         let tunnel = self.clone();
         tokio::spawn(async move { tunnel.keep_up(carried).await });
+        let certificate = self.dial.certificate.as_ref().and_then(|path| {
+            let pem = std::fs::read(path).ok()?;
+            rustls_pemfile::certs(&mut pem.as_slice()).next()?.ok()
+        });
+        match certificate {
+            Some(console) => {
+                let tunnel = self.clone();
+                tokio::spawn(async move { tunnel.keep_checking(console).await });
+            }
+            None => tracing::warn!("way in: no certificate to recognise, so no round trips"),
+        }
+    }
+
+    /// Come in through isis as a phone does, every [`TRIP_EVERY`], for as long as
+    /// the console runs: the ssh up and isis passing nothing is a way in down.
+    async fn keep_checking(self: Arc<Self>, console: CertificateDer<'static>) {
+        loop {
+            let answer = answers(&self.dial.listen, &console, TRIP_PATIENCE).await;
+            let changed = {
+                let mut trips = self.trips.lock();
+                match &answer {
+                    Ok(()) if trips.up_since.is_none() => match trips.up(now()) {
+                        Some(outage) => {
+                            tracing::info!(
+                                "round trip: answered again after {}s ({})",
+                                (outage.to - outage.from) / 1000,
+                                outage.cause
+                            );
+                            true
+                        }
+                        None => false,
+                    },
+                    Ok(()) => false,
+                    Err(cause) if trips.down_since.is_none() => {
+                        tracing::warn!("round trip: {cause}");
+                        trips.ended(now(), cause);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            };
+            if changed {
+                keep(&self.trips.lock(), &self.dial.trips);
+            }
+            tokio::time::sleep(TRIP_EVERY).await;
+        }
     }
 
     async fn keep_up(self: Arc<Self>, mut carried: Option<Running>) {
@@ -378,15 +469,7 @@ impl Tunnel {
     /// Write [`WayIn`] down, so a restart still knows its outages.
     fn keep(&self) {
         let way = self.way.lock().clone();
-        let written = serde_json::to_vec(&way)
-            .map_err(anyhow::Error::from)
-            .and_then(|bytes| Ok(std::fs::write(&self.dial.record, bytes)?));
-        if let Err(error) = written {
-            tracing::warn!(
-                "way in: could not keep its record in {}: {error}",
-                self.dial.record.display()
-            );
-        }
+        keep(&way, &self.dial.record);
     }
 
     /// The running ssh for the next image, its stderr kept open across the exec.
@@ -407,6 +490,114 @@ impl Tunnel {
             // SAFETY: kill only sends a signal; the pid is our child.
             unsafe { libc::kill(running.pid as libc::pid_t, libc::SIGTERM) };
         }
+    }
+}
+
+/// Whether the console answers at `listen` the way a phone reaches it: its own
+/// certificate coming back. No key is offered, so the handshake ends there, and
+/// the console's gate drops it without a word; the certificate is the answer.
+pub async fn answers(
+    listen: &str,
+    console: &CertificateDer<'static>,
+    patience: Duration,
+) -> Result<(), String> {
+    let saw = Arc::new(AtomicBool::new(false));
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|error| error.to_string())?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(Expect {
+            console: console.clone(),
+            saw: saw.clone(),
+            provider,
+        }))
+        .with_no_client_auth();
+    let name = ServerName::try_from("console").map_err(|error| error.to_string())?;
+    let trip = async {
+        let stream = tokio::net::TcpStream::connect(listen)
+            .await
+            .map_err(|error| format!("could not connect to {listen}: {error}"))?;
+        tokio_rustls::TlsConnector::from(Arc::new(config))
+            .connect(name, stream)
+            .await
+            .map(drop)
+            .map_err(|error| format!("the handshake through {listen} failed: {error}"))
+    };
+    let ended = tokio::time::timeout(patience, trip).await;
+    if saw.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    match ended {
+        Err(_) => Err(format!(
+            "no answer through {listen} within {}ms",
+            patience.as_millis()
+        )),
+        Ok(Err(cause)) => Err(cause),
+        Ok(Ok(())) => Err(format!(
+            "{listen} completed a handshake without a certificate"
+        )),
+    }
+}
+
+/// Takes the console's own certificate, and notes that it came.
+#[derive(Debug)]
+struct Expect {
+    console: CertificateDer<'static>,
+    saw: Arc<AtomicBool>,
+    provider: Arc<rustls::crypto::CryptoProvider>,
+}
+
+impl rustls::client::danger::ServerCertVerifier for Expect {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        if end_entity.as_ref() != self.console.as_ref() {
+            return Err(rustls::Error::General(
+                "answered with another certificate than the console's".to_string(),
+            ));
+        }
+        self.saw.store(true, Ordering::SeqCst);
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 

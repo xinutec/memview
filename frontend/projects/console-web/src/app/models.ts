@@ -23,6 +23,7 @@ export type { Waiting } from './generated/Waiting';
 export type { Stands } from './generated/Stands';
 export type { Returned } from './generated/Returned';
 export type { Accepted } from './generated/Accepted';
+export type { Unreached } from './generated/Unreached';
 export type { Refusal } from './generated/Refusal';
 export type { SudoAnswer } from './generated/SudoAnswer';
 export type { LoginCode } from './generated/LoginCode';

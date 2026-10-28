@@ -37,6 +37,9 @@ pub struct Config {
     pub modes: PathBuf,
     /// Where unsent words are kept — [`crate::drafts`].
     pub drafts: PathBuf,
+    /// Where the stretches clients could not reach the console are kept —
+    /// [`crate::reach`].
+    pub reach: PathBuf,
     /// The phone's way in through isis, with the gate only: without it the console
     /// listens on loopback and there is nothing to reach. See [`crate::tunnel`].
     pub tunnel: Option<crate::tunnel::Dial>,
@@ -122,6 +125,14 @@ impl Config {
                 )
             }))
             .join("drafts.json"),
+            // What clients said of the stretches they could not reach it.
+            reach: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
+                format!(
+                    "{}/.config/agent-console",
+                    std::env::var("HOME").unwrap_or_default()
+                )
+            }))
+            .join("unreached.json"),
             tunnel: None,
         }
         .with_tunnel()
@@ -135,7 +146,9 @@ impl Config {
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_default();
-            self.tunnel = Some(crate::tunnel::Dial::from_env(&self.bind, &dir));
+            let mut dial = crate::tunnel::Dial::from_env(&self.bind, &dir);
+            dial.certificate = self.tls.as_ref().map(|tls| PathBuf::from(&tls.cert_file));
+            self.tunnel = Some(dial);
         }
         self
     }
