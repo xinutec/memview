@@ -279,6 +279,7 @@ export interface WorkFile {
   commits: number;
 }
 
+// dev-lint: allow-wire-unjudged the console crate has its own `Agent`, generated into console-web; this mirrors agents.rs
 /** One named session and where its work landed — mirrors agents.rs. */
 export interface Agent {
   name: string;

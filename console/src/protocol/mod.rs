@@ -377,9 +377,9 @@ enum Delta {
 struct Message {
     #[serde(default)]
     content: Content,
-    /// What this one request carried. See [`Usage`].
+    /// What this one request carried. See [`TokenUsage`].
     #[serde(default)]
-    usage: Option<Usage>,
+    usage: Option<TokenUsage>,
     /// Which model answered — read only to recognise the one that is not a model at
     /// all. See [`SYNTHETIC`].
     #[serde(default)]
@@ -504,7 +504,7 @@ struct Turn {
 /// The tokens one request carried. The prompt is all three together: cached
 /// prompts report almost nothing as `input_tokens`.
 #[derive(Debug, Deserialize)]
-struct Usage {
+struct TokenUsage {
     #[serde(default)]
     input_tokens: u64,
     #[serde(default)]
@@ -513,7 +513,7 @@ struct Usage {
     cache_read_input_tokens: u64,
 }
 
-impl Usage {
+impl TokenUsage {
     fn prompt(&self) -> u64 {
         self.input_tokens + self.cache_creation_input_tokens + self.cache_read_input_tokens
     }
