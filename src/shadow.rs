@@ -4,6 +4,15 @@
 //! It guides, never replaces: it never writes `MEMORY.md`, and when the two
 //! disagree it is the first suspect. It assembles each memory's `teaser:`; it does
 //! not decide admission or order.
+//!
+//! All three are inherited from the written file (memview#1310):
+//! - Membership: `memory-tiers` admits and demotes; a second rule here could only
+//!   repeat it or contradict it.
+//! - Sections: the authored `##` headings. Link clusters have no names and move
+//!   whenever links do.
+//! - Order: as written, which places hubs and warnings deliberately.
+//!
+//! What is left to it is drift: a line and its memory's teaser come apart.
 
 use std::collections::{BTreeMap, BTreeSet};
 
