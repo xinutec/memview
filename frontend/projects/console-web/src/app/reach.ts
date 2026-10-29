@@ -21,6 +21,10 @@ export interface Stretch {
  * the runner to measure, and handed over once it answers — `console/src/reach.rs`.
  * Kept in storage until then, so a client closed mid-stretch still reports it;
  * its end then lies somewhere between its last failure and the answer.
+ *
+ * Only while the app is on screen: in the background Android freezes the page,
+ * so its failures are the pocket, not the runner. Going to the background ends a
+ * stretch there, and `answered_again` is when the app went.
  */
 @Injectable({ providedIn: 'root' })
 export class Reach {
@@ -29,10 +33,34 @@ export class Reach {
   private lastAnswer?: number;
   private closed: readonly Unreached[] = [];
   private reporting = false;
+  private hidden = document.visibilityState === 'hidden';
   private readonly loaded = this.restore();
 
   /** The stretch under way, or nothing while the runner answers. */
   readonly stretch = signal<Stretch | undefined>(undefined);
+
+  constructor() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void this.away();
+      else this.back();
+    });
+  }
+
+  /** The app went to the background at `now`: a stretch under way ends there. */
+  async away(now = Date.now()): Promise<void> {
+    this.hidden = true;
+    await this.loaded;
+    const open = this.stretch();
+    if (!open) return;
+    this.stretch.set(undefined);
+    this.closed = [...this.closed, { ...open, answered_again: now }];
+    await this.save();
+  }
+
+  /** The app is on screen again. */
+  back(): void {
+    this.hidden = false;
+  }
 
   /** The runner answered at `now`: a stretch under way ends, and is reported. */
   async answered(now = Date.now()): Promise<void> {
@@ -49,6 +77,7 @@ export class Reach {
 
   /** No answer at `now`: a stretch begins, or goes on. */
   async unanswered(now = Date.now()): Promise<void> {
+    if (this.hidden) return;
     await this.loaded;
     const open = this.stretch();
     this.stretch.set(

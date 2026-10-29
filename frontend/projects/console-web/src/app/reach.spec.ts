@@ -78,4 +78,32 @@ describe('Reach', () => {
     await again.answered(90_000);
     expect(runner.told[0]?.[0]).toMatchObject({ first_failure: 6_000, answered_again: 90_000 });
   });
+
+  it('ends a stretch when the app goes to the background: pocket time is not an outage', async () => {
+    const reach = open();
+    await reach.answered(1_000);
+    await reach.unanswered(6_000);
+    await reach.away(8_000);
+    await reach.unanswered(100_000);
+    reach.back();
+    await reach.answered(1_100_000);
+    expect(runner.told).toEqual([
+      [
+        {
+          last_answer: 1_000,
+          first_failure: 6_000,
+          last_failure: 6_000,
+          answered_again: 8_000,
+          failures: 1,
+        },
+      ],
+    ]);
+  });
+
+  it('starts no stretch while the app is in the background', async () => {
+    const reach = open();
+    await reach.away(0);
+    await reach.unanswered(5_000);
+    expect(reach.stretch()).toBeUndefined();
+  });
 });

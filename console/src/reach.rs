@@ -2,6 +2,8 @@
 //! them: from its last answer to its first answer again, handed over once it is
 //! back. Nothing here can see them happen — no request arrives — so the client's
 //! word is the only record, kept beside the way in's own ([`crate::tunnel`]).
+//! A client measures only while it is on screen; in the background its phone
+//! freezes it, so a stretch it reports also ends when it went there.
 
 use std::path::PathBuf;
 
