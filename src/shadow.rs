@@ -71,7 +71,7 @@ pub fn assemble(corpus: &Corpus) -> Shadow {
     let (_, titles) = crate::store::index_sections(index);
     let written: BTreeMap<&str, &str> = entries
         .iter()
-        .map(|e| (e.name.as_str(), e.label.as_str()))
+        .map(|e| (e.name.as_str(), e.source.as_str()))
         .collect();
     let section_of: BTreeMap<&str, &str> = entries
         .iter()
@@ -98,8 +98,8 @@ pub fn assemble(corpus: &Corpus) -> Shadow {
             shadow.declared_not_carried.push(name.clone());
             continue;
         };
-        // Compared as TRIMMED text and nothing cleverer: whitespace is the same cue,
-        // anything beyond is a real difference in what a reader meets.
+        // Compared as written and TRIMMED: whitespace is the same cue, anything
+        // beyond, emphasis included, is a real difference in what a reader meets.
         let says = written.get(name.as_str()).copied();
         let line = Line {
             name: name.clone(),

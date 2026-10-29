@@ -105,3 +105,23 @@ fn a_link_in_a_code_fence_is_not_an_entry() {
     assert_eq!(s.declared_not_carried, vec!["b".to_string()]);
     assert_eq!(s.sections[0].lines.len(), 1);
 }
+
+/// Markup is part of the cue: the bold words are the ones a reader's eye
+/// catches. A line spelled exactly as its teaser is not drift; the same words
+/// with the emphasis moved are.
+#[test]
+fn a_line_is_compared_as_written_markup_included() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let c = corpus(
+        dir.path(),
+        "## Rules\n- [**same** and `code`](a.md)\n- [**moved** emphasis](b.md)\n",
+        &[
+            ("a", Some("\"**same** and `code`\"")),
+            ("b", Some("\"moved **emphasis**\"")),
+        ],
+    );
+    let s = assemble(&c);
+    let drifted: Vec<&str> = s.drifted.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(drifted, vec!["b"]);
+    assert_eq!(s.drifted[0].written.as_deref(), Some("**moved** emphasis"));
+}

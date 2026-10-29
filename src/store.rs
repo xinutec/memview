@@ -361,6 +361,8 @@ pub struct IndexEntry {
     pub name: String,
     /// The link's visible label — the cue a reader actually meets.
     pub label: String,
+    /// The label as the file spells it, markup included.
+    pub source: String,
     pub section: Option<String>,
 }
 
@@ -373,6 +375,10 @@ pub fn index_entries(index_md: &str) -> Vec<IndexEntry> {
     let mut out: Vec<IndexEntry> = Vec::new();
     let mut seen = BTreeSet::new();
     let mut current: Option<String> = None;
+    // Byte offset of each line's start: sourcepos is 1-based lines and columns.
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(index_md.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     for node in root.descendants() {
         let value = node.data.borrow().value.clone();
         match value {
@@ -392,6 +398,7 @@ pub fn index_entries(index_md: &str) -> Vec<IndexEntry> {
                 out.push(IndexEntry {
                     name: stem.to_string(),
                     label: node_text(node).trim().to_string(),
+                    source: link_source(index_md, &starts, node),
                     section: current.clone(),
                 });
             }
@@ -528,6 +535,22 @@ pub fn has_section(body: &str, heading: &str) -> bool {
 }
 
 /// The plain text of a node — its descendant text and code runs, concatenated.
+/// The text between a link's `[` and `](`, as written.
+fn link_source<'a>(
+    md: &str,
+    starts: &[usize],
+    node: &'a comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>,
+) -> String {
+    let pos = node.data.borrow().sourcepos;
+    let at = |line: usize, column: usize| starts.get(line - 1).map(|s| s + column - 1);
+    let span = at(pos.start.line, pos.start.column)
+        .zip(at(pos.end.line, pos.end.column))
+        .and_then(|(from, to)| md.get(from..=to));
+    span.and_then(|link| link.strip_prefix('['))
+        .and_then(|link| link.rfind("](").map(|end| link[..end].trim().to_string()))
+        .unwrap_or_default()
+}
+
 fn node_text<'a>(
     node: &'a comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>,
 ) -> String {
