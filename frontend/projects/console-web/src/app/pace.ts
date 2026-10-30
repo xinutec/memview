@@ -19,26 +19,34 @@ const GRACE = 1 / 7;
 const OVER = 0.15;
 const SHORT = 0.5;
 
-/** Below this much time without allowance, a shortfall is none: the tail of any window is short. */
-const LEAST_LOST_MS = 30 * 60_000;
+/**
+ * Time without allowance a shortfall must also cost, amber then red. A week's:
+ * under two hours is the tail of a well-spent week, a whole waking day is the
+ * work stopping, as xinutec-infra's `claude_usage.py` grades. Five hours': any
+ * half hour, since a pause of an hour is how that window is paced.
+ */
+const WEEK_DRY_MS = [2 * 3_600_000, (SLEEP - WAKE) * 3_600_000] as const;
+const HOURS_DRY_MS = [30 * 60_000, 30 * 60_000] as const;
 
 /** Points of allowance left unused at the reset. */
 const SPARE = 15;
 
 /**
- * `pct` spent with `through` (0–1) of the window gone and `ahead` ms of it left.
+ * `pct` spent with `through` (0–1) of the window gone and `ahead` ms of it left,
+ * in a `weekly` window or the five-hour one.
  * The pace so far is carried over the rest, which is how the median of past
  * weeks actually filled.
  */
-export function pace(pct: number, through: number, ahead: number): Pace {
+export function pace(pct: number, through: number, ahead: number, weekly: boolean): Pace {
   if (through < GRACE || through >= 1 || pct <= 0) return 'even';
   const rest = (pct * (1 - through)) / through;
   const room = 100 - pct;
   if (rest > room) {
     const lost = 1 - room / rest;
-    if (lost * ahead < LEAST_LOST_MS) return 'even';
-    if (lost >= SHORT) return 'short';
-    return lost >= OVER ? 'over' : 'even';
+    const dry = lost * ahead;
+    const [overMs, shortMs] = weekly ? WEEK_DRY_MS : HOURS_DRY_MS;
+    if (lost >= SHORT && dry >= shortMs) return 'short';
+    return lost >= OVER && dry >= overMs ? 'over' : 'even';
   }
   return room - rest >= SPARE ? 'spare' : 'even';
 }

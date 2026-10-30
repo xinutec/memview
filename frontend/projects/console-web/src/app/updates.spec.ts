@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Updates } from './updates';
 
@@ -20,6 +20,9 @@ function visibility(state: 'visible' | 'hidden'): void {
 describe('Updates', () => {
   let updates: Updates;
   let reload: ReturnType<typeof vi.fn<() => void>>;
+
+  // The page is shared with every later spec: leave it as it was.
+  afterEach(() => Reflect.deleteProperty(document, 'visibilityState'));
 
   beforeEach(() => {
     visibility('visible');

@@ -88,7 +88,7 @@ function measure(now: number, age: number) {
       clamp(weekly ? awake(start, at) / awake(start, end) : (at - start) / spanMs);
     const taken = now - age;
     const through = share(taken);
-    const judged = pace(window.pct, through, weekly ? awake(taken, end) : end - taken);
+    const judged = pace(window.pct, through, weekly ? awake(taken, end) : end - taken, weekly);
     return {
       label,
       pct,
