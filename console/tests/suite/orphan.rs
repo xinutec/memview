@@ -272,23 +272,33 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
         is_a_zombie(pid),
         "precondition: the child never exited within 5s — machine load, not reaping"
     );
-    let sent = async {
-        let mut stdin = child.stdin.take()?;
-        tokio::io::AsyncWriteExt::write_all(&mut stdin, b"prompt")
-            .await
-            .ok()?;
-        tokio::io::AsyncWriteExt::flush(&mut stdin).await.ok()?;
-        Some(())
+    // Written until it fails. Another test forking in this process holds a copy
+    // of the pipe's read end until its exec, and while it does a write lands.
+    let mut stdin = child.stdin.take().expect("the child had no stdin");
+    let mut refused = false;
+    let mut waited = Duration::ZERO;
+    while waited < Duration::from_secs(5) {
+        let wrote = async {
+            tokio::io::AsyncWriteExt::write_all(&mut stdin, b"prompt").await?;
+            tokio::io::AsyncWriteExt::flush(&mut stdin).await
+        }
+        .await;
+        if wrote.is_err() {
+            refused = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        waited += Duration::from_millis(10);
     }
-    .await;
 
     // With the child provably dead, the write has nobody to receive it — so
-    // this names the precondition too, where silently taking the Some branch
-    // would skip the reap and blame the assertion below.
+    // this names the precondition too, where silently taking the success
+    // branch would skip the reap and blame the assertion below.
     assert!(
-        sent.is_none(),
-        "precondition: a write to an exited child's pipe succeeded"
+        refused,
+        "precondition: writes to an exited child's pipe kept succeeding for 5s"
     );
+    drop(stdin);
     // What `gist::ask` does on that path.
     let _ = child.wait().await;
 
