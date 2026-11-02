@@ -83,7 +83,7 @@ describe('Reach', () => {
     const reach = open();
     await reach.answered(1_000);
     await reach.unanswered(6_000);
-    await reach.away(8_000);
+    await reach.away(20_000);
     await reach.unanswered(100_000);
     reach.back();
     await reach.answered(1_100_000);
@@ -93,7 +93,7 @@ describe('Reach', () => {
           last_answer: 1_000,
           first_failure: 6_000,
           last_failure: 6_000,
-          answered_again: 8_000,
+          answered_again: 20_000,
           failures: 1,
         },
       ],
@@ -105,5 +105,16 @@ describe('Reach', () => {
     await reach.away(0);
     await reach.unanswered(5_000);
     expect(reach.stretch()).toBeUndefined();
+  });
+
+  it('keeps no stretch shorter than the banner waits: that is the network coming back', async () => {
+    const reach = open();
+    await reach.answered(1_000);
+    await reach.unanswered(6_000);
+    await reach.unanswered(6_050);
+    await reach.answered(6_400);
+    await reach.unanswered(9_000);
+    await reach.away(10_000);
+    expect(runner.told).toEqual([]);
   });
 });

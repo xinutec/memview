@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { ConsoleApi } from './console-api';
 import { Local } from './local';
 import type { Unreached } from './models';
+import { WAIT_MS } from './patience';
 
 const KEY = 'unreached';
 
@@ -25,6 +26,9 @@ export interface Stretch {
  * Only while the app is on screen: in the background Android freezes the page,
  * so its failures are the pocket, not the runner. Going to the background ends a
  * stretch there, and `answered_again` is when the app went.
+ *
+ * Only stretches the banner would have shown: shorter is the first requests on
+ * returning to the app, sent before the phone has its network back.
  */
 @Injectable({ providedIn: 'root' })
 export class Reach {
@@ -51,9 +55,15 @@ export class Reach {
     this.hidden = true;
     await this.loaded;
     const open = this.stretch();
-    if (!open) return;
+    if (open) await this.close(open, now);
+  }
+
+  /** End the stretch under way at `now`, kept only if the banner would have shown. */
+  private async close(open: Stretch, now: number): Promise<void> {
     this.stretch.set(undefined);
-    this.closed = [...this.closed, { ...open, answered_again: now }];
+    if (now - open.first_failure >= WAIT_MS) {
+      this.closed = [...this.closed, { ...open, answered_again: now }];
+    }
     await this.save();
   }
 
@@ -67,11 +77,7 @@ export class Reach {
     await this.loaded;
     this.lastAnswer = now;
     const open = this.stretch();
-    if (open) {
-      this.stretch.set(undefined);
-      this.closed = [...this.closed, { ...open, answered_again: now }];
-      await this.save();
-    }
+    if (open) await this.close(open, now);
     if (this.closed.length) await this.report();
   }
 

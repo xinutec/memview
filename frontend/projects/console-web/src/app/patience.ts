@@ -8,7 +8,7 @@ import type { Notice } from './notice';
  * bad things are. Comfortably past the browser's own reconnect, and past a burst
  * of polls failing together while `host.ts` renews the key.
  */
-const WAIT_MS = 8000;
+export const WAIT_MS = 8000;
 
 /**
  * Trouble worth saying: what to show once it has lasted [WAIT_MS], and nothing
