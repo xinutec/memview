@@ -262,7 +262,7 @@ fn kept(path: &std::path::Path) -> WayIn {
 fn keep(record: &WayIn, path: &std::path::Path) {
     let written = serde_json::to_vec(record)
         .map_err(anyhow::Error::from)
-        .and_then(|bytes| Ok(std::fs::write(path, bytes)?));
+        .and_then(|bytes| Ok(crate::file::replace(path, &bytes)?));
     if let Err(error) = written {
         tracing::warn!(
             "way in: could not keep its record in {}: {error}",
@@ -468,8 +468,8 @@ impl Tunnel {
 
     /// Write [`WayIn`] down, so a restart still knows its outages.
     fn keep(&self) {
-        let way = self.way.lock().clone();
-        keep(&way, &self.dial.record);
+        // Under the lock, so two writes cannot land in the wrong order.
+        keep(&self.way.lock(), &self.dial.record);
     }
 
     /// The running ssh for the next image, its stderr kept open across the exec.

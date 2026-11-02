@@ -63,28 +63,26 @@ impl Reports {
     /// Keep what a client reports. A stretch it reported already — the answer to
     /// its last report lost on the way — is kept once.
     pub fn add(&self, reported: Vec<Unreached>) {
-        let all = {
-            let mut held = self.held.lock();
-            for one in reported {
-                if held.iter().any(|it| it.first_failure == one.first_failure) {
-                    continue;
-                }
-                tracing::warn!(
-                    "reach: a client had no answer for {}s, from {} to {}",
-                    (one.answered_again - one.first_failure) / 1000,
-                    one.first_failure,
-                    one.answered_again
-                );
-                held.push(one);
+        let mut held = self.held.lock();
+        for one in reported {
+            if held.iter().any(|it| it.first_failure == one.first_failure) {
+                continue;
             }
-            held.sort_by_key(|it| it.first_failure);
-            let surplus = held.len().saturating_sub(KEPT);
-            held.drain(..surplus);
-            held.clone()
-        };
-        match serde_json::to_vec_pretty(&all) {
+            tracing::warn!(
+                "reach: a client had no answer for {}s, from {} to {}",
+                (one.answered_again - one.first_failure) / 1000,
+                one.first_failure,
+                one.answered_again
+            );
+            held.push(one);
+        }
+        held.sort_by_key(|it| it.first_failure);
+        let surplus = held.len().saturating_sub(KEPT);
+        held.drain(..surplus);
+        // Under the lock, so two reports cannot land on disk in the wrong order.
+        match serde_json::to_vec_pretty(&*held) {
             Ok(bytes) => {
-                if let Err(error) = std::fs::write(&self.store, bytes) {
+                if let Err(error) = crate::file::replace(&self.store, &bytes) {
                     tracing::warn!("reach: could not write {}: {error}", self.store.display());
                 }
             }

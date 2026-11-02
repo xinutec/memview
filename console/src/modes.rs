@@ -87,26 +87,20 @@ impl Modes {
 
     /// Remember a conversation's mode, if it has changed.
     pub fn set(&self, id: &str, mode: &Mode) {
-        let all = {
-            let mut held = self.held.write();
-            if held.get(id) == Some(mode) {
-                return;
-            }
-            held.insert(id.to_string(), mode.clone());
-            held.clone()
-        };
-        self.write(&all);
+        let mut held = self.held.write();
+        if held.get(id) == Some(mode) {
+            return;
+        }
+        held.insert(id.to_string(), mode.clone());
+        self.write(&held);
     }
 
-    /// Written whole each time.
+    /// Written whole each time, under the lock that changed it.
     fn write(&self, all: &BTreeMap<String, Mode>) {
         if let Ok(text) = serde_json::to_string_pretty(all)
-            && let Some(dir) = self.store.parent()
+            && let Err(why) = crate::file::replace(&self.store, text.as_bytes())
         {
-            let _ = std::fs::create_dir_all(dir);
-            if let Err(why) = std::fs::write(&self.store, text) {
-                tracing::warn!("modes: could not write {}: {why}", self.store.display());
-            }
+            tracing::warn!("modes: could not write {}: {why}", self.store.display());
         }
     }
 }

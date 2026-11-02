@@ -74,12 +74,9 @@ impl Gists {
     }
 
     fn keep(&self, id: &str, gist: Gist) {
-        let all = {
-            let mut held = self.held.write();
-            held.insert(id.to_string(), gist);
-            held.clone()
-        };
-        self.write(&all);
+        let mut held = self.held.write();
+        held.insert(id.to_string(), gist);
+        self.write(&held);
     }
 
     /// Drop the sentences of conversations no longer there; an empty list drops nothing.
@@ -87,29 +84,25 @@ impl Gists {
         if alive.is_empty() {
             return;
         }
-        let all = {
-            let mut held = self.held.write();
-            let before = held.len();
-            held.retain(|id, _| alive.contains(id));
-            if held.len() == before {
-                return;
-            }
-            tracing::info!(
-                "gists: {} conversation(s) gone from disk, forgetting their sentences",
-                before - held.len()
-            );
-            held.clone()
-        };
-        self.write(&all);
+        let mut held = self.held.write();
+        let before = held.len();
+        held.retain(|id, _| alive.contains(id));
+        if held.len() == before {
+            return;
+        }
+        tracing::info!(
+            "gists: {} conversation(s) gone from disk, forgetting their sentences",
+            before - held.len()
+        );
+        self.write(&held);
     }
 
-    /// Written whole each time.
+    /// Written whole each time, under the lock that changed it.
     fn write(&self, all: &BTreeMap<String, Gist>) {
         if let Ok(text) = serde_json::to_string_pretty(all)
-            && let Some(dir) = self.store.parent()
+            && let Err(why) = crate::file::replace(&self.store, text.as_bytes())
         {
-            let _ = std::fs::create_dir_all(dir);
-            let _ = std::fs::write(&self.store, text);
+            tracing::warn!("gists: could not write {}: {why}", self.store.display());
         }
     }
 

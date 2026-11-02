@@ -8,6 +8,7 @@ use base64::Engine;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use yrs::updates::decoder::Decode;
@@ -98,6 +99,8 @@ struct Stored {
 pub struct Drafts {
     store: PathBuf,
     held: RwLock<BTreeMap<String, Held>>,
+    /// The last revision handed out — [`next_rev`]. Moved under `held`'s lock.
+    issued: AtomicU64,
 }
 
 /// The document an encoded update reads as, or `None`: a bad push is dropped,
@@ -118,9 +121,15 @@ fn reads_as(doc: &yrs::Doc) -> String {
 
 /// Hold `doc` as `id`'s draft, at the next store-wide revision: the pull cursor
 /// is one number across all drafts. Only a changed text moves the draft's date.
-fn keep(held: &mut BTreeMap<String, Held>, id: &str, doc: &yrs::Doc, at: u64) -> Held {
+fn keep(
+    held: &mut BTreeMap<String, Held>,
+    issued: &AtomicU64,
+    id: &str,
+    doc: &yrs::Doc,
+    at: u64,
+) -> Held {
     let text = reads_as(doc);
-    let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
+    let rev = next_rev(issued);
     let at = match held.get(id) {
         Some(was) if was.text == text => was.at,
         _ => at,
@@ -133,6 +142,18 @@ fn keep(held: &mut BTreeMap<String, Held>, id: &str, doc: &yrs::Doc, at: u64) ->
     };
     held.insert(id.to_string(), one.clone());
     one
+}
+
+/// Past every revision handed out, here or before a restart: a draft forgotten
+/// takes its number with it, and a client past that number would never pull a
+/// change made under it again. Microseconds, so a restart starts above the last.
+fn next_rev(issued: &AtomicU64) -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64);
+    let rev = now.max(issued.load(Ordering::Relaxed) + 1);
+    issued.store(rev, Ordering::Relaxed);
+    rev
 }
 
 /// A document's whole state, which is what both disk and the wire carry.
@@ -193,9 +214,11 @@ impl Drafts {
             },
             Err(_) => BTreeMap::new(),
         };
+        let issued = AtomicU64::new(held.values().map(|one| one.rev).max().unwrap_or(0));
         Self {
             store,
             held: RwLock::new(held),
+            issued,
         }
     }
 
@@ -217,17 +240,17 @@ impl Drafts {
     /// never refused; `None` only for bytes that are not a document.
     pub fn merge(&self, id: &str, update: &[u8], at: u64) -> Option<Draft> {
         let update = yrs::Update::decode_v1(update).ok()?;
-        let (one, all) = {
+        let one = {
             let mut held = self.held.write();
             let doc = match held.get(id) {
                 Some(mine) => decoded(&mine.state)?,
                 None => yrs::Doc::new(),
             };
             doc.transact_mut().apply_update(update).ok()?;
-            let one = keep(&mut held, id, &doc, at);
-            (one, held.clone())
+            let one = keep(&mut held, &self.issued, id, &doc, at);
+            self.write(&held);
+            one
         };
-        self.write(&all);
         Some(one.seen())
     }
 
@@ -235,7 +258,7 @@ impl Drafts {
     /// rather than on a device: every device pulls them, and an answer lost on
     /// the way to the phone cannot lose them.
     pub fn give_back(&self, id: &str, text: &str, at: u64) {
-        let all = {
+        {
             let mut held = self.held.write();
             let doc = held
                 .get(id)
@@ -252,10 +275,9 @@ impl Drafts {
                 };
                 shared.insert(&mut txn, 0, &words);
             }
-            keep(&mut held, id, &doc, at);
-            held.clone()
-        };
-        self.write(&all);
+            keep(&mut held, &self.issued, id, &doc, at);
+            self.write(&held);
+        }
     }
 
     /// Drop the drafts of conversations no longer on disk; an empty `alive` drops nothing.
@@ -263,7 +285,7 @@ impl Drafts {
         if alive.is_empty() {
             return;
         }
-        let all = {
+        {
             let mut held = self.held.write();
             let before = held.len();
             held.retain(|id, _| alive.contains(id));
@@ -274,9 +296,8 @@ impl Drafts {
                 "drafts: {} conversation(s) gone from disk, forgetting their unsent words",
                 before - held.len()
             );
-            held.clone()
-        };
-        self.write(&all);
+            self.write(&held);
+        }
     }
 
     /// Every draft past `since`, oldest revision first, with the new checkpoint.
@@ -316,7 +337,8 @@ impl Drafts {
             .collect()
     }
 
-    /// Written whole each time.
+    /// Written whole each time, under the lock that changed it, so two writes
+    /// cannot land in the wrong order.
     fn write(&self, all: &BTreeMap<String, Held>) {
         let stored: BTreeMap<&String, Stored> = all
             .iter()
@@ -332,12 +354,9 @@ impl Drafts {
             })
             .collect();
         if let Ok(text) = serde_json::to_string_pretty(&stored)
-            && let Some(dir) = self.store.parent()
+            && let Err(why) = crate::file::replace(&self.store, text.as_bytes())
         {
-            let _ = std::fs::create_dir_all(dir);
-            if let Err(why) = std::fs::write(&self.store, text) {
-                tracing::warn!("drafts: could not write {}: {why}", self.store.display());
-            }
+            tracing::warn!("drafts: could not write {}: {why}", self.store.display());
         }
     }
 }

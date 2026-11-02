@@ -57,7 +57,7 @@ fn a_draft_written_on_one_device_is_read_by_the_other() {
     let mine = drafts
         .merge("s1", &typed("half a thought"), 1000)
         .expect("a document");
-    assert_eq!(mine.rev, 1);
+    assert!(mine.rev > 0, "a revision to pull it by");
     assert_eq!(mine.text, "half a thought");
 
     let theirs = drafts.get("s1").expect("the phone asks and is told");
@@ -364,5 +364,30 @@ fn words_given_back_go_before_what_is_being_written() {
     assert!(
         drafts.pull(0).documents.iter().any(|d| d.ulid == "s2"),
         "devices are not told"
+    );
+}
+
+/// The cursor never goes back. Forgetting the conversation that held the newest
+/// revision must not hand that number out again: a client already past it would
+/// never pull the change made under it.
+#[test]
+fn a_change_after_the_newest_draft_is_forgotten_still_reaches_a_client() {
+    let dir = scratch("forgotten-newest");
+    let drafts = store(&dir);
+    drafts.merge("kept", &typed("still here"), 1000).unwrap();
+    drafts.merge("gone", &typed("about to go"), 1001).unwrap();
+    let caught_up = drafts.pull(0).checkpoint.rev;
+
+    drafts.forget(&BTreeSet::from(["kept".to_string()]));
+    drafts.merge("kept", &typed(" and more"), 2000).unwrap();
+
+    let page = drafts.pull(caught_up);
+    assert_eq!(
+        page.documents
+            .iter()
+            .map(|d| d.ulid.as_str())
+            .collect::<Vec<_>>(),
+        ["kept"],
+        "a change made after forgetting the newest draft was not pulled"
     );
 }
