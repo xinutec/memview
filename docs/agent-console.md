@@ -1,7 +1,11 @@
 # Agent console — design
 
 A front end for talking to live Claude Code sessions on the Mac: read what they
-are doing, send new instructions, approve what they want to run.
+are doing, send new instructions, approve what they want to run — and see,
+before each `Bash` command runs, what it will change in which files, checked
+afterwards against what it did. That last is the reader's evaluator working on
+real files, and one of the main reasons the console exists
+([what a command will change](#what-a-command-will-change-before-it-runs)).
 
 **Phase 1 and the approvals half of phase 2 are built** — `console/` (the runner)
 and `frontend/projects/console-web` (the UI). It runs as the launchd service
