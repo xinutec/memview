@@ -198,8 +198,9 @@ const HELD: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 /// How long a refusal row is kept; the transcript has the rest.
 const REFUSALS_KEPT: time::Duration = time::Duration::days(30);
 
-/// How often the refusal rows are pruned, at most.
-const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// How often the refusal rows are pruned, at most. Daily: each prune that drops a
+/// row copies the rest, hundreds of megabytes.
+const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 #[derive(Default)]
 pub struct Edits {
@@ -228,27 +229,7 @@ impl Edits {
             return Ok(());
         }
         *pruned = Some(std::time::Instant::now());
-        let text = std::fs::read_to_string(&file)?;
-        let oldest = time::OffsetDateTime::now_utc() - REFUSALS_KEPT;
-        let kept: Vec<&str> = text
-            .lines()
-            .filter(|line| {
-                serde_json::from_str::<serde_json::Value>(line)
-                    .ok()
-                    .and_then(|row| {
-                        time::OffsetDateTime::parse(
-                            row["at"].as_str()?,
-                            &time::format_description::well_known::Rfc3339,
-                        )
-                        .ok()
-                    })
-                    .is_some_and(|at| at >= oldest)
-            })
-            .collect();
-        if kept.len() < text.lines().count() {
-            std::fs::write(&file, kept.join("\n") + "\n")?;
-        }
-        Ok(())
+        prune(&file, time::OffsetDateTime::now_utc() - REFUSALS_KEPT)
     }
 
     /// Predict what `command` will change, before it runs. `None` when it writes
@@ -596,6 +577,42 @@ impl Pending {
             .find(|file| file.written.path == path)
             .map(|file| Assumed::from(&file.assumed))
     }
+}
+
+/// Drop the rows before `oldest`. Appended in time order, so they are the head:
+/// read up to the first row kept, which is usually the first, and the rest is
+/// copied unread — the file runs to hundreds of megabytes, and a hook waits.
+fn prune(file: &Path, oldest: time::OffsetDateTime) -> std::io::Result<()> {
+    use std::io::BufRead as _;
+
+    let mut rows = std::io::BufReader::new(std::fs::File::open(file)?);
+    let mut dropped = 0;
+    let mut first_kept = Vec::new();
+    loop {
+        first_kept.clear();
+        let read = rows.read_until(b'\n', &mut first_kept)?;
+        if read == 0 || dated(&first_kept).is_some_and(|at| at >= oldest) {
+            break;
+        }
+        dropped += 1;
+    }
+    if dropped == 0 {
+        return Ok(());
+    }
+    crate::file::replace_with(file, |out| {
+        out.write_all(&first_kept)?;
+        std::io::copy(&mut rows, out).map(drop)
+    })
+}
+
+/// When a refusal row was written; `None` for one that does not say.
+fn dated(row: &[u8]) -> Option<time::OffsetDateTime> {
+    #[derive(Deserialize)]
+    struct Dated {
+        at: String,
+    }
+    let row: Dated = serde_json::from_slice(row).ok()?;
+    time::OffsetDateTime::parse(&row.at, &time::format_description::well_known::Rfc3339).ok()
 }
 
 /// This instant, as the rows date themselves.

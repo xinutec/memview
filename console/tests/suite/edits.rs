@@ -176,6 +176,32 @@ fn old_and_undated_refusal_rows_are_pruned_when_one_is_kept() {
 }
 
 #[test]
+fn a_prune_whose_first_row_is_recent_reads_no_further() {
+    // Rows are appended in time order, so a recent first row means nothing is old
+    // enough to go — and the file, hundreds of megabytes, is not read past it.
+    let dir = scratch("prune-recent");
+    std::fs::create_dir_all(dir.join("store")).expect("store");
+    let now = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("a date");
+    std::fs::write(
+        dir.join("store/refused.jsonl"),
+        format!(
+            "{{\"call\":\"recent\",\"at\":\"{now}\",\"refused\":[\"program x\"]}}\nnot a row\n"
+        ),
+    )
+    .expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    assert!(edits.before("s1", "c1", "make > a.txt", at(&dir)).is_none());
+    let rows = std::fs::read_to_string(dir.join("store/refused.jsonl")).expect("kept");
+    assert_eq!(rows.lines().count(), 3, "{rows}");
+    assert!(
+        rows.contains("not a row"),
+        "read past a recent first row: {rows}"
+    );
+}
+
+#[test]
 fn a_command_the_reader_cannot_follow_predicts_nothing() {
     let dir = scratch("unfollowed");
     let edits = Edits::new(dir.join("store"));
