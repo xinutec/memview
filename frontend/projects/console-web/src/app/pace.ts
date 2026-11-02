@@ -22,7 +22,7 @@ const SHORT = 0.5;
 /**
  * Time without allowance a shortfall must also cost, amber then red. A week's:
  * under two hours is the tail of a well-spent week, a whole waking day is the
- * work stopping, as xinutec-infra's `claude_usage.py` grades. Five hours': any
+ * work stopping, as xinutec-infra's `plan-run claude-usage` grades. Five hours': any
  * half hour, since a pause of an hour is how that window is paced.
  */
 const WEEK_DRY_MS = [2 * 3_600_000, (SLEEP - WAKE) * 3_600_000] as const;
