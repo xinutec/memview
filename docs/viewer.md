@@ -10,8 +10,9 @@ session writes memories, and staleness beats the read cost.
 **Frontend** Angular 22 + Material, zoneless, `frontend/`. Fonts are
 self-contained: it must render over the VPN with no third-party fetch.
 
-⚠ **One markdown parser.** `wikilinks_of` and `index_links` are public so graph,
-backlinks, outlinks and index all walk comrak's AST. Hand-rolled `find("[[")`
+⚠ **One markdown parser.** A memory's links are parsed once at load
+(`MemoryDoc::links`) and `index_links` reads the index, so graph, backlinks,
+outlinks, index and the linter all walk comrak's AST. Hand-rolled `find("[[")`
 scanners disagreed with comrak and each other — `[[-n "$target"]]` in a shell
 snippet was reported as a link. Do not add a fourth.
 
@@ -25,6 +26,8 @@ snippet was reported as a link. Do not add a fourth.
 | `/search` | substring search with snippets |
 | `/graph` | the corpus as a 3D link graph |
 | `/agents` | which named session works where |
+| `/doing` | what the fleet's sessions did, turn by turn, and which files each touched |
+| `/reader` | what the reader makes of every shell command the fleet has run |
 
 Search hits render inline-only, so a snippet cut from a list yields words and no
 stray `<li>`, and links are unwrapped to their text — one hit, one destination,
@@ -83,8 +86,10 @@ Manifests are generated from `kubes/dhall/apps/memview.dhall` → `kubes/memview
 in the infrastructure repo, whose `memview/README.md` is the authority, including
 why the corpus is a volume and never in the image.
 
-⚠ **DNS resolving to isis's WireGuard address is obscurity, not a firewall** —
-the ingress answers on the public IP too. Sign-in plus allow-list is the gate.
+**Only over WireGuard.** The name resolves to isis's WireGuard address, and isis's
+front door serves a VPN-only name on that address alone: asked on the public IP,
+it answers with another site's certificate and a 404. Sign-in plus allow-list is
+still the gate against a VPN peer — any Nextcloud account can complete the flow.
 
 ⚠ **A push is not a deploy.** CI builds and pushes on any push to `main`, but
 `:latest` is a fixed string nothing watches; `kubectl -n memview rollout restart

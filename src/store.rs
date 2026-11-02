@@ -208,12 +208,12 @@ impl Corpus {
         self.docs.values().map(|d| d.meta.clone()).collect()
     }
 
-    /// Names of memories whose body wikilinks to `name`. Shares `wikilink_targets`
-    /// with `outlinks` so the two directions cannot disagree.
+    /// Names of memories whose body wikilinks to `name`. Reads the links parsed at
+    /// load, as `outlinks` does, so the two directions cannot disagree.
     pub fn backlinks(&self, name: &str) -> Vec<MemoryMeta> {
         self.docs
             .values()
-            .filter(|d| d.meta.name != name && wikilink_targets(&d.body).iter().any(|t| t == name))
+            .filter(|d| d.meta.name != name && d.links.iter().any(|l| l.target == name))
             .map(|d| d.meta.clone())
             .collect()
     }
@@ -223,7 +223,7 @@ impl Corpus {
     pub fn outlinks(&self, doc: &MemoryDoc) -> (Vec<MemoryMeta>, Vec<String>) {
         let mut existing = Vec::new();
         let mut dangling = Vec::new();
-        for target in wikilink_targets(&doc.body) {
+        for target in doc.links.iter().map(|l| l.target.clone()) {
             if target == doc.meta.name {
                 continue;
             }
@@ -290,7 +290,7 @@ impl Corpus {
         SearchResult { hits, relaxed }
     }
 
-    /// The whole corpus as a link graph. Shares `wikilink_targets` with
+    /// The whole corpus as a link graph, from the same links as
     /// `backlinks`/`outlinks`. Dangling wikilinks are absent; `outlinks` keeps them visible.
     pub fn graph(&self) -> Graph {
         let (section_of, sections) = self
@@ -663,18 +663,8 @@ pub fn split_relation(inner: &str) -> (Option<String>, String) {
     (None, inner.to_string())
 }
 
-/// Extract every `[[wikilink]]`, in order, with comrak, so this and the rendered
-/// HTML agree.
-fn wikilink_targets(body: &str) -> Vec<String> {
-    wikilinks(body).into_iter().map(|l| l.target).collect()
-}
-
-/// Every `[[link]]` in the body with its relation. Public so the linter sees
-/// exactly the links the viewer does.
-pub fn wikilinks_of(body: &str) -> Vec<Wikilink> {
-    wikilinks(body)
-}
-
+/// Every `[[wikilink]]` in the body, in order, with its relation — parsed with
+/// comrak, so this and the rendered HTML agree. Read once, at load: [`MemoryDoc::links`].
 fn wikilinks(body: &str) -> Vec<Wikilink> {
     let options = markdown_options();
     let arena = Arena::new();
