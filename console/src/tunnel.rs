@@ -440,10 +440,12 @@ impl Tunnel {
             .unwrap_or_else(|error| format!("ssh could not be waited for: {error}"))
     }
 
-    /// Read ssh's output to its end.
+    /// Read ssh's output to its end. Bytes, not lines: one that is not UTF-8
+    /// would end the reading, and ssh blocked on a full pipe never exits to redial.
     async fn listen(&self, output: impl AsyncRead + Unpin) {
-        let mut lines = BufReader::new(output).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        let mut lines = BufReader::new(output).split(b'\n');
+        while let Ok(Some(line)) = lines.next_segment().await {
+            let line = String::from_utf8_lossy(&line);
             match heard(&line) {
                 Heard::Up => {
                     let ended = self.way.lock().up(now());

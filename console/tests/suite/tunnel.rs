@@ -284,3 +284,41 @@ async fn a_way_in_that_takes_the_connection_and_says_nothing_is_down() {
     assert!(started.elapsed() < std::time::Duration::from_secs(2));
     assert!(said.contains("no answer"), "{said}");
 }
+
+#[tokio::test]
+async fn a_line_from_ssh_that_is_not_text_does_not_end_the_listening() {
+    // ssh's stderr read to its end: a line that is not UTF-8 must not stop it, or
+    // the pipe fills, ssh blocks, never exits, and the way in is never redialled.
+    let dir = std::env::temp_dir().join(format!("console-tunnel-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let ssh = dir.join("ssh");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\nprintf 'banner \\377\\376 bytes\\n' >&2\n\
+         echo 'debug1: forwarding_success: all expected forwarding replies received' >&2\n\
+         exec sleep 30\n",
+    )
+    .expect("stand-in ssh");
+    std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("executable");
+    let tunnel = console::tunnel::Tunnel::new(Dial {
+        program: ssh.display().to_string(),
+        host: "nobody@nowhere".to_string(),
+        key: dir.join("key"),
+        listen: "127.0.0.1:1".to_string(),
+        local: "127.0.0.1:2".to_string(),
+        record: dir.join("way-in.json"),
+        certificate: None,
+        trips: dir.join("round-trip.json"),
+    });
+    tunnel.start();
+    let mut waited = std::time::Duration::ZERO;
+    while tunnel.way_in().up_since.is_none() && waited < std::time::Duration::from_secs(5) {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        waited += std::time::Duration::from_millis(20);
+    }
+    let up = tunnel.way_in().up_since.is_some();
+    tunnel.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(up, "the way in never came up after a line that is not text");
+}
