@@ -91,6 +91,12 @@ pub fn router(state: AppState) -> Router {
         .route("/effects", get(api::effects))
         .route("/reading", get(api::reading))
         .route("/telemetry", post(telemetry::record))
+        // Every route here is the owner's, by being here: a handler that forgets to
+        // ask for `Owner` is still guarded.
+        .route_layer(axum::middleware::from_extractor_with_state::<
+            crate::access::Owner,
+            AppState,
+        >(state.clone()))
         // Not the page: a client asking the API for JSON must not get HTML.
         .fallback(|| async { crate::error::AppError::NotFound });
 

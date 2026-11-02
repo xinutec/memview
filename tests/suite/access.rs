@@ -274,10 +274,17 @@ async fn no_credential_reaches_nothing() {
     let state = app(dir.path());
 
     for path in [
+        "/api/me",
+        "/api/index",
+        "/api/memories",
+        "/api/memory/project_alpha",
         "/api/graph",
         "/api/search?q=x",
         "/api/agents",
         "/api/work?q=x",
+        "/api/doing",
+        "/api/effects?agent=x",
+        "/api/reading",
     ] {
         assert_eq!(
             status(&state, path, None).await,
