@@ -1588,7 +1588,7 @@ async fn a_message_the_cli_cancels_by_itself_goes_back_into_the_draft() {
 async fn each_summary_is_stamped_after_the_one_before() {
     // A phone keeps the newest: a poll answered before a send must not undo it.
     let (session, _stdin, _stdout, _stderr) = wired();
-    let stamps: Vec<u64> = (0..1000).map(|_| session.summary().taken).collect();
+    let stamps: Vec<u64> = (0..1000).map(|_| session.summary().taken.0).collect();
     assert!(stamps.windows(2).all(|pair| pair[0] < pair[1]));
 }
 

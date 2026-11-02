@@ -90,9 +90,9 @@ pub struct Seen {
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Summary {
     pub id: String,
-    /// When the runner took this summary, in microseconds and never twice the
-    /// same: an answer can arrive after a later one, and a client keeps the newest.
-    pub taken: u64,
+    /// When the runner took this summary, never twice the same: an answer can
+    /// arrive after a later one, and a client keeps the newest.
+    pub taken: Stamp,
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
@@ -175,9 +175,17 @@ pub struct Summary {
     pub signed_out: Option<u64>,
 }
 
-/// Now, in microseconds, but always after the last stamp given: two things
-/// stamped in one microsecond are still ordered.
-pub(super) fn stamp() -> u64 {
+/// A moment in the runner's own order: microseconds since the epoch, never given
+/// twice. A type of its own, as every other time here is in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Stamp(pub u64);
+
+/// Now, but always after the last stamp given: two things stamped in one
+/// microsecond are still ordered.
+pub(super) fn stamp() -> Stamp {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST: AtomicU64 = AtomicU64::new(0);
     let now = std::time::SystemTime::now()
@@ -189,7 +197,7 @@ pub(super) fn stamp() -> u64 {
             Some(now.max(last + 1))
         })
         .unwrap_or_default();
-    now.max(previous + 1)
+    Stamp(now.max(previous + 1))
 }
 
 /// Nothing to report, for a count left off the wire when it is zero.

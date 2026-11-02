@@ -7,6 +7,7 @@ import { Kept } from './kept';
 import { type Change, Entry, Timed, type Waiting } from './models';
 import { reason } from './errors';
 import type { Hunk } from './generated/Hunk';
+import type { Stamp } from './generated/Stamp';
 import { Patience } from './patience';
 import { fold } from './transcript';
 
@@ -18,13 +19,13 @@ const KEPT = 4;
 
 /** The messages not yet in the conversation, as the Mac listed them, and when. */
 export interface Listed {
-  readonly taken: number;
+  readonly taken: Stamp;
   readonly messages: readonly Waiting[];
 }
 
 /** A send the Mac accepted: the message as it listed it, and when. */
 export interface Provisional {
-  readonly taken: number;
+  readonly taken: Stamp;
   readonly message: Waiting;
 }
 
@@ -280,7 +281,7 @@ export class SessionStore {
    * as new — see [[unseen]]. Nothing for a conversation not held: opening one
    * joins its stream, which ends with the list as it stands.
    */
-  accepted(id: string, taken: number, message: Waiting): void {
+  accepted(id: string, taken: Stamp, message: Waiting): void {
     this.held.get(id)?.accepted.update((accepted) => [...accepted, { taken, message }]);
   }
 

@@ -301,7 +301,7 @@ fn session_of(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Accepted {
-    pub taken: u64,
+    pub taken: crate::session::Stamp,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub message: Option<crate::session::Waiting>,

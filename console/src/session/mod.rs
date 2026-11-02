@@ -36,7 +36,7 @@ pub use process::{Fds, children_started, finish, keepable, names_session};
 pub use state::{
     Backlog, Pending, Stamped, deaf_after, leaves_a_decision, resumable, taken_up, working_after,
 };
-pub use summary::{Heard, ResetsAt, Seen, Summary, Tally};
+pub use summary::{Heard, ResetsAt, Seen, Stamp, Summary, Tally};
 
 use process::reap_adopted;
 use state::{State, deaf_for, forget};

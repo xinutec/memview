@@ -130,7 +130,7 @@ impl Session {
 
     /// One message as listed now, if it is, and when that was in the runner's
     /// order — the answer to a send, which the stream's own list overtakes.
-    pub fn listed(&self, id: &str) -> (u64, Option<super::messages::Waiting>) {
+    pub fn listed(&self, id: &str) -> (super::Stamp, Option<super::messages::Waiting>) {
         let state = self.state.lock();
         let message = state.messages.waiting().into_iter().find(|it| it.id == id);
         (super::summary::stamp(), message)

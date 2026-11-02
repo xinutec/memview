@@ -4,6 +4,7 @@ import type { Call } from "./Call";
 import type { Ended } from "./Ended";
 import type { Hunk } from "./Hunk";
 import type { Reply } from "./Reply";
+import type { Stamp } from "./Stamp";
 import type { Waiting } from "./Waiting";
 
 /**
@@ -78,4 +79,4 @@ unread: number,
 /**
  * For how long, in seconds.
  */
-seconds: number, } | { "kind": "messages", taken: number, messages: Array<Waiting>, } | { "kind": "exited", code?: number, } | { "kind": "trouble", detail: string, });
+seconds: number, } | { "kind": "messages", taken: Stamp, messages: Array<Waiting>, } | { "kind": "exited", code?: number, } | { "kind": "trouble", detail: string, });

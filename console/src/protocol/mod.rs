@@ -219,7 +219,7 @@ pub enum Event {
     /// last on joining. `taken` orders it against the answer to a send, the one
     /// word on the list that travels outside the stream.
     Messages {
-        taken: u64,
+        taken: crate::session::Stamp,
         messages: Vec<crate::session::Waiting>,
     },
     /// The subprocess ended. Terminal: nothing follows it.

@@ -3,16 +3,17 @@ import type { Allowance } from "./Allowance";
 import type { Called } from "./Called";
 import type { Effort } from "./Effort";
 import type { Mode } from "./Mode";
+import type { Stamp } from "./Stamp";
 
 /**
  * What a client sees of a session without reading its transcript.
  */
 export type Summary = { id: string, 
 /**
- * When the runner took this summary, in microseconds and never twice the
- * same: an answer can arrive after a later one, and a client keeps the newest.
+ * When the runner took this summary, never twice the same: an answer can
+ * arrive after a later one, and a client keeps the newest.
  */
-taken: number, dir: string, 
+taken: Stamp, dir: string, 
 /**
  * Seconds since the epoch.
  */
