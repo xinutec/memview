@@ -59,13 +59,10 @@ fn app(dir: &std::path::Path) -> AppState {
 }
 
 async fn get(path: &str) -> (StatusCode, String, String) {
-    let dir = std::env::temp_dir().join(format!(
-        "memview-serving-{}-{}",
-        std::process::id(),
-        path.replace('/', "_")
-    ));
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    let res = routes::router(app(&dir))
+    // Its own: two tests asking for one path ran in one folder, and one removed it
+    // under the other.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let res = routes::router(app(dir.path()))
         .oneshot(Request::get(path).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -80,7 +77,6 @@ async fn get(path: &str) -> (StatusCode, String, String) {
         .get(axum::http::header::CACHE_CONTROL)
         .map(|v| v.to_str().unwrap().to_owned())
         .unwrap_or_default();
-    let _ = std::fs::remove_dir_all(&dir);
     (status, ct, cache)
 }
 
