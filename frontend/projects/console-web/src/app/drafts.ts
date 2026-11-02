@@ -314,7 +314,7 @@ export class Drafts {
  * what to put there. A keystroke must be one insert of one character: replacing
  * the whole sentence merges with a concurrent edit as two people retyping at
  * once, which loses words. A shared prefix and suffix is enough for a person
- * typing.
+ * typing. Whole characters only, never half an emoji.
  */
 export function difference(
   had: string,
@@ -322,6 +322,8 @@ export function difference(
 ): { at: number; removed: number; added: string } {
   let head = 0;
   while (head < had.length && head < wants.length && had[head] === wants[head]) head++;
+  // Not inside an emoji: a document turns each half of one into a replacement mark.
+  if (head > 0 && isHighSurrogate(had.charCodeAt(head - 1))) head--;
   let tail = 0;
   while (
     tail < had.length - head &&
@@ -330,9 +332,20 @@ export function difference(
   ) {
     tail++;
   }
+  if (tail > 0 && isLowSurrogate(had.charCodeAt(had.length - tail))) tail--;
   return {
     at: head,
     removed: had.length - head - tail,
     added: wants.slice(head, wants.length - tail),
   };
+}
+
+/** The first half of a character outside the basic plane, such as an emoji. */
+function isHighSurrogate(unit: number): boolean {
+  return unit >= 0xd800 && unit <= 0xdbff;
+}
+
+/** The second half of one. */
+function isLowSurrogate(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
 }

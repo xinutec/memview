@@ -245,4 +245,27 @@ describe('difference', () => {
   it('handles a box filled from empty', () => {
     expect(difference('', 'new')).toEqual({ at: 0, removed: 0, added: 'new' });
   });
+
+  // Two emoji of one block share their first half, so a span found unit by unit
+  // starts inside one, and the document turns each half into a replacement mark.
+  it('never cuts an emoji in half, and the words survive the document', () => {
+    for (const [had, wants] of [
+      ['hi 😀', 'hi 😃'],
+      ['😀', '😃😀'],
+      ['a😀b', 'a😃b'],
+    ] as const) {
+      const { at, removed, added } = difference(had, wants);
+      expect(had.slice(0, at) + added + had.slice(at + removed)).toBe(wants);
+      const doc = new Y.Doc();
+      const text = doc.getText('text');
+      text.insert(0, had);
+      doc.transact(() => {
+        if (removed > 0) text.delete(at, removed);
+        if (added) text.insert(at, added);
+      });
+      const there = new Y.Doc();
+      Y.applyUpdate(there, Y.encodeStateAsUpdate(doc));
+      expect([text.toJSON(), there.getText('text').toJSON()]).toEqual([wants, wants]);
+    }
+  });
 });
