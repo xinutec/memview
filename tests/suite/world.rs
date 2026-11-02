@@ -640,3 +640,32 @@ fn naming_only_the_org_does_not_account_for_a_missing_clone() {
         .collect();
     assert_eq!(findings.len(), 1, "{findings:?}");
 }
+
+/// Asked of git all at once: at about 20,000 git's answers outgrow their pipe before every
+/// question is written, so the questions must go while the answers are read.
+#[test]
+fn thousands_of_cited_commits_are_asked_without_hanging() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    let init = std::process::Command::new("git")
+        .arg("-C")
+        .arg(code.path())
+        .args(["init", "-q"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .status()
+        .expect("git init");
+    assert!(init.success());
+    // Each a sha that exists nowhere, so each answer is a line saying so.
+    let body: String = (0..20000u32).map(|n| format!("`a{n:07x}` ")).collect();
+    let corpus = corpus_saying(corpus_dir.path(), &body);
+    let root = code.path().to_path_buf();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(check_world(&corpus, &root).len());
+    });
+    let found = finished
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the commit check hung");
+    assert_eq!(found, 20000, "every made-up sha is reported");
+}

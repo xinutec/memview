@@ -272,12 +272,12 @@ const RULES: &[(&str, Severity, &str)] = &[
     ),
 ];
 
+/// A rule's severity. An id missing from [`RULES`] is a typo that would quietly
+/// make an error a warning: tests stop on it, a release build still reports it.
 fn severity_of(rule: &str) -> Severity {
-    RULES
-        .iter()
-        .find(|(id, _, _)| *id == rule)
-        .map(|(_, sev, _)| *sev)
-        .unwrap_or(Severity::Warning)
+    let found = RULES.iter().find(|(id, _, _)| *id == rule);
+    debug_assert!(found.is_some(), "`{rule}` is not in RULES");
+    found.map_or(Severity::Warning, |(_, sev, _)| *sev)
 }
 
 /// What each rule is for, keyed by id — printed with a run's findings.
@@ -963,7 +963,9 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
     left.into_iter().collect()
 }
 
-/// Strip every `GIT_*` variable: a hook exports `GIT_DIR`, which beats `-C`.
+/// Strip every `GIT_*` variable: a hook exports `GIT_DIR`, which beats `-C`. The
+/// input is written from its own thread: written whole before reading, git's
+/// answers fill their pipe and both ends wait for ever.
 fn git_batch_check(repo: &std::path::Path, input: &str) -> std::io::Result<String> {
     use std::io::Write;
     let mut cmd = std::process::Command::new("git");
@@ -978,12 +980,13 @@ fn git_batch_check(repo: &std::path::Path, input: &str) -> std::io::Result<Strin
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()?;
-    child
-        .stdin
-        .take()
-        .expect("piped")
-        .write_all(input.as_bytes())?;
+    let mut stdin = child.stdin.take().expect("piped");
+    let input = input.to_owned();
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
     let out = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| std::io::Error::other("the writer to git panicked"))??;
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
