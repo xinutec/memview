@@ -35,7 +35,7 @@ import {
   type Withdrawal,
 } from './models';
 import { type Known } from './modes';
-import { type Picture, fetchedAt } from './picture';
+import { type Picture, fetchedAt, thumbnailAt } from './picture';
 import { type Answers, type Notes } from './questions';
 
 /** What the event stream yields: a message, or a change in the connection. */
@@ -156,8 +156,8 @@ export class ConsoleApi {
   }
 
   /** An image from anywhere on the web, fetched by the runner rather than the phone. */
-  elsewhere(url: string): Observable<Blob> {
-    return this.http.get(fetchedAt(url), { responseType: 'blob' });
+  elsewhere(url: string, small = false): Observable<Blob> {
+    return this.http.get(small ? thumbnailAt(url) : fetchedAt(url), { responseType: 'blob' });
   }
 
   decide(

@@ -364,6 +364,39 @@ test('a picture a session read is drawn small, and a tap opens it whole @ phone 
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
+test('a picture a session read that is gone says why, not a broken image @ phone width', async ({
+  page,
+}, testInfo) => {
+  // A scratch file the session read and later deleted. The image says only that it
+  // failed; the runner says why, and the row says that in its place.
+  const SHOT = '/tmp/scratch/plan.png';
+  const WHY = `${SHOT}: No such file or directory (os error 2)`;
+  await mockRunner(page);
+  await routeStream(page, (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: (
+        [
+          { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+          { kind: 'tool', id: 'r1', name: 'Read', does: { kind: 'other', shown: SHOT }, at: NEXT },
+          { kind: 'tool_result', id: 'r1', ok: true, detail: '[an image]', image: true, at: NEXT },
+        ] satisfies Timed[]
+      )
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) =>
+    r.fulfill({ status: 502, contentType: 'text/plain', body: WHY }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+
+  await expect(page.locator('.entry.tool .unshown')).toContainText(WHY);
+  await expect(page.locator('.entry.tool a.picture-link img')).toHaveCount(0);
+
+  await expectCleanLayout(page, testInfo, { allow: BUSY_BAR });
+});
+
 test("a render whose server is gone says so, in the console's words @ phone width", async ({
   page,
 }, testInfo) => {

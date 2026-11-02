@@ -69,9 +69,18 @@
       }
       <!-- Scaled down on the Mac and fetched only when scrolled to; a tap opens it whole. -->
       @if (entry.picture; as path) {
-        <a class="picture" [class]="PICTURE" [href]="fetchedAt(path)">
-          <img [src]="thumbnailAt(path)" loading="lazy" [alt]="'the picture at ' + path" />
-        </a>
+        @if (unshown(); as why) {
+          <p class="unshown">{{ why }}</p>
+        } @else {
+          <a class="picture" [class]="PICTURE" [href]="fetchedAt(path)">
+            <img
+              [src]="thumbnailAt(path)"
+              loading="lazy"
+              [alt]="'the picture at ' + path"
+              (error)="explain(path)"
+            />
+          </a>
+        }
       }
     }
   }

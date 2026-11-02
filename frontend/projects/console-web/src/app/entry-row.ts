@@ -1,11 +1,14 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 
 import { AskCard } from './ask-card';
+import { ConsoleApi } from './console-api';
 import { Clock } from './clock';
 import { Coloured } from './coloured';
+import { told } from './errors';
 import { Folding } from './folding';
 import { Lasted } from './lasted';
 import { type Asked, type Change, type ToolCall, type Entry, pending } from './models';
@@ -40,11 +43,25 @@ export class EntryRow {
   /** A message not yet read, to be taken back into the composer. */
   readonly takeBack = output<Asked>();
 
+  private readonly api = inject(ConsoleApi);
+
+  /** Why the picture could not be drawn, in the runner's words, once it failed. */
+  protected readonly unshown = signal<string | undefined>(undefined);
+
   protected readonly drawn = computed(() => (pending(this.entry()) ? 'ask' : this.entry().kind));
   protected readonly pending = pending;
   protected readonly PICTURE = PICTURE;
   protected readonly fetchedAt = fetchedAt;
   protected readonly thumbnailAt = thumbnailAt;
+
+  /** The image says only that it failed; the runner says why. */
+  protected async explain(path: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.elsewhere(path, true));
+    } catch (err: unknown) {
+      this.unshown.set(await told(err));
+    }
+  }
 
   protected runningFor(entry: ToolCall): number | undefined {
     if (entry.unrecorded || entry.at === undefined) return undefined;

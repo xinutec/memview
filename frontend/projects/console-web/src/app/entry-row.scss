@@ -231,3 +231,12 @@
 .diverged {
   color: var(--mat-sys-error);
 }
+
+// A picture that could not be drawn, said where it would have been. A path has
+// no spaces to break at.
+.unshown {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
