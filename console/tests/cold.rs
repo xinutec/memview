@@ -821,3 +821,50 @@ async fn a_question_the_transcript_shows_answered_is_not_asked_again() {
         "a question whose call already ran is asked again"
     );
 }
+
+#[tokio::test]
+async fn stderr_past_its_limit_mid_character_is_still_read() {
+    // What is kept of stderr is cut to its last few thousand bytes. Neither a cut
+    // inside a character nor a line that is not UTF-8 may end the reading: unread,
+    // the pipe fills and the session blocks on its next write to stderr.
+    let id = "a-session-whose-stderr-is-not-ascii";
+    let folder = projects().join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    std::fs::write(folder.join(format!("{id}.jsonl")), "").expect("transcript");
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        id.to_string(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        console::session::Tally::default(),
+        drafts(),
+    )
+    .expect("adopt");
+
+    // One byte, then two-byte characters: every odd offset starts one. Then a
+    // line that is not UTF-8 at all.
+    let wide = format!("x{}\n", "é".repeat(2500));
+    let lines: [&[u8]; 3] = [wide.as_bytes(), b"bad \xff\xfe bytes\n", b"still reading\n"];
+    for line in lines {
+        // SAFETY: a write of a buffer this test owns to a pipe it opened.
+        let wrote = unsafe { libc::write(stderr_write, line.as_ptr().cast(), line.len()) };
+        assert_eq!(wrote, line.len() as isize, "write to the session's stderr");
+    }
+    let mut waited = Duration::ZERO;
+    while !session.trouble().contains("still reading") && waited < Duration::from_secs(5) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        waited += Duration::from_millis(20);
+    }
+    assert!(
+        session.trouble().contains("still reading"),
+        "stderr stopped being read: {:?}",
+        session.trouble()
+    );
+}

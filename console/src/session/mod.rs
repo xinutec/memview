@@ -483,9 +483,11 @@ impl Session {
         if let Some(stderr) = stderr {
             let session = self.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    session.note_stderr(&line);
+                // Bytes, not lines: one that is not UTF-8 would end the reading, and
+                // an unread pipe blocks the session on its next write.
+                let mut lines = BufReader::new(stderr).split(b'\n');
+                while let Ok(Some(line)) = lines.next_segment().await {
+                    session.note_stderr(&String::from_utf8_lossy(&line));
                 }
             });
         }
@@ -672,8 +674,12 @@ impl Session {
         state.stderr.push_str(line);
         state.stderr.push('\n');
         if state.stderr.len() > STDERR_KEPT {
-            let cut = state.stderr.len() - STDERR_KEPT;
-            state.stderr = state.stderr.split_off(cut);
+            // On a character's first byte: a cut inside one panics.
+            let mut cut = state.stderr.len() - STDERR_KEPT;
+            while !state.stderr.is_char_boundary(cut) {
+                cut += 1;
+            }
+            state.stderr.drain(..cut);
         }
     }
 }
