@@ -284,6 +284,16 @@ fn checked(id: &str) -> Result<(), Refused> {
     }
 }
 
+/// The session `id`, or a 404 that names it.
+fn session_of(
+    roster: &Roster,
+    id: &str,
+) -> Result<Arc<crate::session::Session>, (StatusCode, String)> {
+    roster
+        .get(id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("no session {id}")))
+}
+
 /// A message the session has: how it is listed — not at all once it is in the
 /// conversation — and when that was, in the runner's order. The client shows it
 /// from this until the stream's list is as new: the two travel apart.
@@ -318,9 +328,7 @@ async fn input(
     Path(id): Path<String>,
     Json(body): Json<Message>,
 ) -> Result<Json<Accepted>, Refused> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     let message = match body.id {
         Some(message) => {
             checked(&message)?;
@@ -366,9 +374,7 @@ async fn withdraw(
     Path(id): Path<String>,
     Json(body): Json<Withdrawal>,
 ) -> Result<Json<Returned>, Refused> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     checked(&body.id)?;
     let withdrawn = session
         .withdraw(&body.id)
@@ -507,9 +513,7 @@ async fn show(
 ) -> Result<Json<Accepted>, Refused> {
     use base64::Engine as _;
 
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     if body.pictures.is_empty() || body.pictures.len() > PICTURES {
         return Err(Refused::Plain(
             StatusCode::BAD_REQUEST,
@@ -610,9 +614,7 @@ async fn decide(
     Path(id): Path<String>,
     Json(body): Json<Decision>,
 ) -> Result<Json<Summary>, (StatusCode, String)> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     session
         .decide(
             &body.id,
@@ -647,9 +649,7 @@ async fn mode(
             format!("{name} is not a permission mode"),
         ));
     }
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     session
         .set_mode(&body.mode)
         .await
@@ -678,9 +678,7 @@ async fn rename(
     if title.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "a name cannot be blank".into()));
     }
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     session
         .rename(title)
         .await
@@ -692,9 +690,7 @@ async fn stop(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
 ) -> Result<Json<Summary>, (StatusCode, String)> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
     session.stop().await;
     Ok(Json(roster.summary_of(&session)))
 }
@@ -746,9 +742,7 @@ async fn landmarks(
     Path(id): Path<String>,
 ) -> Result<Json<Vec<crate::past::Landmark>>, (StatusCode, String)> {
     // Through the roster: only a transcript this console owns.
-    roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session_of(&roster, &id)?;
     let root = crate::past::projects_root();
     let path = crate::past::transcript_of(&root, &id).ok_or((
         StatusCode::NOT_FOUND,
@@ -776,9 +770,7 @@ async fn earlier(
     Query(asked): Query<Earlier>,
 ) -> Result<Json<Page>, (StatusCode, String)> {
     // Through the roster, as above.
-    roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session_of(&roster, &id)?;
     let root = crate::past::projects_root();
     let path = crate::past::transcript_of(&root, &id).ok_or((
         StatusCode::NOT_FOUND,
@@ -799,15 +791,7 @@ async fn earlier(
 
 /// One event on the wire, numbered, so a reconnect's `Last-Event-ID` fills the gap.
 fn wire(stamped: Stamped) -> Sse {
-    Sse::default()
-        .id(stamped.seq.to_string())
-        .json_data(console_protocol::Timed {
-            at: stamped.at,
-            event: stamped.event,
-        })
-        .unwrap_or_else(|err| {
-            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
-        })
+    unnumbered(stamped.at, stamped.event).id(stamped.seq.to_string())
 }
 
 /// Where a client says it had got to, when it is asking rather than reconnecting.
@@ -872,7 +856,8 @@ fn unnumbered(at: Option<i64>, event: Event) -> Sse {
     Sse::default()
         .json_data(console_protocol::Timed { at, event })
         .unwrap_or_else(|err| {
-            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+            let trouble = serde_json::json!({ "kind": "trouble", "detail": err.to_string() });
+            Sse::default().data(trouble.to_string())
         })
 }
 
@@ -882,9 +867,7 @@ async fn events(
     Query(asked): Query<Resume>,
     headers: HeaderMap,
 ) -> Result<SseResponse<impl Stream<Item = Result<Sse, Infallible>>>, (StatusCode, String)> {
-    let session = roster
-        .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let session = session_of(&roster, &id)?;
 
     let after = resume_from(&headers, asked.after.as_deref());
 
@@ -924,14 +907,7 @@ async fn events(
 
     // Last of what is held: the list as it stood, whatever the log has trimmed.
     let listed = backlog.messages;
-    let held = tokio_stream::iter(held).chain(tokio_stream::iter([Sse::default()
-        .json_data(console_protocol::Timed {
-            at: None,
-            event: listed,
-        })
-        .unwrap_or_else(|err| {
-            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
-        })]));
+    let held = tokio_stream::iter(held).chain(tokio_stream::iter([unnumbered(None, listed)]));
 
     // Where replay ends on this connection, so a replayed `turn` does not read as
     // idle. Per connection, unlike `Joined`, which the log can trim.
@@ -944,15 +920,12 @@ async fn events(
         Ok(stamped) if stamped.seq <= through => None,
         Ok(stamped) => Some(wire(stamped)),
         // The channel dropped events; unnumbered, so the client keeps its last good id.
-        Err(_) => Some(
-            Sse::default()
-                .json_data(Event::Trouble {
-                    detail: "the console dropped events for this client".to_string(),
-                })
-                .unwrap_or_else(|err| {
-                    Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
-                }),
-        ),
+        Err(_) => Some(unnumbered(
+            None,
+            Event::Trouble {
+                detail: "the console dropped events for this client".to_string(),
+            },
+        )),
     });
 
     let stream = prelude
@@ -1043,9 +1016,7 @@ fn run_dir(
     id: &str,
     run: &str,
 ) -> Result<std::path::PathBuf, (StatusCode, String)> {
-    roster
-        .get(id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session_of(roster, id)?;
     if !crate::workflows::is_run(run) {
         return Err((StatusCode::BAD_REQUEST, format!("not a run id: {run}")));
     }

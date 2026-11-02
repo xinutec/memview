@@ -190,7 +190,7 @@ pub(super) fn forget(
 /// conjunction, and a field updated in only some arms fails silently.
 pub(super) fn in_flight(state: &mut State, event: &Event, now: i64) {
     match event {
-        // The read receipt: [`Session::echoed_again`] marked the message read.
+        // The read receipt: [`Session::push_output`] marked the message read.
         Event::Prompt { .. } => {
             // It read: the next episode is worth announcing.
             state.announced_deaf = false;

@@ -125,7 +125,7 @@ impl Roster {
         &self.reports
     }
 
-    /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
+    /// Commands waiting for a root password. See [`crate::sudo`].
     pub fn sudo(&self) -> &crate::sudo::Waiting {
         &self.sudo
     }
@@ -140,6 +140,7 @@ impl Roster {
         &self.config.spawn.binary
     }
 
+    /// What `Bash` calls changed in the files they wrote. See [`crate::edits`].
     pub fn edits(&self) -> Arc<crate::edits::Edits> {
         Arc::clone(&self.edits)
     }
