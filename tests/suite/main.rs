@@ -36,7 +36,6 @@ mod shadow;
 mod staged;
 mod stamped;
 mod static_serving;
-mod study;
 mod telemetry;
 mod tiers;
 mod world;

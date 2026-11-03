@@ -11,11 +11,9 @@
 //! not a property of the data. With this, it is a cache that can be VERIFIED
 //! rather than a record that has to be trusted.
 //!
-//! Reports by default, and `--apply` is not routine. #884's pre-period
-//! rests on the `2026-08-10` and `2026-08-14` snapshots and is frozen to a
-//! harvest on 2026-09-11; `demotion-study` reads exactly those two. Overwriting
-//! them from a re-run is how a pre-registered experiment quietly becomes a
-//! post-hoc one. Read the diff, then decide.
+//! Reports by default, and `--apply` is not routine: a recorded result rests on
+//! the snapshots it was measured against, and overwriting them from a re-run
+//! rewrites what it was measured against. Read the diff, then decide.
 
 use std::collections::BTreeSet;
 
