@@ -2,7 +2,7 @@
 //!
 //! One session accumulated 2.95 GB of re-injected task lists — 73.8% of a 4.00
 //! GB file, and 45% of the whole corpus — because every turn carried the full
-//! list again. `claude_tasks.py` has since fixed the cause (the same nodes now
+//! list again. The prompt hook (`task hook`) has since fixed the cause (the same nodes now
 //! arrive carrying nothing), so this is a one-off clearing of what was
 //! already written, not a recurring sweep.
 //!

@@ -175,11 +175,10 @@ Two different numbers, and they do not arrive the same way.
 `rate_limits`** (probed 2026-08-02 against CLI 2.1.220; this matches the finding
 recorded when the home dashboard was built).
 
-The statusLine hook gets both, precomputed. The `xinutec-infra` repo's
-`mac-mini/claude-usage-statusline.py`
-reads `context_window.used_percentage` (line 64) and
-`rate_limits.{five_hour,seven_day}` (line 67) from the JSON Claude Code pipes to
-it on stdin.
+The statusLine hook gets both, precomputed. xinutec-infra's `plan-run
+statusline` (`plan/runner/src/statusline.rs`) reads
+`context_window.used_percentage` and `rate_limits.{five_hour,seven_day}` from the
+JSON Claude Code pipes to it on stdin.
 
 So the runner spawns each session with `--settings` carrying its own `statusLine`
 command: a small writer that forwards that JSON to the runner over a unix socket.
