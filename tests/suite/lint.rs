@@ -814,7 +814,8 @@ fn a_pointer_whose_line_states_a_claim_is_reported_and_a_tripwires_is_not() {
         "## Rules\n",
         "- [amun](bare_pointer.md)\n",
         "- [the exe's `main` SILENTLY WINS](loud_pointer.md)\n",
-        "- [**a SILENT ablation is TWO findings**](bold_pointer.md)\n",
+        // Short, so only the emphasis can mark it — the rendered label has lost it.
+        "- [**SILENTLY WINS**](bold_pointer.md)\n",
         "- [a tripwire states its claim, correctly](loud_trip.md)\n"
     );
     for name in ["bare_pointer", "loud_pointer", "bold_pointer", "loud_trip"] {

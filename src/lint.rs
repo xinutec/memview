@@ -573,7 +573,9 @@ pub fn check_judged(
                 };
                 // Each role is accused from its own side: a pointer that states a
                 // claim, a tripwire that states nothing.
-                if role == crate::study::Role::Pointer && crate::study::states_a_claim(&entry.label)
+                // Judged as written: bold marks a claim, and the rendered label has lost it.
+                if role == crate::study::Role::Pointer
+                    && crate::study::states_a_claim(&entry.source)
                 {
                     push(
                         "loud-pointer",
@@ -584,7 +586,7 @@ pub fn check_judged(
                 let kept =
                     accepted.is_some_and(|a| a.labels.get(&entry.name) == Some(&entry.label));
                 if role == crate::study::Role::Tripwire
-                    && crate::study::names_only_a_topic(&entry.label)
+                    && crate::study::names_only_a_topic(&entry.source)
                     && !kept
                 {
                     push(
