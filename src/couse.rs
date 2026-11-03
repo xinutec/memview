@@ -108,23 +108,22 @@ impl CoUse {
     }
 }
 
-/// Find `needle` in `hay` starting at `from`.
+/// Find `needle` in `hay` starting at `from`. `memmem`, not a byte-by-byte
+/// compare: the mine searches every line of every transcript this way.
 pub(crate) fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
-    if needle.is_empty() || hay.len() < needle.len() {
+    if needle.is_empty() || from > hay.len() {
         return None;
     }
-    (from..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
+    memchr::memmem::find(&hay[from..], needle).map(|at| at + from)
 }
 
 /// Find the LAST `needle` in `hay`, searched from the end: the line the CLI
 /// re-appends sits a few kilobytes from the end of a file that can be gigabytes.
 pub(crate) fn last_at(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || hay.len() < needle.len() {
+    if needle.is_empty() {
         return None;
     }
-    (0..=hay.len() - needle.len())
-        .rev()
-        .find(|&i| &hay[i..i + needle.len()] == needle)
+    memchr::memmem::rfind(hay, needle)
 }
 
 /// The value of a `"key":"…"` field, as bytes, without parsing the line.

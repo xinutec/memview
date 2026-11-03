@@ -51,6 +51,7 @@ edition = "2024"
 # open. See README.md.
 
 [dependencies]
+memchr = "2"
 # argv, in every binary (dev-lint#761).
 clap = { version = "4", features = ["derive"] }
 # ⚠ **The locks, and not `std::sync`'s.** A std lock poisons when a thread panics

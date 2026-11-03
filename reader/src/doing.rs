@@ -507,7 +507,7 @@ pub const REFUSAL_PHRASES: [&str; 4] = [
 pub fn may_hold_refusal(line: &[u8]) -> bool {
     REFUSAL_PHRASES
         .iter()
-        .any(|phrase| line.windows(phrase.len()).any(|at| at == phrase.as_bytes()))
+        .any(|phrase| memchr::memmem::find(line, phrase.as_bytes()).is_some())
 }
 
 /// bash: the target sits between `cd: ` and the message at the end of the line.

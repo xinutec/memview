@@ -32,10 +32,12 @@
 /// `clap` parses the report binaries' argv (dev-lint#761): bytes the process
 /// already holds, into flags. Its `env` feature is off, so it reads no
 /// environment, and nothing in the library calls it.
-const ALLOWED: [&str; 11] = [
+const ALLOWED: [&str; 12] = [
     "anyhow",
     "base64",
     "clap",
+    // A substring search over bytes it is handed, and nothing else.
+    "memchr",
     "pest",
     "pest_derive",
     "regex",

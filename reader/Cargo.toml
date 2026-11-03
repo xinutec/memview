@@ -17,6 +17,7 @@ edition = "2024"
 # nothing in it to misconfigure — see the crate doc. A dependency added here is
 # a decision about that, not a convenience.
 [dependencies]
+memchr = "2"
 # Fingerprints the bytes a resumed read has already consumed; see src/watermark.rs.
 sha2 = "0.11"
 pest = "2.8"
