@@ -186,6 +186,10 @@ fn never_closed(chars: &[char]) -> Option<&'static str> {
             '\\' => i += 2,
             '(' | '[' | '{' => {
                 depth += 1;
+                // CPython refuses it, and the grammar below would recurse past its stack.
+                if depth > crate::syntax::python::lex::MOST_NESTED as i64 {
+                    return Some("too many nested parentheses");
+                }
                 i += 1;
             }
             ')' | ']' | '}' => {

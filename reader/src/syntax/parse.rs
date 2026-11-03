@@ -182,6 +182,10 @@ pub enum Reason {
     /// A comment between a list operator and its right-hand side. Bash deletes
     /// it, and this tree keeps comments, so there is nowhere to put it.
     CommentInList,
+    /// Nested past [`MOST_NESTED`] — lists, expansions, arithmetic or tests inside
+    /// one another. Read further, the parser's recursion would overflow its stack,
+    /// which aborts the whole process: in the console, every session with it.
+    TooDeep,
 }
 
 impl Reason {
@@ -215,6 +219,7 @@ impl Reason {
             Reason::DanglingEscape => "dangling escape",
             Reason::EmptyOperand => "empty operand (an operator with nothing after it)",
             Reason::CommentInList => "comment inside an and-or list",
+            Reason::TooDeep => "nested too deeply",
         }
     }
 }
@@ -264,6 +269,7 @@ pub fn parse(text: &str) -> Result<Script, Refusal> {
         parens: 0,
         arm_depth: 0,
         in_pattern: false,
+        depth: 0,
         in_array: false,
     };
     let mut script = parser.script()?;
@@ -303,7 +309,13 @@ struct Parser<'t> {
     /// Is a `case` PATTERN being read? An unquoted `)` ends one, wherever the
     /// enclosing text would otherwise take it for something else.
     in_pattern: bool,
+    /// How deep the recursive readers are — see [`Parser::nested`].
+    depth: usize,
 }
+
+/// The deepest the readers recurse before refusing. Scripts nest a few levels; a
+/// 2 MB stack — the console's hook threads — held about 400 `$(`.
+pub const MOST_NESTED: usize = 100;
 
 /// A heredoc's opener, held until the line it was written on ends.
 struct Pending {
@@ -319,6 +331,20 @@ impl<'t> Parser<'t> {
 
     fn peek_at(&self, ahead: usize) -> Option<u8> {
         self.bytes.get(self.at + ahead).copied()
+    }
+
+    /// Run a recursive reader one level deeper, refusing past [`MOST_NESTED`].
+    fn nested<T>(
+        &mut self,
+        read: impl FnOnce(&mut Self) -> Result<T, Refusal>,
+    ) -> Result<T, Refusal> {
+        if self.depth == MOST_NESTED {
+            return self.refuse(Reason::TooDeep, 1);
+        }
+        self.depth += 1;
+        let out = read(self);
+        self.depth -= 1;
+        out
     }
 
     fn refuse<T>(&self, reason: Reason, width: usize) -> Result<T, Refusal> {
@@ -351,6 +377,10 @@ impl<'t> Parser<'t> {
     /// The terminators are the keywords that close the construct asking for the
     /// list — `do`, `done` — and they are left in place for the caller to take.
     fn items(&mut self, until: &[&str]) -> Result<Vec<Item>, Refusal> {
+        self.nested(|this| this.items_here(until))
+    }
+
+    fn items_here(&mut self, until: &[&str]) -> Result<Vec<Item>, Refusal> {
         let mut items = Vec::new();
         loop {
             self.skip_blanks();
@@ -1171,6 +1201,10 @@ impl<'t> Parser<'t> {
     /// A toggle, because bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
     /// A tree that stacked them would make one command two trees.
     fn test_not(&mut self) -> Result<TestExpr, Refusal> {
+        self.nested(|this| this.test_not_here())
+    }
+
+    fn test_not_here(&mut self) -> Result<TestExpr, Refusal> {
         let mut negated = false;
         loop {
             self.skip_blanks_and_newlines()?;
@@ -2404,6 +2438,10 @@ impl<'t> Parser<'t> {
     /// would satisfy both gates and be silently wrong. Every branch therefore
     /// either spells the operator or refuses by name.
     fn braced_parameter(&mut self, start: usize, quoted: bool) -> Result<Segment, Refusal> {
+        self.nested(|this| this.braced_parameter_here(start, quoted))
+    }
+
+    fn braced_parameter_here(&mut self, start: usize, quoted: bool) -> Result<Segment, Refusal> {
         self.at += 1; // the `{`
         // `${#x}` and `${!x}` put their operator in front of the name, so they
         // are read before it. `${#}` is the special parameter, not a length.
@@ -2778,6 +2816,10 @@ impl<'t> Parser<'t> {
     ///
     /// `None` where there is no expression at all, which `for ((;;))` needs.
     fn arithmetic(&mut self, stop: &[u8]) -> Result<Option<Arith>, Refusal> {
+        self.nested(|this| this.arithmetic_here(stop))
+    }
+
+    fn arithmetic_here(&mut self, stop: &[u8]) -> Result<Option<Arith>, Refusal> {
         self.skip_arith_blanks();
         if self.peek().is_none_or(|byte| stop.contains(&byte)) {
             return Ok(None);
@@ -2860,6 +2902,10 @@ impl<'t> Parser<'t> {
     }
 
     fn arith_unary(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
+        self.nested(|this| this.arith_unary_here(stop))
+    }
+
+    fn arith_unary_here(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
         self.skip_arith_blanks();
         let op = match (self.peek(), self.peek_at(1)) {
             (Some(b'+'), Some(b'+')) => Some((UnaryOp::Step(Step::Increment), 2)),

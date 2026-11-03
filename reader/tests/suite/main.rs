@@ -12,6 +12,7 @@
 
 mod activity;
 mod concept;
+mod depth;
 mod doing;
 mod effects;
 mod embed;

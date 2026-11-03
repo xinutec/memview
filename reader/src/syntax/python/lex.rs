@@ -57,6 +57,10 @@ pub fn lex(text: &str) -> Result<Vec<Token>, Refusal> {
     .run()
 }
 
+/// The most brackets CPython opens inside one another: one more and it refuses the
+/// program as "too many nested parentheses", so refusing here changes no reading.
+pub const MOST_NESTED: usize = 200;
+
 /// Operators, longest first so that a prefix never wins.
 const OPS: &[&str] = &[
     "**=", "//=", ">>=", "<<=", "...", "->", ":=", "**", "//", ">>", "<<", "<=", ">=", "==", "!=",
@@ -196,6 +200,9 @@ impl Lexer<'_> {
                         return Err(self.refuse(Reason::Character(c)));
                     };
                     match *op {
+                        "(" | "[" | "{" if self.depth == MOST_NESTED => {
+                            return Err(self.refuse(Reason::TooDeep));
+                        }
                         "(" | "[" | "{" => self.depth += 1,
                         ")" | "]" | "}" => self.depth = self.depth.saturating_sub(1),
                         _ => {}

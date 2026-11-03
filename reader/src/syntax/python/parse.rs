@@ -44,6 +44,10 @@ pub enum Reason {
     Target,
     /// Not Python at all, or not this parser's Python: what was expected.
     Expected(&'static str),
+    /// Brackets nested past [`super::lex::MOST_NESTED`], which CPython refuses too
+    /// ("too many nested parentheses"): read further, the reader's own recursion
+    /// would overflow its stack and take the console with it.
+    TooDeep,
 }
 
 impl Reason {
