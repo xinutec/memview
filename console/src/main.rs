@@ -38,8 +38,21 @@ enum Verb {
     WayIn,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Every runtime thread's stack, the blocking pool's included, where the hook runs
+/// the reader. Reserved, not used: the reader refuses deep nesting itself, and this
+/// is the room for a recursion it does not know it has — an overflow aborts the
+/// console and every session with it.
+const STACK: usize = 16 * 1024 * 1024;
+
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(STACK)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     // `agent-console hook`: Claude Code's hook for `Bash`, run by every session on
     // this Mac. See [`hook`].
     let verb = Cli::parse().verb;
