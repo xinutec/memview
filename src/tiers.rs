@@ -97,8 +97,6 @@ pub struct Entry {
     /// Reachable memories that already link it — the homes a demotion could
     /// land in without stranding it.
     pub homes: Vec<String>,
-    /// Whether #884's freeze covers it. See [`Trade::held`].
-    pub frozen: bool,
     /// How many links from the index reach it — 1 for a root line, `None` if none.
     pub depth: Option<usize>,
 }
@@ -210,8 +208,7 @@ pub fn returns(agents: &[crate::agents::Agent], memory: &str, excluding: Option<
         .unwrap_or(0)
 }
 
-/// Why a demotion the evidence would offer is not being offered. Checked in this
-/// order: the freeze lifts at the harvest, a tripwire's reason never does.
+/// Why a demotion the evidence would offer is not being offered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Held {
     /// The line IS the memory — a low open count is what SUCCESS looks like.
@@ -227,8 +224,6 @@ pub enum Held {
     Unjudged,
     /// Thin only because unscored opens were discarded.
     Unproven,
-    /// #884's freeze is on the SPLIT: acting on it perturbs a running series.
-    Frozen,
 }
 
 /// A demotion the evidence supports and something else forbids.
@@ -302,7 +297,6 @@ pub fn propose(
             Some(Role::Pointer) if entry.claims => Some(Held::Claims),
             Some(Role::Pointer) if entry.returns >= at.working_days => Some(Held::WorkingSet),
             Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
-            Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),
             Some(Role::Pointer) => None,
         };
         match why {

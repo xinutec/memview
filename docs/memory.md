@@ -76,12 +76,8 @@ anyone reaches for a cut:
     is a tripwire, and a tripwire's low open rate is what success looks like.
   * **Admission is blocked by ROOM, not by evidence.** Entries have earned a slot
     and there is nowhere to put them.
-  * **A held entry is not a rejected one.** #884's freeze holds part of the
-    corpus out of the trade until its harvest, by design.
-
 The honest responses are to shorten existing lines rather than remove them, to
-let leases expire once the freeze lifts, or to accept the root as it is and say
-so. What must NOT happen is a cut chosen because the tool printed zero.
+let leases expire, or to accept the root as it is and say so. What must NOT happen is a cut chosen because the tool printed zero.
 
 This is why the root's economy is not "is this true and useful" — everything in
 the corpus should be true and useful. It is: **does this need to be thought
@@ -272,8 +268,7 @@ top of it:
     record, so the disagreement costs that claim its only firing place. The
     record is one model's 2026-08 classification and cannot keep up with the
     corpus (memview#1537), which is why the LINE decides and the judgement is
-    reported. `memory-tiers` holds these as `Held::Claims`, ahead of the freeze:
-    a line that states a claim does not stop stating it on a date.
+    reported. `memory-tiers` holds these as `Held::Claims`.
   * **The ratchet.** Being listed causes opens; demoting cuts opens, which then
     justifies staying demoted. The DEMOTED BUT STILL CONSULTED section exists as
     the counter-evidence.

@@ -29,9 +29,6 @@ use memview::tiers::{
 /// Defined THERE, not here: written twice it was one edit from two ceilings.
 const CEILING: usize = memview::lint::INDEX_CEILING;
 
-/// When #884's freeze lifts and the held half of the trade becomes actionable.
-const HARVEST: &str = "2026-09-11";
-
 /// How far back a lease crossing still counts as news.
 const CROSSED_WITHIN: i64 = 7;
 
@@ -97,7 +94,8 @@ fn main() -> Result<()> {
     // `Entry`'s builder: one parsed pass over the index, as `index_entries` says.
     let labels: BTreeMap<String, String> = memview::store::index_entries(&index)
         .into_iter()
-        .map(|entry| (entry.name, entry.label))
+        // As written: bold marks a claim, and the rendered label has lost it.
+        .map(|entry| (entry.name, entry.source))
         .collect();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
@@ -110,19 +108,6 @@ fn main() -> Result<()> {
         read_json(&reader::home::cache("memory-created.json"))?;
     let days: BTreeMap<String, MemoryDays> = read_json(&reader::home::cache("memory-days.json"))?;
     let roles: serde_json::Value = read_json(&reader::home::file("memory-roles.json"))?;
-
-    // #884's two arms, which is what the freeze is on.
-    let arm = |which: &str| -> BTreeSet<String> {
-        roles["arms"][which]
-            .as_array()
-            .map(|xs| {
-                xs.iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let frozen: BTreeSet<String> = arm("treated").union(&arm("control")).cloned().collect();
 
     // Ask what the tiering says without one agent's opens — see [`tiers::breadth`]
     // for why the session running this is the one worth subtracting.
@@ -164,7 +149,6 @@ fn main() -> Result<()> {
                 ),
                 claims: labels.get(name).is_some_and(|l| states_a_claim(l)),
                 homes: homes_for(&incoming, name, &reached),
-                frozen: frozen.contains(name),
                 depth: depths.get(name).copied(),
                 name: name.clone(),
             }
@@ -393,21 +377,12 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
                 Held::Unproven,
                 "thin only because their unprovable shell opens do not count",
             ),
-            (
-                Held::Frozen,
-                "pointers, but in #884's arms — actionable after {HARVEST}",
-            ),
         ] {
             let group: Vec<&HeldEntry> = trade.held.iter().filter(|h| h.why == why).collect();
             if group.is_empty() {
                 continue;
             }
-            println!(
-                "\n    {:?} — {} of them: {}",
-                why,
-                group.len(),
-                note.replace("{HARVEST}", HARVEST)
-            );
+            println!("\n    {:?} — {} of them: {}", why, group.len(), note);
             for held in group.iter().take(10) {
                 println!(
                     "      {:<50} {:>3} agents  {:>4} b",

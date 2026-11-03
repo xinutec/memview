@@ -202,25 +202,6 @@ fn a_pair_that_houses_only_each_other_is_dropped_from_the_set() {
     assert_eq!(trade.recovered, 0);
 }
 
-/// #884's freeze is on the SPLIT, and it runs until the harvest. A frozen
-/// entry still qualifies on the evidence; acting on it perturbs the series.
-#[test]
-fn a_frozen_entry_is_held_apart_rather_than_dropped_or_demoted() {
-    let at = Thresholds::default();
-    let frozen = Entry {
-        frozen: true,
-        ..housed("in_the_control_arm", Some(0), 1)
-    };
-    let trade = propose(&[frozen], TODAY, &at, 0, &no_strands);
-    assert!(trade.demote.is_empty(), "the freeze forbids acting on it");
-    assert_eq!(
-        reasons(&trade.held),
-        [("in_the_control_arm", Held::Frozen)],
-        "but it must still be visible, or the proposal is silently short"
-    );
-    assert_eq!(trade.recovered, 0, "held bytes are not recovered bytes");
-}
-
 /// #1214: unprovable opens are shown and never scored. A memory whose only
 /// evidence is a shell read after `&&` must not tier as if it were proven.
 #[test]
@@ -291,25 +272,6 @@ fn a_thin_housed_pointer_is_demotable() {
         ["project_findable_when_wanted"]
     );
     assert_eq!(trade.recovered, 40);
-}
-
-/// Role before freeze, and the order is the point. The freeze lifts at
-/// the harvest; being a tripwire does not. Reporting the freeze as the reason
-/// would make this read as demotable the day after the harvest — which is the
-/// failure #1234 describes, moved by a fortnight rather than fixed.
-#[test]
-fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
-    let at = Thresholds::default();
-    let both = Entry {
-        role: Some(Role::Tripwire),
-        frozen: true,
-        ..housed("feedback_in_the_control_arm_and_a_tripwire", Some(0), 0)
-    };
-    let trade = propose(&[both], TODAY, &at, 0, &no_strands);
-    assert_eq!(
-        reasons(&trade.held),
-        [("feedback_in_the_control_arm_and_a_tripwire", Held::Tripwire)]
-    );
 }
 
 /// Opening a memory to decide whether to demote it adds an agent, so a candidate
@@ -461,23 +423,6 @@ fn a_pointer_whose_line_states_nothing_stays_demotable() {
     let trade = propose(&[bare], TODAY, &at, 0, &no_strands);
     assert!(trade.held.is_empty(), "a bare pointer label was held");
     assert_eq!(trade.demote.len(), 1);
-}
-
-/// Held on its line rather than the freeze, which expires: a line that states a
-/// claim does not stop stating it on a date.
-#[test]
-fn a_frozen_claim_stating_pointer_is_held_on_the_line_not_the_freeze() {
-    let at = Thresholds::default();
-    let both = Entry {
-        claims: true,
-        frozen: true,
-        ..housed("reference_frozen_and_loud", Some(0), 0)
-    };
-    let trade = propose(&[both], TODAY, &at, 0, &no_strands);
-    assert_eq!(
-        reasons(&trade.held),
-        [("reference_frozen_and_loud", Held::Claims)]
-    );
 }
 
 /// A thin verdict that DEPENDS on discarded evidence is not a verdict.
