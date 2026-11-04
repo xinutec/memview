@@ -61,78 +61,14 @@
   </p>
 
   @if (parsed()?.unrolled) {
-    <!-- Otherwise a reader counts three steps against one line and assumes the view is broken. -->
+    <!-- Otherwise a reader counts the summary against the rows and assumes the view is broken. -->
     <p class="note">
-      {{ parsed()?.unrolled }} of these are a loop run out — one step per value it actually took.
+      {{ parsed()?.unrolled }} of these come from running a loop out, so its body is drawn once.
     </p>
   }
 
   <ol class="steps">
-    @for (row of steps(); track $index) {
-      <li class="step" [attr.data-indent]="row.indent">
-        <div class="head">
-          <!-- Styled by `key`, labelled by `kind`: as one field, improving a label
-               would silently drop its colour. -->
-          <span class="kind" [attr.data-kind]="row.step.key">{{ row.step.kind }}</span>
-          @if (row.step.host; as host) {
-            <!-- The machine, on the step and again on every path it named: a path that looks
-                 local and is not is the mistake this separation exists to prevent. -->
-            <span class="host"><mat-icon>dns</mat-icon>{{ host }}</span>
-          }
-          @if (row.step.depth > 0) {
-            <span class="depth">inside a shell it opened</span>
-          }
-        </div>
-
-        <!-- What it is for, above the words: approval reads argv, which is spelling, and
-             every payload trap is a spelling that hides the act. Absent where no lens
-             covers the command — a counted leaf, never a catch-all. -->
-        @if (row.step.concept; as concept) {
-          <p class="concept">{{ concise(concept) }}</p>
-        }
-
-        <!-- The words the shell would have run, which is not always the words typed. -->
-        <code class="words">{{ row.words }}</code>
-
-        @if (row.step.says; as says) {
-          <p class="says">{{ says }}</p>
-        }
-
-        @if (condition(row.step); as when) {
-          <p class="when"><mat-icon>call_split</mat-icon>{{ when }}</p>
-        }
-
-        @if (moved(row.step)) {
-          <p class="here">
-            @if (row.step.cwd) {
-              in <code>{{ row.step.cwd }}</code>
-            } @else {
-              <!-- A `cd` this reader cannot follow. Saying so keeps a later relative path from
-                   resolving somewhere it never ran. -->
-              in a directory this reader cannot follow, so only absolute paths survive
-            }
-          </p>
-        }
-
-        @for (used of row.step.uses; track $index) {
-          <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
-            <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
-            <!-- Path and marker in one column: a long path wraps to several lines, and as
-                 siblings the icon and marker strand themselves beside different lines. -->
-            <span class="what">
-              <span class="path">{{ used.path }}</span>
-              @if (used.host) {
-                <span class="elsewhere">on {{ used.host }}</span>
-              } @else if (!used.certain) {
-                <!-- One-sided: "cannot say", never "did not happen", and "unconfirmed" is the
-                     only short phrase that does not claim the stronger thing. -->
-                <span class="elsewhere">unconfirmed</span>
-              }
-            </span>
-          </p>
-        }
-      </li>
-    }
+    <ng-container *ngTemplateOutlet="tree; context: { $implicit: gathered() }" />
   </ol>
 
   <!-- Below the parse, not above: three lines of absolute path at phone width push
@@ -163,3 +99,130 @@
     </p>
   }
 }
+
+<!-- A loop the reader ran out is its head, then its body once, the variable as a
+     slot: every pass's paths are in sight without a list of near-copies. A pass the
+     shape does not stand for is drawn as it ran, under it. -->
+<ng-template #tree let-nodes>
+  @for (node of nodes; track node.at) {
+    @if (node.kind === 'step') {
+      <ng-container *ngTemplateOutlet="row; context: { $implicit: node.step }" />
+    } @else {
+      <ng-container *ngTemplateOutlet="row; context: { $implicit: node.head, loop: true }" />
+      <li class="loop">
+        <p class="pass">
+          @if (node.misfits.length) {
+            {{ node.values.length }} of {{ node.passes }} passes
+          } @else {
+            {{ node.passes }} {{ node.passes === 1 ? 'pass' : 'passes' }}
+          }
+          · <span class="slot">{{ node.name }}</span> = <code>{{ ranged(node.values) }}</code>
+        </p>
+        <ol class="steps">
+          <ng-container *ngTemplateOutlet="tree; context: { $implicit: node.shape }" />
+        </ol>
+        @for (misfit of node.misfits; track misfit.at) {
+          <p class="pass misfit">
+            pass {{ misfit.at + 1 }} ran differently · {{ node.name }} =
+            <code>{{ misfit.value }}</code>
+          </p>
+          <ol class="steps">
+            <ng-container *ngTemplateOutlet="tree; context: { $implicit: misfit.nodes }" />
+          </ol>
+        }
+      </li>
+    }
+  }
+</ng-template>
+
+<!-- A string from the parse, with a loop variable's slots marked. -->
+<!-- Each part its own element, so the whitespace in this markup is between elements,
+     which Angular drops, and never inside a path. -->
+<ng-template #text let-value>
+  @for (part of segments(value); track $index) {
+    <span [class.slot]="part.slot">{{ part.text }}</span>
+  }
+</ng-template>
+
+<ng-template #row let-step let-loop="loop">
+  <li class="step" [attr.data-indent]="indent(step)">
+    <div class="head">
+      <!-- Styled by `key`, labelled by `kind`: as one field, improving a label
+           would silently drop its colour. -->
+      <!-- A loop's head touches nothing itself; what it is is the loop. -->
+      <span class="kind" [attr.data-kind]="loop ? 'loop' : step.key">{{
+        loop ? 'loop' : step.kind
+      }}</span>
+      @if (step.host; as host) {
+        <!-- The machine, on the step and again on every path it named: a path that looks
+             local and is not is the mistake this separation exists to prevent. -->
+        <span class="host"
+          ><mat-icon>dns</mat-icon
+          ><ng-container *ngTemplateOutlet="text; context: { $implicit: host }"
+        /></span>
+      }
+      @if (step.depth > 0) {
+        <span class="depth">inside a shell it opened</span>
+      }
+    </div>
+
+    <!-- What it is for, above the words: approval reads argv, which is spelling, and
+         every payload trap is a spelling that hides the act. Absent where no lens
+         covers the command — a counted leaf, never a catch-all. -->
+    @if (step.concept; as concept) {
+      <p class="concept">
+        <ng-container *ngTemplateOutlet="text; context: { $implicit: concise(concept) }" />
+      </p>
+    }
+
+    <!-- The words the shell would have run, which is not always the words typed. -->
+    <code class="words"
+      ><ng-container *ngTemplateOutlet="text; context: { $implicit: words(step) }"
+    /></code>
+
+    @if (step.says; as says) {
+      <p class="says">
+        <ng-container *ngTemplateOutlet="text; context: { $implicit: says }" />
+      </p>
+    }
+
+    @if (condition(step); as when) {
+      <p class="when"><mat-icon>call_split</mat-icon>{{ when }}</p>
+    }
+
+    @if (moved(step)) {
+      <p class="here">
+        @if (step.cwd) {
+          in
+          <code><ng-container *ngTemplateOutlet="text; context: { $implicit: step.cwd }" /></code>
+        } @else {
+          <!-- A `cd` this reader cannot follow. Saying so keeps a later relative path from
+               resolving somewhere it never ran. -->
+          in a directory this reader cannot follow, so only absolute paths survive
+        }
+      </p>
+    }
+
+    @for (used of step.uses; track $index) {
+      <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
+        <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
+        <!-- Path and marker in one column: a long path wraps to several lines, and as
+             siblings the icon and marker strand themselves beside different lines. -->
+        <span class="what">
+          <span class="path"
+            ><ng-container *ngTemplateOutlet="text; context: { $implicit: used.path }"
+          /></span>
+          @if (used.host) {
+            <span class="elsewhere"
+              >on <ng-container *ngTemplateOutlet="text; context: { $implicit: used.host }"
+            /></span>
+          } @else if (!used.certain) {
+            <!-- One-sided: "cannot say", never "did not happen", and "unconfirmed" is the
+                 only short phrase that does not claim the stronger thing. -->
+            <span class="elsewhere">unconfirmed</span>
+          }
+        </span>
+      </p>
+    }
+  </li>
+</ng-template>

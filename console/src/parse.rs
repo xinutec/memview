@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use reader::doing::Verdict;
-use reader::shell::Reached;
+use reader::shell::{Pass, Reached};
 use reader::shell_files::{FileUse, RemoteUse, Step};
 use reader::shell_ops::{GitOp, Op};
 
@@ -100,6 +100,8 @@ pub struct Line {
     /// What the operation says beyond its paths, such as a search's pattern.
     pub says: String,
     pub uses: Vec<Used>,
+    /// The iterations of run-out loops it ran in, outermost first.
+    pub passes: Vec<Pass>,
 }
 
 /// One file a command used, and whether that use is a fact.
@@ -177,6 +179,7 @@ fn line(step: &Step, verdict: Verdict) -> Line {
         key: naming.key,
         says,
         uses: local.chain(away).collect(),
+        passes: step.passes.clone(),
     }
 }
 

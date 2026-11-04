@@ -38,7 +38,8 @@ the text. The lift rate on the 2026-10-05 corpus went from 21.18% to 21.48% —
 small, as the paragraph above predicts — and the act's top verb became *write*.
 
 ⚠ **`Poll` is the first lens read off the TREE, not a step (2026-10-10).** The
-reader unrolls a loop into steps, so by the time a step exists the loop is gone;
+reader unrolls a loop into steps, so by the time a step exists the loop is gone
+(a `for` run out leaves each step its `passes`; a `while` leaves nothing), and
 `concept::poll` reads the `while`/`until` node, and `concept-report` counts loops
 beside the step balance rather than inside it, since every step in the loop
 still lifts on its own. The probe is carried verbatim, as the printer prints it.

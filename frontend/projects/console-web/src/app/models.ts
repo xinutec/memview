@@ -38,6 +38,7 @@ export type { Gist } from './generated/Gist';
 export type { Holder } from './generated/Holder';
 export type { Landmark } from './generated/Landmark';
 export type { Line } from './generated/Line';
+export type { Pass } from './generated/Pass';
 export type { Mark } from './generated/Mark';
 export type { Message } from './generated/Message';
 export type { Mode } from './generated/Mode';

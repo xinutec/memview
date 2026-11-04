@@ -40,7 +40,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::shell::{Reached, Redirect, Simple};
+use crate::shell::{Pass, Reached, Redirect, Simple};
 use crate::syntax::ast::{
     Arith, ArrayElement, Assignment, Brace, Command, CommandKind, Connector, ForLoop, Item,
     Parameter, ParameterOp, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Subscript,
@@ -174,6 +174,7 @@ fn walk(script: &Script, unroll: bool) -> Ran {
         unroll,
         defines: BTreeSet::new(),
         bound: BTreeMap::new(),
+        passes: Vec::new(),
         unrolled: 0,
     };
     walk.items(&script.items, &[], Reached::Always);
@@ -206,6 +207,8 @@ struct Walk {
     /// time. Restored on the way out rather than cleared: `for f` inside
     /// `for f` shadows and then gives the name back.
     bound: BTreeMap<String, String>,
+    /// The iteration each enclosing run-out loop is on, for [`Simple::passes`].
+    passes: Vec<Pass>,
     /// Commands that exist *because* a loop was run out: everything past the
     /// first iteration's worth.
     ///
@@ -258,6 +261,7 @@ impl Walk {
             heredocs: Vec::new(),
             literal: Vec::new(),
             split: Vec::new(),
+            passes: self.passes.clone(),
         };
         // The redirections are read first because a `< <(ls)` runs its commands
         // before the one it feeds, and because a heredoc body belongs to the
@@ -618,9 +622,15 @@ impl Walk {
     fn iterations(&mut self, loop_: &ForLoop, values: &[String], scope: &[usize], body: Reached) {
         let shadowed = self.bound.remove(&loop_.name);
         let before = self.out.len();
-        for value in values {
+        for (at, value) in values.iter().enumerate() {
             self.bound.insert(loop_.name.clone(), value.clone());
+            self.passes.push(Pass {
+                name: loop_.name.clone(),
+                value: value.clone(),
+                at,
+            });
             self.items(&loop_.body, scope, body);
+            self.passes.pop();
         }
         let grew = self.out.len() - before;
         let once = if values.is_empty() {

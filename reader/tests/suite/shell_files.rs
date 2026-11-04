@@ -2079,13 +2079,12 @@ fn every_refusal_has_exactly_one_reason() {
 ///
 /// - A `Poll`'s CONDITION and its BODY are indistinguishable here. `until curl;
 ///   do sleep; done` gives two steps that look exactly like `curl; sleep`.
-/// - Unrolled iterations are indistinguishable from siblings. `for f in a b; do
-///   wc -l $f; done` gives two `wc` steps that look exactly like two separately
-///   written commands, so nothing can tell one loop over two files from two
-///   commands over one each.
+/// - Unrolled iterations are indistinguishable from siblings by scope. `for f in
+///   a b; do wc -l $f; done` gives two `wc` steps whose scopes match two separately
+///   written commands; `Step::passes` is what tells them apart.
 ///
-/// So a multi-step key needs a NODE identity the steps do not currently carry.
-/// Anyone reaching for `scope` to build one should fail this test first.
+/// So a multi-step key needs a NODE identity, and `passes` is one only for loops
+/// run out. Anyone reaching for `scope` to build one should fail this test first.
 #[test]
 fn scope_cannot_tell_a_loop_body_from_a_top_level_command() {
     let scopes = |script: &str| -> Vec<Vec<usize>> {
@@ -2113,6 +2112,67 @@ fn scope_cannot_tell_a_loop_body_from_a_top_level_command() {
     // The ONE construct that does move it, so the test says what `scope` is
     // FOR rather than only what it is not.
     assert_eq!(scopes("( cd /tmp && ls x )"), vec![vec![1], vec![1]]);
+}
+
+/// What `scope` cannot say, `passes` does: which iteration of a run-out loop a
+/// step belongs to, outermost loop first.
+#[test]
+fn a_step_carries_the_loop_passes_it_ran_in() {
+    let passes = |script: &str| -> Vec<Vec<(String, String, usize)>> {
+        let cmds = parse(script).unwrap_or_else(|at| panic!("stopped at {at:?}"));
+        reader::shell_files::trace(&cmds, Some(CWD), HOME)
+            .steps
+            .into_iter()
+            .map(|s| {
+                s.passes
+                    .into_iter()
+                    .map(|p| (p.name, p.value, p.at))
+                    .collect()
+            })
+            .collect()
+    };
+    let pass = |name: &str, value: &str, at: usize| (name.to_string(), value.to_string(), at);
+
+    // The head is outside the loop it opens; each body step is in one pass.
+    assert_eq!(
+        passes("for f in a.ts b.ts; do wc -l $f; done"),
+        [
+            vec![],
+            vec![pass("f", "a.ts", 0)],
+            vec![pass("f", "b.ts", 1)]
+        ]
+    );
+    // A value written twice is still two passes.
+    assert_eq!(
+        passes("for f in a a; do cat $f; done"),
+        [vec![], vec![pass("f", "a", 0)], vec![pass("f", "a", 1)]]
+    );
+    // Nested loops stack, and the inner head is inside the outer pass.
+    assert_eq!(
+        passes("for d in x y; do for f in a b; do cat $d/$f; done; done"),
+        [
+            vec![],
+            vec![pass("d", "x", 0)],
+            vec![pass("d", "x", 0), pass("f", "a", 0)],
+            vec![pass("d", "x", 0), pass("f", "b", 1)],
+            vec![pass("d", "y", 1)],
+            vec![pass("d", "y", 1), pass("f", "a", 0)],
+            vec![pass("d", "y", 1), pass("f", "b", 1)],
+        ]
+    );
+    // A shell opened inside a pass runs inside it, though a second walk read it.
+    assert_eq!(
+        passes("for h in a b; do bash -c \"ls $h\"; done"),
+        [
+            vec![],
+            vec![pass("h", "a", 0)],
+            vec![pass("h", "a", 0)],
+            vec![pass("h", "b", 1)],
+            vec![pass("h", "b", 1)],
+        ]
+    );
+    // A loop that is not run out has one body and so no passes.
+    assert_eq!(passes("for f in *.ts; do cat $f; done"), [vec![], vec![]]);
 }
 
 /// `black` rewrites unless told to check. The table's comment said so and the

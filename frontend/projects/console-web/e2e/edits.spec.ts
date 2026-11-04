@@ -119,6 +119,7 @@ test('another machine is named on the step and on every path @ phone width', asy
         scope: [],
         key: 'step-1',
         uses: [],
+        passes: [],
       },
       {
         depth: 1,
@@ -138,6 +139,7 @@ test('another machine is named on the step and on every path @ phone width', asy
         scope: [],
         key: 'step-2',
         says: '',
+        passes: [],
       },
     ],
     unread: [],
@@ -544,6 +546,7 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
         ],
         scope: [],
         says: '',
+        passes: [],
       },
       {
         depth: 0,
@@ -555,6 +558,7 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
         says: 'counts lines',
         scope: [],
         uses: [],
+        passes: [],
       },
     ],
     unread: [],

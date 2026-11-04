@@ -1,0 +1,395 @@
+{
+  "steps": [
+    {
+      "depth": 0,
+      "argv": [
+        "for",
+        "r",
+        "in",
+        "coach",
+        "health",
+        "life",
+        "memview",
+        "messages",
+        "tasks"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "no files",
+      "key": "nothing",
+      "says": "",
+      "uses": [],
+      "passes": []
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/coach",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-coach.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "coach",
+          "at": 0
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-coach.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-coach.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-coach.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "coach",
+          "at": 0
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/health",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-health.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "health",
+          "at": 1
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-health.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-health.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-health.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "health",
+          "at": 1
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/life",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-life.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "life",
+          "at": 2
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-life.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-life.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-life.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "life",
+          "at": 2
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/memview",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-memview.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "memview",
+          "at": 3
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-memview.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-memview.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-memview.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "memview",
+          "at": 3
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/messages",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-messages.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "messages",
+          "at": 4
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-messages.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-messages.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-messages.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "messages",
+          "at": 4
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "git",
+        "-C",
+        "~/Code/tasks",
+        "status",
+        "--short"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "kind": "git",
+      "key": "git",
+      "says": "status",
+      "uses": [
+        {
+          "path": "/tmp/status-tasks.txt",
+          "write": true,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "tasks",
+          "at": 5
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "wc",
+        "-l",
+        "/tmp/status-tasks.txt"
+      ],
+      "reached": "always",
+      "scope": [],
+      "cwd": "/home/example/Code/health",
+      "concept": "Count the lines of /tmp/status-tasks.txt",
+      "kind": "read",
+      "key": "read",
+      "says": "",
+      "uses": [
+        {
+          "path": "/tmp/status-tasks.txt",
+          "write": false,
+          "reached": "always",
+          "certain": true
+        }
+      ],
+      "passes": [
+        {
+          "name": "r",
+          "value": "tasks",
+          "at": 5
+        }
+      ]
+    }
+  ],
+  "unread": [],
+  "unrolled": 10,
+  "nested_unparsed": 0
+}

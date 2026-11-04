@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { MAT_BOTTOM_SHEET_DATA } from '@angular/material/bottom-sheet';
 import { MatIconModule } from '@angular/material/icon';
@@ -7,6 +8,7 @@ import { ConsoleApi } from './console-api';
 import { DiffView } from './diff-view';
 import { type Assumed, type Change, Parsed, Line } from './models';
 import { reason } from './errors';
+import { gather, ranged, segments } from './loops';
 
 /** What the sheet is opened with: the command as it was written, and how its
  *  call turned out. */
@@ -38,7 +40,7 @@ const DEEPEST_INDENT = 3;
   selector: 'app-parse-sheet',
   templateUrl: './parse-sheet.html',
   styleUrl: './parse-sheet.scss',
-  imports: [DiffView, MatIconModule, MatProgressBarModule],
+  imports: [DiffView, MatIconModule, MatProgressBarModule, NgTemplateOutlet],
 })
 export class ParseSheet {
   private api = inject(ConsoleApi);
@@ -89,18 +91,23 @@ export class ParseSheet {
     (this.about.hunks ?? []).some((change) => change.assumed),
   );
 
-  /** Every step, with what the template needs that JSON cannot carry. */
-  protected readonly steps = computed(() =>
-    (this.parsed()?.steps ?? []).map((step) => ({
-      step,
-      indent: Math.min(step.depth, DEEPEST_INDENT),
-      /**
-       * The words, rejoined: what is shown is the argv after expansion, which exists
-       * as text nowhere else.
-       */
-      words: step.argv.join(' '),
-    })),
-  );
+  /** The steps, each run-out loop drawn as its body once. */
+  protected readonly gathered = computed(() => gather(this.parsed()?.steps ?? []));
+
+  protected readonly segments = segments;
+  protected readonly ranged = ranged;
+
+  protected indent(step: Line): number {
+    return Math.min(step.depth, DEEPEST_INDENT);
+  }
+
+  /**
+   * The words, rejoined: what is shown is the argv after expansion, which exists
+   * as text nowhere else.
+   */
+  protected words(step: Line): string {
+    return step.argv.join(' ');
+  }
 
   /**
    * The one line of context every relative path depends on, from the first step

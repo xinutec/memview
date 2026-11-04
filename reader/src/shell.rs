@@ -133,6 +133,20 @@ pub struct Simple {
     /// Read it with `get(i)`, never by index. A missing entry means "it may have
     /// expanded" — the answer that claims less.
     pub literal: Vec<bool>,
+    /// The iterations of run-out loops this command ran in, outermost first.
+    /// Empty outside a loop, and from the flat grammar, which never runs one out.
+    pub passes: Vec<Pass>,
+}
+
+/// One iteration of a loop the reader ran out: the variable, the value it held,
+/// and which pass this was — `for f in a a` runs two passes over one value.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Pass {
+    pub name: String,
+    pub value: String,
+    pub at: usize,
 }
 
 /// A file named by a redirection, and which way it went.
@@ -427,6 +441,7 @@ fn walk(
                 redirects: Vec::new(),
                 heredocs: Vec::new(),
                 literal: Vec::new(),
+                passes: Vec::new(),
             };
             for part in pair.into_inner() {
                 match part.as_rule() {

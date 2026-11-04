@@ -298,6 +298,9 @@ pub struct Step {
     /// [`crate::shell::Simple::literal`].
     pub heredocs: Vec<String>,
     pub literal: Vec<bool>,
+    /// The loop iterations it ran in — [`crate::shell::Simple::passes`], with the
+    /// passes of the command that opened its shell in front.
+    pub passes: Vec<crate::shell::Pass>,
 }
 
 impl Extract {
@@ -371,6 +374,8 @@ impl Extract {
             redirects: cmd.redirects.clone(),
             heredocs: cmd.heredocs.clone(),
             literal: cmd.literal.clone(),
+            // Given by `extract_nested` once the command's whole shell is read.
+            passes: Vec::new(),
         });
         Some(self.steps.len() - 1)
     }
@@ -801,6 +806,7 @@ fn carried(
                         redirects: Vec::new(),
                         heredocs: Vec::new(),
                         literal: Vec::new(),
+                        passes: Vec::new(),
                     }],
                     unrolled: 0,
                     // An argv is not a text, so it declares nothing.
@@ -869,7 +875,11 @@ fn extract_nested(
     // rather than the parser applying it before.
     out.unrolled += ran.unrolled;
     let cmds = &ran.commands;
+    // Where each command's steps begin, so its passes can be given to every step
+    // it produced, including those of a shell it opened.
+    let mut starts = Vec::with_capacity(cmds.len());
     for cmd in cmds {
+        starts.push(out.steps.len());
         let here = current(&dirs, &cmd.scope);
         // Expansion happens before anything else looks at the words, so
         // every stage below — the verb table, the path guard, the nested parse —
@@ -958,6 +968,7 @@ fn extract_nested(
                 .collect(),
             heredocs: cmd.heredocs.clone(),
             literal: cmd.literal.clone(),
+            passes: cmd.passes.clone(),
         };
         // Where this command's own uses begin, so the step below can claim
         // exactly them. Taken before the redirects, which are the first thing
@@ -1186,6 +1197,7 @@ fn extract_nested(
                             redirects: Vec::new(),
                             heredocs: Vec::new(),
                             literal: Vec::new(),
+                            passes: Vec::new(),
                         }],
                         unrolled: 0,
                         // An argv is not a text, so it declares nothing.
@@ -1266,6 +1278,12 @@ fn extract_nested(
         }
         out.activities.push(crate::activity::of(&op, cmd));
         out.ops.push(op);
+    }
+    let ends = starts.iter().skip(1).copied().chain([out.steps.len()]);
+    for ((cmd, &start), end) in cmds.iter().zip(&starts).zip(ends) {
+        for step in &mut out.steps[start..end] {
+            step.passes.splice(0..0, cmd.passes.iter().cloned());
+        }
     }
     out
 }

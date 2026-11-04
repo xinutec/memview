@@ -216,6 +216,56 @@ fn what_a_script_runs_is_not_said_twice() {
     );
 }
 
+/// The whole answer, as the sheet receives it, against the committed golden the
+/// phone check reads. Compared rather than written every run: a test that
+/// silently rewrites its own expectation cannot fail.
+fn golden(name: &str, answer: &console::parse::Parsed) {
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../frontend/projects/console-web/e2e")
+        .join(name);
+    let fresh = serde_json::to_string_pretty(answer).expect("the answer serialises") + "\n";
+    if std::env::var("BLESS").is_ok() {
+        std::fs::write(&golden, &fresh).expect("golden is writable");
+    } else {
+        let held = std::fs::read_to_string(&golden).unwrap_or_default();
+        assert_eq!(
+            held, fresh,
+            "the sheet's fixture {name} no longer matches what the runner sends — \
+             re-run with BLESS=1 to update it, and commit the change with this one"
+        );
+    }
+}
+
+/// A loop run out reaches the sheet with each step's pass, which is what lets
+/// the phone fold the repeats.
+#[test]
+fn a_loop_reaches_the_phone_pass_by_pass() {
+    let answer = asked(
+        "for r in coach health life memview messages tasks; do \
+         git -C ~/Code/$r status --short > /tmp/status-$r.txt; wc -l /tmp/status-$r.txt; done",
+        Some(true),
+    );
+    golden("parsed-loop.fixture.json", &answer);
+    let passes: Vec<Vec<(String, usize)>> = answer
+        .steps
+        .iter()
+        .map(|step| {
+            step.passes
+                .iter()
+                .map(|pass| (pass.value.clone(), pass.at))
+                .collect()
+        })
+        .collect();
+    let repos = ["coach", "health", "life", "memview", "messages", "tasks"];
+    let expected: Vec<Vec<(String, usize)>> =
+        std::iter::once(Vec::new())
+            .chain(repos.iter().enumerate().flat_map(|(at, repo)| {
+                [vec![(repo.to_string(), at)], vec![(repo.to_string(), at)]]
+            }))
+            .collect();
+    assert_eq!(passes, expected);
+}
+
 #[test]
 fn the_shape_the_phone_is_drawn_from() {
     // The phone check reads the file this test writes, so a copy cannot
@@ -240,22 +290,7 @@ fn the_shape_the_phone_is_drawn_from() {
             )
         })
         .collect();
-    // The whole answer, as the sheet receives it. Compared against the committed
-    // golden rather than written every run: a test that silently rewrites its own
-    // expectation cannot fail.
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/projects/console-web/e2e/parsed.fixture.json");
-    let fresh = serde_json::to_string_pretty(&answer).expect("the answer serialises") + "\n";
-    if std::env::var("BLESS").is_ok() {
-        std::fs::write(&golden, &fresh).expect("golden is writable");
-    } else {
-        let held = std::fs::read_to_string(&golden).unwrap_or_default();
-        assert_eq!(
-            held, fresh,
-            "the sheet's fixture no longer matches what the runner sends — \
-             re-run with BLESS=1 to update it, and commit the change with this one"
-        );
-    }
+    golden("parsed.fixture.json", &answer);
 
     assert_eq!(
         shape,
