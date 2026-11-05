@@ -3012,22 +3012,55 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
             Some(format!("git {subcommand}"))
         }
         Op::Nothing => runs_here(innermost(argv)),
+        // A dot command that writes a file is sqlite3's own, not SQL's, and the
+        // tables read no statement from an operand: the words are asked.
+        Op::Sql { source, .. }
+            if std::iter::once(source.as_str())
+                .chain(argv.iter().map(String::as_str))
+                .flat_map(str::lines)
+                .any(|line| {
+                    let line = line.trim_start();
+                    [".output", ".once", ".save", ".backup", ".excel"]
+                        .iter()
+                        .any(|dot| line.starts_with(dot))
+                }) =>
+        {
+            Some("sqlite3".to_string())
+        }
         _ => None,
     }
 }
 
-/// A program the shell tables file as touching no file of this machine's, for
-/// attribution, that may still write one here: a restore, a pull, a download,
-/// a service started, text run by `eval`, an application `open`ed. Named as an
-/// unknown program unless its subcommand is one known to write nothing here.
+/// A program the shell tables file as touching no files may still write one:
+/// that is an attribution, not a claim about writes. Named as an unknown
+/// program unless the evaluator's own list says it writes nothing here.
 fn runs_here(argv: &[String]) -> Option<String> {
     let (head, rest) = argv.split_first()?;
     let program = basename(head);
-    // The subcommands that only read or act on the far side, and the flags
-    // before a subcommand that take a value.
+    if WRITES_NOTHING.contains(&program) {
+        return None;
+    }
+    // A finder writes nothing until it is told to act on what it finds.
+    if program == "find" {
+        let acts = [
+            "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fls",
+        ];
+        let acts = rest
+            .iter()
+            .any(|word| acts.contains(&word.as_str()) || word.starts_with("-fprintf"));
+        return acts.then(|| "find".to_string());
+    }
+    // `python3 -m json.tool` reading stdin prints, and writes only an outfile.
+    if matches!(program, "python" | "python3")
+        && let [m, module, flags @ ..] = rest
+        && (m.as_str(), module.as_str()) == ("-m", "json.tool")
+        && flags.iter().all(|word| word.starts_with('-'))
+    {
+        return None;
+    }
+    // The subcommands that write nothing here, and the flags before a
+    // subcommand that take a value.
     let (harmless, valued): (&[&str], &[&str]) = match program {
-        "eval" | "open" | "wsl" | "restic" | "borg" | "rclone" | "aws" | "helm" | "xcrun"
-        | "sftp" | "podman" => (&[], &[]),
         "adb" => (
             &[
                 "shell",
@@ -3057,9 +3090,6 @@ fn runs_here(argv: &[String]) -> Option<String> {
             &["run", "api", "pr", "issue", "search", "workflow", "auth"],
             &["-R", "--repo"],
         ),
-        // A build writes under `.lake` by convention, as `cargo build` does
-        // under `target`; `lake exe` runs a program, as `cargo run` does.
-        "lake" => (&["build"], &["-d", "--dir", "-f", "--file"]),
         "systemctl" => (
             &[
                 "is-active",
@@ -3075,7 +3105,82 @@ fn runs_here(argv: &[String]) -> Option<String> {
             ],
             &["-H", "--host", "-M", "--machine"],
         ),
-        _ => return None,
+        // Starting a job is classified apart, as an unknown program.
+        "launchctl" => (
+            &[
+                "list",
+                "print",
+                "print-disabled",
+                "bootout",
+                "remove",
+                "unload",
+                "disable",
+                "enable",
+            ],
+            &[],
+        ),
+        // A build writes under its build directory by convention, as
+        // `cargo build` does under `target`; running the project's code does not.
+        "cargo" => (
+            &[
+                "build", "check", "clippy", "doc", "tree", "metadata", "version",
+            ],
+            &["-C", "--manifest-path", "--config", "-Z"],
+        ),
+        "lake" => (&["build"], &["-d", "--dir", "-f", "--file"]),
+        "swift" => (&["build"], &[]),
+        "ng" => (&["build"], &[]),
+        "nix" => (
+            &[
+                "eval",
+                "path-info",
+                "log",
+                "search",
+                "why-depends",
+                "hash",
+                "flake",
+            ],
+            &["--option", "--extra-experimental-features"],
+        ),
+        "pnpm" | "npm" | "yarn" => (
+            &[
+                "list", "ls", "why", "outdated", "view", "info", "help", "root", "bin",
+            ],
+            &["-C", "--dir", "--prefix"],
+        ),
+        "docker" => (
+            &["ps", "info", "version", "images", "inspect", "logs"],
+            &["-H", "--host", "--context"],
+        ),
+        "kubectl" => (
+            &[
+                "get",
+                "describe",
+                "logs",
+                "top",
+                "version",
+                "rollout",
+                "scale",
+                "delete",
+                "apply",
+                "annotate",
+                "label",
+                "explain",
+                "api-resources",
+                "wait",
+                "auth",
+                "events",
+            ],
+            &[
+                "-n",
+                "--namespace",
+                "--context",
+                "--kubeconfig",
+                "-l",
+                "--selector",
+            ],
+        ),
+        _ => return Some(program.to_string()),
     };
     let mut words = rest.iter();
     let sub = loop {
@@ -3088,21 +3193,107 @@ fn runs_here(argv: &[String]) -> Option<String> {
         }
     };
     // `gh run download` and `gh pr checkout` write here, under subcommands
-    // that otherwise only read.
+    // that otherwise only read; `nix flake` only asks with these three.
+    let then = words.next().map(String::as_str);
     let writes = matches!(
-        (
-            program,
-            sub.map(String::as_str),
-            words.next().map(String::as_str)
-        ),
+        (program, sub.map(String::as_str), then),
         ("gh", Some("run"), Some("download")) | ("gh", Some("pr"), Some("checkout"))
-    );
+    ) || (program, sub.map(String::as_str)) == ("nix", Some("flake"))
+        && !matches!(then, Some("show" | "metadata" | "info"));
     match sub {
         Some(sub) if harmless.contains(&sub.as_str()) && !writes => None,
-        Some(sub) if !harmless.is_empty() => Some(format!("{program} {sub}")),
-        _ => Some(program.to_string()),
+        Some(sub) => Some(format!("{program} {sub}")),
+        None => Some(program.to_string()),
     }
 }
+
+/// Programs that write no file here, whatever they are told: the shell's own
+/// words, and what asks about processes, the network, the machine or the time.
+/// `verified_cli` opens no file at all (`health/lean/ServeEntry.lean`), and
+/// `task` talks to a server. `mkdir` and `rmdir` change listings, which are
+/// followed apart.
+const WRITES_NOTHING: &[&str] = &[
+    "sleep",
+    "break",
+    "continue",
+    "exit",
+    "return",
+    "true",
+    "false",
+    ":",
+    "set",
+    "unset",
+    "export",
+    "local",
+    "shift",
+    "wait",
+    "jobs",
+    "disown",
+    "read",
+    "readonly",
+    "declare",
+    "typeset",
+    "alias",
+    "hash",
+    "type",
+    "which",
+    "getopts",
+    "let",
+    "for",
+    "done",
+    "fi",
+    "esac",
+    "case",
+    "in",
+    "select",
+    "function",
+    "[",
+    "[[",
+    "test",
+    "echo",
+    "printf",
+    "id",
+    "whoami",
+    "hostname",
+    "uptime",
+    "pwd",
+    "date",
+    "seq",
+    "basename",
+    "dirname",
+    "tr",
+    "rev",
+    "yes",
+    "df",
+    "nproc",
+    "uname",
+    "sw_vers",
+    "clear",
+    "ps",
+    "pgrep",
+    "kill",
+    "pkill",
+    "killall",
+    "lsof",
+    "top",
+    "nc",
+    "ping",
+    "dig",
+    "ss",
+    "wg",
+    "journalctl",
+    "dmesg",
+    "nixos-version",
+    "mysqladmin",
+    "mariadb-admin",
+    "verified_cli",
+    "task",
+    "ssh",
+    "mkdir",
+    "rmdir",
+    "pushd",
+    "popd",
+];
 
 /// `sys.argv` for a Python program run straight from its interpreter:
 /// `python3 - a b` gives `['-', 'a', 'b']`, `python3 -c code a` gives

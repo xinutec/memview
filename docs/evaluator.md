@@ -254,11 +254,15 @@ stands for everything under its fixed part.
 
 ### Programs it does not know
 
-A program the tables do not know, a program they send to another machine's
-files that still runs here (`restic restore`, `adb pull`, `gh release
-download`, a `systemctl start`; a subcommand known to write nothing here
-keeps what came before), `eval`, an application `open`ed, `lake` beyond
-`build`, a script run from a file, code the text does not show (a package script, `pnpm install` and the install scripts it runs,
+A program writes nothing only when the evaluator's own list says so
+(`WRITES_NOTHING`, and the read-only subcommands beside it): what the shell
+tables file as touching no files is an attribution, not a claim about writes,
+and a program's harmlessness on the day is no part of a prediction's safety
+(*Sight*, above). A build that writes under its build directory by convention
+(`cargo build`, `lake build`) is on it; one that runs the project's code is
+not. So a program the tables do not know, a program on none of the lists
+(`make`, `docker run`, `python -m pytest`, `restic restore`, `eval`), a script
+run from a file, code the text does not show (a package script, `pnpm install` and the install scripts it runs,
 `nix run`), a git command that rewrites the working tree, and a write to a
 path an expansion chose may each have written any file, so nothing predicted
 before one survives it, and what is read after it is not known. A refusal
@@ -483,8 +487,11 @@ off this list.
 - **2026-11-05, eight findings from 10-06 to 11-03.** Two steps failed and the
   chain after them was assumed to run: a `sed` left with an empty first address
   by a `$( )` that printed nothing, and a `cp` into a directory that did not
-  exist. Two programs the tables file as acting elsewhere wrote here:
-  `restic restore --delete`, and `lake exe deadcode --delete`. A `mv` onto
+  exist. Two programs the tables file as touching no files wrote here:
+  `restic restore --delete`, and `lake exe deadcode --delete`, which is why a
+  program now writes nothing only on the evaluator's own list (replayed over
+  the history, files predicted 9,397 → 9,281, most of it `python -m pytest`
+  and its siblings). A `mv` onto
   `.gitattributes` was dropped, the path guard taking a dotfile for no path.
   A Python program with a comment inside a list was refused by the tree and
   its writes, through a name, went unmentioned. Two were the check, not the

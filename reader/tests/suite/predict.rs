@@ -166,7 +166,15 @@ fn cat_of_known_files_concatenates_them() {
 fn an_unknown_program_writing_a_file_is_not_followed_and_forgets_it() {
     let found = run("echo one > a; make > a", &nothing_known());
     assert!(found.written.is_empty(), "what `make` printed is not known");
-    assert_eq!(found.unfollowed.len(), 1);
+    // The `echo` is withdrawn by `make` running, and the redirect refused for it.
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .all(|u| u.why == Why::Program("make".to_string())),
+        "{:?}",
+        found.unfollowed
+    );
 }
 
 #[test]
@@ -3439,6 +3447,67 @@ fn a_program_the_tables_send_elsewhere_still_runs_here() {
         assert_eq!(
             found.written,
             vec![written("/tmp/pz/x.txt", "a\n")],
+            "{script}"
+        );
+    }
+}
+
+/// What the shell tables file as touching no files is an attribution, not a
+/// claim about writes: a program writes nothing only when it is on the
+/// evaluator's own list. Everything else is an unknown program, and what came
+/// before it is withdrawn, or held on the condition that it left the file alone.
+#[test]
+fn a_program_writes_nothing_only_on_the_evaluators_list() {
+    let files = known(&[("/repo/x.txt", None)]);
+    for program in [
+        "docker run -v .:/pz alpine rm /pz/x.txt",
+        "sqlite3 db.sqlite '.output x.txt'",
+        "python -m pytest",
+        "node < script.js",
+        "find . -name x.txt -delete",
+        "find . -exec rm {} +",
+        "cargo add serde",
+        "trap 'rm -f x.txt' EXIT",
+        "direnv exec . cargo test",
+        "swift format -i x.swift",
+        "ng test",
+        "pip install foo",
+        "make",
+        "go generate ./...",
+        "gradle spotlessApply",
+        "bash $SCRIPT",
+        "nix develop",
+        "nixos-rebuild switch",
+    ] {
+        let script = format!("echo a > x.txt; {program}");
+        let found = run(&script, &files);
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+    }
+    for program in [
+        "sleep 1",
+        "ps aux",
+        "kill 1",
+        "ping -c 1 odin",
+        "task show 1",
+        "mkdir d",
+        "cargo build",
+        "cargo check",
+        "lake build",
+        "ng build",
+        "swift build",
+        "find . -name '*.rs'",
+        "nix eval .#x",
+        "docker ps",
+        "kubectl get pods",
+        "launchctl list",
+        "python3 -m json.tool",
+        "verified_cli serve",
+    ] {
+        let script = format!("echo a > x.txt; {program}");
+        let found = run(&script, &files);
+        assert_eq!(
+            found.written,
+            vec![written("/repo/x.txt", "a\n")],
             "{script}"
         );
     }
