@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod float;
 mod json;
 
 use super::python_re;
@@ -34,6 +35,8 @@ const DEPTH: usize = 8;
 enum Value {
     Str(String),
     Int(i64),
+    /// An IEEE double, as CPython's `float` is.
+    Float(f64),
     Bool(bool),
     None,
     /// A `pathlib.Path`, as its text.
@@ -78,6 +81,9 @@ enum Value {
 #[derive(Debug, Clone, Copy)]
 enum Function {
     IsInstance,
+    Round,
+    Float,
+    Int,
     Open,
     Path,
     Join,
@@ -157,6 +163,9 @@ impl Function {
             "str" => Function::Str,
             "len" => Function::Len,
             "isinstance" => Function::IsInstance,
+            "round" => Function::Round,
+            "float" => Function::Float,
+            "int" => Function::Int,
             "range" => Function::Range,
             "enumerate" => Function::Enumerate,
             "zip" => Function::Zip,
@@ -324,6 +333,7 @@ fn instance(value: &Value, types: &Value) -> Option<bool> {
         value,
         Value::Str(_)
             | Value::Int(_)
+            | Value::Float(_)
             | Value::Bool(_)
             | Value::None
             | Value::Path(_)
@@ -341,6 +351,7 @@ fn instance(value: &Value, types: &Value) -> Option<bool> {
             ("str", Value::Str(_))
             | ("int", Value::Int(_) | Value::Bool(_))
             | ("bool", Value::Bool(_))
+            | ("float", Value::Float(_))
             | ("dict", Value::Dict(_)) => Some(true),
             ("list" | "tuple", Value::Tuple(_)) if both("list", "tuple") => Some(true),
             ("set" | "frozenset", Value::Set(_)) if both("set", "frozenset") => Some(true),
@@ -784,6 +795,22 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 return placed;
             }
         }
+        // Through nested items, `j['a']['b'] = v`: the path rebuilt into what
+        // the name holds.
+        if let Some((name, indexes)) = chain(container) {
+            let mut keys = Vec::with_capacity(indexes.len());
+            for index in indexes {
+                keys.push(self.expr(index)?);
+            }
+            let at = self.expr(index)?;
+            if !self.store_through(name, &keys, at, value.clone()) {
+                let why = construct("item assignment");
+                self.escape(&value, &why);
+                let held = self.name(name);
+                self.changed(&Expr::Name(name.to_string()), &held, None, &why);
+            }
+            return Ok(());
+        }
         let old = self.expr(container)?;
         let why = construct("item assignment");
         if let Value::Dict(pairs) = &old {
@@ -928,6 +955,42 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
             }
         }
+    }
+
+    /// `name[k1]…[kn][at] = value` over dicts and lists this holds, rebuilt
+    /// from the inside out into what `name` holds. Every other holder of a
+    /// container on the path is forgotten first, with the name itself out of
+    /// its binding, since Python changes each of them in place. `false` where
+    /// the path is not one this can follow.
+    fn store_through(&mut self, name: &str, keys: &[Value], at: Value, value: Value) -> bool {
+        let mut levels = vec![self.name(name)];
+        for key in keys {
+            let Some(next) = levels.last().and_then(|level| child(level, key)) else {
+                return false;
+            };
+            levels.push(next);
+        }
+        let Some(mut now) = levels.last().and_then(|inner| with_item(inner, &at, value)) else {
+            return false;
+        };
+        let why = construct("item assignment");
+        self.hold(name, Value::None);
+        for level in &levels {
+            self.shared(level, &why);
+            if let Value::Dict(pairs) = level {
+                for view in views(pairs) {
+                    self.shared(&view, &why);
+                }
+            }
+        }
+        for (level, key) in levels.iter().zip(keys).rev() {
+            match with_item(level, key, now) {
+                Some(rebuilt) => now = rebuilt,
+                None => unreachable!("each level was read through its key above"),
+            }
+        }
+        self.hold(name, now);
+        true
     }
 
     /// The list `name` holds, taken out of the binding [`Self::hold`] writes to,
@@ -1390,9 +1453,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         Ok(match expr {
             Expr::Name(name) => self.name(name),
             Expr::Str(text) => Value::Str(text.clone()),
-            Expr::Number(text) => text
-                .parse()
-                .map_or(Value::Unknown(construct("number")), Value::Int),
+            Expr::Number(text) => match (text.parse(), float::literal(text)) {
+                (Ok(n), _) => Value::Int(n),
+                (Err(_), Some(x)) => Value::Float(x),
+                (Err(_), None) => Value::Unknown(construct("number")),
+            },
             Expr::Singleton(Singleton::True) => Value::Bool(true),
             Expr::Singleton(Singleton::False) => Value::Bool(false),
             Expr::Singleton(Singleton::None) => Value::None,
@@ -1489,6 +1554,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Value::Int(n) => n
                     .checked_neg()
                     .map_or(Value::Unknown(construct("int")), Value::Int),
+                Value::Float(x) => Value::Float(-x),
                 Value::Unknown(why) => Value::Unknown(why),
                 _ => Value::Unknown(construct("operator -")),
             },
@@ -1605,9 +1671,27 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 } => match self.expr(value)? {
                     Value::Str(text) | Value::Path(text) => out.push_str(&text),
                     Value::Int(n) => out.push_str(&n.to_string()),
+                    Value::Float(x) => out.push_str(&float::repr(x)),
                     Value::Unknown(why) => return Ok(Value::Unknown(why)),
                     _ => return Ok(Value::Unknown(construct("f-string"))),
                 },
+                // `.Nf`, the one spec followed: fixed places, half to even.
+                FPart::Field {
+                    value,
+                    conversion: None,
+                    spec: Some(spec),
+                } if places(spec).is_some() => {
+                    let places = places(spec).unwrap_or_default();
+                    match self.expr(value)? {
+                        // A number past `2**53` as a float is not exact.
+                        Value::Int(n) if n.unsigned_abs() <= 1 << 53 => {
+                            out.push_str(&float::fixed(n as f64, places));
+                        }
+                        Value::Float(x) => out.push_str(&float::fixed(x, places)),
+                        Value::Unknown(why) => return Ok(Value::Unknown(why)),
+                        _ => return Ok(Value::Unknown(construct("f-string"))),
+                    }
+                }
                 FPart::Field { .. } => return Ok(Value::Unknown(construct("f-string"))),
             }
         }
@@ -2013,10 +2097,67 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Some(Function::Str) => match first {
                 Some(Value::Str(text) | Value::Path(text)) => Value::Str(text),
                 Some(Value::Int(n)) => Value::Str(n.to_string()),
+                Some(Value::Float(x)) => Value::Str(float::repr(x)),
                 Some(Value::Bool(b)) => Value::Str(if b { "True" } else { "False" }.to_string()),
                 Some(Value::None) => Value::Str("None".to_string()),
                 Some(other) => unknown(&other, "str"),
                 None => Value::Str(String::new()),
+            },
+            Some(Function::Round) => {
+                match (&first, positional.get(1).or_else(|| keyword.get("ndigits"))) {
+                    (Some(Value::Float(x)), None | Some(Value::None)) => {
+                        let even = x.round_ties_even();
+                        if even.is_finite() && even.abs() < 9.0e15 {
+                            Value::Int(even as i64)
+                        } else {
+                            Value::Unknown(construct("round"))
+                        }
+                    }
+                    (Some(Value::Float(x)), Some(Value::Int(places))) => float::round(*x, *places)
+                        .map_or_else(|| Value::Unknown(construct("round")), Value::Float),
+                    (Some(Value::Int(n)), None | Some(Value::None)) => Value::Int(*n),
+                    (Some(Value::Int(n)), Some(Value::Int(places))) if *places >= 0 => {
+                        Value::Int(*n)
+                    }
+                    (Some(Value::Unknown(why)), _) => Value::Unknown(why.clone()),
+                    _ => Value::Unknown(construct("round")),
+                }
+            }
+            Some(Function::Float) => match first {
+                Some(Value::Float(x)) => Value::Float(x),
+                Some(Value::Int(n)) if n.unsigned_abs() <= 1 << 53 => Value::Float(n as f64),
+                Some(Value::Bool(b)) => Value::Float(f64::from(u8::from(b))),
+                // Digits with a point or an exponent; `inf`, `nan` and the
+                // rest are not followed.
+                Some(Value::Str(text)) => float::literal(text.trim())
+                    .or_else(|| {
+                        let t = text.trim();
+                        t.bytes()
+                            .all(|b| b.is_ascii_digit() || b == b'-' || b == b'+')
+                            .then(|| t.parse::<i64>().ok())
+                            .flatten()
+                            .filter(|n| n.unsigned_abs() <= 1 << 53)
+                            .map(|n| n as f64)
+                    })
+                    .map_or_else(|| Value::Unknown(construct("float")), Value::Float),
+                None => Value::Float(0.0),
+                Some(Value::Unknown(why)) => Value::Unknown(why),
+                Some(_) => Value::Unknown(construct("float")),
+            },
+            Some(Function::Int) => match first {
+                Some(Value::Int(n)) => Value::Int(n),
+                Some(Value::Bool(b)) => Value::Int(i64::from(b)),
+                // Toward zero, as Python truncates.
+                Some(Value::Float(x)) if x.is_finite() && x.abs() < 9.0e18 => {
+                    Value::Int(x.trunc() as i64)
+                }
+                Some(Value::Str(text)) if positional.len() == 1 => text
+                    .trim()
+                    .parse::<i64>()
+                    .map_or_else(|_| Value::Unknown(construct("int")), Value::Int),
+                None => Value::Int(0),
+                Some(Value::Unknown(why)) => Value::Unknown(why),
+                Some(_) => Value::Unknown(construct("int")),
             },
             Some(Function::IsInstance) => match (&first, positional.get(1)) {
                 (Some(value), Some(types)) => instance(value, types)
@@ -3347,6 +3488,7 @@ fn truth(value: Value) -> Value {
         Value::Bool(b) => Value::Bool(b),
         Value::Str(text) => Value::Bool(!text.is_empty()),
         Value::Int(n) => Value::Bool(n != 0),
+        Value::Float(x) => Value::Bool(x != 0.0),
         Value::None => Value::Bool(false),
         Value::Tuple(items) => Value::Bool(!items.is_empty()),
         Value::Dict(pairs) => Value::Bool(!pairs.is_empty()),
@@ -3384,9 +3526,54 @@ fn binary(left: Value, op: BinOp, right: Value) -> Value {
             };
             n.map_or(Value::Unknown(construct("int")), Value::Int)
         }
+        (
+            left @ (Value::Int(_) | Value::Float(_)),
+            op,
+            right @ (Value::Int(_) | Value::Float(_)),
+        ) if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mult | BinOp::Div) => {
+            arithmetic(&left, op, &right)
+        }
         (Value::Path(a), BinOp::Div, Value::Str(b) | Value::Path(b)) => Value::Path(join(&a, &b)),
         (Value::Unknown(why), _, _) | (_, _, Value::Unknown(why)) => Value::Unknown(why),
         (_, op, _) => Value::Unknown(Why::Python(format!("operator {}", op.symbol()))),
+    }
+}
+
+/// `+ - * /` over ints and floats: an int meets a float as the float it
+/// exactly is, and `/` is true division. Where CPython would not be exact
+/// this way — an int past `2**53` — or raises, it is refused.
+fn arithmetic(left: &Value, op: BinOp, right: &Value) -> Value {
+    let exact = |value: &Value| match value {
+        Value::Int(n) if n.unsigned_abs() <= 1 << 53 => Some(*n as f64),
+        Value::Float(x) => Some(*x),
+        _ => None,
+    };
+    let (Some(a), Some(b)) = (exact(left), exact(right)) else {
+        return Value::Unknown(construct("float"));
+    };
+    match op {
+        BinOp::Div if b == 0.0 => Value::Unknown(construct("division by zero")),
+        BinOp::Add => Value::Float(a + b),
+        BinOp::Sub => Value::Float(a - b),
+        BinOp::Mult => Value::Float(a * b),
+        _ => Value::Float(a / b),
+    }
+}
+
+/// A float that is a whole number an `i64` holds, as that number.
+fn whole(x: f64) -> Option<i64> {
+    (x.is_finite() && x.fract() == 0.0 && x.abs() < 9.2e18).then_some(x as i64)
+}
+
+/// Python's `==` between numbers: exact, never through a rounded conversion.
+fn numbers_equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Float(a), Value::Float(b)) => a == b,
+        (Value::Float(x), Value::Int(n)) | (Value::Int(n), Value::Float(x)) => {
+            whole(*x) == Some(*n)
+        }
+        (Value::Int(a), Value::Int(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -3408,6 +3595,10 @@ fn compare(left: &Value, op: CmpOp, right: &Value) -> Value {
         (Value::Str(a), CmpOp::NotEq, Value::Str(b)) => Value::Bool(a != b),
         (Value::Int(a), CmpOp::Eq, Value::Int(b)) => Value::Bool(a == b),
         (Value::Int(a), CmpOp::NotEq, Value::Int(b)) => Value::Bool(a != b),
+        (Value::Float(_), CmpOp::Eq | CmpOp::NotEq, Value::Int(_) | Value::Float(_))
+        | (Value::Int(_), CmpOp::Eq | CmpOp::NotEq, Value::Float(_)) => {
+            Value::Bool(numbers_equal(left, right) == (op == CmpOp::Eq))
+        }
         (Value::Unknown(why), _, _) | (_, _, Value::Unknown(why)) => Value::Unknown(why.clone()),
         (_, op, _) => Value::Unknown(Why::Python(format!("comparison {}", op.symbol()))),
     }
@@ -4055,6 +4246,7 @@ fn cause(value: &Value) -> String {
         Value::Tuple(items) => format!("{} values", items.len()),
         Value::Str(_) => "a string".to_string(),
         Value::Int(_) => "an int".to_string(),
+        Value::Float(_) => "a float".to_string(),
         Value::Path(_) => "a path".to_string(),
         Value::File { .. } => "a file".to_string(),
         Value::Name(name) => name.clone(),
@@ -4154,6 +4346,54 @@ fn holds(value: &Value, list: &Value) -> bool {
         }
 }
 
+/// `j['a']['b']` as the name it is rooted at and the indexes from the root,
+/// where every step is an item and none a slice.
+fn chain(expr: &Expr) -> Option<(&str, Vec<&Expr>)> {
+    let mut indexes = Vec::new();
+    let mut at = expr;
+    loop {
+        match at {
+            Expr::Subscript { value, index } if !matches!(**index, Expr::Slice { .. }) => {
+                indexes.push(&**index);
+                at = value;
+            }
+            Expr::Name(name) if !indexes.is_empty() => {
+                indexes.reverse();
+                return Some((name.as_str(), indexes));
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// `container[key]` of a dict or a list, where the key is there.
+fn child(container: &Value, key: &Value) -> Option<Value> {
+    match (container, key) {
+        (Value::Dict(pairs), _) => find_key(pairs, key).map(|at| pairs[at].1.clone()),
+        (Value::Tuple(items), Value::Int(at)) => {
+            position(items.len(), *at).ok().map(|at| items[at].clone())
+        }
+        _ => None,
+    }
+}
+
+/// `container` with `value` at `key`: a dict's key set or added, a list's
+/// index replaced where it is in range.
+fn with_item(container: &Value, key: &Value, value: Value) -> Option<Value> {
+    match (container, key) {
+        (Value::Dict(pairs), _) if self::key(key).is_some() => {
+            Some(Value::Dict(put(pairs.clone(), key.clone(), value)))
+        }
+        (Value::Tuple(items), Value::Int(at)) => {
+            let at = position(items.len(), *at).ok()?;
+            let mut items = items.clone();
+            items[at] = value;
+            Some(Value::Tuple(items))
+        }
+        _ => None,
+    }
+}
+
 /// A value the program can change in place: a list, a dict or a set.
 fn container(value: &Value) -> bool {
     matches!(value, Value::Tuple(_) | Value::Dict(_) | Value::Set(_))
@@ -4192,6 +4432,12 @@ fn views(pairs: &[(Value, Value)]) -> [Value; 3] {
 fn key(value: &Value) -> Option<Value> {
     match value {
         Value::Bool(b) => Some(Value::Int(i64::from(*b))),
+        // `1.0` and `1` are one key in Python; a NaN is no key this can match.
+        Value::Float(x) if x.is_nan() => None,
+        Value::Float(x) => Some(match whole(*x) {
+            Some(n) => Value::Int(n),
+            None => value.clone(),
+        }),
         Value::Str(_) | Value::Int(_) | Value::None | Value::Path(_) => Some(value.clone()),
         _ => None,
     }
@@ -4316,6 +4562,17 @@ fn each_expr(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
             }
         }
     }
+}
+
+/// The places in an f-string spec `.Nf`, the one float spec followed.
+fn places(spec: &[FPart]) -> Option<usize> {
+    let [FPart::Text(text)] = spec else {
+        return None;
+    };
+    let digits = text.strip_prefix('.')?.strip_suffix('f')?;
+    (!digits.is_empty() && digits.len() <= 2)
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn fstring_exprs(parts: &[FPart], each: &mut impl FnMut(&Expr)) {

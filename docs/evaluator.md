@@ -301,6 +301,14 @@ frame. A function or lambda defined inside another function reads that
 function's names, which a call's own frame does not hold, so a call to one is
 not followed.
 
+A float is an IEEE double, as CPython's is, so `+ - * /` over ints and floats
+are the machine's own; an int past `2**53` meeting a float is refused, as CPython
+would not be exact that way either. What is CPython's own is the text: `repr`
+(which `str`, an f-string field and `json.dumps` share), `round(x, n)` and the
+f-string spec `.Nf`, each held to what CPython printed for 2,735 values in
+`reader/tests/suite/floats.rs`. Equality between an int and a float is exact,
+and `1.0` and `1` are one dict key.
+
 ### Loops, comprehensions and generators
 
 A loop runs once per element over a list the program can name: written out, a
@@ -310,6 +318,10 @@ its variables its own. A generator runs only as far as the `next`, `any`,
 `all`, `join` or `list` written around it reads it.
 
 ### Lists, dicts and sets
+
+An assignment through nested items (`j['a']['b'] = v`) rebuilds what the name
+holds; every other holder of a dict or list on the way is forgotten, since
+Python changes it there too.
 
 `isinstance` is answered where the value's kind decides it. A list and a tuple
 are one kind here, as are a set and a frozenset, so asking for one of either
@@ -341,8 +353,8 @@ number and name with positions in characters as Python counts them, and
 `json.load` of a file sight has shown is read by the evaluator's own reader
 (`python/json.rs`), with Python's rules for a repeated key, and `json.dump`
 writes CPython's exact text for the indent, separators, `sort_keys` and
-`ensure_ascii` it was given; a float, which the evaluator does not model, is
-refused.
+`ensure_ascii` it was given; a float is read as `float(text)` reads it and
+written as its `repr`, `NaN` and `Infinity` as Python spells them.
 
 ### Subprocesses
 

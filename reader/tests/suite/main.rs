@@ -17,6 +17,7 @@ mod doing;
 mod effects;
 mod embed;
 mod episode;
+mod floats;
 mod home;
 mod javascript;
 mod leaf;

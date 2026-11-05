@@ -2780,7 +2780,10 @@ fn a_python_dict_this_cannot_follow_is_refused() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
     let shown = known(&[
         ("/repo/s.json", Some("{\"b\": 1}")),
-        ("/repo/f.json", Some("{\"x\": 1.5}")),
+        (
+            "/repo/f.json",
+            Some("{\"x\": 123456789012345678901234567890}"),
+        ),
     ]);
     for program in [
         "import json\nd = json.load(open('f.json'))\nopen('o', 'w').write(json.dumps(d))",
@@ -3595,6 +3598,65 @@ fn isinstance_is_answered_where_the_kind_decides_it() {
     assert_eq!(found.written, vec![written("/repo/o.txt", "True")]);
     let found = run(
         &py("if isinstance(d['e'], list):\n    open('o.txt', 'w').write('list')"),
+        &files,
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
+
+/// A JSON file with floats is read and written back as CPython's `json` does:
+/// each float as its `repr`, `NaN` and `Infinity` as Python spells them. The
+/// expected text is what CPython wrote for the same program and file.
+#[test]
+fn json_floats_are_read_and_written_as_cpython_does() {
+    let files = known(&[(
+        "/repo/p.json",
+        Some(
+            r#"{"a": 0.1, "b": 1e5, "c": -0.0, "d": [1.5, 2], "e": 1.10, "f": 1E400, "g": NaN, "h": 3}"#,
+        ),
+    )]);
+    let found = run(
+        "python3 - <<'EOF'\nimport json\nj = json.load(open('p.json'))\nj['n'] = 0.0185\nj['m'] = j['h'] / 4\nj['k'] = j['a'] + j['d'][0]\njson.dump(j, open('out.json', 'w'), indent=1)\nEOF",
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![written(
+            "/repo/out.json",
+            "{\n \"a\": 0.1,\n \"b\": 100000.0,\n \"c\": -0.0,\n \"d\": [\n  1.5,\n  2\n ],\n \"e\": 1.1,\n \"f\": Infinity,\n \"g\": NaN,\n \"h\": 3,\n \"n\": 0.0185,\n \"m\": 0.75,\n \"k\": 1.6\n}"
+        )]
+    );
+}
+
+/// An assignment through nested items changes the value the name holds, as
+/// in Python, and whatever else holds a dict on the way is forgotten, since
+/// Python changes it there too. The expected text is CPython's.
+#[test]
+fn a_nested_item_assignment_changes_what_the_name_holds() {
+    let py = |body: &str| {
+        format!("python3 - <<'EOF'\nimport json\nj = json.load(open('n.json'))\n{body}\nEOF")
+    };
+    let files = known(&[(
+        "/repo/n.json",
+        Some(
+            r#"{"seg": {"journey": {"continue": 0.02, "stops": [1, 2]}, "w": 1}, "parts": [{"id": "a"}, {"id": "b"}]}"#,
+        ),
+    )]);
+    let found = run(
+        &py(
+            "j['seg']['journey']['continue'] = 0.0185\nj['parts'][1]['id'] = 'c'\nj['seg']['new'] = {'x': 1}\njson.dump(j, open('out.json', 'w'), indent=1)",
+        ),
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![written(
+            "/repo/out.json",
+            "{\n \"seg\": {\n  \"journey\": {\n   \"continue\": 0.0185,\n   \"stops\": [\n    1,\n    2\n   ]\n  },\n  \"w\": 1,\n  \"new\": {\n   \"x\": 1\n  }\n },\n \"parts\": [\n  {\n   \"id\": \"a\"\n  },\n  {\n   \"id\": \"c\"\n  }\n ]\n}"
+        )]
+    );
+    // `s` holds the inner dict Python changed, so what it writes is not known.
+    let found = run(
+        &py("s = j['seg']\nj['seg']['w'] = 2\nopen('s.txt', 'w').write(json.dumps(s))"),
         &files,
     );
     assert!(found.written.is_empty(), "{:?}", found.written);

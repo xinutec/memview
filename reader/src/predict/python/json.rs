@@ -3,8 +3,9 @@
 //! `json.dump` writes. Written here rather than borrowed so that its rules are
 //! Python's: an object keeps its keys in file order, a repeated key keeps its
 //! first place and its last value, and `json.dumps` escapes as CPython does.
-//! A number with a fraction or an exponent is refused, since the evaluator has
-//! no floats, and so are `NaN` and `Infinity`, which Python accepts.
+//! A number with a fraction or an exponent is a float, read as `float(text)`
+//! reads it, and written as its `repr`; `NaN` and `Infinity` are read and
+//! written as Python spells them.
 
 use super::Value;
 
@@ -59,9 +60,8 @@ impl Reader {
             _ if self.eat("true") => Ok(Value::Bool(true)),
             _ if self.eat("false") => Ok(Value::Bool(false)),
             _ if self.eat("null") => Ok(Value::None),
-            _ if self.eat("NaN") || self.eat("Infinity") || self.eat("-Infinity") => {
-                Err(Some("json float".to_string()))
-            }
+            _ if self.eat("NaN") => Ok(Value::Float(f64::NAN)),
+            _ if self.eat("Infinity") => Ok(Value::Float(f64::INFINITY)),
             _ => Err(None),
         }
     }
@@ -123,7 +123,7 @@ impl Reader {
         let start = self.at;
         self.eat("-");
         if self.eat("Infinity") {
-            return Err(Some("json float".to_string()));
+            return Ok(Value::Float(f64::NEG_INFINITY));
         }
         match self.peek() {
             Some('0') => self.at += 1,
@@ -134,10 +134,33 @@ impl Reader {
             }
             _ => return Err(None),
         }
-        if matches!(self.peek(), Some('.' | 'e' | 'E')) {
-            return Err(Some("json float".to_string()));
+        let mut float = false;
+        if self.eat(".") {
+            float = true;
+            if !matches!(self.peek(), Some('0'..='9')) {
+                return Err(None);
+            }
+            while matches!(self.peek(), Some('0'..='9')) {
+                self.at += 1;
+            }
+        }
+        if matches!(self.peek(), Some('e' | 'E')) {
+            float = true;
+            self.at += 1;
+            if matches!(self.peek(), Some('+' | '-')) {
+                self.at += 1;
+            }
+            if !matches!(self.peek(), Some('0'..='9')) {
+                return Err(None);
+            }
+            while matches!(self.peek(), Some('0'..='9')) {
+                self.at += 1;
+            }
         }
         let digits: String = self.chars[start..self.at].iter().collect();
+        if float {
+            return digits.parse().map(Value::Float).map_err(|_| None);
+        }
         digits
             .parse()
             .map(Value::Int)
@@ -240,6 +263,7 @@ fn write(value: &Value, layout: &Layout, depth: usize, out: &mut String) -> Resu
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
         Value::Int(n) => out.push_str(&n.to_string()),
+        Value::Float(x) => out.push_str(&float(*x)),
         Value::Str(text) => quote(text, layout.ensure_ascii, out),
         Value::Tuple(items) => {
             if items.is_empty() {
@@ -292,10 +316,23 @@ fn key_text(key: &Value) -> Result<String, String> {
     match key {
         Value::Str(text) => Ok(text.clone()),
         Value::Int(n) => Ok(n.to_string()),
+        Value::Float(x) => Ok(float(*x)),
         Value::Bool(true) => Ok("true".to_string()),
         Value::Bool(false) => Ok("false".to_string()),
         Value::None => Ok("null".to_string()),
         _ => Err("json key".to_string()),
+    }
+}
+
+/// A float as `json` writes it: its `repr`, and the non-finite ones as Python's
+/// `allow_nan` spells them.
+fn float(x: f64) -> String {
+    if x.is_nan() {
+        "NaN".to_string()
+    } else if x.is_infinite() {
+        if x > 0.0 { "Infinity" } else { "-Infinity" }.to_string()
+    } else {
+        super::float::repr(x)
     }
 }
 
