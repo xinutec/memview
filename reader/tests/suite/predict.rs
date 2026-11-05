@@ -974,13 +974,20 @@ fn mv_of_a_file_sight_has_shown_moves_its_text() {
         then.unfollowed
     );
 
+    // Not followed, and still may have happened: the source is refused too.
     let blind = run("mv a.txt b.txt", &nothing_known());
     assert_eq!(
         blind.unfollowed,
-        vec![Unfollowed {
-            path: Some("/repo/b.txt".to_string()),
-            why: Why::NotRead,
-        }]
+        vec![
+            Unfollowed {
+                path: Some("/repo/b.txt".to_string()),
+                why: Why::NotRead,
+            },
+            Unfollowed {
+                path: Some("/repo/a.txt".to_string()),
+                why: Why::NotRead,
+            }
+        ]
     );
     assert!(blind.written.is_empty());
 
@@ -3394,6 +3401,151 @@ fn launchctl_starting_a_job_is_an_unknown_program() {
     }
     let found = run("rm -f /tmp/probe.log; launchctl list", &nothing_known());
     assert_eq!(found.written, vec![removed("/tmp/probe.log")]);
+}
+
+/// A program the shell tables file as touching no file of this machine's can
+/// still write one: `restic restore --delete` removes a file an `echo` before
+/// it wrote. So it is an unknown program, and what came before is withdrawn.
+/// `eval` runs text this has not read, `open` starts an application, and
+/// `lake exe` runs a program: `lake exe deadcode --delete` cuts lines from the
+/// files it is pointed at.
+#[test]
+fn a_program_the_tables_send_elsewhere_still_runs_here() {
+    for program in [
+        "restic restore latest --target /tmp/pz --delete",
+        "adb pull /sdcard/x.txt /tmp/pz/x.txt",
+        "gh release download v1 -D /tmp/pz",
+        "aws s3 cp s3://b/x.txt /tmp/pz/x.txt",
+        "rclone sync remote:x /tmp/pz",
+        "systemctl start cleaner",
+        "eval \"rm /tmp/pz/x.txt\"",
+        "open -a TextEdit /tmp/pz/x.txt",
+        "lake exe deadcode --delete",
+    ] {
+        let script = format!("echo a > /tmp/pz/x.txt; {program}");
+        let found = run(&script, &nothing_known());
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+    }
+    // What they are mostly called for writes nothing here, and keeps what came before.
+    for program in [
+        "adb -s 10.0.0.1:5555 shell ls /sdcard",
+        "adb logcat -d",
+        "gh run view 123 --log-failed",
+        "systemctl is-active nginx",
+        "lake build",
+    ] {
+        let script = format!("echo a > /tmp/pz/x.txt; {program}");
+        let found = run(&script, &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/tmp/pz/x.txt", "a\n")],
+            "{script}"
+        );
+    }
+}
+
+/// `mv` and `cp` operands are paths by the programs' grammar, a dotfile
+/// included: the tables' path guard reads `.gitattributes` as no path, which
+/// left `mv .gitattributes.new .gitattributes` neither predicted nor refused.
+#[test]
+fn a_move_or_copy_onto_a_dotfile_is_followed() {
+    let files = known(&[("/repo/.gitattributes", Some("old\n"))]);
+    let found = run(
+        "echo x > .gitattributes.new && mv .gitattributes.new .gitattributes",
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![
+            removed("/repo/.gitattributes.new"),
+            written("/repo/.gitattributes", "x\n")
+        ]
+    );
+    let files = known(&[("/repo/a.txt", Some("a\n")), ("/repo/.env", None)]);
+    let found = run("cp a.txt .env", &files);
+    assert_eq!(found.written, vec![written("/repo/.env", "a\n")]);
+}
+
+/// A move this cannot follow may still have happened, so its source is no
+/// longer known to hold what was written there.
+#[test]
+fn a_move_not_followed_leaves_its_source_unknown() {
+    let found = run(
+        "echo x > /repo/a.txt && mv /repo/a.txt /repo/b.txt",
+        &nothing_known(),
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
+
+/// A Python program the tree cannot read may write any file, through a name
+/// the flat reader cannot follow either: an edit helper's `open(p, 'w')` in a
+/// program with a comment inside a list, which the tree refuses.
+#[test]
+fn a_python_program_the_tree_cannot_read_withdraws_what_came_before() {
+    let files = known(&[("/repo/b.txt", Some("four five\n"))]);
+    let found = run(
+        "echo a > /repo/a.txt\npython3 - <<'EOF'\ndef edit(p, pairs):\n    s = open(p).read()\n    for a, b in pairs:\n        s = s.replace(a, b)\n    open(p, 'w').write(s)\nedit('a.txt', [\n    ('a', 'b'),\n    # a comment the tree refuses\n])\nEOF",
+        &files,
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
+
+/// A sed script with nothing before its first comma fails, in BSD sed as in
+/// GNU's, so what follows its `&&` never runs: `sed -n "$(grep -n … | head -1 |
+/// cut -d: -f1),+6p" f` is that script when the `grep` matches nothing. `1,+6p`
+/// is accepted by the sed here.
+#[test]
+fn a_sed_script_starting_with_a_comma_fails() {
+    let files = known(&[("/repo/t.ts", Some("const msg = 1;\n"))]);
+    for script in [
+        "sed -n ',+6p' t.ts && echo x >> t.ts",
+        "sed -n \"$(grep -n 'function msg(' t.ts | head -1 | cut -d: -f1),+6p\" t.ts && echo x >> t.ts",
+        "sed -n -e p -e ' ,3p' t.ts && echo x >> t.ts",
+    ] {
+        let found = run(script, &files);
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+    }
+    let found = run("sed -n '1,+6p' t.ts && echo x >> t.ts", &files);
+    assert_eq!(
+        found.written,
+        vec![written("/repo/t.ts", "const msg = 1;\nx\n")]
+    );
+}
+
+/// A copy into a directory that does not exist fails, so what follows its `&&`
+/// never runs: after `cd runner/src`, `cp /tmp/dc.bak runner/src/f.rs && rm
+/// /tmp/dc.bak` leaves the backup where it was.
+#[test]
+fn a_copy_into_a_missing_directory_fails() {
+    let shown = Shown {
+        files: known(&[
+            ("/tmp/dc.bak", Some("kept\n")),
+            ("/repo/runner/src/deploy_check.rs", None),
+        ]),
+        dirs: Dirs::from([("/repo/runner/src".to_string(), None)]),
+    };
+    for command in ["cp", "mv"] {
+        let script = format!("{command} /tmp/dc.bak runner/src/deploy_check.rs && rm /tmp/dc.bak");
+        let parsed = reader::syntax::parse(&script).expect("parses");
+        let found = predict(&parsed, CWD, HOME, &shown);
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+    }
+    // Where the directory is there, the copy lands and the `rm` runs.
+    let there = Shown {
+        dirs: Dirs::from([("/repo/runner/src".to_string(), Some(Vec::new()))]),
+        ..shown
+    };
+    let parsed =
+        reader::syntax::parse("cp /tmp/dc.bak runner/src/deploy_check.rs && rm /tmp/dc.bak")
+            .expect("parses");
+    let found = predict(&parsed, CWD, HOME, &there);
+    assert_eq!(
+        found.written,
+        vec![
+            written("/repo/runner/src/deploy_check.rs", "kept\n"),
+            removed("/tmp/dc.bak")
+        ]
+    );
 }
 
 /// A relative path after a `cd` that only sometimes ran names an unknown file,

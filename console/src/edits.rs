@@ -190,6 +190,9 @@ struct Pending {
     since: std::time::Instant,
     /// A backgrounded call's files when it was backgrounded.
     early: Option<Files>,
+    /// Its files a later call of the session predicted a write to before its
+    /// task ended: the end look is not this call's to judge.
+    overtaken: std::collections::BTreeSet<String>,
 }
 
 /// How long a prediction waits for its call to end.
@@ -262,6 +265,7 @@ impl Edits {
                 tracing::warn!("could not keep the refusals of {call}: {why}");
             }
         }
+        self.overtake(session, &prediction);
         if prediction.written.is_empty()
             && prediction.conditional.is_empty()
             && prediction.alternatives.is_empty()
@@ -330,6 +334,7 @@ impl Edits {
                 alternatives: prediction.alternatives,
                 since: std::time::Instant::now(),
                 early: None,
+                overtaken: Default::default(),
             },
         );
         drop(pending);
@@ -361,6 +366,34 @@ impl Edits {
         self.check(call)
     }
 
+    /// Every file this prediction writes or refuses, marked on the session's
+    /// backgrounded calls still waiting on it.
+    fn overtake(&self, session: &str, prediction: &reader::predict::Prediction) {
+        let touched: Vec<&str> = prediction
+            .written
+            .iter()
+            .chain(prediction.conditional.iter().map(|file| &file.written))
+            .map(|written| written.path.as_str())
+            .chain(prediction.alternatives.iter().map(|set| set.path.as_str()))
+            .chain(
+                prediction
+                    .unfollowed
+                    .iter()
+                    .filter_map(|u| u.path.as_deref()),
+            )
+            .collect();
+        for waiting in self.pending.lock().values_mut() {
+            if waiting.session != session || waiting.early.is_none() {
+                continue;
+            }
+            for path in waiting.paths() {
+                if touched.contains(&path.as_str()) {
+                    waiting.overtaken.insert(path);
+                }
+            }
+        }
+    }
+
     /// A backgrounded call's task ended; an incomplete one is not checked.
     pub fn ended(
         &self,
@@ -390,6 +423,11 @@ impl Edits {
             let first = check(&all, early);
             diverged.retain(|late| first.iter().any(|d| d.path == late.path));
         }
+        // Neither, on a file a later call rewrote first, is not this call's.
+        let (overtaken, kept): (Vec<_>, Vec<_>) = diverged
+            .into_iter()
+            .partition(|d| pending.overtaken.contains(&d.path));
+        let mut diverged = kept;
         // A file predicted one of several texts agrees when it holds any.
         for set in &pending.alternatives {
             let Some(actual) = seen.get(&set.path) else {
@@ -401,17 +439,22 @@ impl Edits {
                 .as_ref()
                 .and_then(|early| early.get(&set.path));
             let agreed = holds(actual) || early.is_some_and(holds);
+            let overtaken = !agreed && pending.overtaken.contains(&set.path);
             self.outcome(&Outcome {
                 at: now(),
                 session: &pending.session,
                 call,
                 path: &set.path,
-                outcome: if agreed { "agreed" } else { "diverged" },
-                why: None,
+                outcome: match (agreed, overtaken) {
+                    (true, _) => "agreed",
+                    (false, true) => "unchecked",
+                    (false, false) => "diverged",
+                },
+                why: overtaken.then_some("overtaken"),
                 assumed: None,
                 of: Some(set.texts.len()),
             });
-            if !agreed {
+            if !agreed && !overtaken {
                 diverged.push(Divergence {
                     path: set.path.clone(),
                     predicted: None,
@@ -421,10 +464,12 @@ impl Edits {
         }
         for written in &all {
             let assumed = pending.assumed(&written.path);
-            let outcome = if diverged.iter().any(|d| d.path == written.path) {
-                "diverged"
+            let (outcome, why) = if overtaken.iter().any(|d| d.path == written.path) {
+                ("unchecked", Some("overtaken"))
+            } else if diverged.iter().any(|d| d.path == written.path) {
+                ("diverged", None)
             } else {
-                "agreed"
+                ("agreed", None)
             };
             self.outcome(&Outcome {
                 at: now(),
@@ -432,7 +477,7 @@ impl Edits {
                 call,
                 path: &written.path,
                 outcome,
-                why: None,
+                why,
                 assumed: assumed.as_ref(),
                 of: None,
             });

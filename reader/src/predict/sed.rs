@@ -41,12 +41,13 @@ pub type Refused = String;
 /// the longest match costs a pattern test per possible end.
 const LONGEST_LINE: usize = 4096;
 
-/// How `sed` was invoked: the scripts in order, whether `-E`, whether `-i` and
-/// the backup suffix it was given, if any.
+/// How `sed` was invoked: the scripts in order, whether `-E`, whether `-n`,
+/// whether `-i` and the backup suffix it was given, if any.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Invocation {
     pub scripts: Vec<String>,
     pub extended: bool,
+    pub quiet: bool,
     pub in_place: bool,
     pub suffix: Option<String>,
     /// Operands after the flags: the script when no `-e` gave one, then files.
@@ -54,8 +55,8 @@ pub struct Invocation {
 }
 
 /// Read `sed`'s flags as BSD's sed does: `-i ''` keeps no backup, and `-i.bak`
-/// or `-i .bak` keeps the old text under that suffix. `-n` changes what is
-/// written and is refused, as is anything else this does not read.
+/// or `-i .bak` keeps the old text under that suffix. Anything else this does
+/// not read is refused.
 pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
     let mut out = Invocation::default();
     let mut words = argv.iter().skip(1).peekable();
@@ -66,7 +67,7 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
                 break;
             }
             "-E" | "-r" | "--regexp-extended" => out.extended = true,
-            "-n" | "--quiet" | "--silent" => return Err("-n".to_string()),
+            "-n" | "--quiet" | "--silent" => out.quiet = true,
             "--in-place" => out.in_place = true,
             "-i" => {
                 out.in_place = true;
@@ -89,6 +90,7 @@ pub fn invocation(argv: &[String]) -> Result<Invocation, Refused> {
                 while let Some(c) = rest.next() {
                     match c {
                         'E' | 'r' => out.extended = true,
+                        'n' => out.quiet = true,
                         'i' => {
                             out.in_place = true;
                             let joined: String = rest.by_ref().collect();
@@ -136,9 +138,17 @@ fn suffix(word: Option<&String>) -> Result<Option<String>, Refused> {
 
 impl Invocation {
     /// Why BSD sed exits non-zero before writing anything, when it does: in
-    /// place with no file to rewrite, which is what `sed -i 's/a/b/' f` leaves.
+    /// place with no file to rewrite, which is what `sed -i 's/a/b/' f` leaves,
+    /// or a script whose first address is empty, which a `$( )` that printed
+    /// nothing leaves of `"$(…),+6p"`.
     pub fn fails(&self) -> Option<&'static str> {
-        (self.in_place && self.operands.is_empty()).then_some("-i may not be used with stdin")
+        if self.in_place && self.operands.is_empty() {
+            return Some("-i may not be used with stdin");
+        }
+        self.scripts
+            .iter()
+            .any(|script| script.trim_start().starts_with(','))
+            .then_some("invalid command code ,")
     }
 }
 

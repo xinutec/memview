@@ -289,6 +289,47 @@ fn a_backgrounded_call_agrees_if_either_look_holds_the_prediction() {
     assert_eq!(diverged.paths.len(), 1);
 }
 
+/// The first look can come before the command has run at all, and the session's
+/// next call can rewrite the file before the task ends: a doc edit backgrounded
+/// with its commit, edited again while the commit's gate runs. When a later call
+/// of the session predicts a write to the file, the task's end look is not this
+/// call's to judge, and the file is left unchecked.
+#[test]
+fn a_backgrounded_call_overtaken_by_the_next_one_is_not_judged() {
+    let dir = scratch("overtaken-next");
+    std::fs::write(dir.join("a.txt"), "old\n").expect("seed");
+    let edits = Edits::new(dir.join("store"));
+    let backgrounded = serde_json::json!({ "stdout": "", "backgroundTaskId": "b1" });
+    edits
+        .before("s1", "c1", "cat > a.txt <<'EOF'\nnew\nEOF", at(&dir))
+        .expect("predicted");
+    // Backgrounded before it ran: the first look sees the old text.
+    assert!(edits.finished("c1", &backgrounded).is_none());
+    edits
+        .before("s1", "c2", "cat > a.txt <<'EOF'\nlater\nEOF", at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "later\n").expect("the next call wrote it");
+    let (_, diverged) = edits.ended("c1", Some(&Ended::Completed)).expect("checked");
+    assert!(diverged.paths.is_empty(), "{diverged:?}");
+    let first = outcomes(&dir);
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(first[0]["outcome"], "unchecked");
+    assert_eq!(first[0]["why"], "overtaken");
+
+    // Another session's call is not this one's next edit.
+    std::fs::write(dir.join("a.txt"), "old\n").expect("reset");
+    edits
+        .before("s1", "c3", "cat > a.txt <<'EOF'\nnew\nEOF", at(&dir))
+        .expect("predicted");
+    assert!(edits.finished("c3", &backgrounded).is_none());
+    edits
+        .before("s2", "c4", "cat > a.txt <<'EOF'\nlater\nEOF", at(&dir))
+        .expect("predicted");
+    std::fs::write(dir.join("a.txt"), "later\n").expect("written");
+    let (_, diverged) = edits.ended("c3", Some(&Ended::Completed)).expect("checked");
+    assert_eq!(diverged.paths.len(), 1);
+}
+
 /// What a live call's prediction refused is kept, by the census's names: live
 /// calls have their files read, so these refusals — not history's `not read` —
 /// are what to teach the evaluator next. A call that refused nothing adds nothing.

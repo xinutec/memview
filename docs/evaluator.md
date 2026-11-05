@@ -187,7 +187,11 @@ globbing change nothing.
 A test is a question, not a command that might fail, so it is not assumed to
 succeed: one sight can answer (`[ -f x ]`, `[ -d x ]`, `test -z "$v"`,
 `[[ a == b ]]`, `true`, `false`) steers `&&`, `||` and `if` exactly, and after
-one it cannot, what follows is only sometimes run. `grep` answers whether it
+one it cannot, what follows is only sometimes run. A command the text and
+sight show must fail steers the same way: a `sed` whose script starts with an
+empty address (`,+6p`, which a `$( )` that printed nothing leaves of
+`"$(…),+6p"`), and a `cp` or `mv` whose destination is in a directory sight
+shows does not exist. `grep` answers whether it
 selected a line, which steers the same way; one this cannot run is not assumed
 to have matched. An undecided `if` or `case` leaves a finite set (*A prediction
 is exact, and a set is exact*, above).
@@ -211,7 +215,10 @@ child it is `/usr/bin/grep`: the modelled subset agrees with both.
 `rm` of a path the text names exactly removes it, and `rm -r` everything under
 it; `cp` of one file to another leaves the source's text there, once sight has
 shown both (a destination it cannot show may be a directory), and `mv` the
-same with the source gone. `sed -i` rewrites what sight has shown where sed's
+same with the source gone. Their operands are paths by their own grammar, a
+dotfile included, which the shell tables' path guard would take for no path;
+a `mv` not followed refuses its source with its destination, since the move
+may still have happened. `sed -i` rewrites what sight has shown where sed's
 regular expressions and Rust's agree, the match made the longest by
 construction (`reader/src/predict/sed.rs`): `s`, `d`, and `a\` and `i\` with
 their text on the next line — the form macOS's BSD sed, the one here, reads;
@@ -247,8 +254,11 @@ stands for everything under its fixed part.
 
 ### Programs it does not know
 
-A program the tables do not know, a script run from a file, code the text does
-not show (a package script, `pnpm install` and the install scripts it runs,
+A program the tables do not know, a program they send to another machine's
+files that still runs here (`restic restore`, `adb pull`, `gh release
+download`, a `systemctl start`; a subcommand known to write nothing here
+keeps what came before), `eval`, an application `open`ed, `lake` beyond
+`build`, a script run from a file, code the text does not show (a package script, `pnpm install` and the install scripts it runs,
 `nix run`), a git command that rewrites the working tree, and a write to a
 path an expansion chose may each have written any file, so nothing predicted
 before one survives it, and what is read after it is not known. A refusal
@@ -269,7 +279,9 @@ that it cannot name makes the write a refusal, never a guess. A block it does
 not follow (an undecided `if`, a loop over values it cannot list, a decorated
 function) has every file it writes refused and forgotten, as a shell branch is,
 named for why its test or its iterable is not known (`for over call
-glob.glob`), since that is what to build.
+glob.glob`), since that is what to build. A program the tree cannot read (a
+comment inside brackets is the commonest) may write any file through a name,
+so it withdraws everything before it, as an unknown program does.
 
 ### Values
 
@@ -405,6 +417,9 @@ call whose interpreter printed a traceback is dropped unchecked too. A call
 sent to the background is looked at twice, when it is backgrounded and when its
 task ends, and agrees if either look holds the prediction: the session's next
 edit, which the check never sees, can overwrite a file while the task runs.
+The first look can also come before the command has run, so a file a later
+call of the session predicts a write to before the task ends is left
+unchecked (`overtaken`): neither look is this call's.
 
 ## What orders the work
 
@@ -465,3 +480,15 @@ off this list.
   source; it is a write to an unknown path, and withdraws what came before.
   Fixed 2026-10-05, with the six older findings the rules of 09-30 and 10-01
   had already closed; the inbox is empty.
+- **2026-11-05, eight findings from 10-06 to 11-03.** Two steps failed and the
+  chain after them was assumed to run: a `sed` left with an empty first address
+  by a `$( )` that printed nothing, and a `cp` into a directory that did not
+  exist. Two programs the tables file as acting elsewhere wrote here:
+  `restic restore --delete`, and `lake exe deadcode --delete`. A `mv` onto
+  `.gitattributes` was dropped, the path guard taking a dotfile for no path.
+  A Python program with a comment inside a list was refused by the tree and
+  its writes, through a name, went unmentioned. Two were the check, not the
+  evaluator: a backgrounded doc edit overtaken by the session's next call
+  before its commit's gate ended. Replayed, 3 of 22 findings still diverge:
+  the two overtaken ones, which the check now leaves unchecked, and the `cp`,
+  whose row was kept before directories were listed.

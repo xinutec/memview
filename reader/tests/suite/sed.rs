@@ -44,6 +44,7 @@ fn in_place_is_read_as_the_hosts_bsd_sed_reads_it() {
         Invocation {
             scripts: vec!["s/a/b/".to_string(), "s/c/d/".to_string()],
             extended: true,
+            quiet: false,
             in_place: true,
             suffix: None,
             operands: vec!["f".to_string()],
@@ -51,12 +52,12 @@ fn in_place_is_read_as_the_hosts_bsd_sed_reads_it() {
     );
 }
 
+/// `-n` changes what a rewrite writes, which the evaluator refuses by name;
+/// it is read here, because whether sed fails does not depend on it.
 #[test]
-fn flags_that_change_what_is_written_are_refused_by_name() {
-    assert_eq!(
-        invocation(&argv(&["sed", "-n", "-i", "s/a/b/p", "f"])),
-        Err("-n".to_string())
-    );
+fn flags_are_read_and_what_is_not_is_refused_by_name() {
+    assert!(invocation(&argv(&["sed", "-n", "-i", "s/a/b/p", "f"])).is_ok_and(|it| it.quiet));
+    assert!(invocation(&argv(&["sed", "-ni", "", "s/a/b/p", "f"])).is_ok_and(|it| it.quiet));
     assert_eq!(
         invocation(&argv(&["sed", "-i", ""])),
         Err("no script".to_string())

@@ -853,6 +853,7 @@ impl<'a> Run<'a> {
                     "sed" if sed::invocation(&argv).is_ok_and(|it| it.fails().is_some()) => {
                         Status::Known(false)
                     }
+                    "cp" | "mv" if self.lands_nowhere(&argv) => Status::Known(false),
                     // `git rm`, `mv`, `restore`: each refuses a path it cannot
                     // take — local changes, nothing matching — which the text
                     // does not show.
@@ -1880,11 +1881,38 @@ impl<'a> Run<'a> {
         files
     }
 
+    /// Whether a `cp` or `mv` of one file names a destination in a directory
+    /// sight shows does not exist, which fails it before it writes anything.
+    fn lands_nowhere(&mut self, argv: &[String]) -> bool {
+        let operands: Vec<&String> = argv
+            .iter()
+            .skip(1)
+            .filter(|word| !word.starts_with('-'))
+            .collect();
+        let [_, to] = operands[..] else {
+            return false;
+        };
+        let Some(to) = self.resolve(to) else {
+            return false;
+        };
+        let Some((dir, _)) = to.rsplit_once('/').filter(|(dir, _)| !dir.is_empty()) else {
+            return false;
+        };
+        matches!(self.read(&to), Held::Absent) && matches!(self.listing(dir), Ok(None))
+    }
+
     /// `sed -i`: each file rewritten by the script, and its old text kept under
     /// the backup suffix when one was given. What the script or the flags say
     /// that [`sed`] does not follow is refused by name, once per file.
     fn sed(&mut self, argv: &[String], paths: &[String]) {
-        let invocation = sed::invocation(argv);
+        // `-n` changes what is written, and is not followed.
+        let invocation = sed::invocation(argv).and_then(|it| {
+            if it.quiet {
+                Err("-n".to_string())
+            } else {
+                Ok(it)
+            }
+        });
         // It exits before reading a file, so every one keeps what it held.
         if invocation.as_ref().is_ok_and(|it| it.fails().is_some()) {
             return;
@@ -1963,40 +1991,44 @@ impl<'a> Run<'a> {
     /// other than `-f` or `-v` (no-clobber, a prompt) and several sources are
     /// refused by name; a destination sight cannot show may be a directory.
     fn rename(&mut self, argv: &[String], from: &[String], to: &str) {
-        let (flags, operands): (Vec<&String>, Vec<&String>) = argv
+        let flags: Vec<&String> = argv
             .iter()
             .skip(1)
-            .filter(|word| word.as_str() != "--")
-            .partition(|word| word.starts_with('-'));
-        if let Some(flag) = flags
+            .filter(|word| word.as_str() != "--" && word.starts_with('-'))
+            .collect();
+        let refused = if let Some(flag) = flags
             .iter()
             .find(|flag| flag.len() < 2 || !flag[1..].chars().all(|c| "fv".contains(c)))
         {
-            self.write(to, false, Err(Why::Option(format!("mv {flag}"))));
-            return;
-        }
-        if operands.len() != 2 || from.len() != 1 {
-            self.write(
-                to,
-                false,
-                Err(Why::Option("mv into a directory".to_string())),
-            );
-            return;
-        }
-        let text = match self.read(&from[0]) {
-            Held::Text(text) => Ok(text),
-            Held::Absent => Err(Why::Missing),
-            Held::Unknown => Err(Why::NotRead),
-            Held::OneOf(_) => Err(Why::Branches),
+            Some(Why::Option(format!("mv {flag}")))
+        } else if from.len() != 1 {
+            Some(Why::Option("mv into a directory".to_string()))
+        } else {
+            None
+        };
+        let text = match (refused, from) {
+            (Some(why), _) => Err(why),
+            (None, [source]) => match self.read(source) {
+                Held::Text(text) => Ok(text),
+                Held::Absent => Err(Why::Missing),
+                Held::Unknown => Err(Why::NotRead),
+                Held::OneOf(_) => Err(Why::Branches),
+            },
+            (None, _) => Err(Why::Option("mv into a directory".to_string())),
         };
         let text = text.and_then(|text| match self.read(to) {
             Held::Unknown => Err(Why::NotRead),
             _ => Ok(text),
         });
-        let moved = text.is_ok();
+        // A move not followed may still have happened, so its sources are
+        // refused with its destination rather than left as they were.
+        let gone = text.as_ref().map_err(Clone::clone).err();
         self.write(to, false, text);
-        if moved {
-            self.remove(&from[0], false);
+        for source in from {
+            match &gone {
+                None => self.remove(source, false),
+                Some(why) => self.write(source, false, Err(why.clone())),
+            }
         }
     }
 
@@ -2144,22 +2176,34 @@ impl<'a> Run<'a> {
             }
         }
         // A move of one file to another: the destination holds the source's
-        // text and the source is gone.
-        if let Op::Move { from, to } = &op
+        // text and the source is gone. A copy leaves the source. The operands
+        // are read by the programs' grammar, as an in-place rewriter's are: the
+        // tables' path guard takes `.gitattributes` for no path at all.
+        if let Some(Some(head)) = literal.first()
+            && matches!(basename(head), "mv" | "cp")
             && literal.iter().all(Option::is_some)
             && why.is_none()
-            && argv.first().is_some_and(|head| basename(head) == "mv")
         {
-            self.rename(&argv, from, to);
-            return;
-        }
-        // A copy of one file to another holds the source's text.
-        if let Op::Copy { from, to } = &op
-            && literal.iter().all(Option::is_some)
-            && why.is_none()
-            && argv.first().is_some_and(|head| basename(head) == "cp")
-        {
-            self.copy(&argv, from, to);
+            // It fails before writing anything.
+            if self.lands_nowhere(&argv) {
+                return;
+            }
+            let operands: Vec<String> = argv
+                .iter()
+                .skip(1)
+                .filter(|word| !word.starts_with('-'))
+                .cloned()
+                .collect();
+            let paths = self.operand_files(&operands);
+            if paths.len() == operands.len()
+                && let Some((to, from)) = paths.split_last()
+            {
+                if basename(head) == "mv" {
+                    self.rename(&argv, from, to);
+                } else {
+                    self.copy(&argv, from, to);
+                }
+            }
             return;
         }
         // A copy or move whose destination the text does not determine — a
@@ -2270,12 +2314,20 @@ impl<'a> Run<'a> {
                 },
                 why,
             ) => {
-                self.forget_flat_python(&source, why.unwrap_or(Why::Python("unread".to_string())));
+                self.unread_python(&source, why.unwrap_or(Why::Python("unread".to_string())));
             }
             (Program::Expands { written }, why) => {
-                self.forget_flat_python(&written, why.unwrap_or(Why::Expansion));
+                self.unread_python(&written, why.unwrap_or(Why::Expansion));
             }
         }
+    }
+
+    /// A program not read may write any file: through `open(p, 'w')`, the flat
+    /// reader names nothing. What it names is refused by name, and everything
+    /// else with it.
+    fn unread_python(&mut self, source: &str, why: Why) {
+        self.forget_flat_python(source, why.clone());
+        self.forget_everything(why);
     }
 
     fn forget_flat_python(&mut self, source: &str, why: Why) {
@@ -2959,7 +3011,96 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
         Op::Git(GitOp::Other { subcommand }) if REWRITES_TREE.contains(&subcommand.as_str()) => {
             Some(format!("git {subcommand}"))
         }
+        Op::Nothing => runs_here(innermost(argv)),
         _ => None,
+    }
+}
+
+/// A program the shell tables file as touching no file of this machine's, for
+/// attribution, that may still write one here: a restore, a pull, a download,
+/// a service started, text run by `eval`, an application `open`ed. Named as an
+/// unknown program unless its subcommand is one known to write nothing here.
+fn runs_here(argv: &[String]) -> Option<String> {
+    let (head, rest) = argv.split_first()?;
+    let program = basename(head);
+    // The subcommands that only read or act on the far side, and the flags
+    // before a subcommand that take a value.
+    let (harmless, valued): (&[&str], &[&str]) = match program {
+        "eval" | "open" | "wsl" | "restic" | "borg" | "rclone" | "aws" | "helm" | "xcrun"
+        | "sftp" | "podman" => (&[], &[]),
+        "adb" => (
+            &[
+                "shell",
+                "logcat",
+                "devices",
+                "connect",
+                "disconnect",
+                "reconnect",
+                "forward",
+                "reverse",
+                "install",
+                "install-multiple",
+                "uninstall",
+                "exec-out",
+                "push",
+                "get-state",
+                "get-serialno",
+                "wait-for-device",
+                "mdns",
+                "version",
+                "kill-server",
+                "start-server",
+            ],
+            &["-s", "-t", "-H", "-P", "-L"],
+        ),
+        "gh" => (
+            &["run", "api", "pr", "issue", "search", "workflow", "auth"],
+            &["-R", "--repo"],
+        ),
+        // A build writes under `.lake` by convention, as `cargo build` does
+        // under `target`; `lake exe` runs a program, as `cargo run` does.
+        "lake" => (&["build"], &["-d", "--dir", "-f", "--file"]),
+        "systemctl" => (
+            &[
+                "is-active",
+                "is-enabled",
+                "is-failed",
+                "is-system-running",
+                "status",
+                "show",
+                "cat",
+                "list-units",
+                "list-timers",
+                "list-unit-files",
+            ],
+            &["-H", "--host", "-M", "--machine"],
+        ),
+        _ => return None,
+    };
+    let mut words = rest.iter();
+    let sub = loop {
+        match words.next() {
+            Some(word) if valued.contains(&word.as_str()) => {
+                words.next();
+            }
+            Some(word) if word.starts_with('-') => {}
+            word => break word,
+        }
+    };
+    // `gh run download` and `gh pr checkout` write here, under subcommands
+    // that otherwise only read.
+    let writes = matches!(
+        (
+            program,
+            sub.map(String::as_str),
+            words.next().map(String::as_str)
+        ),
+        ("gh", Some("run"), Some("download")) | ("gh", Some("pr"), Some("checkout"))
+    );
+    match sub {
+        Some(sub) if harmless.contains(&sub.as_str()) && !writes => None,
+        Some(sub) if !harmless.is_empty() => Some(format!("{program} {sub}")),
+        _ => Some(program.to_string()),
     }
 }
 
