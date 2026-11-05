@@ -209,7 +209,9 @@ text tools reimplemented in `reader/src/predict/text.rs` — `grep`, `head`,
 `tail`, `cut`, `tr`, `uniq`, `basename`, `dirname`, and `sort` only under
 `LC_ALL=C`, since its order is otherwise the host's collation — each held to
 what the real tools print by a test whose expected texts they printed. `wc` is
-refused: GNU and BSD pad it differently. Note that in a Claude Code session
+refused: GNU and BSD pad it differently. `cat -n` is followed over one file
+or stdin, where the two print the same, and refused over several, where BSD
+numbers each file from one. Note that in a Claude Code session
 `grep` is a shell function running an embedded `ugrep`, and in a `bash -c`
 child it is `/usr/bin/grep`: the modelled subset agrees with both.
 
@@ -308,6 +310,10 @@ its variables its own. A generator runs only as far as the `next`, `any`,
 `all`, `join` or `list` written around it reads it.
 
 ### Lists, dicts and sets
+
+`isinstance` is answered where the value's kind decides it. A list and a tuple
+are one kind here, as are a set and a frozenset, so asking for one of either
+pair alone is refused; `bool` is a kind of `int`, as in Python.
 
 A list is held by value where Python shares it, so a change made in place (an
 item, a slice, `append`, `insert`, `extend`, `del`) is followed only when

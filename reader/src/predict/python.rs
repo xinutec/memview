@@ -77,6 +77,7 @@ enum Value {
 /// A function this evaluator knows, read once from its dotted name.
 #[derive(Debug, Clone, Copy)]
 enum Function {
+    IsInstance,
     Open,
     Path,
     Join,
@@ -155,6 +156,7 @@ impl Function {
             "os.chdir" => Function::ChangeDir,
             "str" => Function::Str,
             "len" => Function::Len,
+            "isinstance" => Function::IsInstance,
             "range" => Function::Range,
             "enumerate" => Function::Enumerate,
             "zip" => Function::Zip,
@@ -302,6 +304,61 @@ const MAX_UNROLL: usize = 256;
 /// enough that a body copying a list each time (`out = out + [l]`) stays near a
 /// second; an append or an index assignment changes the list in place.
 const LOOP_BUDGET: usize = 5_000;
+
+/// `isinstance(value, types)`, where the value's kind decides it. A list and a
+/// tuple are one kind here, as are a set and a frozenset, so either alone is
+/// not decided of one; `bool` is a kind of `int`, as in Python.
+fn instance(value: &Value, types: &Value) -> Option<bool> {
+    let names: Vec<&str> = match types {
+        Value::Name(name) => vec![name.as_str()],
+        Value::Tuple(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Name(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Option<_>>()?,
+        _ => return None,
+    };
+    let known = matches!(
+        value,
+        Value::Str(_)
+            | Value::Int(_)
+            | Value::Bool(_)
+            | Value::None
+            | Value::Path(_)
+            | Value::Tuple(_)
+            | Value::Dict(_)
+            | Value::Set(_)
+    );
+    if !known {
+        return None;
+    }
+    let both = |a: &str, b: &str| names.contains(&a) && names.contains(&b);
+    let mut undecided = false;
+    for name in &names {
+        let is = match (*name, value) {
+            ("str", Value::Str(_))
+            | ("int", Value::Int(_) | Value::Bool(_))
+            | ("bool", Value::Bool(_))
+            | ("dict", Value::Dict(_)) => Some(true),
+            ("list" | "tuple", Value::Tuple(_)) if both("list", "tuple") => Some(true),
+            ("set" | "frozenset", Value::Set(_)) if both("set", "frozenset") => Some(true),
+            ("list" | "tuple", Value::Tuple(_)) | ("set" | "frozenset", Value::Set(_)) => None,
+            (
+                "str" | "int" | "bool" | "dict" | "list" | "tuple" | "set" | "frozenset" | "float",
+                _,
+            ) => Some(false),
+            _ => None,
+        };
+        match is {
+            Some(true) => return Some(true),
+            Some(false) => {}
+            None => undecided = true,
+        }
+    }
+    (!undecided).then_some(false)
+}
 
 pub(super) fn run(shell: &mut Run<'_>, module: &Module) {
     let _ = Eval::new(shell).block(&module.body);
@@ -1960,6 +2017,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 Some(Value::None) => Value::Str("None".to_string()),
                 Some(other) => unknown(&other, "str"),
                 None => Value::Str(String::new()),
+            },
+            Some(Function::IsInstance) => match (&first, positional.get(1)) {
+                (Some(value), Some(types)) => instance(value, types)
+                    .map_or_else(|| Value::Unknown(construct("isinstance")), Value::Bool),
+                _ => Value::Unknown(construct("isinstance")),
             },
             Some(Function::Len) => match first {
                 Some(Value::Str(text)) => Value::Int(text.chars().count() as i64),

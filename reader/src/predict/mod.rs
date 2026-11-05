@@ -1646,6 +1646,17 @@ impl<'a> Run<'a> {
     }
 
     fn cat(&mut self, args: &[String], redirects: &[Redirect]) -> Result<String, Why> {
+        // `-n` over one file or stdin, where BSD's and GNU's `cat` agree; over
+        // several, BSD numbers each from one and GNU runs on.
+        if let [flag, rest @ ..] = args
+            && flag == "-n"
+            && !rest.iter().any(|arg| arg.starts_with('-'))
+        {
+            if rest.len() > 1 {
+                return Err(Why::Option("cat -n over several files".to_string()));
+            }
+            return self.cat(rest, redirects).map(|text| numbered(&text));
+        }
         if args.is_empty() {
             return self.stdin(redirects);
         }
@@ -2796,6 +2807,15 @@ enum Target {
     Other(String),
     /// A file whose name could not be known.
     Unnamed(Why),
+}
+
+/// `cat -n`: every line, empty ones too, numbered right-aligned in six columns
+/// and a tab; a last line without a newline keeps none.
+fn numbered(text: &str) -> String {
+    text.split_inclusive('\n')
+        .enumerate()
+        .map(|(at, line)| format!("{:>6}\t{line}", at + 1))
+        .collect()
 }
 
 /// `echo` as bash's builtin runs it: words joined by spaces, then a newline.

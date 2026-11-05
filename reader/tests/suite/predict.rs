@@ -3543,6 +3543,63 @@ fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
     assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
 }
 
+/// `cat -n` over one file numbers every line in six columns and a tab, the
+/// texts below being what BSD's and GNU's `cat` both printed. Over several
+/// files they differ — BSD numbers each from one — so that is refused.
+#[test]
+fn cat_n_over_one_file_numbers_its_lines() {
+    let files = known(&[("/repo/a", Some("c\n\nd")), ("/repo/b", Some("x\n"))]);
+    assert_eq!(
+        run("cat -n a > out", &files).written,
+        vec![written("/repo/out", "     1\tc\n     2\t\n     3\td")]
+    );
+    assert_eq!(
+        run("cat -n < b > out", &files).written,
+        vec![written("/repo/out", "     1\tx\n")]
+    );
+    let several = run("cat -n a b > out", &files);
+    assert!(several.written.is_empty(), "{:?}", several.written);
+    assert_eq!(
+        several.unfollowed[0].why,
+        Why::Option("cat -n over several files".to_string())
+    );
+}
+
+/// `isinstance` is answered where the value's kind decides it. A list and a
+/// tuple are one kind here, so asking for either alone of one is refused, and
+/// asking for both is not.
+#[test]
+fn isinstance_is_answered_where_the_kind_decides_it() {
+    let py = |body: &str| {
+        format!("python3 - <<'EOF'\nimport json\nd = json.load(open('d.json'))\n{body}\nEOF")
+    };
+    let files = known(&[(
+        "/repo/d.json",
+        Some(r#"{"a": "x", "b": {"c": 1}, "e": [1], "f": 2, "t": true}"#),
+    )]);
+    let found = run(
+        &py(
+            "out = []\nfor k, v in d.items():\n    if isinstance(v, str):\n        out.append(k)\n    elif isinstance(v, dict):\n        out.append(k + '!')\n    elif isinstance(v, (list, tuple)):\n        out.append('seq')\n    elif isinstance(v, bool):\n        out.append('bool')\n    elif isinstance(v, int):\n        out.append('int')\nopen('o.txt', 'w').write(','.join(out))",
+        ),
+        &files,
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/o.txt", "a,b!,seq,int,bool")]
+    );
+    // `True` is an `int` too.
+    let found = run(
+        &py("open('o.txt', 'w').write(str(isinstance(d['t'], int)))"),
+        &files,
+    );
+    assert_eq!(found.written, vec![written("/repo/o.txt", "True")]);
+    let found = run(
+        &py("if isinstance(d['e'], list):\n    open('o.txt', 'w').write('list')"),
+        &files,
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
+
 /// `mv` and `cp` operands are paths by the programs' grammar, a dotfile
 /// included: the tables' path guard reads `.gitattributes` as no path, which
 /// left `mv .gitattributes.new .gitattributes` neither predicted nor refused.
