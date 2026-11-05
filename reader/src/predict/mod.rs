@@ -230,6 +230,8 @@ pub fn predict(script: &Script, cwd: &str, home: &str, sight: &dyn Sight) -> Pre
     run.items(&script.items);
     let written = run.written();
     let alternatives = run.alternatives();
+    run.unfollowed
+        .retain(|u| !u.path.as_deref().is_some_and(fresh));
     if run.assumed.is_empty() {
         return Prediction {
             written,
@@ -324,6 +326,8 @@ struct Run<'a> {
     sight: &'a dyn Sight,
     /// Variables the text bound to a literal, still known to hold it.
     vars: BTreeMap<String, String>,
+    /// How many fresh paths `mktemp` has handed out, for [`FRESH`].
+    fresh: usize,
     /// The functions the text defines anywhere. Calling one runs in this shell and
     /// may rebind any name; a program in its own process cannot.
     functions: BTreeSet<String>,
@@ -386,6 +390,7 @@ impl<'a> Run<'a> {
             home,
             sight,
             vars: BTreeMap::new(),
+            fresh: 0,
             functions: BTreeSet::new(),
             pipe: None,
             capture: false,
@@ -459,6 +464,7 @@ impl<'a> Run<'a> {
     fn written(&self) -> Vec<Written> {
         self.order
             .iter()
+            .filter(|path| !fresh(path))
             .filter_map(|path| match self.now.get(path) {
                 Some(Held::Text(text)) => Some(Written {
                     path: path.clone(),
@@ -477,6 +483,7 @@ impl<'a> Run<'a> {
     fn alternatives(&self) -> Vec<Alternatives> {
         self.order
             .iter()
+            .filter(|path| !fresh(path))
             .filter_map(|path| match self.now.get(path) {
                 Some(Held::OneOf(members)) => Some(Alternatives {
                     path: path.clone(),
@@ -1478,6 +1485,24 @@ impl<'a> Run<'a> {
     }
 
     /// What the command prints, when it is a program this models.
+    /// `mktemp`: a path nobody had, made where it is not `-u`: an empty
+    /// directory with `-d`, else an empty file. Named under [`FRESH`], which no
+    /// real path can be, so what is written there is followed and never reported.
+    fn mktemp(&mut self, args: &[String]) -> String {
+        self.fresh += 1;
+        let path = format!("{FRESH}/{}", self.fresh);
+        let flag = |c: char| {
+            args.iter()
+                .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains(c))
+        };
+        if flag('d') {
+            self.trees.push((path.clone(), Held::Absent));
+        } else if !flag('u') {
+            self.now.insert(path.clone(), Held::Text(String::new()));
+        }
+        format!("{path}\n")
+    }
+
     fn stdout(
         &mut self,
         name: Option<&str>,
@@ -1494,6 +1519,7 @@ impl<'a> Run<'a> {
             Some("echo") => echo(&args),
             Some("printf") => printf(&args),
             Some("true" | ":") => Ok(String::new()),
+            Some("mktemp") => Ok(self.mktemp(&args)),
             Some("cat") => self.cat(&args, redirects),
             Some("tee") => self.stdin(redirects),
             Some(
@@ -2041,6 +2067,10 @@ impl<'a> Run<'a> {
             path.starts_with(tree.as_str()) && path[tree.len()..].starts_with('/')
         }) {
             return held.clone();
+        }
+        // A fresh path holds only what this run put there.
+        if fresh(path) {
+            return Held::Absent;
         }
         match self.sight.file(path) {
             Some(Some(text)) => Held::Text(text),
@@ -3000,12 +3030,14 @@ const REWRITES_TREE: &[&str] = &[
 /// a script run from a file, or git rewriting the working tree.
 fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
     match op {
+        // `mktemp` makes only a path nobody had.
         Op::Unknown { .. } => Some(
             innermost(argv)
                 .first()
                 .map_or("", |head| basename(head))
                 .to_string(),
-        ),
+        )
+        .filter(|program| program != "mktemp"),
         Op::Run { script } => Some(basename(script).to_string()),
         Op::Opaque { name } => Some(name.clone()),
         Op::Git(GitOp::Other { subcommand }) if REWRITES_TREE.contains(&subcommand.as_str()) => {
@@ -3205,6 +3237,15 @@ fn runs_here(argv: &[String]) -> Option<String> {
         Some(sub) => Some(format!("{program} {sub}")),
         None => Some(program.to_string()),
     }
+}
+
+/// Where `mktemp`'s paths are put: a NUL is in no real path, so nothing here
+/// is a file anybody predicts, asks for or checks.
+const FRESH: &str = "/\u{0}fresh";
+
+fn fresh(path: &str) -> bool {
+    path.strip_prefix(FRESH)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Programs that write no file here, whatever they are told: the shell's own

@@ -3513,6 +3513,36 @@ fn a_program_writes_nothing_only_on_the_evaluators_list() {
     }
 }
 
+/// `mktemp` makes a path nobody had: what is written under it touches no file
+/// this predicts, so it neither withdraws what came before nor is predicted.
+#[test]
+fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
+    for script in [
+        "echo a > x.txt; D=$(mktemp -d); echo b > $D/main.swift",
+        "echo a > x.txt; D=$(mktemp -d /tmp/flacx-XXXXXX); cat > \"$D/in.txt\" <<'EOF'\nb\nEOF",
+        "echo a > x.txt; J=$(mktemp); echo b > $J",
+        "echo a > x.txt; t=$(mktemp -d) && cd $t && echo b > out.txt && cd /repo",
+    ] {
+        let found = run(script, &nothing_known());
+        assert_eq!(
+            found.written,
+            vec![written("/repo/x.txt", "a\n")],
+            "{script}"
+        );
+        assert!(
+            found.conditional.is_empty(),
+            "{script}: {:?}",
+            found.conditional
+        );
+    }
+    // A fresh directory starts empty, so what was written there is read back.
+    let found = run(
+        "D=$(mktemp -d); echo b > $D/a; cat $D/a > x.txt",
+        &nothing_known(),
+    );
+    assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
+}
+
 /// `mv` and `cp` operands are paths by the programs' grammar, a dotfile
 /// included: the tables' path guard reads `.gitattributes` as no path, which
 /// left `mv .gitattributes.new .gitattributes` neither predicted nor refused.

@@ -173,7 +173,10 @@ withdraws what came before, as any write to an unknown path does.
 
 A variable is known while the text bound it to a literal and no builtin since
 could have rebound it; `$HOME` and `$PWD` are known, and `${x%%pat}` and its
-three siblings are computed when the pattern is spelled out.
+three siblings are computed when the pattern is spelled out. `mktemp` prints a
+path nobody had, made empty (a directory with `-d`): what is written under it
+is followed, touches no file anybody predicts, and is never reported, so
+`D=$(mktemp -d); … > $D/f` withdraws nothing.
 
 What a word runs as it expands runs before its command: a `$( )` is followed as
 a subshell whose output is the word's, so a program inside one withdraws what
