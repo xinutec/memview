@@ -17,10 +17,10 @@ fn published() -> Published {
     Published {
         host: "mac-mini".into(),
         ts: "2026-08-04T15:20:39.000Z".into(),
-        five_hour_pct: 28.0,
-        five_hour_resets_at: "2026-08-04T18:10:00.000Z".into(),
-        seven_day_pct: 66.0,
-        seven_day_resets_at: "2026-08-07T02:00:00.000Z".into(),
+        five_hour_pct: Some(28.0),
+        five_hour_resets_at: Some("2026-08-04T18:10:00.000Z".into()),
+        seven_day_pct: Some(66.0),
+        seven_day_resets_at: Some("2026-08-07T02:00:00.000Z".into()),
         // As the timer pusher claims it since home v9: a live probe's reading.
         measured: true,
     }
@@ -76,7 +76,7 @@ fn the_age_of_the_reading_travels_with_it() {
 fn a_stamp_that_cannot_be_read_is_no_time_rather_than_the_epoch() {
     let mut broken = published();
     broken.ts = "the day before yesterday".into();
-    broken.five_hour_resets_at = "soon".into();
+    broken.five_hour_resets_at = Some("soon".into());
     let read = reading(&broken, at_ms("2026-08-04T17:10:00.000Z"));
     // Not 56 years, which is what the epoch would have made of it.
     assert_eq!(read.age_ms, 0);
@@ -86,7 +86,7 @@ fn a_stamp_that_cannot_be_read_is_no_time_rather_than_the_epoch() {
 /// What a session heard on its own stream: a fraction, and an epoch **second**.
 fn heard(utilization: f64, resets_at: &str, at: &str) -> Seen {
     Seen {
-        utilization,
+        utilization: Some(utilization),
         resets_at: Some(ResetsAt(at_ms(resets_at) / 1000)),
         at: Heard(at_ms(at)),
         // A stream reading is a `rate_limit_event`: the API's own headers,
@@ -222,7 +222,7 @@ fn nothing_heard_and_no_dashboard_is_no_reading_at_all() {
 /// `get_usage` echo, cached headers of unknowable age — the weaker kind.
 fn held(utilization: f64, resets_at: i64, at: i64) -> Seen {
     Seen {
-        utilization,
+        utilization: Some(utilization),
         resets_at: Some(ResetsAt(resets_at)),
         at: Heard(at),
         measured: false,
@@ -311,13 +311,13 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
     // nothing to compare but arrival, which is the rule for exactly the case
     // that has no better answer.
     let first = Seen {
-        utilization: 0.5,
+        utilization: Some(0.5),
         resets_at: None,
         at: Heard(1_000),
         measured: false,
     };
     let later = Seen {
-        utilization: 0.4,
+        utilization: Some(0.4),
         resets_at: None,
         at: Heard(2_000),
         measured: false,
@@ -414,7 +414,7 @@ fn an_unmeasured_dashboard_row_may_fill_in_but_never_lower() {
     let mut dash = published();
     dash.measured = false;
     dash.ts = "2026-08-04T17:00:00.000Z".into(); // later than the live capture
-    dash.five_hour_pct = 11.0; // and lower — the stale-cache shape exactly
+    dash.five_hour_pct = Some(11.0); // and lower — the stale-cache shape exactly
     let read = merged(&live, Some(&dash), now).expect("a reading");
     let five = read.five_hour.as_ref().unwrap().pct;
     assert!(
@@ -441,7 +441,7 @@ fn a_measured_dashboard_row_is_how_another_machines_reset_arrives() {
         heard(0.62, "2026-08-07T02:00:00.000Z", "2026-08-04T15:00:00.000Z"),
     )]);
     let mut dash = published();
-    dash.seven_day_pct = 11.0; // same window instance, figure fell: a reset
+    dash.seven_day_pct = Some(11.0); // same window instance, figure fell: a reset
     let read = merged(&live, Some(&dash), now).expect("a reading");
     let seven = read.seven_day.as_ref().unwrap().pct;
     assert!(
@@ -466,7 +466,8 @@ fn a_reading_outlives_the_session_that_heard_it() {
         [("seven_day".to_string(), held(0.92, TURNS, 2_000))],
     );
     assert_eq!(
-        known["seven_day"].utilization, 0.93,
+        known["seven_day"].utilization,
+        Some(0.93),
         "a window's figure may not fall while the window is the same one"
     );
 }
@@ -486,7 +487,8 @@ fn but_a_window_that_has_turned_over_does_drop_the_old_high_water_mark() {
         [("five_hour".to_string(), held(0.03, TURNS + 18_000, 2_000))],
     );
     assert_eq!(
-        known["five_hour"].utilization, 0.03,
+        known["five_hour"].utilization,
+        Some(0.03),
         "a fresh window's honest 3% beats the old window's high-water mark"
     );
 }
@@ -640,7 +642,7 @@ fn a_reply_from_a_process_the_api_just_answered_can_lower_the_figure() {
     let (at, measured) = echo_dated(false, Some(5_000), 9_000);
     assert_eq!((at, measured), (Heard(5_000), true));
     let after = Seen {
-        utilization: 0.0,
+        utilization: Some(0.0),
         resets_at: Some(ResetsAt(resets)),
         at,
         measured,
@@ -658,14 +660,14 @@ fn a_reply_from_a_process_the_api_just_answered_can_lower_the_figure() {
 fn a_reply_older_than_the_figure_does_not_lower_it() {
     let resets = 1_790_906_400;
     let now_held = Seen {
-        utilization: 0.81,
+        utilization: Some(0.81),
         resets_at: Some(ResetsAt(resets)),
         at: Heard(8_000),
         measured: true,
     };
     let (at, measured) = echo_dated(false, Some(2_000), 9_000);
     let stale = Seen {
-        utilization: 0.77,
+        utilization: Some(0.77),
         resets_at: Some(ResetsAt(resets)),
         at,
         measured,
@@ -675,4 +677,40 @@ fn a_reply_older_than_the_figure_does_not_lower_it() {
     assert_eq!(echo_dated(false, None, 9_000), (Heard(9_000), false));
     // A reply the CLI fetched is dated now.
     assert_eq!(echo_dated(true, Some(2_000), 9_000), (Heard(9_000), true));
+}
+
+#[test]
+fn a_window_the_account_lost_is_not_drawn() {
+    // Held from when the account had a five-hour window, long turned over.
+    let mut known = seen(&[(
+        "five_hour",
+        heard(0.05, "2026-11-01T12:00:00.000Z", "2026-11-01T08:00:00.000Z"),
+    )]);
+    let gone = Seen {
+        utilization: None,
+        resets_at: None,
+        at: Heard(at_ms("2026-11-09T20:00:00.000Z")),
+        measured: true,
+    };
+    console::usage::remember(&mut known, [("five_hour".to_string(), gone)]);
+    let seven = heard(0.47, "2026-11-13T02:00:00.000Z", "2026-11-09T20:00:00.000Z");
+    known.insert("seven_day".to_string(), seven);
+    let read = merged(&known, None, at_ms("2026-11-09T20:01:00.000Z")).expect("a reading");
+    assert_eq!(read.five_hour, None);
+    assert_eq!(read.seven_day.unwrap().pct, 47.0);
+}
+
+#[test]
+fn the_dashboard_reads_with_no_five_hour_window() {
+    // As home served it, nulls and all: a parse failure would drop the week too.
+    let body = r#"{"host":"mac-mini","ts":"2026-11-09T20:46:32.000Z","five_hour_pct":null,"five_hour_resets_at":null,"seven_day_pct":47,"seven_day_resets_at":"2026-11-13T02:00:00.000Z","measured":true}"#;
+    let published: Published = serde_json::from_str(body).expect("a reading");
+    let read = merged(
+        &BTreeMap::new(),
+        Some(&published),
+        at_ms("2026-11-09T21:00:00.000Z"),
+    )
+    .expect("a reading");
+    assert_eq!(read.five_hour, None);
+    assert_eq!(read.seven_day.unwrap().pct, 47.0);
 }

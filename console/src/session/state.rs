@@ -371,7 +371,7 @@ impl State {
                         [(
                             window.clone(),
                             Seen {
-                                utilization: *spent,
+                                utilization: Some(*spent),
                                 resets_at: resets_at.map(ResetsAt),
                                 at: Heard(at.unwrap_or(now)),
                                 measured: at.is_some(),

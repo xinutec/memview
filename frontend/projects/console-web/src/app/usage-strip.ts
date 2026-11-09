@@ -55,9 +55,12 @@ export class UsageStrip {
     if (!usage) return [];
     const bar = measure(Date.now(), usage.age_ms);
     return [
-      // A window the runner has heard nothing about gets no row: absent is not reset,
-      // and neither is zero. See [[Reading]].
-      ...(usage.five_hour ? [bar('5 hours', usage.five_hour, FIVE_HOURS)] : []),
+      // A window the runner has heard nothing about gets no row: absent is not reset.
+      // See [[Reading]]. Nor does five hours at zero: an account without that limit
+      // reads as nothing spent.
+      ...(usage.five_hour && Math.round(usage.five_hour.pct) > 0
+        ? [bar('5 hours', usage.five_hour, FIVE_HOURS)]
+        : []),
       // "Week", not "7 days": it is what the reading is called everywhere else.
       ...(usage.seven_day ? [bar('Week', usage.seven_day, WEEK)] : []),
       // A model's own weekly allowance, labelled with its name and nothing else; it

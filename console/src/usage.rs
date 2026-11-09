@@ -29,10 +29,11 @@ pub struct Published {
     pub host: String,
     /// RFC 3339, when the reading was taken.
     pub ts: String,
-    pub five_hour_pct: f64,
-    pub five_hour_resets_at: String,
-    pub seven_day_pct: f64,
-    pub seven_day_resets_at: String,
+    /// Null with its reset time when the account has no such window.
+    pub five_hour_pct: Option<f64>,
+    pub five_hour_resets_at: Option<String>,
+    pub seven_day_pct: Option<f64>,
+    pub seven_day_resets_at: Option<String>,
     /// Whether the writer claims a measurement; unsaid is an echo.
     #[serde(default)]
     pub measured: bool,
@@ -196,11 +197,21 @@ pub fn remember(
 }
 
 /// The dashboard's word about one window, in a live reading's terms.
-fn published_as_seen(pct: f64, resets_at: &str, ts: &str, measured: bool) -> Option<Seen> {
+fn published_as_seen(
+    pct: Option<f64>,
+    resets_at: Option<&str>,
+    ts: &str,
+    measured: bool,
+) -> Option<Seen> {
+    let resets_at = match (pct, resets_at) {
+        (Some(_), Some(stamp)) => Some(crate::session::ResetsAt(at(stamp)? / 1000)),
+        (None, _) => None,
+        (Some(_), None) => return None,
+    };
     Some(Seen {
         // A percentage there, a fraction here.
-        utilization: pct / 100.0,
-        resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
+        utilization: pct.map(|pct| pct / 100.0),
+        resets_at,
         at: crate::session::Heard(at(ts)?),
         // Dated by its host, so this console's own row displaces nothing.
         measured,
@@ -227,16 +238,16 @@ pub fn merged(
             (None, theirs) => theirs,
         }
     };
-    let of = |pct: fn(&Published) -> f64, resets: fn(&Published) -> &str| {
+    let of = |pct: fn(&Published) -> Option<f64>, resets: fn(&Published) -> Option<&str>| {
         dashboard.and_then(|it| published_as_seen(pct(it), resets(it), &it.ts, it.measured))
     };
     let chosen_five = pick(
         seen.get(FIVE_HOUR),
-        of(|d| d.five_hour_pct, |d| &d.five_hour_resets_at),
+        of(|d| d.five_hour_pct, |d| d.five_hour_resets_at.as_deref()),
     );
     let chosen_seven = pick(
         seen.get(SEVEN_DAY),
-        of(|d| d.seven_day_pct, |d| &d.seven_day_resets_at),
+        of(|d| d.seven_day_pct, |d| d.seven_day_resets_at.as_deref()),
     );
     let five_hour = live(chosen_five.as_ref().map(|it| &it.0), now_ms);
     let seven_day = live(chosen_seven.as_ref().map(|it| &it.0), now_ms);
@@ -278,6 +289,9 @@ pub fn merged(
 /// The CLI's own names for the two windows worth showing.
 const FIVE_HOUR: &str = "five_hour";
 const SEVEN_DAY: &str = "seven_day";
+
+/// The plan's windows, which an account may not have.
+pub const PLAN: [&str; 2] = [FIVE_HOUR, SEVEN_DAY];
 
 /// The prefix filing a model's window apart from the plan's; no CLI name has a colon.
 const MODEL_PREFIX: &str = "model:";
@@ -327,7 +341,7 @@ fn live(seen: Option<&Seen>, now_ms: i64) -> Option<Window> {
     let seen = seen?;
     Some(Window {
         // A fraction on the wire, a percentage on screen.
-        pct: seen.utilization * 100.0,
+        pct: seen.utilization? * 100.0,
         // Seconds there, milliseconds here.
         resets_in_ms: seen
             .resets_at
@@ -342,29 +356,30 @@ pub fn reading(published: &Published, now_ms: i64) -> Reading {
         host: published.host.clone(),
         // Unreadable means no age rather than 1970.
         age_ms: at(&published.ts).map(|then| now_ms - then).unwrap_or(0),
-        five_hour: Some(window(
+        five_hour: window(
             published.five_hour_pct,
-            &published.five_hour_resets_at,
+            published.five_hour_resets_at.as_deref(),
             now_ms,
-        )),
-        seven_day: Some(window(
+        ),
+        seven_day: window(
             published.seven_day_pct,
-            &published.seven_day_resets_at,
+            published.seven_day_resets_at.as_deref(),
             now_ms,
-        )),
+        ),
         // Never read back: home's per-model figures came from here.
         models: Vec::new(),
     }
 }
 
-fn window(pct: f64, resets_at: &str, now_ms: i64) -> Window {
-    Window {
-        pct,
+fn window(pct: Option<f64>, resets_at: Option<&str>, now_ms: i64) -> Option<Window> {
+    Some(Window {
+        pct: pct?,
         // Already turned over: no window.
-        resets_in_ms: at(resets_at)
+        resets_in_ms: resets_at
+            .and_then(at)
             .map(|turns| turns - now_ms)
             .filter(|left| *left > 0),
-    }
+    })
 }
 
 /// An RFC 3339 stamp as milliseconds since the epoch.

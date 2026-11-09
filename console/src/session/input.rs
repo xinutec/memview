@@ -372,10 +372,10 @@ impl Session {
                 && !crate::usage::fresher(held, seen)
             {
                 tracing::info!(
-                    "{}: kept {window} at {:.0}% over an echo of {:.0}%",
+                    "{}: kept {window} at {:?} over an echo of {:?}",
                     self.id,
-                    held.utilization * 100.0,
-                    seen.utilization * 100.0,
+                    held.utilization,
+                    seen.utilization,
                 );
             }
         }

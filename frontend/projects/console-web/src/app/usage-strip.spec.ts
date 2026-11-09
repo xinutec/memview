@@ -128,4 +128,11 @@ describe('the usage strip', () => {
     expect(said).not.toContain('reset since');
     expect(said).toContain('66%');
   });
+
+  it('leaves out five hours with nothing spent in it', async () => {
+    const said = (await render(reading({ five_hour: { pct: 0.4, resets_in_ms: HOUR } })))
+      .textContent;
+    expect(said).not.toContain('5 hours');
+    expect(said).toContain('66%');
+  });
 });

@@ -73,8 +73,9 @@ pub struct Heard(pub i64);
 /// One window's utilisation, as last reported.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Seen {
-    /// A fraction: 0.28 is 28% of the window.
-    pub utilization: f64,
+    /// A fraction: 0.28 is 28% of the window. `None` when the API said the account
+    /// has no such window — kept, so it outranks an older figure.
+    pub utilization: Option<f64>,
     #[serde(default)]
     pub resets_at: Option<ResetsAt>,
     pub at: Heard,

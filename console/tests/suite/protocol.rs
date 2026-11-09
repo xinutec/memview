@@ -669,8 +669,14 @@ fn the_usage_reply_gives_up_both_windows() {
     found.sort_by(|a, b| a.0.cmp(&b.0));
     // A percentage on the wire, a fraction here — one place multiplies, so
     // nothing downstream has to know which it was given.
-    assert_eq!(found[0], ("five_hour".to_string(), 0.315, Some(1785884400)));
-    assert_eq!(found[1], ("seven_day".to_string(), 0.66, Some(1786068000)));
+    assert_eq!(
+        found[0],
+        ("five_hour".to_string(), Some(0.315), Some(1785884400))
+    );
+    assert_eq!(
+        found[1],
+        ("seven_day".to_string(), Some(0.66), Some(1786068000))
+    );
     // A window the plan does not have is not a window at zero.
     assert_eq!(found.len(), 2);
 }
@@ -698,7 +704,7 @@ fn a_models_own_allowance_is_read_out_of_the_array_it_lives_in() {
     // weekly-scoped window turns over with.
     assert_eq!(
         found[1],
-        ("model:Fable".to_string(), 0.06, Some(1786672799))
+        ("model:Fable".to_string(), Some(0.06), Some(1786672799))
     );
     assert_eq!(found[2].0, "seven_day");
 }
@@ -740,6 +746,26 @@ fn a_response_whose_shape_has_moved_yields_nothing() {
     // And a window with no figure in it is not a window at zero.
     let empty = r#"{"type":"control_response","response":{"response":{"rate_limits":{"five_hour":{"resets_at":"2026-08-04T23:00:00Z"}}}}}"#;
     assert!(console::protocol::usage_reply(empty).is_none());
+}
+
+/// A fetched reply for an account with no five-hour window, as CLI 2.1.237 gave
+/// it, trimmed to the windows.
+const NO_FIVE_HOUR: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":null,"seven_day":{"utilization":47,"resets_at":"2026-11-13T02:00:00.426716+00:00"},"seven_day_opus":null,"tangelo":null,"limits":[]}}}}"#;
+
+#[test]
+fn a_plan_window_given_as_null_is_heard_as_absent() {
+    let reply = console::protocol::usage_reply(NO_FIVE_HOUR).expect("rate limits");
+    let mut found = reply.windows;
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    // Heard, so it displaces the figure the account had before; the other nulls
+    // are no window the console shows.
+    assert_eq!(
+        found,
+        [
+            ("five_hour".to_string(), None, None),
+            ("seven_day".to_string(), Some(0.47), Some(1794535200)),
+        ]
+    );
 }
 
 /// What a call answered, as the stream reports it.

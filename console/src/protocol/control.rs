@@ -370,11 +370,16 @@ pub fn usage_answer(parsed: &serde_json::Value) -> Option<UsageReply> {
             found.extend(scoped(seen));
             continue;
         }
+        // A plan window given as null: the account has none.
+        if seen.is_null() && crate::usage::PLAN.contains(&window.as_str()) {
+            found.push((window.clone(), None, None));
+            continue;
+        }
         // A percentage here, a fraction on the stream: both become a fraction.
         let Some(pct) = seen.get("utilization").and_then(|it| it.as_f64()) else {
             continue;
         };
-        found.push((window.clone(), pct / 100.0, resets_at(seen)));
+        found.push((window.clone(), Some(pct / 100.0), resets_at(seen)));
     }
     (!found.is_empty()).then_some(UsageReply {
         windows: found,
@@ -385,8 +390,9 @@ pub fn usage_answer(parsed: &serde_json::Value) -> Option<UsageReply> {
 /// What a `get_usage` answer says about the rate limits.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageReply {
-    /// Each window, by name, as a fraction and when it turns over (epoch seconds).
-    pub windows: Vec<(String, f64, Option<i64>)>,
+    /// Each window, by name, as a fraction — `None` for one the account does not
+    /// have — and when it turns over (epoch seconds).
+    pub windows: Vec<(String, Option<f64>, Option<i64>)>,
     /// Whether the CLI fetched this from the usage service — a measurement — rather
     /// than repeating old headers. Only the fetched shape has a `limits` list.
     pub fetched: bool,
@@ -396,7 +402,7 @@ pub struct UsageReply {
 const MODEL_SCOPED: &str = "model_scoped";
 
 /// The per-model windows, named by the model; an unnamed entry is dropped.
-fn scoped(value: &serde_json::Value) -> Vec<(String, f64, Option<i64>)> {
+fn scoped(value: &serde_json::Value) -> Vec<(String, Option<f64>, Option<i64>)> {
     let Some(entries) = value.as_array() else {
         return Vec::new();
     };
@@ -405,7 +411,11 @@ fn scoped(value: &serde_json::Value) -> Vec<(String, f64, Option<i64>)> {
         .filter_map(|entry| {
             let name = entry.get("display_name")?.as_str()?;
             let pct = entry.get("utilization")?.as_f64()?;
-            Some((crate::usage::model_key(name), pct / 100.0, resets_at(entry)))
+            Some((
+                crate::usage::model_key(name),
+                Some(pct / 100.0),
+                resets_at(entry),
+            ))
         })
         .collect()
 }
