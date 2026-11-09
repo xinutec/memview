@@ -563,7 +563,12 @@ impl Roster {
                 .cloned()
         };
         if let Some(session) = asked {
-            session.ask_usage().await;
+            let held = self
+                .spent()
+                .into_keys()
+                .filter(|window| crate::usage::is_model(window))
+                .collect();
+            session.ask_usage(held).await;
         }
     }
 

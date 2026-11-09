@@ -714,3 +714,42 @@ fn the_dashboard_reads_with_no_five_hour_window() {
     assert_eq!(read.five_hour, None);
     assert_eq!(read.seven_day.unwrap().pct, 47.0);
 }
+
+#[test]
+fn a_model_the_listing_leaves_out_is_retired() {
+    // Held from a promotion since ended, beside one still running.
+    let mut known = seen(&[
+        (
+            "model:Opus",
+            heard(0.2, "2026-11-01T02:00:00.000Z", "2026-10-30T08:00:00.000Z"),
+        ),
+        (
+            "model:Fable",
+            heard(0.01, "2026-11-13T02:00:00.000Z", "2026-11-09T19:00:00.000Z"),
+        ),
+        (
+            "seven_day",
+            heard(0.47, "2026-11-13T02:00:00.000Z", "2026-11-09T20:00:00.000Z"),
+        ),
+    ]);
+    let listed = [
+        ("seven_day".to_string(), Some(0.47), Some(1794535200)),
+        ("model:Fable".to_string(), Some(0.01), Some(1794535200)),
+    ];
+    let lost = console::usage::unlisted(&listed, known.keys());
+    // The plan's windows are never a model's to retire.
+    assert_eq!(lost.iter().collect::<Vec<_>>(), ["model:Opus"]);
+    let gone = Seen {
+        utilization: None,
+        resets_at: None,
+        at: Heard(at_ms("2026-11-09T20:00:00.000Z")),
+        measured: true,
+    };
+    console::usage::remember(
+        &mut known,
+        lost.into_iter().map(|window| (window, gone.clone())),
+    );
+    let read = merged(&known, None, at_ms("2026-11-09T20:01:00.000Z")).expect("a reading");
+    let models: Vec<&str> = read.models.iter().map(|it| it.model.as_str()).collect();
+    assert_eq!(models, ["Fable"]);
+}

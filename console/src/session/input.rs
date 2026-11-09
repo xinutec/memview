@@ -350,8 +350,15 @@ impl Session {
     pub(super) fn record_usage(&self, reply: protocol::UsageReply) {
         let mut state = self.state.lock();
         let (at, measured) = crate::usage::echo_dated(reply.fetched, state.answered, now());
-        let heard: Vec<(String, Seen)> = reply
-            .windows
+        let mut windows = reply.windows;
+        // A model held, here or by the console, but not listed: the account no
+        // longer has its window.
+        if reply.models_listed {
+            let held = state.spent.keys().chain(&state.models_held);
+            let lost = crate::usage::unlisted(&windows, held);
+            windows.extend(lost.into_iter().map(|window| (window, None, None)));
+        }
+        let heard: Vec<(String, Seen)> = windows
             .into_iter()
             .map(|(window, utilization, resets_at)| {
                 (
@@ -404,8 +411,10 @@ impl Session {
     }
 
     /// Ask what the account has spent — [`protocol::get_usage`]; the answer arrives
-    /// through [`Self::record_usage`].
-    pub async fn ask_usage(&self) {
+    /// through [`Self::record_usage`], which retires those of `models_held` it does
+    /// not list.
+    pub async fn ask_usage(&self, models_held: Vec<String>) {
+        self.state.lock().models_held = models_held;
         let line = protocol::get_usage(&format!("usage-{}", self.id));
         // A question, not an instruction: a session that has gone simply goes
         // unasked, and the next ask tries again.

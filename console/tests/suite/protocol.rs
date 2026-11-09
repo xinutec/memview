@@ -768,6 +768,16 @@ fn a_plan_window_given_as_null_is_heard_as_absent() {
     );
 }
 
+#[test]
+fn a_reply_says_whether_it_lists_the_models() {
+    // Only a listing can say a model's window is gone; a reply without one says
+    // nothing about the models.
+    let listed = console::protocol::usage_reply(SCOPED_REPLY).expect("rate limits");
+    assert!(listed.models_listed);
+    let unlisted = console::protocol::usage_reply(NO_FIVE_HOUR).expect("rate limits");
+    assert!(!unlisted.models_listed);
+}
+
 /// What a call answered, as the stream reports it.
 fn answered(id: &str, said: &str) -> Event {
     Event::ToolResult {

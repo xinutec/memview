@@ -135,6 +135,9 @@ pub(super) struct State {
     /// When the API last answered this process, in epoch milliseconds — the age of
     /// the usage it would repeat. See [`crate::usage::echo_dated`].
     pub(super) answered: Option<i64>,
+    /// The model windows the console held when it last asked for usage: those the
+    /// answer does not list are retired — [`Session::record_usage`].
+    pub(super) models_held: Vec<String>,
     /// Whether this episode of deafness has been announced.
     pub(super) announced_deaf: bool,
     /// When the oldest decision not yet acted on was written, in epoch milliseconds.

@@ -5,7 +5,7 @@
 
 #![expect(unsafe_code, reason = "libc::gethostname into a fixed buffer")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -299,6 +299,24 @@ const MODEL_PREFIX: &str = "model:";
 /// How a model's window is filed among the rest.
 pub fn model_key(display_name: &str) -> String {
     format!("{MODEL_PREFIX}{display_name}")
+}
+
+/// Whether a window is filed as a model's — [`model_key`].
+pub fn is_model(window: &str) -> bool {
+    window.starts_with(MODEL_PREFIX)
+}
+
+/// The model windows among `held` that a reply listing every model's does not
+/// name: the account no longer has them.
+pub fn unlisted<'a>(
+    listed: &[(String, Option<f64>, Option<i64>)],
+    held: impl IntoIterator<Item = &'a String>,
+) -> BTreeSet<String> {
+    held.into_iter()
+        .filter(|window| is_model(window))
+        .filter(|window| !listed.iter().any(|(named, ..)| named == *window))
+        .cloned()
+        .collect()
 }
 
 /// The machine this console runs on — a real host name, as home's table keys by host.

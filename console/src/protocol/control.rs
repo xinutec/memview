@@ -364,6 +364,9 @@ pub fn usage_answer(parsed: &serde_json::Value) -> Option<UsageReply> {
     let fetched = limits
         .get("limits")
         .is_some_and(serde_json::Value::is_array);
+    let models_listed = limits
+        .get(MODEL_SCOPED)
+        .is_some_and(serde_json::Value::is_array);
     let mut found = Vec::new();
     for (window, seen) in limits {
         if window == MODEL_SCOPED {
@@ -384,6 +387,7 @@ pub fn usage_answer(parsed: &serde_json::Value) -> Option<UsageReply> {
     (!found.is_empty()).then_some(UsageReply {
         windows: found,
         fetched,
+        models_listed,
     })
 }
 
@@ -396,6 +400,9 @@ pub struct UsageReply {
     /// Whether the CLI fetched this from the usage service — a measurement — rather
     /// than repeating old headers. Only the fetched shape has a `limits` list.
     pub fetched: bool,
+    /// Whether the reply lists the models' own windows, so a model missing from it
+    /// has none.
+    pub models_listed: bool,
 }
 
 /// Where the CLI files a window belonging to one model rather than to the plan.
