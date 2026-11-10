@@ -17,13 +17,13 @@ use crate::state::{AppState, OAUTH_TTL};
 /// even when the identity provider loses the `state` it was given.
 const PENDING_COOKIE: &str = "signin";
 
-fn session_cookie(value: String) -> Cookie<'static> {
+pub(crate) fn session_cookie(value: String) -> Cookie<'static> {
     Cookie::build((COOKIE_NAME, value))
         .path("/")
         .http_only(true)
         // Not `Secure`: the isis deployment is plain http on the wg0 hostPort.
         .same_site(SameSite::Lax)
-        .max_age(time::Duration::days(7))
+        .max_age(time::Duration::days(400))
         .build()
 }
 
@@ -256,4 +256,25 @@ pub async fn logout(
 ) -> Result<(CookieJar, StatusCode), AppError> {
     app.cfg.auth.as_ref().ok_or(AppError::NotFound)?;
     Ok((jar.remove(removal(COOKIE_NAME)), StatusCode::NO_CONTENT))
+}
+
+/// Sends a used session back re-minted (`session::renewed`), so it lasts a
+/// month from its last use rather than from sign-in.
+pub(crate) async fn renew_session(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let fresh = state.cfg.auth.as_ref().and_then(|auth| {
+        CookieJar::from_headers(req.headers())
+            .get(COOKIE_NAME)
+            .and_then(|c| crate::session::renewed(&auth.session_secret, c.value()))
+    });
+    let mut res = next.run(req).await;
+    if let Some(value) = fresh
+        && let Ok(v) = axum::http::HeaderValue::from_str(&session_cookie(value).to_string())
+    {
+        res.headers_mut().append(header::SET_COOKIE, v);
+    }
+    res
 }

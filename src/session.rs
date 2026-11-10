@@ -13,7 +13,11 @@ use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const SESSION_TTL_DAYS: i64 = 7;
+/// An idle timeout, not a cap: a used session is re-minted (`renewed`).
+const SESSION_TTL_DAYS: i64 = 30;
+
+/// A cookie is re-minted only when its expiry would move by more than this.
+const RENEW_INTERVAL_HOURS: i64 = 1;
 pub const COOKIE_NAME: &str = "session";
 
 #[derive(Clone, Debug)]
@@ -58,6 +62,28 @@ pub fn create_session(secret: &str, user: &UserSession) -> String {
     };
     let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).expect("claims serialize"));
     sign_value(secret, &payload)
+}
+
+/// A valid cookie re-minted to expire a month from now, or `None` when it is
+/// forged, expired, or would move by an hour or less.
+pub fn renewed(secret: &str, signed: &str) -> Option<String> {
+    let payload = verify_value(secret, signed)?;
+    let claims: Claims = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
+    let now = Utc::now();
+    if claims.x < now.timestamp() {
+        return None;
+    }
+    let fresh = (now + Duration::days(SESSION_TTL_DAYS)).timestamp();
+    if fresh - claims.x <= Duration::hours(RENEW_INTERVAL_HOURS).num_seconds() {
+        return None;
+    }
+    Some(create_session(
+        secret,
+        &UserSession {
+            user_id: claims.u,
+            display_name: claims.d,
+        },
+    ))
 }
 
 /// Resolve a signed cookie back to a session (None if forged or expired).
