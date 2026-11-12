@@ -36,17 +36,10 @@ Runs on any Android 8+ (minSdk 26) device.
 ## Build & install
 
 No toolchain lives in this repo — it borrows the recall project's `android` nix dev
-shell (JDK 17 + Android SDK; the Gradle wrapper pins Gradle). `deploy.sh` does
-both, and keys on the device *model* rather than an IP, because DHCP drifts and a
-bare `adb install` can hit the wrong connected phone:
-
-```sh
-cd android
-nix develop ~/Code/recall#android --command ./deploy.sh
-```
-
-It tries the VPN address (`10.100.0.12:5555`, the stable one) before the LAN lease.
-To build without installing:
+shell (JDK 17 + Android SDK; the Gradle wrapper pins Gradle). The Pixel 9 gets the
+committed build from xinutec-infra's android plan (`plan-run android-pixel9
+--apply`), on the phone that reports the model `Pixel 9` and no other. To build
+without installing:
 
 ```sh
 nix develop ~/Code/recall#android --command ./gradlew :app:assembleDebug

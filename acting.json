@@ -1,22 +1,12 @@
 {
   "ceilings": {
-    "acts": 4,
+    "acts": 2,
     "bootstrap": 1,
     "by_design": 0,
     "observer_checks": 0,
     "observes": 0
   },
   "subjects": [
-    {
-      "class": "Acts",
-      "path": "android/deploy.sh",
-      "why": "builds the APK and installs it on a phone over adb: the phone-shells plan's target (automation-model item 14)"
-    },
-    {
-      "class": "Acts",
-      "path": "console/android/deploy.sh",
-      "why": "builds the APK and installs it on a phone over adb: the phone-shells plan's target (automation-model item 14)"
-    },
     {
       "class": "OutOfScope",
       "path": "reader/probes/ansi-quote.sh",

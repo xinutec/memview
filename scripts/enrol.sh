@@ -47,7 +47,7 @@ sleep 5
 # exec-out: `adb shell`'s pty turns LF into CRLF and breaks the PEM.
 "$ADB" -s "$DEVICE" exec-out run-as "$PACKAGE" cat "files/enrolment.pem" > "$WORK/chain.pem"
 if [ ! -s "$WORK/chain.pem" ]; then
-  echo "The phone wrote no chain. Is the app installed (console/android/deploy.sh)," >&2
+  echo "The phone wrote no chain. Is the app installed (plan-run android-pixel9)," >&2
   echo "and did it come to the foreground?" >&2
   exit 1
 fi

@@ -66,11 +66,11 @@ CONSOLE_URL=https://192.168.1.x:8097/
 CONSOLE_SERVER_PIN=<64 hex characters>
 ```
 
-Then build, install and enrol:
+Then install and enrol. xinutec-infra's android plan builds HEAD with `console.env`
+sourced and installs it on the Pixel 9 (`plan-run android-pixel9 --apply`); then:
 
 ```sh
 cd console/android
-nix develop ~/Code/recall#android --command ./deploy.sh
 nix develop ~/Code/recall#android --command ../../scripts/enrol.sh
 ```
 
@@ -97,8 +97,7 @@ console/android/
 │   │   ├── Keys.kt                                      # the StrongBox key and enrolment
 │   │   └── Unlock.kt                                    # the prompt, when the window runs out
 │   └── res/                                             # launcher icon, theme, strings
-├── build.gradle.kts · settings.gradle.kts · gradle/     # project scaffolding
-└── deploy.sh                                            # model-guarded install to the Pixel 9
+└── build.gradle.kts · settings.gradle.kts · gradle/     # project scaffolding
 ```
 
 A separate Gradle build from `../../android`, not a second module of it: the

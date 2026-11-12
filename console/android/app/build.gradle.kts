@@ -6,7 +6,8 @@ plugins {
 // Where this build's console lives, and which server key it will speak to. Both
 // are deployment facts, not source: this repository is public, and the address of
 // a machine on a private VPN does not belong in it. They arrive from the
-// environment — `deploy.sh` sources `console.env` (gitignored). Empty is allowed
+// environment: `console.env` (gitignored), which xinutec-infra's android plan
+// sources before it builds. Empty is allowed
 // for tests and lint, never for an APK: an assemble or install without them fails
 // (see below), because the app it would build points at console.invalid.
 val consoleUrl: String = System.getenv("CONSOLE_URL") ?: ""
@@ -18,7 +19,7 @@ tasks.configureEach {
             if (consoleUrl.isEmpty() || serverPin.isEmpty()) {
                 throw GradleException(
                     "CONSOLE_URL and CONSOLE_SERVER_PIN are unset: this APK would point at " +
-                        "console.invalid. Build with ./deploy.sh, or `set -a; . ./console.env; set +a` first.",
+                        "console.invalid. Run `set -a; . ./console.env; set +a` first.",
                 )
             }
         }
