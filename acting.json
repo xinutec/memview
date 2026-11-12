@@ -1,0 +1,201 @@
+{
+  "ceilings": {
+    "acts": 4,
+    "bootstrap": 1,
+    "by_design": 0,
+    "observer_checks": 0,
+    "observes": 0
+  },
+  "subjects": [
+    {
+      "class": "Acts",
+      "path": "android/deploy.sh",
+      "why": "builds the APK and installs it on a phone over adb: the phone-shells plan's target (automation-model item 14)"
+    },
+    {
+      "class": "Acts",
+      "path": "console/android/deploy.sh",
+      "why": "builds the APK and installs it on a phone over adb: the phone-shells plan's target (automation-model item 14)"
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/ansi-quote.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/arithmetic.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/array.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/bash-printer.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/brace.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/bracket.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/case.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/conditional.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/grouping.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/heredoc.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/parameter-op.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/process-substitution.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/quoting.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "reader/probes/substitution-heredoc.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/awake-watch.sh",
+      "why": "watches the phone's screen state over adb; changes nothing"
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/comment-blocks.py",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/console-identity.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/console-service.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/console-serving.sh",
+      "why": ""
+    },
+    {
+      "class": "Acts",
+      "path": "scripts/console-upgrade.sh",
+      "why": "rebuilds the agent console and hands the running one over to it"
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/console.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/dev.sh",
+      "why": ""
+    },
+    {
+      "class": "Bootstrap",
+      "path": "scripts/enrol.sh",
+      "why": "enrols one phone: it makes a key and the server records it"
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/gate-changed.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/gen-types.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/gist-strays.py",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/manifests-parse-from-stubs.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/memory-role-hook.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/mine-resume.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/reparent-transcript.py",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/setup-hooks.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/sync-check.sh",
+      "why": ""
+    },
+    {
+      "class": "Acts",
+      "path": "scripts/sync.sh",
+      "why": "pushes the Mac's memory corpus into the memview pod"
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/target-silt.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/tests-live-in-tests.sh",
+      "why": ""
+    },
+    {
+      "class": "OutOfScope",
+      "path": "scripts/workspace-members.sh",
+      "why": ""
+    }
+  ]
+}
