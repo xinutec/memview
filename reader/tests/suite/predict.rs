@@ -3546,6 +3546,71 @@ fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
     assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
 }
 
+/// The name `mktemp` picks is random, so a file it is written into has a text
+/// nobody can predict.
+#[test]
+fn a_fresh_temporary_name_written_into_a_file_is_refused() {
+    for script in [
+        "d=$(mktemp -d /tmp/qtox-crash.XXXX); echo $d > run-dir",
+        "echo a > run-dir; f=$(mktemp); echo \"at $f\" >> run-dir",
+    ] {
+        let found = run(script, &nothing_known());
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+        assert_eq!(
+            found.unfollowed,
+            vec![Unfollowed {
+                path: Some("/repo/run-dir".to_string()),
+                why: Why::Expansion,
+            }],
+            "{script}"
+        );
+    }
+}
+
+/// A file `xargs` runs a writer over is named by the pipe, so it could be any:
+/// nothing predicted before it survives. Found live: a rename by `grep -rl |
+/// xargs perl -pi` left a later edit of the same file predicted as certain.
+#[test]
+fn a_writer_run_by_xargs_may_have_written_any_file() {
+    let files = known(&[("/repo/src/j.ts", Some("keptJointLights\nx\n"))]);
+    let found = run(
+        "echo a > out; grep -rl keptJointLights src | xargs perl -pi -e 's/keptJointLights/kept/g' && sed -i '' 's/x/y/' src/j.ts",
+        &files,
+    );
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(
+        found.unfollowed.contains(&Unfollowed {
+            path: None,
+            why: Why::Pipeline
+        }),
+        "{:?}",
+        found.unfollowed
+    );
+}
+
+/// After a `cd` this could not follow, a writer's relative operand is a file it
+/// cannot name. Found live: `ktlint --format` behind an undecided `&&` and a
+/// `cd` was dropped, and the file predicted before it kept as certain.
+#[test]
+fn a_relative_write_after_an_unfollowed_cd_withdraws_what_came_before() {
+    let files = known(&[("/repo/sub/f.kt", Some("a\n"))]);
+    for script in [
+        "echo b > sub/f.kt; grep -q x unread && cd sub && ktlint --format f.kt",
+        "echo b > sub/f.kt; grep -q x unread && cd sub && ktlint --format f.kt 2>&1 | tail -3",
+    ] {
+        let found = run(script, &files);
+        assert!(found.written.is_empty(), "{script}: {:?}", found.written);
+        assert!(
+            found.unfollowed.contains(&Unfollowed {
+                path: None,
+                why: Why::Directory
+            }),
+            "{script}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
 /// `cat -n` over one file numbers every line in six columns and a tab, the
 /// texts below being what BSD's and GNU's `cat` both printed. Over several
 /// files they differ — BSD numbers each from one — so that is refused.

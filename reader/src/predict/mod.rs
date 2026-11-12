@@ -1756,6 +1756,14 @@ impl<'a> Run<'a> {
         if append && matches!(self.now.get(path), Some(Held::Unknown)) {
             return;
         }
+        // The name `mktemp` picked is random: a real file holding it is unknown.
+        let text = text.and_then(|text| {
+            if text.contains(FRESH) && !fresh(path) {
+                Err(Why::Expansion)
+            } else {
+                Ok(text)
+            }
+        });
         let now = match (text, append) {
             (Ok(text), false) => Ok(Held::Text(text)),
             (Ok(text), true) => match self.read(path) {
@@ -2281,6 +2289,25 @@ impl<'a> Run<'a> {
         let unnamed = literal.iter().zip(&argv).skip(1).any(|(literal, word)| {
             literal.is_none() && !word.starts_with('-') && word.contains(['$', '`'])
         });
+        // `xargs` hands the program operands off the pipe: it may write any file.
+        let carried = &argv[..argv.len() - innermost(&argv).len()];
+        if writer && carried.iter().any(|word| basename(word) == "xargs") {
+            self.unnamed_write(Why::Pipeline);
+            return;
+        }
+        // A relative path after a `cd` this could not follow resolves to nothing in
+        // the tables, so the write would vanish: placed under a directory no real
+        // path is in, it shows.
+        if writer && self.cwd.is_none() {
+            let placed = classify(&argv, &heredocs, Some(NOWHERE), self.home);
+            if files_of(&placed, Reached::Always)
+                .iter()
+                .any(|file| file.write && file.path.starts_with(NOWHERE))
+            {
+                self.unnamed_write(Why::Directory);
+                return;
+            }
+        }
         if writer && unnamed {
             self.forget_everything(Why::Expansion);
             self.unfollowed.push(Unfollowed {
@@ -3262,6 +3289,10 @@ fn runs_here(argv: &[String]) -> Option<String> {
 /// Where `mktemp`'s paths are put: a NUL is in no real path, so nothing here
 /// is a file anybody predicts, asks for or checks.
 const FRESH: &str = "/\u{0}fresh";
+
+/// A stand-in for a working directory this could not follow; a NUL is in no
+/// real path.
+const NOWHERE: &str = "/\u{0}nowhere";
 
 fn fresh(path: &str) -> bool {
     path.strip_prefix(FRESH)

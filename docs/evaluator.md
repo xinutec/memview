@@ -176,7 +176,8 @@ could have rebound it; `$HOME` and `$PWD` are known, and `${x%%pat}` and its
 three siblings are computed when the pattern is spelled out. `mktemp` prints a
 path nobody had, made empty (a directory with `-d`): what is written under it
 is followed, touches no file anybody predicts, and is never reported, so
-`D=$(mktemp -d); … > $D/f` withdraws nothing.
+`D=$(mktemp -d); … > $D/f` withdraws nothing. Its name is random, so a file
+it is written into, `echo $D > f`, is refused.
 
 What a word runs as it expands runs before its command: a `$( )` is followed as
 a subshell whose output is the word's, so a program inside one withdraws what
