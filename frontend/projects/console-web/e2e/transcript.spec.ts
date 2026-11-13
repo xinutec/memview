@@ -438,6 +438,10 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
     }
   };
 
+  // At the end first: the page opens there a frame after its seed renders, and
+  // a scroll before that frame is a scroll from the top to the top, which the
+  // opening then overrides. Slow nights put the scroll inside that frame.
+  await expect.poll(() => distanceFromTheEnd(page)).toBeLessThan(4);
   await toTheTop();
   await reaches(1);
   // The dash matters: without it this also matches messages 10 to 12.
