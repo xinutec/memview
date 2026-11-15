@@ -85,9 +85,7 @@
       @for (path of got.busiest; track path.name) {
         <li>
           <span class="pair">
-            <b>{{ path.reads | number }}</b
-            >r <b>{{ path.writes | number }}</b
-            >w
+            <b>{{ path.reads | number }}</b>r <b>{{ path.writes | number }}</b>w
           </span>
           <code class="path">{{ path.name }}</code>
         </li>
@@ -101,9 +99,7 @@
       @for (cmd of got.writers; track cmd.name) {
         <li>
           <span class="pair">
-            <b>{{ cmd.writes | number }}</b
-            >w <b>{{ cmd.reads | number }}</b
-            >r
+            <b>{{ cmd.writes | number }}</b>w <b>{{ cmd.reads | number }}</b>r
           </span>
           <code class="path">{{ cmd.name }}</code>
         </li>
@@ -136,9 +132,7 @@
         @for (table of got.tables; track table.name) {
           <li>
             <span class="pair">
-              <b>{{ table.reads | number }}</b
-              >r <b>{{ table.writes | number }}</b
-              >w
+              <b>{{ table.reads | number }}</b>r <b>{{ table.writes | number }}</b>w
             </span>
             <code class="path">{{ table.name }}</code>
           </li>
@@ -154,9 +148,7 @@
       @for (host of got.hosts; track host.name) {
         <li>
           <span class="pair">
-            <b>{{ host.reads | number }}</b
-            >r <b>{{ host.writes | number }}</b
-            >w
+            <b>{{ host.reads | number }}</b>r <b>{{ host.writes | number }}</b>w
           </span>
           <code class="path">{{ host.name }}</code>
         </li>
