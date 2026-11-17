@@ -236,9 +236,15 @@ a newline, where BSD and GNU sed differ, is refused. Each is held to what
 Perl's regular expressions and Rust's agree (`reader/src/predict/perl.rs`):
 the two take the leftmost match and the first alternative alike, so no
 longest-match construction is needed as it is for sed, and they part on a
-backreference, lookaround, a possessive quantifier, an empty match under `g`
-and non-ASCII text under anything that reads characters — `perl -pi` reads
-bytes, and `s/./x/g` on `aé` gives three `x` — each refused by name. Under
+backreference, lookaround, a possessive quantifier and an empty match under
+`g`, each refused by name. `perl -pi` reads bytes — `s/./x/g` on `aé` gives
+three `x` — so non-ASCII text under anything that reads characters is matched
+by the same pattern over bytes with Unicode off; a match that leaves half a
+character is refused, and so is a class with a non-ASCII member. A `$` or `@`
+is a variable before far more than a name: `@'`, `$,`, `$\` in `a$\n`. In a
+replacement `$` is never itself; in a pattern it is the end only at the end or
+before `)` or `|`; `@` is itself only before what perl was measured to leave
+alone. Under
 `-p` a record is one line, so Perl's bare `$` is Rust's `(?m:$)` and its `^`
 is `\A`, exactly; under `-0` the final newline is held back for a pattern
 that cannot match one, and a bare `$` before a final newline is refused

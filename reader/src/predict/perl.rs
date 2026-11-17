@@ -11,13 +11,18 @@
 //! **Perl and Rust agree on where a match starts and which alternative wins:**
 //! both take the leftmost match and the first alternative that succeeds, which
 //! is why no longest-match construction is needed here as it is for sed. They
-//! part on three things, each refused by name: a backreference, lookaround or
-//! a possessive quantifier, which Rust's engine has no counterpart for; an
+//! part on two things, each refused by name: a backreference, lookaround or
+//! a possessive quantifier, which Rust's engine has no counterpart for; and an
 //! empty match under `g`, which the two place differently around the ends of a
-//! record; and non-ASCII text under anything that reads characters — `.`, a
-//! class, a word edge, `i` — because `perl -pi` without `-C` reads BYTES, so
-//! `.` on `é` matches one of its two bytes (measured: `s/./x/g` on `aé` gives
-//! three `x`). A literal is the same bytes to both.
+//! record.
+//!
+//! **`perl -pi` without `-C` reads BYTES**, so `.` on `é` matches one of its
+//! two bytes (measured: `s/./x/g` on `aé` gives three `x`). A literal is the
+//! same bytes to both. Non-ASCII text under anything that reads characters —
+//! `.`, a class, a word edge, `i` — is matched by the same pattern over bytes
+//! with Unicode off, which is Perl's reading. A match that leaves half a
+//! character leaves a file that is not text, and a class with a non-ASCII
+//! member is to Perl a class of its bytes: both refused.
 //!
 //! **The anchors and the final newline.** Perl's `$` without `m` matches at
 //! the end or before a final newline, Rust's only at the end; Perl's `^` under
@@ -36,12 +41,21 @@
 //! it means what it means: `s|a\|b|X|` is an alternation (measured). The
 //! replacement is expanded by Perl's rules: `$1`, `${1}`, `\1`, `$&`, the
 //! escapes, and a group that took no part as the empty string; a variable, an
-//! array, `\Q`, `\U` and `\L` are refused.
+//! array, `\Q`, `\U` and `\L` are refused. A sigil is a variable before far
+//! more than a name — `@'`, `$,`, `$\` — so `$` in a replacement is never
+//! itself, in a pattern it is the end only at the end or before `)` or `|`,
+//! and `@` is itself only before what perl was measured to leave alone.
 //!
 //! Held to what `/usr/bin/perl` 5.34 left in a file, in `reader/tests/suite/perl.rs`.
 
 use regex::{Regex, RegexBuilder};
 use regex_syntax::hir::{Class, Hir, HirKind};
+
+/// What an `@` may stand before and still be itself — before anything else Perl
+/// interpolates an array, `@'` and `@-` and `@1` as much as `@name`. Each list
+/// is what `/usr/bin/perl` 5.34 left alone, in a pattern and in a replacement.
+const PATTERN_AT_LITERAL_BEFORE: &str = " !\"#%&,-;<=>`~.*+?()|[\\^";
+const REPLACEMENT_AT_LITERAL_BEFORE: &str = " !\"#%&()*,.;<=>?[]^`|}~";
 
 /// Why a program is not followed, as the census names it after `perl `.
 pub type Refused = String;
@@ -149,6 +163,9 @@ struct Substitute {
     has_caret: bool,
     /// Reads characters — `.`, a class, a word edge, `i` — where Perl reads bytes.
     reads_chars: bool,
+    /// The same pattern over bytes, for non-ASCII text under what reads
+    /// characters; absent where a class holds a non-ASCII member.
+    bytes: Option<regex::bytes::Regex>,
 }
 
 /// What `-p` or `-0 -p` leaves of `text` after `code` ran on each record.
@@ -180,9 +197,15 @@ fn run(statements: &[Substitute], record: &str) -> Result<String, Refused> {
 
 impl Substitute {
     fn run(&self, record: &str) -> Result<String, Refused> {
-        if self.reads_chars && !record.is_ascii() {
-            return Err("non-ASCII text".to_string());
-        }
+        let bytes = if self.reads_chars && !record.is_ascii() {
+            Some(
+                self.bytes
+                    .as_ref()
+                    .ok_or_else(|| "non-ASCII class".to_string())?,
+            )
+        } else {
+            None
+        };
         // The haystack: the record whole, or with its final newline held back
         // and put back after — the module head says which when.
         let whole = if self.multiline {
@@ -206,6 +229,32 @@ impl Substitute {
                 None => (record, ""),
             }
         };
+        if let Some(regex) = bytes {
+            // As Perl matches it: bytes in, bytes out, and a match that leaves
+            // half a character leaves a file this cannot hold as text.
+            let expand = |captures: &regex::bytes::Captures<'_>| -> Vec<u8> {
+                let mut out = Vec::new();
+                for part in &self.parts {
+                    match part {
+                        Part::Text(text) => out.extend_from_slice(text.as_bytes()),
+                        Part::Group(n) => {
+                            out.extend_from_slice(
+                                captures.get(*n).map_or(&[][..], |m| m.as_bytes()),
+                            );
+                        }
+                    }
+                }
+                out
+            };
+            let replaced = if self.global {
+                regex.replace_all(haystack.as_bytes(), expand)
+            } else {
+                regex.replace(haystack.as_bytes(), expand)
+            };
+            let replaced = String::from_utf8(replaced.into_owned())
+                .map_err(|_| "a split character".to_string())?;
+            return Ok(format!("{replaced}{newline}"));
+        }
         let expand = |captures: &regex::Captures<'_>| -> String {
             self.parts
                 .iter()
@@ -336,6 +385,19 @@ fn substitute(
         return Err("empty match".to_string());
     }
     let parts = template(replacement, regex.captures_len())?;
+    // Unicode off: `.` is a byte, a class and a word edge are ASCII's, and `i`
+    // folds ASCII only, which is what Perl does to a file it read as bytes.
+    let bytes = if translated.non_ascii_class {
+        None
+    } else {
+        regex::bytes::RegexBuilder::new(&translated.source)
+            .unicode(false)
+            .case_insensitive(fold_case)
+            .multi_line(multiline)
+            .dot_matches_new_line(dot_all)
+            .build()
+            .ok()
+    };
     Ok(Substitute {
         regex,
         parts,
@@ -346,6 +408,7 @@ fn substitute(
         has_dollar: translated.has_dollar,
         has_caret: translated.has_caret,
         reads_chars: translated.reads_chars || fold_case,
+        bytes,
     })
 }
 
@@ -376,6 +439,8 @@ struct Translated {
     has_caret: bool,
     reads_chars: bool,
     reads_end: bool,
+    /// A class holds a non-ASCII member: to Perl each of its bytes is one.
+    non_ascii_class: bool,
 }
 
 /// Perl's pattern as Rust reads it: the escapes both know pass through, a
@@ -441,26 +506,29 @@ fn translate(pattern: &str, multiline: bool, slurp: bool) -> Result<Translated, 
                 class = Some(false);
             }
             ('-', Some(_)) if chars.get(at) == Some(&'-') => return Err("class".to_string()),
+            // The end anchor only at the pattern's end or before `)` or `|`;
+            // before anything else Perl reads a variable — `$\`, `$,`, `$'`.
             ('$', None) => match chars.get(at) {
-                Some(next) if next.is_alphanumeric() || matches!(next, '_' | '{' | '&') => {
-                    return Err("variable".to_string());
-                }
-                _ => {
+                None | Some(')' | '|') => {
                     out.has_dollar = true;
                     // Perl's bare `$` on a one-line record — see the module head.
                     out.source
                         .push_str(if multiline || slurp { "$" } else { "(?m:$)" });
                 }
+                Some(_) => return Err("variable".to_string()),
             },
             ('@', None) => {
                 if chars
                     .get(at)
-                    .is_some_and(|next| next.is_alphanumeric() || matches!(next, '_' | '{'))
+                    .is_some_and(|next| !PATTERN_AT_LITERAL_BEFORE.contains(*next))
                 {
                     return Err("array".to_string());
                 }
                 out.source.push('@');
             }
+            // In a class Perl still interpolates: `[@x]`, `[a$]`.
+            ('$', Some(_)) => return Err("variable".to_string()),
+            ('@', Some(_)) => return Err("array".to_string()),
             ('^', None) => {
                 out.has_caret = true;
                 out.source.push_str(if multiline { "^" } else { "\\A" });
@@ -507,6 +575,7 @@ fn translate(pattern: &str, multiline: bool, slurp: bool) -> Result<Translated, 
             (c, Some(_)) => {
                 if !c.is_ascii() {
                     out.reads_chars = true;
+                    out.non_ascii_class = true;
                 }
                 out.source.push(c);
                 class = Some(false);
@@ -642,12 +711,14 @@ fn template(replacement: &str, groups: usize) -> Result<Vec<Part>, Refused> {
                 Some(next) if next.is_alphanumeric() || matches!(next, '_' | '`' | '\'' | '+') => {
                     return Err("variable".to_string());
                 }
-                _ => text.push('$'),
+                // Never itself: before any other character it is a variable,
+                // and at the end a syntax error.
+                _ => return Err("variable".to_string()),
             },
             '@' => {
                 if chars
                     .get(at)
-                    .is_some_and(|next| next.is_alphanumeric() || matches!(next, '_' | '{'))
+                    .is_some_and(|next| !REPLACEMENT_AT_LITERAL_BEFORE.contains(*next))
                 {
                     return Err("array".to_string());
                 }

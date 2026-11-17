@@ -214,13 +214,76 @@ fn an_empty_match_under_g_is_refused() {
     assert_eq!(line("s/x*/-/", "aaa\n").unwrap(), "-aaa\n");
 }
 
+/// What this made of a case, and what perl left: a text, or a refusal.
+type Measured = (Result<String, String>, Result<&'static str, &'static str>);
+
 #[test]
-fn perl_reads_bytes_so_non_ascii_text_is_refused_under_what_reads_characters() {
-    // perl: `s/./x/g` on `aé` gives THREE x — one per byte.
-    assert_eq!(line("s/./x/g", "aé\n"), Err("non-ASCII text".to_string()));
-    assert_eq!(line("s/\\w+/x/", "é\n"), Err("non-ASCII text".to_string()));
-    assert_eq!(line("s/[a-z]/x/", "é\n"), Err("non-ASCII text".to_string()));
-    assert_eq!(line("s/e/x/i", "É\n"), Err("non-ASCII text".to_string()));
+fn perl_reads_bytes_and_non_ascii_text_is_followed_byte_for_byte() {
+    // `perl -pi` without `-C` reads bytes: `.` is one byte, a class and a word
+    // edge are ASCII's, and `i` folds ASCII only. Measured on perl 5.34.1 with
+    // no `PERL_UNICODE`. A match that leaves half a character leaves a file
+    // that is not text, and is refused.
+    let cases: Vec<Measured> = vec![
+        (line("s/./x/g", "aé\n"), Ok("xxx\n")),
+        (line("s/\\w+/x/", "é\n"), Ok("é\n")),
+        (line("s/[a-z]/x/", "é\n"), Ok("é\n")),
+        (line("s/e/x/i", "É\n"), Ok("É\n")),
+        (line("s/É/x/i", "é\n"), Ok("é\n")),
+        (line("s/\\bfoo\\b/X/", "éfooé\n"), Ok("éXé\n")),
+        (line("s/\\s+$//", "naïve  \n"), Ok("naïve")),
+        (line("s/^(\\s*)— /$1- /", "  — item\n"), Ok("  - item\n")),
+        (line("s/[^\"]+/X/", "\"café\"\n"), Ok("\"X\"\n")),
+        (line("s/caf./X/", "café\n"), Err("a split character")),
+        (line("s/caf../X/", "café\n"), Ok("X\n")),
+        (line("s/\\W/_/g", "a—b\n"), Ok("a___b_")),
+        (line("s/\\S+/X/", "— x\n"), Ok("X x\n")),
+        (line("s/(\\w+)—(\\w+)/$2—$1/", "ab—cd\n"), Ok("cd—ab\n")),
+        (line("s/.*//", "é\n"), Ok("\n")),
+        (line("s/x.y/Z/", "xéy\n"), Ok("xéy\n")),
+        (line("s/x..y/Z/", "xéy\n"), Ok("Z\n")),
+        (line("s/\\d+/N/g", "٣ 42\n"), Ok("٣ N\n")),
+        (line("s/[[:alpha:]]+/W/g", "añb\n"), Ok("WñW\n")),
+        (line("s/a.*?b/X/", "a–b–b\n"), Ok("X–b\n")),
+        (
+            line("s/browser.s/browser's/", "the browser’s own\n"),
+            Ok("the browser’s own\n"),
+        ),
+        (
+            line("s/browser...s/B/", "the browser’s own\n"),
+            Ok("the B own\n"),
+        ),
+        (line("s/CAFÉ/x/i", "café\n"), Ok("café\n")),
+        (line("s/caf/X/i", "CAFé\n"), Ok("Xé\n")),
+        (line("s/[\\t ]+/ /g", "a\t\tb é\n"), Ok("a b é\n")),
+        (line("s/\\w+$/END/", "héllo wörld\n"), Ok("héllo wöEND\n")),
+        (line("s/^\\W+//", "«quoted»\n"), Ok("quoted»\n")),
+        (line("s/(.)(.)/$2$1/", "éa\n"), Err("a split character")),
+        (line("s/[^a-z]+/-/g", "aéb—c\n"), Ok("a-b-c-")),
+        (line("s/\\Bé//", "aéb\n"), Ok("aéb\n")),
+        (slurp("s/\\n\\n+/\\n/g", "é\n\n\nb\n"), Ok("é\nb\n")),
+        (slurp("s/[^\\n]*é[^\\n]*\\n//", "a\nxéy\nb\n"), Ok("a\nb\n")),
+        (
+            slurp("s/(— one\\n)/$1— two\\n/", "— one\nrest é\n"),
+            Ok("— one\n— two\nrest é\n"),
+        ),
+        (slurp("s/\\s+\\z/\\n/", "tail é  \n\n"), Ok("tail é\n")),
+        (
+            slurp("s/^(\\w+): .*$/$1: —/m", "key: värde\nnext: x\n"),
+            Ok("key: —\nnext: x\n"),
+        ),
+        (slurp("s/a.b/X/s", "aéb\na\nb\n"), Ok("aéb\nX\n")),
+        (slurp("s/a.b/X/gs", "a\nb é\n"), Ok("X é\n")),
+        (slurp("s/\\bé\\b/E/g", "é é\n"), Ok("é é\n")),
+    ];
+    for (n, (got, want)) in cases.into_iter().enumerate() {
+        assert_eq!(
+            got,
+            want.map(str::to_string).map_err(str::to_string),
+            "case {n}"
+        );
+    }
+    // To Perl a class with a non-ASCII member holds each of its bytes.
+    assert_eq!(line("s/[é]/x/", "é\n"), Err("non-ASCII class".to_string()));
     assert_eq!(
         line("s/é+/x/", "é\n"),
         Err("quantified non-ASCII literal".to_string())
@@ -228,4 +291,42 @@ fn perl_reads_bytes_so_non_ascii_text_is_refused_under_what_reads_characters() {
     // A literal is the same bytes to both: perl leaves `cafe e`.
     assert_eq!(line("s/é/e/g", "café é\n").unwrap(), "cafe e\n");
     assert_eq!(line("s/./x/g", "ab\n").unwrap(), "xx\n");
+}
+
+/// Perl interpolates far more than a name. Found by running `/usr/bin/perl` over
+/// the substitutions of live calls: a replacement holding `'@' + v` lost its
+/// `@'`, an array, and this had kept it.
+#[test]
+fn a_sigil_before_punctuation_is_a_variable_too() {
+    // In a replacement `$` is never itself, and at the end a syntax error.
+    for code in [
+        "s/X/a$ b/",
+        "s/X/a$.b/",
+        "s/X/a$,b/",
+        "s/X/a$/",
+        "s/X/a$'b/",
+    ] {
+        assert_eq!(line(code, "X\n"), Err("variable".to_string()), "{code}");
+    }
+    for code in [
+        "s/X/a@'b/",
+        "s/X/a@-b/",
+        "s/X/a@1b/",
+        "s/X/a@$b/",
+        "s/X/a@:b/",
+    ] {
+        assert_eq!(line(code, "X\n"), Err("array".to_string()), "{code}");
+    }
+    // What perl left alone.
+    assert_eq!(line("s/X/a@ b@.c@/", "X\n").unwrap(), "a@ b@.c@\n");
+    assert_eq!(line("s/a@.b/Y/", "a@xb\n").unwrap(), "Y\n");
+    // In a pattern `$` is the end only at the end or before `)` or `|`: perl
+    // leaves `a\nb\n` whole under `s/^a$\n//m`, where `$\` is a variable.
+    assert_eq!(slurp("s/^a$\\n//m", "a\nb\n"), Err("variable".to_string()));
+    assert_eq!(line("s/a$,/Y/", "a$,\n"), Err("variable".to_string()));
+    assert_eq!(slurp("s/(a$)\\nb/Y/m", "a\nb\n").unwrap(), "Y\n");
+    assert_eq!(line("s/a$|zz/Y/", "a\n").unwrap(), "Y\n");
+    // A class interpolates as well: perl reads `[@x]` as `[` and an array.
+    assert_eq!(line("s/[@x]/Y/", "@\n"), Err("array".to_string()));
+    assert_eq!(line("s/[a$]/Y/", "a\n"), Err("variable".to_string()));
 }
