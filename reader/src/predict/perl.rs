@@ -38,7 +38,9 @@
 //! in both modes, and refused where the whole record is the haystack.
 //!
 //! An escaped delimiter is the bare delimiter handed to the regex engine, where
-//! it means what it means: `s|a\|b|X|` is an alternation (measured). The
+//! it means what it means: `s|a\|b|X|` is an alternation (measured). A bracket
+//! delimiter closes with its partner, nested pairs balanced and every escape
+//! kept, and the replacement has delimiters of its own (`s{a}{b}`, `s{a}/b/`). The
 //! replacement is expanded by Perl's rules: `$1`, `${1}`, `\1`, `$&`, the
 //! escapes, and a group that took no part as the empty string; a variable, an
 //! array, `\Q`, `\U` and `\L` are refused. A sigil is a variable before far
@@ -296,12 +298,31 @@ fn parse(code: &str, slurp: bool) -> Result<Vec<Substitute>, Refused> {
         if delimiter.is_alphanumeric() || delimiter.is_whitespace() || delimiter == '\\' {
             return Err("delimiter".to_string());
         }
-        if "([{<".contains(delimiter) {
-            return Err("bracket delimiter".to_string());
-        }
         at += 1;
-        let pattern = delimited(&chars, &mut at, delimiter)?;
-        let replacement = delimited(&chars, &mut at, delimiter)?;
+        // A bracket closes with its partner, nested ones balanced, and the
+        // replacement then has delimiters of its own: `s{a}{b}`, `s{a}/b/`.
+        let (pattern, replacement) = match closing(delimiter) {
+            Some(close) => {
+                let pattern = bracketed(&chars, &mut at, delimiter, close)?;
+                while at < chars.len() && chars[at].is_whitespace() {
+                    at += 1;
+                }
+                let second = *chars.get(at).ok_or_else(|| "unterminated".to_string())?;
+                if second.is_alphanumeric() || second == '\\' {
+                    return Err("delimiter".to_string());
+                }
+                at += 1;
+                let replacement = match closing(second) {
+                    Some(close) => bracketed(&chars, &mut at, second, close)?,
+                    None => delimited(&chars, &mut at, second)?,
+                };
+                (pattern, replacement)
+            }
+            None => {
+                let pattern = delimited(&chars, &mut at, delimiter)?;
+                (pattern, delimited(&chars, &mut at, delimiter)?)
+            }
+        };
         let mut flags = String::new();
         while at < chars.len() && chars[at].is_ascii_alphabetic() {
             flags.push(chars[at]);
@@ -321,6 +342,45 @@ fn parse(code: &str, slurp: bool) -> Result<Vec<Substitute>, Refused> {
 /// The text up to the next unescaped delimiter. An escaped delimiter is the
 /// bare delimiter; any other escape is kept for the pattern or replacement
 /// to read.
+/// The bracket that closes `open`, where it is one.
+fn closing(open: char) -> Option<char> {
+    match open {
+        '(' => Some(')'),
+        '[' => Some(']'),
+        '{' => Some('}'),
+        '<' => Some('>'),
+        _ => None,
+    }
+}
+
+/// A part between brackets, up to the one that closes it: nested pairs are
+/// counted, an escaped bracket is not, and every escape stays as written.
+fn bracketed(chars: &[char], at: &mut usize, open: char, close: char) -> Result<String, Refused> {
+    let mut out = String::new();
+    let mut depth = 1usize;
+    while *at < chars.len() {
+        let c = chars[*at];
+        *at += 1;
+        if c == '\\' {
+            let next = *chars.get(*at).ok_or_else(|| "unterminated".to_string())?;
+            *at += 1;
+            out.push('\\');
+            out.push(next);
+            continue;
+        }
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Ok(out);
+            }
+        }
+        out.push(c);
+    }
+    Err("unterminated".to_string())
+}
+
 fn delimited(chars: &[char], at: &mut usize, delimiter: char) -> Result<String, Refused> {
     let mut out = String::new();
     while *at < chars.len() {

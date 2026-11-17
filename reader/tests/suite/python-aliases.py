@@ -27,6 +27,10 @@ HEAD = "import json\nj=json.load(open('j.json'))\n"
 TAIL = "\njson.dump(j,open('j.json','w'))\n"
 
 MUST = [
+    "j.setdefault('dec',{})['fit']=True",
+    "j.setdefault('m',{})['fit']=True",
+    "j['m'].setdefault('k2',[0,0])[1]=5",
+    "c=j['m']\nc.setdefault('deep',{})['x']=1\nc.setdefault('deep',{})['y']=2",
     "c=j['spec']['containers'][0]\nc['env']=[]",
     "c=j['spec']\nc['containers'][0]['args']=['y']",
     "for q in j['parts']:\n    q['size'][0]=9",
@@ -44,6 +48,11 @@ MUST = [
     "c=j['m']['k']\nj['m']['k']=[5]\nc[0]=6",
 ]
 MAY = [
+    "d={}\nj.setdefault('s',d)['x']=1\nd['y']=2",
+    "j.setdefault('n',{})['x']=1",
+    "j.setdefault('parts',{})[0]={'id':'r'}",
+    "j.setdefault('m',{}).setdefault('k',[])[0]=3",
+    "def f():\n    j.setdefault('fn',{})['x']=1\nf()",
     "p=j['parts']\nq=p[0]\np.insert(0,{'id':'n','size':[0,0]})\nq['id']='moved'",
     "q=j['parts'][0]\nj['parts'].pop(0)\nq['id']='gone'",
     "q=j['parts'][0]\nj['parts'].sort(key=lambda x:x['size'][0], reverse=True)\nq['id']='s'",

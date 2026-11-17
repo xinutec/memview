@@ -906,6 +906,39 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 return Ok(());
             }
         }
+        // `d.setdefault(k, {})[at] = value`: into what is at `k`, put there
+        // first where nothing was.
+        if !matches!(index, Expr::Slice { .. })
+            && plain_key(index)
+            && let Expr::Call { func, args } = container
+            && let Expr::Attribute { value: base, attr } = &**func
+            && attr == "setdefault"
+            && let [Arg::Positional(key), Arg::Positional(default)] = args.as_slice()
+            && plain_key(key)
+            && self::fresh(default)
+            && let Some((holder, keys)) = self.path_of(base)
+            && self
+                .at_path(&holder, &keys)
+                .is_some_and(|held| matches!(held, Value::Dict(_)))
+        {
+            let key = self.expr(key)?;
+            let mut inner = keys.clone();
+            inner.push(key.clone());
+            let there = self.at_path(&holder, &inner).is_some();
+            let default = self.expr(default)?;
+            let at = self.expr(index)?;
+            if (there || self.store_through(&holder, &keys, key.clone(), default))
+                && self.store_through(&holder, &inner, at, value.clone())
+            {
+                return Ok(());
+            }
+            // Not followed: whatever holds the dict is not known any more.
+            let why = construct("item assignment");
+            self.escape(&value, &why);
+            let held = self.name(&holder);
+            self.changed(&Expr::Name(holder.clone()), &held, None, &why);
+            return Ok(());
+        }
         // A name's list at one index: changed in place, as an append is — the
         // index read first, with the list still there to be read.
         if let Expr::Name(name) = container

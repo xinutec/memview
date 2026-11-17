@@ -197,7 +197,9 @@ empty address (`,+6p`, which a `$( )` that printed nothing leaves of
 `"$(…),+6p"`), and a `cp` or `mv` whose destination is in a directory sight
 shows does not exist. `grep` answers whether it
 selected a line, which steers the same way; one this cannot run is not assumed
-to have matched. An undecided `if` or `case` leaves a finite set (*A prediction
+to have matched. A `sed -i ''` that rewrote every file it names succeeded —
+BSD sed read each and followed its script — so the GNU spelling after `||`,
+written for a shell where `sed` is the other one, does not run. An undecided `if` or `case` leaves a finite set (*A prediction
 is exact, and a set is exact*, above).
 
 ### Pipelines and the text tools
@@ -249,7 +251,9 @@ alone. Under
 is `\A`, exactly; under `-0` the final newline is held back for a pattern
 that cannot match one, and a bare `$` before a final newline is refused
 otherwise. An escaped delimiter is the bare delimiter handed to the engine:
-`s|a\|b|X|` is an alternation. Each is held to what `/usr/bin/perl` left in a
+`s|a\|b|X|` is an alternation; a bracket delimiter closes with its partner,
+nested pairs balanced, and the replacement has delimiters of its own
+(`s{a}{b}`, `s{a}/b/`). Each is held to what `/usr/bin/perl` left in a
 file. Built from the live census of 2026-10-05, where `perl` stopped 264
 calls, the largest modellable reason once the ranking counted calls.
 
@@ -275,7 +279,9 @@ and a program's harmlessness on the day is no part of a prediction's safety
 not. So a program the tables do not know, a program on none of the lists
 (`make`, `docker run`, `python -m pytest`, `restic restore`, `eval`), a script
 run from a file, code the text does not show (a package script, `pnpm install` and the install scripts it runs,
-`nix run`), a git command that rewrites the working tree, and a write to a
+`nix run`), a git command that rewrites the working tree (not `git switch -c`
+or `git checkout -b` with no start point, a branch made where HEAD is), and a
+write to a
 path an expansion chose may each have written any file, so nothing predicted
 before one survives it, and what is read after it is not known. A refusal
 names the program that ran, behind any carrier: `pnpm exec biome …` is
@@ -347,6 +353,9 @@ holder then reads what is there. An alias whose object a store replaced keeps
 the object and aliases nothing. Any change in place that is not a followed
 store (an `append`, a `del`, a call) drops every alias, since it may move what
 the keys lead to.
+
+`d.setdefault(k, {})[at] = v` stores into what is at `k`, put there first
+where nothing was.
 
 A value copied cannot say that one object is in two places of one holder
 (`[x, x]`, `j['spare'] = q`, `ys.append(x)` twice). A container put somewhere

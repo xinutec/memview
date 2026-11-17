@@ -860,6 +860,22 @@ impl<'a> Run<'a> {
                     "sed" if sed::invocation(&argv).is_ok_and(|it| it.fails().is_some()) => {
                         Status::Known(false)
                     }
+                    // In place over files it has just rewritten: BSD sed read
+                    // each and followed its script, and has nothing left to
+                    // fail on, so `sed -i '' … || sed -i …` stops at the first.
+                    "sed"
+                        if sed::invocation(&argv).is_ok_and(|it| {
+                            let files = self.operand_files(&it.operands);
+                            it.in_place
+                                && !it.quiet
+                                && !files.is_empty()
+                                && files
+                                    .iter()
+                                    .all(|path| matches!(self.now.get(path), Some(Held::Text(_))))
+                        }) =>
+                    {
+                        Status::Known(true)
+                    }
                     "cp" | "mv" if self.lands_nowhere(&argv) => Status::Known(false),
                     // `git rm`, `mv`, `restore`: each refuses a path it cannot
                     // take — local changes, nothing matching — which the text
@@ -3073,6 +3089,29 @@ const REWRITES_TREE: &[&str] = &[
     "clean",
 ];
 
+/// `git switch -c name` and `git checkout -b name` with no start point: a new
+/// branch where HEAD is, which changes no file, a dirty one included.
+fn makes_a_branch_here(argv: &[String]) -> bool {
+    let words: Vec<&str> = innermost(argv).iter().map(String::as_str).collect();
+    let Some(at) = words
+        .iter()
+        .position(|word| matches!(*word, "switch" | "checkout"))
+    else {
+        return false;
+    };
+    let rest: Vec<&str> = words[at + 1..]
+        .iter()
+        .copied()
+        .filter(|word| !matches!(*word, "-q" | "--quiet"))
+        .collect();
+    match (words[at], rest.as_slice()) {
+        ("switch", ["-c" | "--create", name]) | ("checkout", ["-b", name]) => {
+            !name.starts_with('-')
+        }
+        _ => false,
+    }
+}
+
 /// The name of a program that may write any file: one the tables do not know,
 /// a script run from a file, or git rewriting the working tree.
 fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
@@ -3087,7 +3126,9 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
         .filter(|program| program != "mktemp"),
         Op::Run { script } => Some(basename(script).to_string()),
         Op::Opaque { name } => Some(name.clone()),
-        Op::Git(GitOp::Other { subcommand }) if REWRITES_TREE.contains(&subcommand.as_str()) => {
+        Op::Git(GitOp::Other { subcommand })
+            if REWRITES_TREE.contains(&subcommand.as_str()) && !makes_a_branch_here(argv) =>
+        {
             Some(format!("git {subcommand}"))
         }
         Op::Nothing => runs_here(innermost(argv)),

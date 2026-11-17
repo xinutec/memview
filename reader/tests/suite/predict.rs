@@ -3563,6 +3563,67 @@ fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
     assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
 }
 
+/// BSD sed that rewrote its files in place did not fail, so the GNU spelling
+/// written after `||` for a machine with the other sed does not run. Where the
+/// first was not followed, the second still only sometimes runs.
+#[test]
+fn a_followed_sed_in_place_succeeded_so_its_fallback_does_not_run() {
+    let files = known(&[("/repo/f", Some("a\n"))]);
+    for fallback in [
+        "sed -i 's/a/b/' f",
+        "perl -pi -e 's/a/b/' f",
+        "echo never >> f",
+    ] {
+        let found = run(
+            &format!("sed -i '' 's/a/b/' f 2>/dev/null || {fallback}"),
+            &files,
+        );
+        assert_eq!(found.written, vec![written("/repo/f", "b\n")], "{fallback}");
+        assert!(
+            found.unfollowed.is_empty(),
+            "{fallback}: {:?}",
+            found.unfollowed
+        );
+    }
+    // Not shown the file, it did not follow the first.
+    let found = run("sed -i '' 's/a/b/' g 2>/dev/null || echo x >> g", &files);
+    assert!(found.written.is_empty(), "{:?}", found.written);
+}
+
+/// A new branch where HEAD is changes no file: `git switch -c` and `git
+/// checkout -b` with no start point withdraw nothing. With one, or as any
+/// other switch, the tree may be rewritten.
+#[test]
+fn a_branch_made_where_head_is_changes_no_file() {
+    for make in [
+        "git switch -c wip/x",
+        "git switch -q -c wip/x",
+        "git checkout -b wip/x",
+        "git checkout -q -b wip/x",
+    ] {
+        let found = run(
+            &format!("echo a > f; {make}; echo b >> f"),
+            &nothing_known(),
+        );
+        assert_eq!(found.written, vec![written("/repo/f", "a\nb\n")], "{make}");
+        assert!(
+            found.unfollowed.is_empty(),
+            "{make}: {:?}",
+            found.unfollowed
+        );
+    }
+    for moves in [
+        "git switch main",
+        "git switch -c wip/x origin/main",
+        "git checkout -b wip/x origin/main",
+        "git checkout -B wip/x",
+        "git checkout f",
+    ] {
+        let found = run(&format!("echo a > f; {moves}"), &nothing_known());
+        assert!(found.written.is_empty(), "{moves}: {:?}", found.written);
+    }
+}
+
 /// The name `mktemp` picks is random, so a file it is written into has a text
 /// nobody can predict.
 #[test]

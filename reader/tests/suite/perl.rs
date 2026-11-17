@@ -190,7 +190,6 @@ fn what_rust_has_no_counterpart_for_is_refused_by_name() {
     assert_eq!(line("s/${1}//", "a\n"), Err("variable".to_string()));
     assert_eq!(line("s/a/b/e", "a\n"), Err("flag e".to_string()));
     assert_eq!(line("s/a/b/x", "a\n"), Err("flag x".to_string()));
-    assert_eq!(line("s{a}{b}", "a\n"), Err("bracket delimiter".to_string()));
     assert_eq!(
         line("print unless /a/", "a\n"),
         Err("statement".to_string())
@@ -291,6 +290,38 @@ fn perl_reads_bytes_and_non_ascii_text_is_followed_byte_for_byte() {
     // A literal is the same bytes to both: perl leaves `cafe e`.
     assert_eq!(line("s/é/e/g", "café é\n").unwrap(), "cafe e\n");
     assert_eq!(line("s/./x/g", "ab\n").unwrap(), "xx\n");
+}
+
+/// `s{a}{b}`: a bracket closes with its partner, and the replacement brings
+/// delimiters of its own. Each text is what perl left.
+#[test]
+fn bracket_delimiters_close_with_their_partners() {
+    for (code, text, left) in [
+        ("s{a}{b}", "xax\n", "xbx\n"),
+        ("s{a{2}}{b}", "xaax\n", "xbx\n"),
+        ("s{\\{}{[}", "x{x\n", "x[x\n"),
+        ("s{a} {b}", "xax\n", "xbx\n"),
+        ("s{a}/b/", "xax\n", "xbx\n"),
+        ("s(a)(b)", "xax\n", "xbx\n"),
+        ("s[a][b]", "xax\n", "xbx\n"),
+        ("s<a><b>", "xax\n", "xbx\n"),
+        ("s{a}{b{c}d}g", "aa\n", "b{c}db{c}d\n"),
+        ("s{a}{\\}}", "xax\n", "x}x\n"),
+        ("s{(a)}{[$1]}", "xax\n", "x[a]x\n"),
+        ("s{a}\n{b}", "xax\n", "xbx\n"),
+        ("s{a}{b}g; s(x)(y)", "xax\n", "ybx\n"),
+        ("s{a(b)c}{<$1>}", "abc\n", "<b>\n"),
+        ("s(a\\(b)(c)", "a(b\n", "c\n"),
+        ("s(a(b))(c)", "ab\n", "c\n"),
+        ("s{a}(b)", "xax\n", "xbx\n"),
+        ("s{a}{b}i", "xAx\n", "xbx\n"),
+        ("s<a>{b>}", "xax\n", "xb>x\n"),
+        ("s{a}#b#", "xax\n", "xbx\n"),
+    ] {
+        assert_eq!(line(code, text).as_deref(), Ok(left), "{code}");
+    }
+    // A bracket inside a class still counts: perl reads `[` as the pattern.
+    assert!(line("s{[}\\]]}{-}", "x}x]\n").is_err());
 }
 
 /// Perl interpolates far more than a name. Found by running `/usr/bin/perl` over
