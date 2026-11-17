@@ -155,7 +155,7 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 ///
 /// When the harness adds a type, `transcript-lint` fails every session until it is
 /// named here.
-pub const METADATA_TYPES: [&str; 14] = [
+pub const METADATA_TYPES: [&str; 19] = [
     "last-prompt",
     "permission-mode",
     "bridge-session",
@@ -170,6 +170,11 @@ pub const METADATA_TYPES: [&str; 14] = [
     "frame-link",
     "atis-latch",
     "cost-state",
+    "session-owner",
+    "tools-used",
+    "api-request",
+    "api-request-blob",
+    "api-request-shape",
 ];
 
 /// Present on EVERY conversation line, whatever its type — 942,556 of 942,556.
