@@ -23,6 +23,27 @@ use crate::syntax::python::ast::{
 /// Methods that write their object to the path they are given: `img.save(p)`.
 const SAVES: &[&str] = &["save", "savefig", "to_csv", "to_json", "to_parquet"];
 
+/// Methods that change a list, a dict or a set in place. Called on a value this
+/// does not know, one of them may have changed any container.
+const CHANGES_IN_PLACE: &[&str] = &[
+    "append",
+    "extend",
+    "insert",
+    "pop",
+    "remove",
+    "clear",
+    "sort",
+    "reverse",
+    "update",
+    "setdefault",
+    "popitem",
+    "add",
+    "discard",
+    "difference_update",
+    "intersection_update",
+    "symmetric_difference_update",
+];
+
 /// How deep a call to a function the program defines is followed into
 /// [`Eval::forget`]; a backstop against recursion, not a limit programs meet.
 const DEPTH: usize = 8;
@@ -229,6 +250,7 @@ struct State<'a> {
     maybe_exited: bool,
     maybe_jumped: bool,
     shell: Run<'a>,
+    aliases: BTreeMap<String, (String, Vec<Value>)>,
 }
 
 /// Names two arms left: alike, they stand; bound differently, or in one arm
@@ -404,6 +426,21 @@ struct Eval<'r, 'a, 'm> {
     maybe_jumped: bool,
     /// Loop runs left of [`LOOP_BUDGET`].
     loops_left: usize,
+    /// Module names bound to a container INSIDE another name's: the name that
+    /// holds it and the keys down to it. `c = j['a'][0]` and a loop's `for q in
+    /// j['parts']` make one, and an item stored through such a name is stored
+    /// in its holder, as Python's one object is. Every change this does not
+    /// follow as a store empties the map — see [`Self::shared`].
+    aliases: BTreeMap<String, (String, Vec<Value>)>,
+    /// How often [`Self::aliases`] was emptied: a loop stops aliasing its
+    /// variable once its list may have changed shape under it.
+    alias_epoch: usize,
+    /// A store is being followed, whose forgetting of other holders the aliases
+    /// outlive: they are read again from the holder after it.
+    storing: bool,
+    /// Containers stored somewhere while something else held them — see
+    /// [`Self::twinned`].
+    twins: Vec<Value>,
 }
 
 /// One call's names, and the ones it declared `global`.
@@ -442,12 +479,17 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             maybe_exited: false,
             maybe_jumped: false,
             loops_left: LOOP_BUDGET,
+            aliases: BTreeMap::new(),
+            alias_epoch: 0,
+            storing: false,
+            twins: Vec::new(),
         }
     }
 
     /// Binds `name` where Python would: in the call being followed unless it
     /// declared the name `global`, else in the module.
     fn set(&mut self, name: &str, value: Value) {
+        self.unalias(name);
         match self.frames.last_mut() {
             Some(frame) if !frame.globals.contains(name) => {
                 frame.locals.insert(name.to_string(), value);
@@ -459,6 +501,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     }
 
     fn unset(&mut self, name: &str) {
+        self.unalias(name);
         match self.frames.last_mut() {
             Some(frame) if !frame.globals.contains(name) => {
                 frame.locals.remove(name);
@@ -485,14 +528,29 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             StmtKind::Expr(expr) => {
                 self.expr(expr)?;
             }
-            StmtKind::Assign { targets, value } => {
-                let value = self.expr(value)?;
+            StmtKind::Assign {
+                targets,
+                value: from,
+            } => {
+                let value = self.expr(from)?;
                 for target in targets {
                     match target {
                         Expr::Subscript {
                             value: container,
                             index,
-                        } => self.store(container, index, value.clone())?,
+                        } => self.store(container, index, value.clone(), fresh(from))?,
+                        // A name for a container another name holds is one
+                        // object under two names.
+                        Expr::Name(name) if container(&value) => {
+                            let path = self.path_of(from).filter(|(holder, keys)| {
+                                holder != name
+                                    && self.at_path(holder, keys).as_ref() == Some(&value)
+                            });
+                            self.bind(target, value.clone());
+                            if let Some(path) = path {
+                                self.aliases.insert(name.clone(), path);
+                            }
+                        }
                         _ => self.bind(target, value.clone()),
                     }
                 }
@@ -502,12 +560,18 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 match target {
                     Expr::Name(name) => {
                         let left = self.name(name);
+                        let given_container = container(&right);
                         let joined = binary(left.clone(), *op, right);
                         // `xs += ys` extends the list every holder shares.
                         if let (Value::Tuple(_), BinOp::Add) = (&left, op) {
                             let why = construct("list +=");
                             self.changed(target, &left, Some(joined), &why);
                         } else {
+                            // An unknown name given a container may be a list
+                            // another name holds, extended in place.
+                            if matches!(left, Value::Unknown(_)) && given_container {
+                                self.forget_lists(&construct("list +="));
+                            }
                             self.set(name, joined);
                         }
                     }
@@ -596,12 +660,19 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 iter,
             } => {
                 let over = self.expr(iter)?;
+                // Over a list a name holds, the variable is each element itself.
+                let through = match &over {
+                    Value::Tuple(_) => self.path_of(iter).filter(|(holder, keys)| {
+                        self.at_path(holder, keys).as_ref() == Some(&over)
+                    }),
+                    _ => None,
+                };
                 match self.iterable(over) {
                     Value::Tuple(values) if values.len() <= self.loops_left => {
                         self.loops_left -= values.len();
                         // A possible `break` or `continue` in it ends with it.
                         let outer = std::mem::replace(&mut self.maybe_jumped, false);
-                        let broke = self.unrolled(target, values, body);
+                        let broke = self.unrolled(target, values, body, through);
                         let possibly = std::mem::replace(&mut self.maybe_jumped, outer);
                         if broke? {
                             return Ok(());
@@ -769,7 +840,31 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
 
     /// `container[index] = value`, followed on a list this knows at an index or
     /// a step-less slice it can compute; otherwise the list is forgotten.
-    fn store(&mut self, container: &'m Expr, index: &'m Expr, value: Value) -> Result<(), Stop> {
+    fn store(
+        &mut self,
+        container: &'m Expr,
+        index: &'m Expr,
+        value: Value,
+        fresh: bool,
+    ) -> Result<(), Stop> {
+        if !fresh {
+            self.twinned(&value);
+        }
+        // Through an alias: stored in the name that holds the object, where
+        // the alias still names what is there.
+        if !matches!(index, Expr::Slice { .. })
+            && plain_key(index)
+            && let Some(name) = root(container)
+            && self.aliases.contains_key(name)
+            && let Some((holder, keys)) = self.path_of(container)
+            && let Some(inner) = self.at_path(&holder, &keys)
+            && self.expr(container).ok().as_ref() == Some(&inner)
+        {
+            let at = self.expr(index)?;
+            if self.store_through(&holder, &keys, at, value.clone()) {
+                return Ok(());
+            }
+        }
         // A name's list at one index: changed in place, as an append is — the
         // index read first, with the list still there to be read.
         if let Expr::Name(name) = container
@@ -806,6 +901,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             if !self.store_through(name, &keys, at, value.clone()) {
                 let why = construct("item assignment");
                 self.escape(&value, &why);
+                // Through something unknown the store may be into any container.
+                if self.lost(name, &keys) {
+                    self.forget_lists(&why);
+                }
                 let held = self.name(name);
                 self.changed(&Expr::Name(name.to_string()), &held, None, &why);
             }
@@ -824,9 +923,13 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         }
         let Value::Tuple(items) = &old else {
             self.escape(&value, &why);
+            if matches!(old, Value::Unknown(_)) {
+                self.forget_lists(&why);
+            }
             self.changed(container, &old, None, &why);
             return Ok(());
         };
+
         let now = match index {
             Expr::Slice {
                 lower,
@@ -935,7 +1038,105 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     /// of `old`, under any name in any frame, is forgotten; then `target`, when
     /// it is a name, holds `now` if the change was followed. A change through an
     /// item or an attribute forgets the name it starts from.
+    /// `name` is bound anew: it aliases nothing, and nothing aliases into it.
+    fn unalias(&mut self, name: &str) {
+        if !self.aliases.is_empty() {
+            self.aliases
+                .retain(|alias, (holder, _)| alias != name && holder != name);
+        }
+    }
+
+    /// What `holder` holds at `keys`, read down through dicts and lists.
+    fn at_path(&self, holder: &str, keys: &[Value]) -> Option<Value> {
+        let mut at = self.reads(holder)?.clone();
+        for key in keys {
+            at = child(&at, key)?;
+        }
+        Some(at)
+    }
+
+    /// The holder and keys `expr` names, where it is a module name or items of
+    /// one by keys that evaluating twice cannot change — through an alias, to
+    /// the name that holds it. Only in the module: a call's names are its own.
+    fn path_of(&mut self, expr: &'m Expr) -> Option<(String, Vec<Value>)> {
+        if !self.frames.is_empty() {
+            return None;
+        }
+        let (name, indexes) = match expr {
+            Expr::Name(name) => (name.as_str(), Vec::new()),
+            _ => chain(expr)?,
+        };
+        if !indexes.iter().all(|index| plain_key(index)) {
+            return None;
+        }
+        let (holder, mut keys) = match self.aliases.get(name) {
+            Some((holder, keys)) => (holder.clone(), keys.clone()),
+            None => (name.to_string(), Vec::new()),
+        };
+        for index in indexes {
+            keys.push(self.expr(index).ok()?);
+        }
+        Some((holder, keys))
+    }
+
+    /// After a store into `holder` at `replaced`: a name aliasing what was
+    /// there, or something inside it, keeps the object it had and aliases
+    /// nothing; every other alias into the holder holds what is there now.
+    fn realias(&mut self, holder: &str, replaced: &[Value]) {
+        let inside: Vec<(String, Vec<Value>)> = self
+            .aliases
+            .iter()
+            .filter(|(_, (held_by, _))| held_by == holder)
+            .map(|(alias, (_, keys))| (alias.clone(), keys.clone()))
+            .collect();
+        for (alias, keys) in inside {
+            if keys.starts_with(replaced) {
+                self.aliases.remove(&alias);
+                continue;
+            }
+            match self.at_path(holder, &keys) {
+                Some(now) if container(&now) => self.hold(&alias, now),
+                _ => {
+                    self.aliases.remove(&alias);
+                }
+            }
+        }
+    }
+
+    /// `value` is stored where it is not new: each container in it may now be
+    /// one object in two places, which a value copied cannot say. Remembered,
+    /// for [`Self::store_through`] to refuse a store into one of them while
+    /// its holder still has the other.
+    fn twinned(&mut self, value: &Value) {
+        let mut inside = Vec::new();
+        containers_in(value, &mut inside);
+        for one in inside {
+            if !self.twins.contains(one) {
+                self.twins.push(one.clone());
+            }
+        }
+    }
+
+    /// Whether `name` or something on the way down its `keys` is unknown.
+    fn lost(&self, name: &str, keys: &[Value]) -> bool {
+        let mut at = self.name(name);
+        for key in keys {
+            if matches!(at, Value::Unknown(_)) {
+                return true;
+            }
+            match child(&at, key) {
+                Some(next) => at = next,
+                None => return false,
+            }
+        }
+        matches!(at, Value::Unknown(_))
+    }
+
     fn changed(&mut self, target: &Expr, old: &Value, now: Option<Value>, why: &Why) {
+        // Changed through something unknown: it may be any container.
+        if matches!(old, Value::Unknown(_)) {
+            self.forget_lists(why);
+        }
         self.shared(old, why);
         // A dict's views change with it: what holds one is forgotten too.
         if let Value::Dict(pairs) = old {
@@ -970,11 +1171,22 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             };
             levels.push(next);
         }
+        // Into a container stored twice, with the holder still holding its
+        // twin: Python changes both, and which is the twin this cannot say.
+        for (depth, level) in levels.iter().enumerate().skip(1) {
+            if self.twins.contains(level) && holds(&without(&levels[0], &keys[..depth]), level) {
+                return false;
+            }
+        }
+        let mut replaced = keys.to_vec();
+        replaced.push(at.clone());
         let Some(mut now) = levels.last().and_then(|inner| with_item(inner, &at, value)) else {
             return false;
         };
         let why = construct("item assignment");
         self.hold(name, Value::None);
+        // In a call the names are the call's own, which no alias is of.
+        self.storing = self.frames.is_empty();
         for level in &levels {
             self.shared(level, &why);
             if let Value::Dict(pairs) = level {
@@ -983,6 +1195,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
             }
         }
+        let aliased = std::mem::replace(&mut self.storing, false);
         for (level, key) in levels.iter().zip(keys).rev() {
             match with_item(level, key, now) {
                 Some(rebuilt) => now = rebuilt,
@@ -990,6 +1203,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             }
         }
         self.hold(name, now);
+        if aliased {
+            self.realias(name, &replaced);
+        }
         true
     }
 
@@ -1033,6 +1249,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     fn shared(&mut self, list: &Value, why: &Why) {
         if !container(list) {
             return;
+        }
+        // A change in place that is not a followed store may move what the
+        // keys lead to: `xs.insert(0, …)` under an alias of `xs[0]`.
+        if !self.storing && !self.aliases.is_empty() {
+            self.aliases.clear();
+            self.alias_epoch += 1;
         }
         let frames = self.frames.iter_mut().map(|frame| &mut frame.locals);
         for bindings in std::iter::once(&mut self.names).chain(frames) {
@@ -1081,6 +1303,7 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             maybe_exited: self.maybe_exited,
             maybe_jumped: self.maybe_jumped,
             shell: self.shell.clone(),
+            aliases: self.aliases.clone(),
         }
     }
 
@@ -1100,6 +1323,8 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         self.maybe_exited = state.maybe_exited;
         self.maybe_jumped = state.maybe_jumped;
         *self.shell = state.shell;
+        self.aliases = state.aliases;
+        self.alias_epoch += 1;
     }
 
     /// Both arms of an `if` this cannot decide, each from the state before
@@ -1134,6 +1359,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             return false;
         }
         self.shell.join(taken.shell, &before_shell, why);
+        // Two arms may have left a name aliasing differently.
+        self.aliases.clear();
+        self.alias_epoch += 1;
         join_names(&mut self.names, taken.names, why);
         for (mine, theirs) in self.frames.iter_mut().zip(taken.frames) {
             join_names(&mut mine.locals, theirs.locals, why);
@@ -1159,9 +1387,31 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         target: &Expr,
         values: Vec<Value>,
         body: &'m [Stmt],
+        through: Option<(String, Vec<Value>)>,
     ) -> Result<bool, Stop> {
-        for value in values {
-            self.bind(target, value);
+        let epoch = self.alias_epoch;
+        for (n, value) in values.into_iter().enumerate() {
+            // The element as its holder has it now, an earlier pass may have
+            // stored into it; aliased while nothing has changed the list's shape.
+            let element = match (&through, target) {
+                (Some((holder, keys)), Expr::Name(name))
+                    if self.alias_epoch == epoch && holder != name =>
+                {
+                    let mut keys = keys.clone();
+                    keys.push(Value::Int(n as i64));
+                    self.at_path(holder, &keys)
+                        .filter(container)
+                        .map(|now| (name, holder.clone(), keys, now))
+                }
+                _ => None,
+            };
+            match element {
+                Some((name, holder, keys, now)) => {
+                    self.bind(target, now);
+                    self.aliases.insert(name.clone(), (holder, keys));
+                }
+                None => self.bind(target, value),
+            }
             match self.block(body) {
                 Ok(()) | Err(Stop::Continue) => {}
                 Err(Stop::Break) => return Ok(true),
@@ -1204,6 +1454,14 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let mut rows = Vec::new();
         let mut budget = MAX_ELEMENTS;
         let ran = self.produce(parts, generators, consumed, &mut rows, &mut budget);
+        // `[x for _ in range(2)]` is one list twice.
+        for (n, part) in parts.iter().enumerate() {
+            if !fresh(part) {
+                for row in &rows {
+                    self.twinned(&row[n]);
+                }
+            }
+        }
         for (name, held) in saved {
             match held {
                 Some(value) => self.set(&name, value),
@@ -1522,7 +1780,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             Expr::Tuple(items) | Expr::List(items) => {
                 let mut values = Vec::with_capacity(items.len());
                 for item in items {
-                    values.push(self.expr(item)?);
+                    let value = self.expr(item)?;
+                    // `[x, x]` is one list twice.
+                    if !fresh(item) {
+                        self.twinned(&value);
+                    }
+                    values.push(value);
                 }
                 Value::Tuple(values)
             }
@@ -1619,8 +1882,11 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
             }
             Expr::Dict(entries) => {
                 let mut pairs = Vec::with_capacity(entries.len());
-                for (at, value) in entries {
-                    let value = self.expr(value)?;
+                for (at, from) in entries {
+                    let value = self.expr(from)?;
+                    if !fresh(from) {
+                        self.twinned(&value);
+                    }
                     match at {
                         Some(at) => {
                             let at = self.expr(at)?;
@@ -2480,6 +2746,9 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     self.stranger_writes(value, &why, false);
                     self.escape(value, &why);
                 }
+                if matches!(other, Value::Unknown(_)) && CHANGES_IN_PLACE.contains(&method) {
+                    self.forget_lists(&why);
+                }
                 match other {
                     Value::Unknown(unknown) => Value::Unknown(unknown),
                     _ => Value::Unknown(why),
@@ -2535,6 +2804,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let Value::Tuple(mut items) = old else {
             unreachable!("built as a tuple above")
         };
+        // What is put in a list may be held elsewhere already.
+        for value in &args {
+            self.twinned(value);
+        }
         let now = match (method, args.as_slice()) {
             _ if !keyword.is_empty() => None,
             ("append", [value]) => {
@@ -2604,6 +2877,12 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
     ) -> Result<Value, Stop> {
         let old = Value::Dict(pairs.clone());
         let why = Why::Python(format!("dict.{method}"));
+        // What is put in a dict may be held elsewhere already.
+        if matches!(method, "update" | "setdefault") {
+            for value in args.iter().chain(keyword.values()) {
+                self.twinned(value);
+            }
+        }
         let [keys, values, items] = views(&pairs);
         let mut changed: Option<Vec<(Value, Value)>> = None;
         let result = match (method, args.as_slice(), keyword.is_empty()) {
@@ -4363,6 +4642,64 @@ fn chain(expr: &Expr) -> Option<(&str, Vec<&Expr>)> {
             }
             _ => return None,
         }
+    }
+}
+
+/// An expression that builds its value new: a literal, or a display of them.
+fn fresh(expr: &Expr) -> bool {
+    match expr {
+        Expr::Number(_) | Expr::Str(_) | Expr::Bytes(_) | Expr::Singleton(_) | Expr::FString(_) => {
+            true
+        }
+        Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => items.iter().all(fresh),
+        Expr::Dict(pairs) => pairs
+            .iter()
+            .all(|(key, value)| key.as_ref().is_some_and(fresh) && fresh(value)),
+        Expr::UnaryOp { operand, .. } => fresh(operand),
+        _ => false,
+    }
+}
+
+/// Every list, dict and set in `value`, itself included.
+fn containers_in<'v>(value: &'v Value, out: &mut Vec<&'v Value>) {
+    match value {
+        Value::Tuple(items) => {
+            out.push(value);
+            for item in items {
+                containers_in(item, out);
+            }
+        }
+        Value::Dict(pairs) => {
+            out.push(value);
+            for (_, item) in pairs {
+                containers_in(item, out);
+            }
+        }
+        Value::Set(_) => out.push(value),
+        _ => {}
+    }
+}
+
+/// `container` with what is at `keys` taken out, where they lead somewhere.
+fn without(container: &Value, keys: &[Value]) -> Value {
+    let Some((key, rest)) = keys.split_first() else {
+        return Value::None;
+    };
+    match child(container, key) {
+        Some(inner) => {
+            with_item(container, key, without(&inner, rest)).unwrap_or_else(|| container.clone())
+        }
+        None => container.clone(),
+    }
+}
+
+/// A key that reads the same however often it is evaluated: a literal, a name,
+/// a negative number.
+fn plain_key(index: &Expr) -> bool {
+    match index {
+        Expr::Name(_) | Expr::Number(_) | Expr::Str(_) => true,
+        Expr::UnaryOp { operand, .. } => matches!(**operand, Expr::Number(_)),
+        _ => false,
     }
 }
 

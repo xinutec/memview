@@ -2776,6 +2776,19 @@ fn a_json_file_read_changed_and_dumped_is_predicted_exactly() {
 /// is not there raises, and a dict is shared with its holders and its views
 /// as a list is.
 #[test]
+fn a_dict_changed_through_a_second_name_is_changed() {
+    let shown = known(&[("/repo/s.json", Some("{\"b\": 1}"))]);
+    let found = run(
+        "python3 - <<'PY'\nimport json\nd = json.load(open('s.json'))\ne = d\ne['z'] = 2\nopen('o', 'w').write(json.dumps(d))\nPY",
+        &shown,
+    );
+    assert_eq!(
+        found.written,
+        vec![written("/repo/o", r#"{"b": 1, "z": 2}"#)]
+    );
+}
+
+#[test]
 fn a_python_dict_this_cannot_follow_is_refused() {
     let py = |body: &str| format!("python3 - <<'PY'\n{body}\nPY");
     let shown = known(&[
@@ -2787,7 +2800,6 @@ fn a_python_dict_this_cannot_follow_is_refused() {
     ]);
     for program in [
         "import json\nd = json.load(open('f.json'))\nopen('o', 'w').write(json.dumps(d))",
-        "import json\nd = json.load(open('s.json'))\ne = d\ne['z'] = 2\nopen('o', 'w').write(json.dumps(d))",
         "import json\nd = json.load(open('s.json'))\nks = d.keys()\nd['z'] = 2\nopen('o', 'w').write(','.join(ks))",
         "d = dict(b=1, a=2)\nopen('o', 'w').write(','.join(d))",
         "import json\nopen('o', 'w').write(json.dumps({'b': 1, 2: 2}, sort_keys=True))",
@@ -3719,12 +3731,18 @@ fn a_nested_item_assignment_changes_what_the_name_holds() {
             "{\n \"seg\": {\n  \"journey\": {\n   \"continue\": 0.0185,\n   \"stops\": [\n    1,\n    2\n   ]\n  },\n  \"w\": 1,\n  \"new\": {\n   \"x\": 1\n  }\n },\n \"parts\": [\n  {\n   \"id\": \"a\"\n  },\n  {\n   \"id\": \"c\"\n  }\n ]\n}"
         )]
     );
-    // `s` holds the inner dict Python changed, so what it writes is not known.
+    // `s` is the inner dict Python changed, under a second name.
     let found = run(
         &py("s = j['seg']\nj['seg']['w'] = 2\nopen('s.txt', 'w').write(json.dumps(s))"),
         &files,
     );
-    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert_eq!(
+        found.written,
+        vec![written(
+            "/repo/s.txt",
+            r#"{"journey": {"continue": 0.02, "stops": [1, 2]}, "w": 2}"#
+        )]
+    );
 }
 
 /// `mv` and `cp` operands are paths by the programs' grammar, a dotfile

@@ -11,6 +11,7 @@
 //! `tests/*.rs` of its own, and with it its own process.
 
 mod activity;
+mod aliases;
 mod concept;
 mod depth;
 mod doing;

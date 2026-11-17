@@ -330,6 +330,22 @@ An assignment through nested items (`j['a']['b'] = v`) rebuilds what the name
 holds; every other holder of a dict or list on the way is forgotten, since
 Python changes it there too.
 
+A module name bound to a container inside another name's — `c = j['a'][0]`, a
+loop's `for q in j['parts']` — is an alias: the holder and the keys down to it.
+An item stored through it is stored in the holder, and each alias into that
+holder then reads what is there. An alias whose object a store replaced keeps
+the object and aliases nothing. Any change in place that is not a followed
+store (an `append`, a `del`, a call) drops every alias, since it may move what
+the keys lead to.
+
+A value copied cannot say that one object is in two places of one holder
+(`[x, x]`, `j['spare'] = q`, `ys.append(x)` twice). A container put somewhere
+by an expression that does not build it new is remembered, and a store into
+one whose holder still has an equal container elsewhere is refused. A change
+through a value this does not know — a store, a `del`, `+=` of a list, a
+method that changes in place — may be to any container, and forgets them all.
+Each is held to what CPython left, in `reader/tests/suite/python-aliases.jsonl`.
+
 `isinstance` is answered where the value's kind decides it. A list and a tuple
 are one kind here, as are a set and a frozenset, so asking for one of either
 pair alone is refused; `bool` is a kind of `int`, as in Python.
