@@ -3563,6 +3563,46 @@ fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
     assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
 }
 
+/// A test runner runs the project's tests, which write what they like: a file
+/// removed before one is not known to stay gone. Found live: a log removed,
+/// then appended to by the test `playwright` ran, predicted absent.
+#[test]
+fn a_test_runner_runs_code_that_may_write_any_file() {
+    for runner in [
+        "pnpm exec playwright test -c e2e.config.ts",
+        "nix develop -c bash -c 'pnpm exec playwright test'",
+        "pytest tests/",
+        "pnpm exec vitest run",
+        "npx jest",
+    ] {
+        let found = run(&format!("rm -f log.txt; {runner}"), &nothing_known());
+        assert!(found.written.is_empty(), "{runner}: {:?}", found.written);
+        assert!(
+            found
+                .unfollowed
+                .iter()
+                .any(|u| matches!(u.why, Why::Program(_))),
+            "{runner}: {:?}",
+            found.unfollowed
+        );
+    }
+}
+
+/// `git checkout -- $(git diff --name-only)` restores files the text does not
+/// name: any, as far as this knows. Found live: a file read after one was read
+/// as it had been shown.
+#[test]
+fn a_git_restore_of_files_an_expansion_names_may_have_changed_any() {
+    let files = known(&[("/repo/a.txt", Some("edited\n"))]);
+    for restore in [
+        "git checkout -- $(git diff --name-only)",
+        "git restore $(git diff --name-only)",
+    ] {
+        let found = run(&format!("{restore}; cat a.txt > o.txt"), &files);
+        assert!(found.written.is_empty(), "{restore}: {:?}", found.written);
+    }
+}
+
 /// BSD sed that rewrote its files in place did not fail, so the GNU spelling
 /// written after `||` for a machine with the other sed does not run. Where the
 /// first was not followed, the second still only sometimes runs.

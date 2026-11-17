@@ -279,9 +279,11 @@ and a program's harmlessness on the day is no part of a prediction's safety
 not. So a program the tables do not know, a program on none of the lists
 (`make`, `docker run`, `python -m pytest`, `restic restore`, `eval`), a script
 run from a file, code the text does not show (a package script, `pnpm install` and the install scripts it runs,
-`nix run`), a git command that rewrites the working tree (not `git switch -c`
-or `git checkout -b` with no start point, a branch made where HEAD is), and a
-write to a
+`nix run`), a test runner the tables read as a checker (`pytest`, `vitest`,
+`jest`, `playwright`: it writes nothing of its own and runs tests that write
+what they like), a git command that rewrites the working tree (not `git switch
+-c` or `git checkout -b` with no start point, a branch made where HEAD is) or
+restores files an expansion names, and a write to a
 path an expansion chose may each have written any file, so nothing predicted
 before one survives it, and what is read after it is not known. A refusal
 names the program that ran, behind any carrier: `pnpm exec biome …` is

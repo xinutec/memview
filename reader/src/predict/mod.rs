@@ -2300,7 +2300,10 @@ impl<'a> Run<'a> {
         // dropped by the tables, and still names files: any, as far as this knows.
         let writer = matches!(
             &op,
-            Op::Write { .. } | Op::Remove { .. } | Op::Transform { in_place: true, .. }
+            Op::Write { .. }
+                | Op::Remove { .. }
+                | Op::Transform { in_place: true, .. }
+                | Op::Git(GitOp::Alter { .. })
         );
         let unnamed = literal.iter().zip(&argv).skip(1).any(|(literal, word)| {
             literal.is_none() && !word.starts_with('-') && word.contains(['$', '`'])
@@ -3089,6 +3092,9 @@ const REWRITES_TREE: &[&str] = &[
     "clean",
 ];
 
+/// Test runners the tables read as checkers: each runs the project's own code.
+const RUNS_TESTS: &[&str] = &["pytest", "vitest", "jest", "playwright", "ctest", "nextest"];
+
 /// `git switch -c name` and `git checkout -b name` with no start point: a new
 /// branch where HEAD is, which changes no file, a dirty one included.
 fn makes_a_branch_here(argv: &[String]) -> bool {
@@ -3132,6 +3138,16 @@ fn writes_anything(op: &Op, argv: &[String]) -> Option<String> {
             Some(format!("git {subcommand}"))
         }
         Op::Nothing => runs_here(innermost(argv)),
+        // A test runner writes nothing of its own, as the tables say, and runs
+        // the project's tests, which write what they like.
+        _ if innermost(argv)
+            .first()
+            .is_some_and(|head| RUNS_TESTS.contains(&basename(head))) =>
+        {
+            innermost(argv)
+                .first()
+                .map(|head| basename(head).to_string())
+        }
         // A dot command that writes a file is sqlite3's own, not SQL's, and the
         // tables read no statement from an operand: the words are asked.
         Op::Sql { source, .. }
