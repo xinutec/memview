@@ -458,8 +458,11 @@ worklist, with the caution the parser's census carries
 ([execution-model.md](execution-model.md#a-refusal-ranking-is-not-a-work-queue)):
 it says what stopped the evaluator, not what building a construct would
 unlock, because everything after an unfollowed program is withdrawn under that
-program's name. It ranks by the CALLS a reason stopped, with the writes it
-refused beside them: a write count weights a reason by how many files one
+program's name. Beside each reason is the count of calls it ALONE stopped,
+the nearest figure to what following it would free, and `--show <why> <n>
+--alone` prints those calls with the paths refused; a reason whose alone calls
+are a program's log is an attribution, not a construct. It ranks by the CALLS
+a reason stopped, with the writes it refused beside them: a write count weights a reason by how many files one
 looping program named — on 2026-10-05 the top of the live ranking, 520
 "after a jump" writes, was three commands, one a script writing 253 files,
 while `perl` sat at 264 calls under 357 writes. On a replay, `not read`

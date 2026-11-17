@@ -2,7 +2,7 @@
 //! follow yet — ranked, because that list is what to teach it next.
 //!
 //!     cargo run --release -p reader --bin predict-report -- <corpus.jsonl> [--show <why> <n>]
-//!     cargo run --release -p reader --bin predict-report -- --live ~/.console/edits [--show <why|finding> <n>]
+//!     cargo run --release -p reader --bin predict-report -- --live ~/.console/edits [--show <why|finding> <n> [--alone]]
 //!
 //! The history setting: each command is given its text and nothing else, so a
 //! write that depends on a file's old contents counts as `not read`. Before a live
@@ -39,6 +39,9 @@ struct Cli {
     /// Only the commands containing this.
     #[arg(long, value_name = "TEXT")]
     only: Option<String>,
+    /// With `--live --show`: only the calls that reason alone stopped.
+    #[arg(long, requires = "show")]
+    alone: bool,
 }
 
 /// `--show <label> <n>`, with the count typed: a bad one is refused, not
@@ -59,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     // what it says.
     let show = label_and_count(cli.show)?;
     if let Some(dir) = &cli.live {
-        return live(dir, show);
+        return live(dir, show, cli.alone);
     }
     let path = cli.corpus.as_deref().unwrap_or_default();
     let home = std::env::var("HOME").unwrap_or_default();
@@ -235,7 +238,7 @@ fn rows(dir: &Path, name: &str) -> Vec<serde_json::Value> {
 /// are predicted again here under this evaluator: the refusals ranked by what it
 /// does not follow today, not by names an older one wrote, and the findings
 /// sorted into those still diverging and those it now gets right.
-fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
+fn live(dir: &Path, show: Option<(String, usize)>, only_alone: bool) -> anyhow::Result<()> {
     let dir = if dir.is_file() {
         dir.parent().unwrap_or(dir)
     } else {
@@ -267,9 +270,10 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     let (mut conditional, mut sets) = (0usize, 0usize);
     // What today's evaluator predicts of those calls, which the console showed none of.
     let (mut writes_now, mut whole_now) = (0usize, 0usize);
-    // Reason → (calls it stopped, writes it refused), ranked by calls: one looping
-    // program can name hundreds of files.
-    let mut why: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    // Reason → (calls it stopped, writes it refused, calls it alone stopped),
+    // ranked by calls: one looping program can name hundreds of files. Alone
+    // is what following it would free, were nothing hidden behind it.
+    let mut why: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
     for row in rows(dir, "refused.jsonl") {
         refused_calls += 1;
         let Some(kept) = Kept::read(&row) else {
@@ -288,19 +292,29 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
         let mut here: BTreeSet<String> = BTreeSet::new();
         for unfollowed in &found.unfollowed {
             let name = unfollowed.why.census_name();
-            if let Some((wanted, n)) = &show
-                && name.contains(wanted.as_str())
-                && shown < *n
-                && here.insert(name.clone())
-            {
-                shown += 1;
-                println!("--- {name}:\n{}\n", kept.command);
-            }
             here.insert(name.clone());
-            why.entry(name).or_insert((0, 0)).1 += 1;
+            why.entry(name).or_insert((0, 0, 0)).1 += 1;
+        }
+        let alone = here.len() == 1;
+        if let Some((wanted, n)) = &show
+            && shown < *n
+            && (alone || !only_alone)
+            && let Some(name) = here.iter().find(|name| name.contains(wanted.as_str()))
+        {
+            shown += 1;
+            // The paths it refused, so a sample says what following it would give.
+            let paths: Vec<&str> = found
+                .unfollowed
+                .iter()
+                .filter(|unfollowed| unfollowed.why.census_name() == *name)
+                .map(|unfollowed| unfollowed.path.as_deref().unwrap_or("(unnamed)"))
+                .collect();
+            println!("--- {name}: {}\n{}\n", paths.join(" "), kept.command);
         }
         for name in here {
-            why.entry(name).or_insert((0, 0)).0 += 1;
+            let counts = why.entry(name).or_insert((0, 0, 0));
+            counts.0 += 1;
+            counts.2 += usize::from(alone);
         }
     }
 
@@ -391,11 +405,13 @@ fn live(dir: &Path, show: Option<(String, usize)>) -> anyhow::Result<()> {
     for (outcome, n) in &assumed_again {
         println!("  {outcome:<27}{n}");
     }
-    println!("not followed, by why, under this evaluator — calls it stopped, writes it refused:");
-    let mut ranked: Vec<(String, (usize, usize))> = why.into_iter().collect();
+    println!(
+        "not followed, by why, under this evaluator — calls it stopped, writes it refused, calls it alone stopped:"
+    );
+    let mut ranked: Vec<(String, (usize, usize, usize))> = why.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    for (name, (calls, writes)) in ranked.iter().take(40) {
-        println!("  {calls:7} {writes:7}  {name}");
+    for (name, (calls, writes, alone)) in ranked.iter().take(60) {
+        println!("  {calls:7} {writes:7} {alone:7}  {name}");
     }
     outcomes(&rows(dir, "outcomes.jsonl"));
     Ok(())
