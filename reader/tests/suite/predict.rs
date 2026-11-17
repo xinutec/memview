@@ -1319,10 +1319,7 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
         "def grow(xs):\n    xs.append('z')\ngrow(lines)",
         "import random\nrandom.shuffle(lines)",
         "lines.sort()",
-        "lines.pop()",
         "if len(open('b').read()):\n    lines.append('z')",
-        // Found live: trailing lines popped in a loop, predicted still there.
-        "while lines and lines[-1] == 'q':\n    lines.pop()",
         "i = next(n for n, l in enumerate(lines) if f(l))\nlines[i:i] = ['x']",
         "import os\na, lines[0] = os.environ.get('X')",
     ] {
@@ -1336,6 +1333,14 @@ fn a_python_list_changed_where_this_cannot_follow_is_forgotten() {
             "{change}: {:?}",
             found.unfollowed
         );
+    } // A `pop` is followed, alone and in a loop: found live, trailing lines
+    // popped in a loop and predicted still there.
+    for change in [
+        "lines.pop()",
+        "while lines and lines[-1] == 'q':\n    lines.pop()",
+    ] {
+        let found = run(&py(&format!("{head}{change}{tail}")), &shown);
+        assert_eq!(found.written, vec![written("/repo/a", "p")], "{change}");
     }
 }
 

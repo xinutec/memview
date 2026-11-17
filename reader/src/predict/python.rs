@@ -695,14 +695,55 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                     }
                 }
             }
-            // Its test runs too, as often as the body does: what it calls or
-            // binds is forgotten with the body.
+            // Run while its test is known to hold, within the budget every loop
+            // shares. Where the test is not known, or a pass may have jumped,
+            // the rest is not followed: the test runs as often as the body
+            // does, so what it calls or binds is forgotten with the body.
             StmtKind::While { test, body, orelse } => {
-                self.forget_expr(test, &construct("while"), 0);
-                self.forget(body, &construct("while"), 0);
-                self.forget(orelse, &construct("while"), 0);
-                self.note_jumps(body, true);
-                self.note_jumps(orelse, false);
+                let outer = std::mem::replace(&mut self.maybe_jumped, false);
+                let mut ended = Ok(None);
+                let followed = loop {
+                    if self.maybe_jumped || self.maybe_exited || self.loops_left == 0 {
+                        break false;
+                    }
+                    match self.expr(test).map(truth) {
+                        Ok(Value::Bool(true)) => {}
+                        Ok(Value::Bool(false)) => break true,
+                        Ok(_) => break false,
+                        Err(stop) => {
+                            ended = Err(stop);
+                            break true;
+                        }
+                    }
+                    self.loops_left -= 1;
+                    match self.block(body) {
+                        Ok(()) | Err(Stop::Continue) => {}
+                        Err(Stop::Break) => {
+                            ended = Ok(Some(()));
+                            break true;
+                        }
+                        Err(stop) => {
+                            ended = Err(stop);
+                            break true;
+                        }
+                    }
+                };
+                let possibly = std::mem::replace(&mut self.maybe_jumped, outer);
+                let broke = ended?.is_some();
+                if !followed {
+                    self.forget_expr(test, &construct("while"), 0);
+                    self.forget(body, &construct("while"), 0);
+                    self.forget(orelse, &construct("while"), 0);
+                    self.note_jumps(body, true);
+                    self.note_jumps(orelse, false);
+                } else if broke {
+                    // A `break` skips the `else`.
+                } else if possibly {
+                    self.forget(orelse, &construct("after a jump"), 0);
+                    self.note_jumps(orelse, false);
+                } else {
+                    self.block(orelse)?;
+                }
             }
             StmtKind::With { items, body } => {
                 for item in items {
@@ -2726,8 +2767,13 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                         Some(Value::Unknown(why)) => Err(why),
                         _ => Err(construct("write")),
                     };
+                    // The count of characters written, as Python returns it.
+                    let count = match &written {
+                        Ok(text) => Value::Int(text.chars().count() as i64),
+                        Err(why) => Value::Unknown(why.clone()),
+                    };
                     self.shell.write(&path, true, written);
-                    Value::None
+                    count
                 }
                 ("close" | "flush", _) => Value::None,
                 (_, Mode::Write) => {
@@ -2793,6 +2839,37 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         let why = Why::Python(format!("list.{method}"));
         match (method, args.as_slice()) {
             ("copy", []) if keyword.is_empty() => return Value::Tuple(items),
+            // Among texts, where equal is the same text: `1 == True == 1.0`
+            // makes equality among numbers more than this compares.
+            ("index" | "count", [Value::Str(wanted), from @ ..])
+                if keyword.is_empty()
+                    && items.iter().all(|item| matches!(item, Value::Str(_)))
+                    && matches!(
+                        (method, from),
+                        ("index", [] | [Value::Int(_)]) | ("count", [])
+                    ) =>
+            {
+                let is_wanted = |item: &Value| matches!(item, Value::Str(text) if text == wanted);
+                if method == "count" {
+                    return Value::Int(items.iter().filter(|item| is_wanted(item)).count() as i64);
+                }
+                let start = match from {
+                    [Value::Int(at)] => {
+                        let len = items.len() as i64;
+                        (if *at < 0 {
+                            (at + len).max(0)
+                        } else {
+                            (*at).min(len)
+                        }) as usize
+                    }
+                    _ => 0,
+                };
+                return match items[start..].iter().position(is_wanted) {
+                    Some(at) => Value::Int((start + at) as i64),
+                    // Not there: it raises.
+                    None => Value::Unknown(why),
+                };
+            }
             ("index" | "count", _) => return Value::Unknown(why),
             _ => {}
         }
@@ -2808,8 +2885,21 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
         for value in &args {
             self.twinned(value);
         }
+        // What `pop` hands back.
+        let mut popped = None;
         let now = match (method, args.as_slice()) {
             _ if !keyword.is_empty() => None,
+            ("pop", []) if !items.is_empty() => {
+                popped = items.pop();
+                Some(items)
+            }
+            ("pop", [Value::Int(at)]) => match position(items.len(), *at) {
+                Ok(at) => {
+                    popped = Some(items.remove(at));
+                    Some(items)
+                }
+                Err(_) => None,
+            },
             ("append", [value]) => {
                 items.push(value.clone());
                 Some(items)
@@ -2858,10 +2948,10 @@ impl<'r, 'a, 'm> Eval<'r, 'a, 'm> {
                 }
             }
         }
-        if followed {
-            Value::None
-        } else {
-            Value::Unknown(why)
+        match popped {
+            Some(popped) => popped,
+            None if followed => Value::None,
+            None => Value::Unknown(why),
         }
     }
 
@@ -3879,7 +3969,75 @@ fn compare(left: &Value, op: CmpOp, right: &Value) -> Value {
             Value::Bool(numbers_equal(left, right) == (op == CmpOp::Eq))
         }
         (Value::Unknown(why), _, _) | (_, _, Value::Unknown(why)) => Value::Unknown(why.clone()),
+        // `None` and the two booleans are each one object, so `is` against
+        // one is decided by what the other side holds.
+        (Value::None | Value::Bool(_), CmpOp::Is | CmpOp::IsNot, Value::None | Value::Bool(_)) => {
+            Value::Bool((left == right) == (op == CmpOp::Is))
+        }
+        (one, CmpOp::Is | CmpOp::IsNot, Value::None | Value::Bool(_))
+        | (Value::None | Value::Bool(_), CmpOp::Is | CmpOp::IsNot, one)
+            if plain(one) =>
+        {
+            Value::Bool(op == CmpOp::IsNot)
+        }
+        (_, CmpOp::Lt | CmpOp::LtE | CmpOp::Gt | CmpOp::GtE, _) => {
+            use std::cmp::Ordering::{Equal, Greater, Less};
+            let holds = |found| {
+                matches!(
+                    (op, found),
+                    (CmpOp::Lt, Less)
+                        | (CmpOp::Gt, Greater)
+                        | (CmpOp::LtE, Less | Equal)
+                        | (CmpOp::GtE, Greater | Equal)
+                )
+            };
+            match (number_order(left, right), order(left, right)) {
+                // A NaN is neither less, equal nor greater.
+                (Some(None), _) => Value::Bool(false),
+                (Some(Some(found)), _) | (None, Some(found)) => Value::Bool(holds(found)),
+                (None, None) => Value::Unknown(Why::Python(format!("comparison {}", op.symbol()))),
+            }
+        }
         (_, op, _) => Value::Unknown(Why::Python(format!("comparison {}", op.symbol()))),
+    }
+}
+
+/// A value that is certainly not `None`, `True` or `False`: text, a number, a
+/// container.
+fn plain(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Str(_) | Value::Int(_) | Value::Float(_) | Value::Tuple(_) | Value::Dict(_)
+    )
+}
+
+/// How two numbers order, exactly, an `int` against a `float` included: the
+/// outer `None` where one is not a number, the inner where one is a NaN.
+fn number_order(left: &Value, right: &Value) -> Option<Option<std::cmp::Ordering>> {
+    use std::cmp::Ordering;
+    // An int against a finite float, without rounding the int to a double.
+    fn mixed(int: i64, float: f64) -> Option<Ordering> {
+        if float.is_nan() {
+            return None;
+        }
+        let floor = float.floor();
+        if floor >= 9.3e18 {
+            return Some(Ordering::Less);
+        }
+        if floor <= -9.3e18 {
+            return Some(Ordering::Greater);
+        }
+        Some(match int.cmp(&(floor as i64)) {
+            Ordering::Equal if float > floor => Ordering::Less,
+            other => other,
+        })
+    }
+    match (left, right) {
+        (Value::Int(a), Value::Int(b)) => Some(Some(a.cmp(b))),
+        (Value::Float(a), Value::Float(b)) => Some(a.partial_cmp(b)),
+        (Value::Int(a), Value::Float(b)) => Some(mixed(*a, *b)),
+        (Value::Float(a), Value::Int(b)) => Some(mixed(*b, *a).map(Ordering::reverse)),
+        _ => None,
     }
 }
 

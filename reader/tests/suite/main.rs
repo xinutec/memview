@@ -22,6 +22,7 @@ mod floats;
 mod home;
 mod javascript;
 mod leaf;
+mod loops;
 mod naming;
 mod oracle;
 mod perl;

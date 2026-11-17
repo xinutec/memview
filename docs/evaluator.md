@@ -324,6 +324,16 @@ A loop runs once per element over a list the program can name: written out, a
 its variables its own. A generator runs only as far as the `next`, `any`,
 `all`, `join` or `list` written around it reads it.
 
+A `while` runs for as long as its test is known to hold, within the one budget
+every loop shares. Where the test is not known, a pass may have jumped, or the
+budget is spent, what is left is not followed: the test runs as often as the
+body, so what it calls or binds is forgotten with the body. What decides a
+test is computed exactly or not at all: `<`, `<=`, `>`, `>=` over numbers (an
+`int` against a `float` without rounding the int, a NaN neither way), text and
+lists; `is` against `None`, `True` and `False`; a list's `pop`, and `index`
+and `count` among texts. Each is held to what CPython left, in
+`reader/tests/suite/python-loops.jsonl`.
+
 ### Lists, dicts and sets
 
 An assignment through nested items (`j['a']['b'] = v`) rebuilds what the name
