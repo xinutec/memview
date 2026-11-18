@@ -218,6 +218,11 @@ impl Kept {
                     serde_json::Value::Null => Default::default(),
                     dirs => serde_json::from_value(dirs.clone()).ok()?,
                 },
+                // Likewise where its directories' real paths were not kept.
+                links: match &row["links"] {
+                    serde_json::Value::Null => Default::default(),
+                    links => serde_json::from_value(links.clone()).ok()?,
+                },
             },
         })
     }

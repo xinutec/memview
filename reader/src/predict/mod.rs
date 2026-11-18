@@ -80,6 +80,14 @@ pub trait Sight {
     fn dir(&self, _path: &str) -> Option<Option<Vec<String>>> {
         None
     }
+
+    /// The directory with every symlink on the way to it followed, or `None`
+    /// when that cannot be told and the path stands as it is spelled. Two
+    /// spellings of one directory are one place: `~/Code/x` and the volume it
+    /// links to.
+    fn real_dir(&self, _dir: &str) -> Option<String> {
+        None
+    }
 }
 
 impl Sight for Files {
@@ -88,11 +96,15 @@ impl Sight for Files {
     }
 }
 
+/// Directories by the path their symlinks lead to, as sight answered.
+pub type Links = BTreeMap<String, String>;
+
 /// Files and directories as they were shown: a replay's inputs, or a test's.
 #[derive(Debug, Default, Clone)]
 pub struct Shown {
     pub files: Files,
     pub dirs: Dirs,
+    pub links: Links,
 }
 
 impl Sight for Shown {
@@ -102,6 +114,10 @@ impl Sight for Shown {
 
     fn dir(&self, path: &str) -> Option<Option<Vec<String>>> {
         self.dirs.get(path).cloned()
+    }
+
+    fn real_dir(&self, dir: &str) -> Option<String> {
+        self.links.get(dir).cloned()
     }
 }
 
@@ -352,6 +368,8 @@ struct Run<'a> {
     order: Vec<String>,
     /// Paths whose given text was asked for and not there.
     asked: Vec<String>,
+    /// Each directory asked of [`Sight::real_dir`], by its answer or itself.
+    real_dirs: BTreeMap<String, String>,
     /// Directories whose contents this run changed wholesale, oldest first: to
     /// unknown (a formatter's directory) or to absent (`rm -r`). The newest one
     /// over a path decides what it holds.
@@ -401,6 +419,7 @@ impl<'a> Run<'a> {
             now: BTreeMap::new(),
             order: Vec::new(),
             asked: Vec::new(),
+            real_dirs: BTreeMap::new(),
             trees: Vec::new(),
             unfollowed: Vec::new(),
             sink: None,
@@ -420,6 +439,7 @@ impl<'a> Run<'a> {
     /// `Ok(None)` for a directory that does not exist; `Err` when the listing
     /// is not known — not shown, or changed in a way the run does not track.
     pub(super) fn listing(&mut self, dir: &str) -> Result<Option<Vec<String>>, Why> {
+        let dir = &self.real_tree(dir);
         let covered = self.trees.iter().any(|(tree, _)| {
             dir == tree || (dir.starts_with(tree.as_str()) && dir[tree.len()..].starts_with('/'))
         });
@@ -500,8 +520,37 @@ impl<'a> Run<'a> {
             .collect()
     }
 
+    /// `path` with the symlinks on the way to it followed, as sight tells it:
+    /// what every file this run keeps is kept under, so two spellings of one
+    /// place are one. Its last name stands as spelled — `rm` and `mv` act on a
+    /// link itself, not on what it points to.
+    pub(super) fn real(&mut self, path: &str) -> String {
+        let Some((dir, name)) = path.rsplit_once('/').filter(|(dir, _)| !dir.is_empty()) else {
+            return path.to_string();
+        };
+        if fresh(path) {
+            return path.to_string();
+        }
+        let real = match self.real_dirs.get(dir) {
+            Some(real) => real.clone(),
+            None => {
+                let real = self.sight.real_dir(dir).unwrap_or_else(|| dir.to_string());
+                self.real_dirs.insert(dir.to_string(), real.clone());
+                real
+            }
+        };
+        format!("{real}/{name}")
+    }
+
+    /// A directory itself, by where its symlinks lead.
+    fn real_tree(&mut self, dir: &str) -> String {
+        let real = self.real(&format!("{dir}/."));
+        real.strip_suffix("/.").unwrap_or(dir).to_string()
+    }
+
     /// Stamps a write or removal of `path` with the time.
     fn touched(&mut self, path: &str) {
+        let path = &self.real(path);
         self.clock += 1;
         self.written_at.insert(path.to_string(), self.clock);
     }
@@ -1762,6 +1811,7 @@ impl<'a> Run<'a> {
 
     /// Record a write of `text` to `path`, or forget the file when it cannot be followed.
     fn write(&mut self, path: &str, append: bool, text: Result<String, Why>) {
+        let path = &self.real(path);
         if !self.order.iter().any(|seen| seen == path) {
             self.order.push(path.to_string());
         }
@@ -1816,6 +1866,12 @@ impl<'a> Run<'a> {
     /// A write this does not follow to `path` and to everything under it — a
     /// formatter given a directory, `rm -r`.
     fn forget_tree(&mut self, path: &str, why: Why) {
+        // A tree is a directory or a file: by the directory's real name where
+        // sight knows it as one, else by the file's.
+        let path = &match self.sight.real_dir(path) {
+            Some(real) => real,
+            None => self.real(path),
+        };
         let under = format!("{path}/");
         let inside: Vec<String> = self
             .now
@@ -1852,6 +1908,7 @@ impl<'a> Run<'a> {
     /// `rm`: the path, and with `-r` everything under it, is gone. What the run
     /// wrote there is reported removed; anything under it read later is absent.
     fn remove(&mut self, path: &str, recursive: bool) {
+        let path = &self.real(path);
         if recursive {
             let under = format!("{path}/");
             let inside: Vec<String> = self
@@ -2095,6 +2152,7 @@ impl<'a> Run<'a> {
 
     /// A file's text as this run has left it, or as it was given.
     fn read(&mut self, path: &str) -> Held {
+        let path = &self.real(path);
         if let Some(held) = self.now.get(path) {
             return held.clone();
         }

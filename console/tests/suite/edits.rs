@@ -9,7 +9,9 @@ fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("console-edits-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch dir");
-    dir
+    // By its real path: the temporary directory is behind a symlink on macOS,
+    // and a prediction names a file by where it really is.
+    dir.canonicalize().expect("scratch dir is there")
 }
 
 fn at(dir: &Path) -> &str {
@@ -570,4 +572,33 @@ fn a_file_the_command_names_is_kept_with_the_row() {
         "before\n",
         "{row}"
     );
+}
+
+#[test]
+fn a_file_named_through_a_symlink_is_predicted_under_its_real_path() {
+    let dir = scratch("linked");
+    std::fs::create_dir_all(dir.join("real/src")).expect("tree");
+    std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).expect("link");
+    std::fs::write(dir.join("real/src/a.txt"), "one\n").expect("seed");
+    let real = dir.canonicalize().expect("there").join("real/src/a.txt");
+    let edits = Edits::new(dir.join("store"));
+
+    // Appended to by both spellings: one file, drawn once, under its real path.
+    let command = format!(
+        "echo two >> {}/real/src/a.txt; cd link && echo three >> src/a.txt",
+        at(&dir)
+    );
+    let edited = edits
+        .before("s1", "c1", &command, at(&dir))
+        .expect("predicted");
+    assert_eq!(edited.hunks.len(), 1, "{:?}", edited.hunks);
+    assert_eq!(edited.hunks[0].path, real.to_str().expect("utf-8"));
+    assert_eq!(edited.hunks[0].after, "one\ntwo\nthree\n");
+
+    // And checked there: what the command leaves agrees.
+    std::fs::write(&real, "one\ntwo\nthree\n").expect("write");
+    let (_, diverged) = edits
+        .finished("c1", &serde_json::json!({}))
+        .expect("checked");
+    assert!(diverged.paths.is_empty(), "{:?}", diverged.paths);
 }

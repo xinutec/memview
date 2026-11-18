@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
 use reader::predict::{
-    Alternatives, Conditional, Dirs, Divergence, Files, Sight, Written, check, predict,
+    Alternatives, Conditional, Dirs, Divergence, Files, Links, Sight, Written, check, predict,
 };
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
@@ -106,6 +106,9 @@ pub struct Finding {
     /// The directories it listed, likewise.
     #[serde(default, skip_serializing_if = "Dirs::is_empty")]
     pub dirs: Dirs,
+    /// Where each directory it asked after really is.
+    #[serde(default, skip_serializing_if = "Links::is_empty")]
+    pub links: Links,
     pub path: String,
     pub predicted: Option<String>,
     pub actual: Option<String>,
@@ -170,6 +173,8 @@ struct Refused {
     files: Files,
     #[serde(skip_serializing_if = "Dirs::is_empty")]
     dirs: Dirs,
+    #[serde(skip_serializing_if = "Links::is_empty")]
+    links: Links,
     /// Files it did predict, beside the refusals.
     predicted: usize,
     /// Files predicted on the condition that an unknown program left them alone.
@@ -184,6 +189,7 @@ struct Pending {
     cwd: String,
     files: Files,
     dirs: Dirs,
+    links: Links,
     written: Vec<Written>,
     conditional: Vec<Conditional>,
     alternatives: Vec<Alternatives>,
@@ -243,6 +249,7 @@ impl Edits {
         let seen = Seen::default();
         let prediction = predict(&script, cwd, &home, &seen);
         let (mut files, dirs) = (seen.files.into_inner(), seen.dirs.into_inner());
+        let links = seen.links.into_inner();
         named_files(command, cwd, &home, &mut files);
         if !prediction.unfollowed.is_empty() {
             let refused = Refused {
@@ -253,6 +260,7 @@ impl Edits {
                 cwd: cwd.to_string(),
                 files: files.clone(),
                 dirs: dirs.clone(),
+                links: links.clone(),
                 predicted: prediction.written.len(),
                 conditional: prediction.conditional.len(),
                 refused: prediction
@@ -329,6 +337,7 @@ impl Edits {
                 cwd: cwd.to_string(),
                 files,
                 dirs,
+                links,
                 written: prediction.written,
                 conditional: prediction.conditional,
                 alternatives: prediction.alternatives,
@@ -490,6 +499,7 @@ impl Edits {
                 cwd: pending.cwd.clone(),
                 files: pending.files.clone(),
                 dirs: pending.dirs.clone(),
+                links: pending.links.clone(),
                 path: divergence.path.clone(),
                 predicted: divergence.predicted.clone(),
                 actual: divergence.actual.clone(),
@@ -681,6 +691,7 @@ fn lines<T: serde::de::DeserializeOwned>(file: &Path) -> Vec<T> {
 struct Seen {
     files: std::cell::RefCell<Files>,
     dirs: std::cell::RefCell<Dirs>,
+    links: std::cell::RefCell<Links>,
 }
 
 impl Sight for Seen {
@@ -699,6 +710,43 @@ impl Sight for Seen {
             .insert(path.to_string(), shown.clone());
         Some(shown)
     }
+
+    fn real_dir(&self, dir: &str) -> Option<String> {
+        let real = real_dir(Path::new(dir))?;
+        self.links
+            .borrow_mut()
+            .insert(dir.to_string(), real.clone());
+        Some(real)
+    }
+}
+
+/// A directory with the symlinks on the way to it followed. One that is not
+/// there yet is its nearest ancestor that is, followed, and the rest as spelled;
+/// `None` for a file, or where this may not look.
+fn real_dir(dir: &Path) -> Option<String> {
+    match std::fs::metadata(dir) {
+        Ok(meta) if meta.is_dir() => dir.canonicalize().ok()?.to_str().map(str::to_string),
+        Ok(_) => None,
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => {
+            let (parent, name) = (dir.parent()?, dir.file_name()?.to_str()?);
+            let parent = real_dir(parent)?;
+            Some(format!("{}/{name}", parent.trim_end_matches('/')))
+        }
+        Err(_) => None,
+    }
+}
+
+/// A file's path with the symlinks on the way to its directory followed, as the
+/// evaluator names it.
+fn real_file(path: &str) -> String {
+    let file = Path::new(path);
+    match (
+        file.parent().and_then(real_dir),
+        file.file_name().and_then(|name| name.to_str()),
+    ) {
+        (Some(dir), Some(name)) => format!("{}/{name}", dir.trim_end_matches('/')),
+        _ => path.to_string(),
+    }
 }
 
 /// The most text [`named_files`] keeps beside what the evaluator asked for.
@@ -713,10 +761,12 @@ fn named_files(command: &str, cwd: &str, home: &str, files: &mut Files) {
     let named = reader::shell_files::extract_knowing(&parsed, Some(cwd), home, &[]);
     let mut budget = NAMED_KEPT;
     for file in named.files {
-        if files.contains_key(&file.path) {
+        // Under the name the evaluator asks for it by.
+        let path = real_file(&file.path);
+        if files.contains_key(&path) {
             continue;
         }
-        let Some(shown) = read(Path::new(&file.path)) else {
+        let Some(shown) = read(Path::new(&path)) else {
             continue;
         };
         let size = shown.as_ref().map_or(0, String::len);
@@ -724,7 +774,7 @@ fn named_files(command: &str, cwd: &str, home: &str, files: &mut Files) {
             continue;
         }
         budget -= size;
-        files.insert(file.path, shown);
+        files.insert(path, shown);
     }
 }
 

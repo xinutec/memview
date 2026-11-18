@@ -134,6 +134,14 @@ is shown is decided by these rules (the user, 2026-09-28):
   are merged in; after a directory is made or removed untracked (`mkdir`,
   `os.makedirs`) no listing is known. The console lists at most ten thousand
   names and keeps each listing with the row, as it keeps files.
+- **Where a directory really is, is a read.** `~/Code/x` is a symlink to
+  another volume, and a file named through either spelling is one file. The
+  evaluator asks sight for a directory's real path and keeps every file under
+  it, so a formatter run from the link reaches a file edited by its real path.
+  A file's own last name stands as spelled: `rm` and `mv` act on a link, not
+  on what it points to. The console follows the symlinks on disk and keeps each
+  answer with the row; from history nothing answers, and a path stands as it
+  is spelled. A prediction therefore names a file by its real path.
 - **Git's objects are files, and reading them is on the list — later.** What
   `git checkout -- f` restores is the index's blob, which sight could read; it
   means decoding git's storage, through a reviewed Rust library rather than

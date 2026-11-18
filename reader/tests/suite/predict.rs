@@ -597,6 +597,7 @@ fn a_test_sight_decides_steers_the_list_and_the_if() {
             ("/repo/gone", None),
         ]),
         dirs: Dirs::from([("/repo/d".to_string(), Some(Vec::new()))]),
+        ..Shown::default()
     };
     for (command, a) in [
         ("false || echo x > a", Some("x\n")),
@@ -1163,6 +1164,7 @@ fn a_python_directory_listing_is_a_set_of_names() {
                 ]),
             ),
         ]),
+        ..Shown::default()
     };
     let head =
         "import glob, os\nfrom pathlib import Path\ndef w(t):\n    open('o', 'w').write(t)\n";
@@ -3563,6 +3565,54 @@ fn a_write_under_a_fresh_temporary_path_touches_nothing_predicted() {
     assert_eq!(found.written, vec![written("/repo/x.txt", "b\n")]);
 }
 
+/// Two spellings of one place are one place: `~/Code/x` is a symlink to the
+/// volume, and a file named through either is the same file. Found live: a file
+/// edited by its real path, then reformatted by `cargo fmt --all` run from the
+/// link, was predicted as the edit left it.
+#[test]
+fn a_file_named_through_a_symlinked_directory_is_the_file() {
+    let shown = Shown {
+        files: known(&[("/vol/code/x/src/a.rs", Some("a\n"))]),
+        links: [
+            ("/repo/x", "/vol/code/x"),
+            ("/repo/x/src", "/vol/code/x/src"),
+            ("/vol/code/x", "/vol/code/x"),
+            ("/vol/code/x/src", "/vol/code/x/src"),
+        ]
+        .into_iter()
+        .map(|(spelled, real)| (spelled.to_string(), real.to_string()))
+        .collect(),
+        ..Shown::default()
+    };
+    let predicted = |script: &str| {
+        let parsed = reader::syntax::parse(script).expect("parses");
+        predict(&parsed, "/repo", "/home/me", &shown)
+    };
+    // Written by one spelling and appended to by the other: one file, by its
+    // real path.
+    let found = predicted("echo b >> /vol/code/x/src/a.rs; cd x && echo c >> src/a.rs");
+    assert_eq!(
+        found.written,
+        vec![written("/vol/code/x/src/a.rs", "a\nb\nc\n")]
+    );
+    // A formatter over the tree, run from the link, reaches the file edited by
+    // its real path.
+    let found = predicted("echo b >> /vol/code/x/src/a.rs; cd /repo/x && cargo fmt --all");
+    assert!(found.written.is_empty(), "{:?}", found.written);
+    assert!(
+        found
+            .unfollowed
+            .iter()
+            .any(|u| matches!(&u.why, Why::Program(program) if program == "cargo")),
+        "{:?}",
+        found.unfollowed
+    );
+    // Where sight does not say, a path stands as it is spelled.
+    let parsed = reader::syntax::parse("echo b > x/new.txt").expect("parses");
+    let found = predict(&parsed, "/repo", "/home/me", &nothing_known());
+    assert_eq!(found.written, vec![written("/repo/x/new.txt", "b\n")]);
+}
+
 /// A test runner runs the project's tests, which write what they like: a file
 /// removed before one is not known to stay gone. Found live: a log removed,
 /// then appended to by the test `playwright` ran, predicted absent.
@@ -3930,6 +3980,7 @@ fn a_copy_into_a_missing_directory_fails() {
             ("/repo/runner/src/deploy_check.rs", None),
         ]),
         dirs: Dirs::from([("/repo/runner/src".to_string(), None)]),
+        ..Shown::default()
     };
     for command in ["cp", "mv"] {
         let script = format!("{command} /tmp/dc.bak runner/src/deploy_check.rs && rm /tmp/dc.bak");
